@@ -1,0 +1,104 @@
+{
+  "name": "foldkit-guard",
+  "version": "0.1.1",
+  "description": "Who may do what, declared once on a Foldkit Plus domain: principal guards implemented on the server, row guards as query expressions.",
+  "keywords": [
+    "foldkit",
+    "authorization",
+    "typescript"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/guard"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/guard#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./server": {
+      "foldkit-plus:source": "./src/server.ts",
+      "types": "./dist/server.d.mts",
+      "import": "./dist/server.mjs"
+    },
+    "./drizzle": {
+      "foldkit-plus:source": "./src/drizzle.ts",
+      "types": "./dist/drizzle.d.mts",
+      "import": "./dist/drizzle.mjs"
+    },
+    "./agent": {
+      "foldkit-plus:source": "./src/agent.ts",
+      "types": "./dist/agent.d.mts",
+      "import": "./dist/agent.mjs"
+    },
+    "./sync": {
+      "foldkit-plus:source": "./src/sync.ts",
+      "types": "./dist/sync.d.mts",
+      "import": "./dist/sync.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "foldkit-entity": "workspace:*",
+    "foldkit-metadata": "workspace:*"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "1.0.0-rc.4",
+    "effect": "^4.0.0",
+    "foldkit-remote": "workspace:^",
+    "foldkit-remote-drizzle": "workspace:^",
+    "foldkit-remote-server": "workspace:^",
+    "foldkit-sync": "workspace:^"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    },
+    "foldkit-remote": {
+      "optional": true
+    },
+    "foldkit-remote-drizzle": {
+      "optional": true
+    },
+    "foldkit-remote-server": {
+      "optional": true
+    },
+    "foldkit-sync": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "drizzle-orm": "1.0.0-rc.4",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-agent": "workspace:*",
+    "foldkit-remote": "workspace:*",
+    "foldkit-remote-drizzle": "workspace:*",
+    "foldkit-remote-server": "workspace:*",
+    "foldkit-surface": "workspace:*",
+    "foldkit-sync": "workspace:*",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  }
+}

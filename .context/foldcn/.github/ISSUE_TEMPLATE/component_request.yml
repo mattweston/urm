@@ -1,0 +1,73 @@
+name: Component request
+description: Request a new component or a variant of an existing one
+title: '[Request]: '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want a component that foldcn doesn't have yet? Tell us which one and why you need it.
+        Check [foldcn.elianiva.com](https://foldcn.elianiva.com) and the [parity audit](https://github.com/elianiva/foldcn/blob/master/docs/shadcn-base-parity-audit.md) first to see if it's already planned or diverged.
+
+  - type: input
+    id: component
+    attributes:
+      label: Component name
+      description: Which component are you requesting? (e.g. sonner, chart, carousel)
+      placeholder: 'chart'
+    validations:
+      required: true
+
+  - type: input
+    id: upstream
+    attributes:
+      label: Upstream reference
+      description: Link to the shadcn/ui docs or other reference for the component
+      placeholder: 'https://ui.shadcn.com/docs/components/chart'
+    validations:
+      required: false
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Use case / motivation
+      description: What are you trying to build? Why is this component needed?
+      placeholder: 'I need a chart component for a dashboard…'
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Proposed API / additional details
+      description: Any ideas on props, variants, or behavior? Leave blank if not sure
+      placeholder: |
+        - Should support Line / Bar / Area variants
+        - Should be built on @foldkit/ui primitives if available
+        - Prior art: …
+      render: text
+    validations:
+      required: false
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Would you like to contribute this?
+      description: Are you willing to open a PR for it?
+      multiple: false
+      options:
+        - No, just requesting
+        - Yes, I'd like to work on it
+        - Yes, I already have a draft / WIP
+      default: 0
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links, screenshots, or anything else
+      render: text
+    validations:
+      required: false

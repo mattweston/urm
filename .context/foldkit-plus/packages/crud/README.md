@@ -1,0 +1,577 @@
+# foldkit-crud
+
+The screens that list, show, edit and delete records, built from parts your
+application already has: a [`foldkit-remote`](../remote/README.md) domain, the
+[`foldkit-entity`](../entity/README.md) Entities it holds, and, for an editor, a
+[`foldkit-form`](../form/README.md) form. It draws nothing and holds almost no
+state. A list is one query and what to show of each row:
+
+```ts
+const Authors = Crud.list('Authors', {
+  query: AuthorsQuery,
+  selection: Entity.select(Blog.Author, { id: true, name: true }),
+})
+const AuthorList = Authors.at({ data: Data, input: model => Option.some({ search: model.search }) })
+
+AuthorList.page(model) // RemoteData of the page: its typed rows, hasNext, hasPrevious
+```
+
+It is for any such screen, a user editing their own post as much as a back
+office. [`examples/entity`](../../examples/entity) draws a list, an editor and a
+remover, and runs in a browser.
+
+## Why you would use it
+
+An edit screen looks like a form plus a request. By hand it is more: load the
+record when the screen opens, and keep it loaded while it is shown; fill the
+form once when the value arrives, and never again over what the user typed;
+turn a valid submit into the mutation, and remember which request is this
+screen's; show loading, saving, saved and failed from that request; notice when
+the record was deleted while it was open. A list needs its pages loaded,
+retained and extended, its columns labelled, and its rows offered to a picker.
+
+`foldkit-crud` does that glue once. What makes it safe to use is what it
+leaves alone: the rows and the save state stay in Remote's store, the drafts
+stay in the form, and every status a piece reports is derived from them, so it
+cannot disagree with them.
+
+## The four pieces
+
+| Piece | Joins | State of its own | Placed as |
+| --- | --- | --- | --- |
+| **list** | a Remote query and an Entity Selection | none: the pages are Remote's | a value; nothing to place |
+| **detail** | an Entity Selection and an id the Model gives | none | a value |
+| **editor** | a form, the mutation its value feeds, and their Entity | which id is open, whether it has been filled, which save is its own | a Bundle, like the form it wraps |
+| **remover** | a delete mutation, with a yes in between | which id is being asked about, which delete is its own | a Bundle |
+
+Nothing is generated from an Entity alone. An editor exists because you named
+a form and a mutation, and a list because you named a query, which your server
+authorizes.
+
+## What it owns, and what it does not
+
+| Fact | Owner |
+| --- | --- |
+| The records, and whether a save or delete is pending, applied or failed | Remote, in its store |
+| What a record is: its members, labels and relations | the Entity |
+| The drafts, and whether they are valid | the form |
+| Which id is open or being asked about, and which request is this screen's | the editor or remover, in its slice of your Model |
+| Which rows a list shows: search, sort, filters | your Model, as the query's input |
+| What happens after a save or delete: navigate, close, a toast | your application, reading the piece's status |
+| How it looks | you, or [`foldkit-mixins-crud`](../mixins-crud/README.md) and [`foldkit-mixins-form`](../mixins-form/README.md) |
+
+## The mental model
+
+```text
+your Model says what is on screen
+   ──▶ each piece's `active`: what it requires of Remote
+   ──▶ Data.wiring ──▶ Remote fetches and retains it
+
+Remote's store ──▶ each piece reads it: a page, a value, a status ──▶ your view
+
+the user acts ──▶ a Message ──▶ a piece's helper, or the editor's onOut
+   ──▶ Data.mutate ──▶ Remote settles it ──▶ the status moves
+```
+
+The rule to remember: **a piece loads only what its `active` requires, and only
+if that `active` is wired.** A piece that is not wired never loads, and nothing
+reports it. [Wiring a page](#wiring-a-page) gathers every piece's `active` so
+none is left out.
+
+## Install
+
+```sh
+pnpm add effect foldkit foldkit-crud foldkit-bundle foldkit-entity foldkit-form foldkit-remote foldkit-surface
+```
+
+## A first list
+
+A list is one query and one Selection: the query decides which rows, the
+Selection what to show of each.
+
+```ts
+const Authors = Crud.list('Authors', {
+  query: AuthorsQuery, // Query.make('Authors', { Input: { search }, Result: Query.connection(Blog.Author) })
+  selection: Entity.select(Blog.Author, { id: true, name: true }),
+  pageSize: 25,
+  // How a row reads as a choice, for a list that feeds relation pickers.
+  choice: { value: row => row.id, label: row => row.name },
+})
+
+const AuthorList = Authors.at({
+  data: Data,
+  // The query's input as the Model has it; none while the list is not shown.
+  input: model => Option.map(Option.fromNullOr(model.search), search => ({ search })),
+})
+
+const subscriptions = Data.subscriptions({ authors: AuthorList.active })
+```
+
+What each call does:
+
+- **`Crud.list`** is a declaration: no request, no state. `Authors.columns` is
+  the selected members in the Selection's order, each with its `key`,
+  `member`, a `label` found the way a form finds one (the schema's `title`,
+  else `Form.label` metadata, else the key), and a `display`.
+- **`Authors.at`** binds it to your Remote domain and your Model. It still does
+  no I/O.
+- **`AuthorList.active`** is the requirement: while `input` gives a value, the
+  page and its rows are fetched and retained. Another input is another
+  connection, fetched on its own.
+- **`AuthorList.page(model)`** reads Remote's store: a `RemoteData` of the page,
+  with `items` typed by the Selection, `hasNext` and `hasPrevious`.
+- **`AuthorList.more(model)`** is "load more": the Model with the list showing
+  one page more, an `Option`, none when it already shows every row. Return it
+  from `update` (`Option.getOrElse(AuthorList.more(model), () => model)`); the
+  read entry fetches the rows it lacks.
+- **`AuthorList.refresh(model)`** is the Model with the list asked for again. A
+  failed read is not retried on its own, so this is what a retry button's
+  Message returns.
+
+`AuthorList.row(id)` is a Projection of one row through the list's Selection,
+whether or not the query finds it now, and `AuthorList.choiceOf(model, id)` is
+that row as a choice once it is read. Relation pickers use both.
+
+## Wiring a page
+
+Every placed piece has an `active`. `Crud.actives` gathers them from the pieces
+themselves, so a page cannot forget one:
+
+```ts
+Data.wiring(Crud.actives({ posts: Posts, authors: Authors, editor: PostEditor, pickers }))
+```
+
+It takes a placed editor, list or detail, and the pickers from `Crud.options`,
+and gives `{ posts: Posts.active, ... }`, for `Data.wiring` in a
+`foldkit-bundle` assembly, or for `Data.subscriptions`.
+
+## An editor
+
+An editor joins a form, the mutation its value feeds, and the Entity they
+share. `EditPostForm` is a `Form.make` result and `EditPostMutation` a Remote
+mutation over the same input struct, as in
+[`examples/entity`](../../examples/entity); `Blog` is that application's Entity
+domain.
+
+```ts
+import { Crud } from 'foldkit-crud'
+import { Bundle } from 'foldkit-bundle'
+import { Remote, type RemoteClient } from 'foldkit-remote'
+import { Surface } from 'foldkit-surface'
+
+const Editor = Crud.editor('PostEditor', { form: EditPostForm, mutation: EditPostMutation })
+
+// The editor is a Submodel of the page: a Model field and a Message variant.
+const Base = Bundle.compose({ remote: Remote.Model }).pipe(
+  Bundle.withMessages(Remote.messages),
+  Bundle.withChild('editor', Editor.bundle),
+)
+
+const App = Surface.application(Base)
+const Data = Remote.make({
+  model: App.model.remote,
+  entities: Object.values(Blog),
+  mutations: [EditPostMutation],
+})
+
+// Where it lives: its slice of the Model, and the domain it saves through.
+const PostEditor = Editor.at({ data: Data, model: App.model.editor })
+
+// Its onOut needs the domain, so it is given once the domain exists.
+const Page = Base.pipe(
+  Bundle.withServices<RemoteClient>(),
+  Bundle.configure('editor', { onOut: PostEditor.onOut }),
+)
+const Placed = Page.children.editor
+const { placements } = Page
+
+const update = PostEditor.after(
+  placements.update((model, message) =>
+    Remote.reduces(message) ? { model: Data.reduce(model, message) } : { model },
+  ),
+)
+
+const subscriptions = Data.subscriptions({ editor: PostEditor.active })
+```
+
+- **`Crud.editor`** checks, in the types, that the form's value is the
+  mutation's input. Declaring the input struct once and giving it to both is
+  what makes that true.
+- **`Editor.bundle`** wraps the form's Bundle. Its Messages are the form's own,
+  so a view dispatches `EditPostForm.Message.Changed(...)` exactly as before.
+- **`Bundle.compose`** states the page once, with the editor under `editor`.
+  The editor's `onOut` is made from the Remote domain, which is made from the
+  page's own Model, so it is given afterwards with `Bundle.configure`; until
+  then the page's `placements` are a type error that names the editor. See
+  [composing a parent](../bundle/README.md#composing-a-parent).
+- **`Editor.at`** takes the editor's slice as a `ModelRef` (`App.model.editor`)
+  and the bound Remote domain, and returns what needs the parent:
+  - `onOut` for the placement: a valid submit becomes `Data.mutate`, and the
+    editor remembers the request id.
+  - `active`: while an id is open, what the form writes is fetched and
+    retained.
+  - `after(update)`: wraps `update` so the editor fills the form and
+    reconciles its status after every Message. `sync` is that Step on its own,
+    for an `update` composed another way.
+  - `status(model)`, `saveError(model)` while it is `SaveFailed`,
+    `refresh(model)` to ask for the value again while it is `LoadFailed`, and
+    `target(model)`, the id being edited (`null` for a new one, or when
+    closed).
+- The save is a Command that needs `RemoteClient`, so the page names it with
+  `Bundle.withServices<RemoteClient>()`.
+
+### What starts the work
+
+| Call | What happens |
+| --- | --- |
+| `Crud.editor(...)` / `Editor.at(...)` | Builds the editor and its integration; no request runs |
+| `Placed.helpers.open(id)` | Returns an Update Step; apply it in your `update` to open a record |
+| `Data.subscriptions({ editor: PostEditor.active })` | Describes the loader; the runtime installs it and provides `RemoteClient` |
+| `PostEditor.after(update)` | Fills the form once the value loads, and reconciles the status after each Message |
+| A valid submit, through `onOut` | Returns the mutation Command; its result comes back through Remote |
+
+Include the placement's own Subscriptions as well if your form has any. Do not
+read `Submitted` as `Saved`: only the mutation's outcome settles the save.
+
+### Opening it
+
+`open`, `blank` and `close` are helpers of the placement, so they are Update
+Steps to use from your own `update`:
+
+```ts
+Placed.helpers.open('p2') // edit p2: the form empties, then fills when the value arrives
+Placed.helpers.blank() // a new one: nothing to load, editing at once
+Placed.helpers.close()
+```
+
+One editor serves one form. Create and edit share one when the input's id is
+an `Option`: a blank form saves with `Option.none()`, an opened one with the id
+it was filled with, and the server branches on which (`foldkit-guard`'s
+`GuardServer.mutation` checks a `none` against `Create`). Once a create is
+saved, its form starts blank again: its values are the new row's now, and
+saving the form again would be another create. A form the author went on
+typing in while it saved is kept, as the next one's draft.
+
+```ts
+const SaveProjectInput = Entity.input(
+  Project,
+  Schema.Struct({ id: Schema.OptionFromNullOr(Schema.String), name: Schema.String }),
+)
+const SaveProject = Mutation.make('SaveProject', {
+  Input: SaveProjectInput.schema,
+  Output: { id: Schema.String },
+})
+const SaveProjectForm = Form.make('SaveProject', SaveProjectInput, {
+  inputs: { id: Input.hidden() },
+})
+const Editor = Crud.editor('ProjectEditor', { form: SaveProjectForm, mutation: SaveProject })
+```
+
+A declared write is one command (`Write.update` or `Write.insert`), so over
+those the create form and the edit form are two editors, and `blank` is for
+the one whose form creates.
+
+### Its status
+
+| Status | When |
+| --- | --- |
+| `Closed` | nothing is open |
+| `Loading` | an id is open and its current values have not arrived |
+| `Editing` | the form is showing, with no save in progress or just settled |
+| `Saving` | this editor's mutation is pending |
+| `Saved` | it was applied |
+| `SaveFailed` | it failed; the drafts are kept, and `saveError(model)` says why |
+| `Conflict` | the server refused it with `Refusal.conflict`: the row moved on since it was read |
+| `Moved` | someone else saved the row since it was read (a declared write that `expect`s a revision); the draft is kept, and a save of it would be a conflict |
+| `LoadFailed` | reading it failed, with no earlier value to show; `refresh(model)` asks again |
+| `NotFound` | it is gone: the server answered without it, a mutation deleted it, or a live event did. This outranks a save that landed |
+
+An edit after a save returns to `Editing`: the last save no longer describes
+what is in the form.
+
+A save the server refuses with `Refusal.field(key, reason)` for one of the
+form's keys is shown on that key, as the form's own `Refused` would show it: the
+key reads invalid with the reason, as text, keeping what was typed, until it is
+edited. It is shown once per save, and the status is `SaveFailed`. A refusal of
+a key the form does not have is left to the status and `saveError`.
+
+### How it treats the form
+
+- **The form is filled once.** When the value is read again, by a refresh or a
+  live update, the drafts are left alone, so nothing the user typed is
+  overwritten. Opening the same or another id empties the form and fills it
+  again.
+- **What is loaded is what the form writes**, with each relation as a ref. A
+  key the form marks `Entity.unmapped` is not loaded and starts empty.
+- **An invalid submit starts no mutation.** The form emits nothing until every
+  key passes the input's schema and its checks. The form's Commands are the
+  editor's, so a check the form starts runs.
+- **A declared write sends only what changed.** With a mutation made by
+  `Mutation.write`, a save names the input keys whose value differs, by each
+  key's own schema, from what the row held as the form knows it: what it was
+  filled with, and what each of this editor's saves sent once it lands. So
+  the server writes only those, two authors of different fields both land, and
+  a key this editor saved is not sent again over another author's later
+  change to it. Remote shows the write bound to those keys until the server
+  answers, with no optimistic patch written here. Something new, never
+  filled, is written whole.
+- **A write that `expect`s a revision follows its own saves.** When this
+  editor's save lands, the form takes the revision it moved the row to, once,
+  so the next save is not refused as a conflict with itself, whether or not
+  the author typed on while it was saving. A revision moved after that is
+  another's, and reads as `Moved`, as one moved before any save does.
+- **Status follows the author.** Changing the form after a save shows
+  `Editing` (or `Moved`) at once; the save's own answer is still taken when
+  it lands, and a refusal of one of its fields still shows.
+
+### Drawing it
+
+The editor wraps the form's Model, so it takes the form's view, lifted:
+
+```ts
+import { FormView } from 'foldkit-mixins-form'
+
+const DrawnEditor = Editor.bundle.pipe(
+  Bundle.withView(Crud.editorView(FormView.submodel(EditPostForm, FormView.define(EditPostForm)))),
+)
+// Place it as before: Bundle.withChild('editor', DrawnEditor)
+
+// where the page draws it:
+Placed.view(model, h, { options: pickers(model), words: { submit: 'Save' } })
+```
+
+`Crud.editorView` works on any Submodel view of the form that takes view
+inputs; `foldkit-crud` itself stays headless.
+
+A key the reader may not set can be drawn but not edited. Give the editor
+`locks`, which name members to load beside the form's and say which the row
+does not let its reader set; `foldkit-guard`'s `May.locks(Post)` reads the
+server's `may`. `PostEditor.locked(model)` is then the form's keys to lock,
+a key mapped to a relation by the relation's lock, for the form view's
+`locked`:
+
+```ts
+const Editor = Crud.editor('PostEditor', {
+  form: EditPostForm,
+  mutation: EditPostMutation,
+  locks: May.locks(Post),
+})
+const PostEditor = Editor.at({ data: Data, model: App.model.editor })
+
+Placed.view(model, h, { options: pickers(model), locked: PostEditor.locked(model) })
+```
+
+Nothing is locked for something new, whose create the server checks, nor
+before the row is loaded. The Source must answer what `locks` selects, or the
+read of the row, and so the editor, fails. A lock is a hint: the server
+checks the save.
+
+## Deleting
+
+A remover is a mutation with a yes in between. Like the editor it is a Bundle,
+because which id is being asked about is state.
+
+```ts
+const Remover = Crud.remover('PostRemover', {
+  mutation: DeletePostMutation,
+  input: id => ({ id }), // the mutation's input for an id
+})
+// In the page: Bundle.withChild('remover', Remover.bundle), beside the editor.
+
+const PostRemover = Remover.at({ data: Data, model: App.model.remover })
+// With the editor's: Bundle.configure('remover', { onOut: PostRemover.onOut })
+const RemoveForm = Page.children.remover
+```
+
+- `RemoveForm.helpers.ask(id)` asks; nothing is deleted yet. `dismiss()`
+  clears it.
+- `Remover.Message.Confirmed()` and `Cancelled()` are the yes and the no. A
+  yes with nothing asked does nothing.
+- `PostRemover.status(model)` is `Idle`, `Confirming`, `Deleting`, `Deleted`
+  or `DeleteFailed`; `target(model)` is the id, for the confirmation's words,
+  and `error(model)` says why a delete failed.
+
+The server's mutation says what is gone, with `deleted` in its outcome, and
+names no list. Remote then knows the record absent: it leaves every list and
+relation it was in with no refetch, a detail of it reads `NotFound`, and an
+editor open on it reports `NotFound`.
+
+## Detail
+
+One record through a Selection, for a page that shows it. Like a list it holds
+no state.
+
+```ts
+const PostDetail = Crud.detail('PostDetail', { selection: PostPage }).at({
+  data: Data,
+  id: model => Option.fromNullOr(model.shownPostId), // none while none is shown
+})
+
+PostDetail.value(model) // RemoteData of the Selection's value
+```
+
+`Crud.detail(...).fields` lists the selected members with their labels, as a
+list's `columns` does. `PostDetail.active` makes the value a requirement while
+an id is shown, and `PostDetail.refresh(model)` asks for it again.
+
+## When something fails
+
+Nothing here retries on its own: a failure stays visible until your
+application asks again.
+
+| What happened | What the piece reports | What to do |
+| --- | --- | --- |
+| A list's page could not be read | `page(model)` is `Failed`, with `previous` rows if it had some | `refresh(model)` from a retry button |
+| A detail's value could not be read | `value(model)` is `Failed` | `refresh(model)` |
+| An editor's record could not be read | `LoadFailed`; a record read before and failed on refresh stays `Editing`, showing the last good value | `refresh(model)` |
+| A save failed | `SaveFailed`; the drafts are kept | show `saveError(model)`; the user submits again |
+| A delete failed | `DeleteFailed` | show `error(model)`; ask again |
+| The record was deleted, here or elsewhere | a detail reads `NotFound`, an open editor reports `NotFound`, and it leaves every list | close the screen or say so |
+| A piece's `active` is not wired | it stays `Initial` or `Loading`, and nothing reports it | wire every piece with [`Crud.actives`](#wiring-a-page) |
+
+## Showing values
+
+### How a column shows
+
+A `Display` is `foldkit-form`'s `Input` from the reading side: how one selected
+member shows, described without a renderer.
+
+```ts
+const Post = Blog.Post.pipe(
+  Entity.annotateMembers({
+    id: Display.of(Display.hidden()), // read, so a row can be opened by it, and not shown
+    cents: Display.of(Display.number(cents => `$${(cents / 100).toFixed(2)}`)),
+  }),
+)
+
+Display.show(column.display, row[column.key], { yes: 'Live', no: 'Draft' }) // the cell's text
+```
+
+| Kind | For |
+| --- | --- |
+| `Text`, `Number` | a value as it is, or through `format` |
+| `Flag` | a boolean, in the words given (`yes` / `no`) |
+| `Hidden` | a member read and not shown |
+| `Ref` | a relation selected with `true`: its id, or ids |
+| `Nested` | a relation read through a Selection: the target's own columns, with `shape` `one`, `many`, or `page` |
+
+A display is resolved from the most to the least explicit source: `Display.of`
+metadata on the member, how the relation was selected, then the shape of the
+schema. `Display.show` is the text any view can fall back on; a view that wants
+a link or a badge reads `display` and the value.
+[`foldkit-mixins-crud`](../mixins-crud/README.md) draws a list as a table and a
+detail as a description list from exactly this.
+
+There is one primitive, as with a form's controls: a `kind`, whether it is
+`shown`, its `data`, and its `text`. The kinds above are made with
+`Display.kind`, and so is yours:
+
+```ts
+const Badge = Display.kind<{ readonly tone: string }>('Badge', {
+  text: (_, value) => String(value), // the floor: what it says when nothing draws it specially
+})
+
+const Post = Blog.Post.pipe(Entity.annotateMembers({ status: Display.of(Badge.of({ tone: 'soft' })) }))
+```
+
+`Badge.is(display)` narrows `display.data`. A drawn view draws it specially
+once given a renderer for `Badge`.
+
+### A relation picker's choices
+
+A form names a relation's target Entity and leaves listing it to you, because a
+relationship existing is no licence to read a table. A list is that licence: a
+query you declared and your server authorizes. A list with a `choice` offers
+its loaded rows as choices, and `Crud.options` hands each picker of a form the
+list over its target:
+
+```ts
+const pickers = Crud.options(EditPostForm, [AuthorList])
+
+Placed.view(model, h, { options: pickers(model) }) // with foldkit-mixins-form
+```
+
+`pickers(model)` is keyed by the form's keys:
+`{ authorId: [{ value, label }, …] }`. A list is matched to a picker by
+Entity, so one author list serves `authorId` and `editorId` alike. A picker
+whose target no list is over, or whose list has no `choice`, throws when
+`Crud.options` is called, not when the form is drawn. `AuthorList.choices(model)`
+is one list's choices on its own. Both are empty until the page is loaded, and
+hold only the rows loaded so far.
+
+#### When a picker searches
+
+```ts
+const AuthorList = Authors.at({
+  data: Data,
+  // What the picker's search box holds is the form's; here it is the query's input.
+  input: model => Option.some({ search: EditPostForm.search(model.editor.form, 'authorId') }),
+})
+
+const pickers = Crud.options(EditPostForm, [AuthorList], {
+  chosen: model => model.editor.form, // the form's Model, wherever the page keeps it
+})
+
+const subscriptions = Data.subscriptions({ authors: AuthorList.active, chosen: pickers.active })
+```
+
+A search narrows the list, and what the picker already holds may no longer be
+in it. With `chosen`, those rows stay among the choices, first, and
+`pickers.active` makes them a requirement so Remote reads them and they can be
+named. Without it a `select` would show a post's author as blank the moment a
+search stopped finding them.
+
+## Sorting a list
+
+How a list is sorted is your state and the query's input. `Sort` writes that
+state down once, so the Model, the header clicks and the server agree:
+
+```ts
+const PostSort = Sort.make(['title', 'created']) // the orders offered, by name
+
+const PostsQuery = Query.make('Posts', {
+  Input: { sort: PostSort.Schema },
+  Result: Query.connection(Blog.Post),
+})
+// Model: `postSort: PostSort.Schema`, starting at `PostSort.none`
+// update: `SortedPosts` toggles `postSort` by the column the Message carries
+
+PostSort.toggle(model.postSort, 'title') // asc, then desc, then the server's own order
+// A drawn table's `sort`: each header sends the column clicked, not the order it
+// leads to, so two clicks inside one frame toggle twice.
+PostSort.inputs(model.postSort, (_, column) => Message.SortedPosts({ column }))
+```
+
+`Sort` holds nothing. A name is an order the query offers, never a column. Say
+what each name means in the query's body, where the server and the client both
+read it: `Query.orderBy(Order.chosen(input.sort, { title: Post.fields.title }))`
+(`foldkit-entity`). The client then knows which edits can move a row, so a
+change to another field keeps the list. A `Query.make` list, which has no body,
+says it on the server instead, with `foldkit-remote-drizzle`'s
+`sortTerms(sort, { title: posts.title })`; any change to its Entity then
+refetches it.
+
+## Typed ids
+
+When the Entity's `id` is branded, the ids here are too. An editor's
+`helpers.open(id)` takes the `IdOf` of its form's Entity, and `target(model)`
+reads the id being edited as that type. A remover whose mutation's input is
+just the id names the key, `id: 'id'`, and is asked about that key's type; with
+a fuller input, annotate the function:
+`input: (id: PostId) => ({ id, reason: 'spam' })`. A list's rows are its
+Selection's own value, so `row.id` is a `PostId` when the Selection reads `id`.
+
+## Limits
+
+- **A list has no sorting, filtering or selection state of its own.** Those are
+  the query's input, which your Model holds. Change the input and the list is
+  another connection, fetched because it is on screen; `foldkit-remote-drizzle`'s
+  `query` reads the input in `where` and `orderBy`.
+  [`examples/entity`](../../examples/entity) searches and sorts its post list
+  this way.
+- **Headless.** Draw a list or a detail with
+  [`foldkit-mixins-crud`](../mixins-crud/README.md), or from `columns` and
+  `Display.show`. Draw the editor with `Crud.editorView` over a
+  [`foldkit-mixins-form`](../mixins-form/README.md) view, or from
+  `EditPostForm.controls`.
+- **One editor per form.** A create screen and an edit screen are two editors.

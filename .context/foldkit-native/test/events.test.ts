@@ -1,0 +1,997 @@
+// GPUI → DOM events. A gpuix event on an element id must reach the DOM as the
+// events a browser would fire, so FoldKit's listeners run unchanged; and a DOM
+// listener must make GPUI send the events it needs (and stop when removed).
+import { afterEach, describe, expect, test } from 'bun:test'
+
+import { type Mounted, mountFake } from './support/mount.ts'
+
+let mounted: Mounted
+afterEach(() => mounted?.close())
+
+const setup = async () => {
+  mounted = mountFake()
+  await mounted.settle()
+  return mounted
+}
+const el = (tag: string, text?: string) => {
+  const node = mounted.document.createElement(tag)
+  if (text !== undefined) node.textContent = text
+  return node
+}
+/** Every DOM event of the given types that reaches `target`, as "type@id". */
+const record = (target: EventTarget, types: Array<string>) => {
+  const seen: Array<Event> = []
+  for (const type of types) target.addEventListener(type, event => seen.push(event))
+  return seen
+}
+const names = (events: Array<Event>) => events.map(event => event.type)
+
+describe('listeners → native listeners', () => {
+  test('adding and removing a DOM listener turns the native one on and off', async () => {
+    const { container } = await setup()
+    const button = el('button', 'Go')
+    container.appendChild(button)
+    await mounted.settle()
+    const onClick = () => {}
+    button.addEventListener('click', onClick)
+    // setEventListener is queued; the next DOM change flushes it (in FoldKit
+    // the patch that adds a listener is that change).
+    button.setAttribute('data-x', '1')
+    await mounted.settle()
+    expect(mounted.nativeOf(button).listeners.has('click')).toBe(true)
+    button.removeEventListener('click', onClick)
+    button.setAttribute('data-x', '2')
+    await mounted.settle()
+    expect(mounted.nativeOf(button).listeners.has('click')).toBe(false)
+  })
+
+  test('two DOM listeners share one native listener until both are gone', async () => {
+    const { container } = await setup()
+    const button = el('button', 'Go')
+    container.appendChild(button)
+    await mounted.settle()
+    const a = () => {}; const b = () => {}
+    button.addEventListener('click', a)
+    button.addEventListener('click', b)
+    button.removeEventListener('click', a)
+    button.setAttribute('data-x', '1')
+    await mounted.settle()
+    expect(mounted.nativeOf(button).listeners.has('click')).toBe(true)
+    button.removeEventListener('click', b)
+    button.setAttribute('data-x', '2')
+    await mounted.settle()
+    expect(mounted.nativeOf(button).listeners.has('click')).toBe(false)
+  })
+
+  test('a listener added before the element is mirrored is registered on creation', async () => {
+    const { container } = await setup()
+    const button = el('button', 'Go')
+    button.addEventListener('click', () => {})
+    container.appendChild(button)
+    await mounted.settle()
+    expect(mounted.nativeOf(button).listeners.has('click')).toBe(true)
+  })
+
+  test('unmatched removal preserves native delivery to the installed callback', async () => {
+    const { container, window } = await setup()
+    const button = el('button')
+    let clicks = 0
+    const listener = () => { clicks++ }
+    button.addEventListener('click', listener)
+    container.append(button)
+    await mounted.settle()
+    button.removeEventListener('click', () => {})
+    button.setAttribute('data-x', '1')
+    await mounted.settle()
+    button.dispatchEvent(new window.MouseEvent('click') as unknown as Event)
+    expect(clicks).toBe(1)
+    expect(mounted.send(button, { eventType: 'click' })).toBe(true)
+    expect(clicks).toBe(2)
+  })
+
+  test('duplicate callback and capture registrations do not leave ghost subscriptions', async () => {
+    const { container, window } = await setup()
+    const button = el('button')
+    let clicks = 0
+    const listener = { handleEvent: () => { clicks++ } }
+    button.addEventListener('click', listener)
+    button.addEventListener('click', listener, { once: true, passive: true })
+    button.addEventListener('click', listener, true)
+    button.addEventListener('click', listener, { capture: true })
+    container.append(button)
+    await mounted.settle()
+    expect(mounted.send(button, { eventType: 'click' })).toBe(true)
+    expect(clicks).toBe(2)
+    // Pinned happy-dom removes bubbling first, even when capture is requested.
+    button.removeEventListener('click', listener, true)
+    button.setAttribute('data-x', '1')
+    await mounted.settle()
+    expect(mounted.nativeOf(button).listeners.has('click')).toBe(true)
+    button.dispatchEvent(new window.MouseEvent('click') as unknown as Event)
+    expect(clicks).toBe(3)
+    button.removeEventListener('click', listener, false)
+    button.setAttribute('data-x', '2')
+    await mounted.settle()
+    expect(mounted.send(button, { eventType: 'click' })).toBe(false)
+    expect(mounted.nativeOf(button).listeners.has('click')).toBe(false)
+    button.dispatchEvent(new window.MouseEvent('click') as unknown as Event)
+    expect(clicks).toBe(3)
+  })
+
+  test('once and abort removals keep remaining listeners and remove the last subscription', async () => {
+    const { container, window } = await setup()
+    const button = el('button')
+    const controller = new window.AbortController()
+    let once = 0; let persistent = 0
+    button.addEventListener('click', () => { once++ }, { once: true })
+    button.addEventListener('click', () => { persistent++ }, { signal: controller.signal as unknown as AbortSignal })
+    container.append(button)
+    await mounted.settle()
+    mounted.send(button, { eventType: 'click' })
+    button.setAttribute('data-x', '1')
+    await mounted.settle()
+    expect(mounted.nativeOf(button).listeners.has('click')).toBe(true)
+    button.dispatchEvent(new window.MouseEvent('click') as unknown as Event)
+    expect([once, persistent]).toEqual([1, 2])
+    controller.abort()
+    button.setAttribute('data-x', '2')
+    await mounted.settle()
+    expect(mounted.send(button, { eventType: 'click' })).toBe(false)
+    expect(mounted.nativeOf(button).listeners.has('click')).toBe(false)
+  })
+
+  test('duplicate above-body registrations preserve delivery until the actual removal', async () => {
+    const { container, document } = await setup()
+    const node = el('div')
+    let moves = 0
+    const listener = () => { moves++ }
+    document.addEventListener('pointermove', listener)
+    document.addEventListener('pointermove', listener)
+    document.removeEventListener('pointermove', () => {})
+    container.append(node)
+    await mounted.settle()
+    expect(mounted.send(document.body, { eventType: 'mouseMove' })).toBe(true)
+    expect(moves).toBe(1)
+    document.removeEventListener('pointermove', listener)
+    node.setAttribute('data-x', '1')
+    await mounted.settle()
+    expect(mounted.send(document.body, { eventType: 'mouseMove' })).toBe(false)
+  })
+
+  test('DOM events map to the GPUI events that produce them', async () => {
+    const { container } = await setup()
+    const node = el('div', 'x')
+    for (const type of ['dragstart', 'keydown', 'input', 'focus', 'mouseover']) node.addEventListener(type, () => {})
+    container.appendChild(node)
+    await mounted.settle()
+    expect([...mounted.nativeOf(node).listeners].sort()).toEqual(
+      ['change', 'focus', 'keyDown', 'mouseDown', 'mouseEnter', 'mouseMove', 'mouseUp'])
+  })
+})
+
+describe('pointer', () => {
+  test('click, double click and right click', async () => {
+    const { container } = await setup()
+    const button = el('button', 'Go')
+    const seen = record(button, ['click', 'dblclick', 'contextmenu'])
+    container.appendChild(button)
+    await mounted.settle()
+    mounted.send(button, { eventType: 'click', x: 5, y: 6, button: 0, clickCount: 1 })
+    await Bun.sleep(5)
+    mounted.send(button, { eventType: 'click', x: 5, y: 6, button: 0, clickCount: 2 })
+    await Bun.sleep(5)
+    mounted.send(button, { eventType: 'click', x: 5, y: 6, button: 2, clickCount: 1, isRightClick: true })
+    // A browser's order: the second press is a click too, then the dblclick.
+    expect(names(seen)).toEqual(['click', 'click', 'dblclick', 'contextmenu'])
+    const click = seen[0] as MouseEvent
+    expect([click.clientX, click.clientY, click.bubbles, click.detail]).toEqual([5, 6, true, 1])
+  })
+
+  test('every press of a quick run is a click; detail counts the run, only the second is a dblclick', async () => {
+    const { container } = await setup()
+    const button = el('button', 'Go')
+    const seen = record(button, ['click', 'dblclick'])
+    container.appendChild(button)
+    await mounted.settle()
+    for (const clickCount of [1, 2, 3]) {
+      mounted.send(button, { eventType: 'click', x: 1, y: 1, button: 0, clickCount })
+      await Bun.sleep(5)
+    }
+    expect(seen.map(event => `${event.type}:${(event as MouseEvent).detail}`))
+      .toEqual(['click:1', 'click:2', 'dblclick:2', 'click:3'])
+  })
+
+  test('an element listening only for dblclick still lets the clicks bubble', async () => {
+    const { container } = await setup()
+    const outer = el('div'); const inner = el('div', 'row')
+    outer.appendChild(inner)
+    const atOuter = record(outer, ['click']); const atInner = record(inner, ['dblclick'])
+    container.appendChild(outer)
+    await mounted.settle()
+    for (const clickCount of [1, 2]) {
+      const payload = { eventType: 'click', x: 1, y: 1, button: 0, clickCount }
+      mounted.send(inner, payload) // innermost first, as GPUI does
+      mounted.send(outer, payload)
+      await Bun.sleep(5)
+    }
+    expect(atOuter.map(event => (event as MouseEvent).detail)).toEqual([1, 2])
+    expect(atInner).toHaveLength(1)
+  })
+
+  test('mousedown and mouseup carry the click count as detail', async () => {
+    const { container } = await setup()
+    const node = el('div', 'x')
+    const seen = record(node, ['mousedown', 'mouseup'])
+    container.appendChild(node)
+    await mounted.settle()
+    for (const clickCount of [1, 2]) {
+      mounted.send(node, { eventType: 'mouseDown', x: 1, y: 1, button: 0, clickCount })
+      mounted.send(node, { eventType: 'mouseUp', x: 1, y: 1, button: 0, clickCount })
+    }
+    expect(seen.map(event => `${event.type}:${(event as MouseEvent).detail}`))
+      .toEqual(['mousedown:1', 'mouseup:1', 'mousedown:2', 'mouseup:2'])
+  })
+
+  test('GPUI reports a click to every listening ancestor; the DOM sees it once, bubbling', async () => {
+    const { container } = await setup()
+    const outer = el('div'); const inner = el('button', 'Go')
+    outer.appendChild(inner)
+    const atOuter = record(outer, ['click']); const atInner = record(inner, ['click'])
+    container.appendChild(outer)
+    await mounted.settle()
+    const payload = { eventType: 'click', x: 1, y: 1, button: 0, clickCount: 1 }
+    mounted.send(inner, payload) // innermost first, as GPUI does
+    mounted.send(outer, payload)
+    expect(atInner).toHaveLength(1)
+    expect(atOuter).toHaveLength(1)
+    expect(atOuter[0]!.target).toBe(inner)
+  })
+
+  test('two quick clicks on the same element are two clicks', async () => {
+    const { container } = await setup()
+    const button = el('button', 'Go')
+    const seen = record(button, ['click'])
+    container.appendChild(button)
+    await mounted.settle()
+    const payload = { eventType: 'click', x: 1, y: 1, button: 0, clickCount: 1 }
+    mounted.send(button, payload)
+    mounted.send(button, payload)
+    expect(seen).toHaveLength(2)
+  })
+
+  test('a click in the first moments after startup counts (no drag has ended yet)', async () => {
+    const { container } = await setup()
+    const button = el('button', 'Go')
+    const seen = record(button, ['click'])
+    container.appendChild(button)
+    await mounted.settle()
+    // performance.now() counts from process start: early on, it's small.
+    const now = performance.now
+    performance.now = () => 10
+    try {
+      mounted.send(button, { eventType: 'click', x: 1, y: 1, button: 0, clickCount: 1 })
+    } finally {
+      performance.now = now
+    }
+    expect(seen).toHaveLength(1)
+  })
+
+  test('mouse down, up and move reach the DOM only where listened', async () => {
+    const { container } = await setup()
+    const node = el('div', 'x')
+    const seen = record(node, ['mousedown', 'mouseup'])
+    container.appendChild(node)
+    await mounted.settle()
+    mounted.send(node, { eventType: 'mouseDown', x: 1, y: 1, button: 0 })
+    // A move during a press carries the held button, as GPUI sends it.
+    mounted.send(node, { eventType: 'mouseMove', x: 2, y: 2, pressedButton: 0 })
+    mounted.send(node, { eventType: 'mouseUp', x: 2, y: 2, button: 0 })
+    expect(names(seen)).toEqual(['mousedown', 'mouseup'])
+  })
+
+  test('enter and leave fire the non-bubbling and the bubbling pair', async () => {
+    const { container } = await setup()
+    const node = el('div', 'x')
+    const seen = record(node, ['mouseenter', 'mouseover', 'mouseleave', 'mouseout'])
+    container.appendChild(node)
+    await mounted.settle()
+    mounted.send(node, { eventType: 'mouseEnter' })
+    mounted.send(node, { eventType: 'mouseLeave' })
+    expect(names(seen)).toEqual(['mouseenter', 'mouseover', 'mouseleave', 'mouseout'])
+    expect(seen.map(event => event.bubbles)).toEqual([false, true, false, true])
+  })
+})
+
+describe('forms', () => {
+  /** A form with a field and buttons, its submits counted. */
+  const form = async () => {
+    const { container } = await setup()
+    const form = el('form')
+    form.innerHTML = '<input aria-label="zip"><button type="button">Clear</button><button>Go</button>'
+    let submits = 0
+    form.addEventListener('submit', event => {
+      event.preventDefault()
+      submits++
+    })
+    container.appendChild(form)
+    await mounted.settle()
+    const [input, clear, go] = [form.querySelector('input')!, form.querySelectorAll('button')[0]!, form.querySelectorAll('button')[1]!]
+    return { input, clear, go, submits: () => submits }
+  }
+
+  test('a click on a submit button submits its form, with no click listener of its own', async () => {
+    const { go, clear, submits } = await form()
+    expect(mounted.nativeOf(go).listeners.has('click')).toBe(true)
+    expect(mounted.nativeOf(clear).listeners.has('click')).toBe(false)
+    mounted.send(go, { eventType: 'click', x: 1, y: 1, button: 0, clickCount: 1 })
+    expect(submits()).toBe(1)
+  })
+
+  test('Enter in a field submits its form, as a browser does', async () => {
+    const { input, submits } = await form()
+    expect(mounted.nativeOf(input).listeners.has('submit')).toBe(true)
+    mounted.send(input, { eventType: 'submit' } as never)
+    expect(submits()).toBe(1)
+  })
+
+  test('outside a form, buttons and fields stay quiet', async () => {
+    const { container } = await setup()
+    const button = el('button', 'Go')
+    const input = el('input')
+    container.append(button, input)
+    await mounted.settle()
+    expect(mounted.nativeOf(button).listeners.size).toBe(0)
+    expect(mounted.nativeOf(input).listeners.size).toBe(0)
+  })
+})
+
+describe('links', () => {
+  test('a click on a link reaches a listener on document, with the link as its target', async () => {
+    const { container } = await setup()
+    container.innerHTML = '<a href="/cart"><span>Cart</span></a><a>Not a link</a>'
+    await mounted.settle()
+    const [link, plain] = Array.from(container.querySelectorAll('a'))
+    expect(mounted.nativeOf(link!).listeners.has('click')).toBe(true)
+    expect(mounted.nativeOf(plain!).listeners.has('click')).toBe(false)
+    // FoldKit's routing: one listener on document, which stops the navigation.
+    const targets: Array<string> = []
+    const onClick = (event: Event) => {
+      event.preventDefault()
+      targets.push((event.target as Element).closest('a')!.getAttribute('href')!)
+    }
+    mounted.document.addEventListener('click', onClick)
+    mounted.send(link!, { eventType: 'click', x: 1, y: 1, button: 0, clickCount: 1 })
+    mounted.document.removeEventListener('click', onClick)
+    expect(targets).toEqual(['/cart'])
+  })
+
+  test('a link click nobody handles leaves the window and the app where they are', async () => {
+    const { container } = await setup()
+    container.innerHTML = '<a href="/cart">Cart</a><a href="https://example.com/">Elsewhere</a>'
+    await mounted.settle()
+    // happy-dom follows an unprevented link click with window.open(href, '_self').
+    const window = mounted.document.defaultView!
+    const opened: Array<string> = []
+    const open = window.open
+    window.open = ((url?: string | URL) => {
+      opened.push(String(url))
+      return null
+    }) as typeof window.open
+    for (const link of Array.from(container.querySelectorAll('a'))) {
+      mounted.send(link, { eventType: 'click', x: 1, y: 1, button: 0, clickCount: 1 })
+    }
+    window.open = open
+    await mounted.settle()
+    expect(opened).toEqual([])
+    expect(container.isConnected).toBe(true)
+    expect(mounted.inSync()).toBe(true)
+  })
+})
+
+describe('keys, focus, input', () => {
+  test('gpuix key names become DOM KeyboardEvent.key', async () => {
+    const { container } = await setup()
+    const node = el('div', 'x')
+    const keys: Array<string> = []
+    node.addEventListener('keydown', event => keys.push((event as KeyboardEvent).key))
+    container.appendChild(node)
+    await mounted.settle()
+    for (const key of ['enter', 'escape', 'tab', 'space', 'backspace', 'up', 'down', 'left', 'right', 'home', 'end', 'pageup', 'pagedown', 'a', 'Z', '7']) {
+      mounted.send(node, { eventType: 'keyDown', key })
+    }
+    expect(keys).toEqual(['Enter', 'Escape', 'Tab', ' ', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+      'Home', 'End', 'PageUp', 'PageDown', 'a', 'Z', '7'])
+  })
+
+  test('GPUI modifiers become ctrlKey, metaKey, shiftKey and altKey, on keys and mice', async () => {
+    const { container } = await setup()
+    const node = el('div', 'x')
+    container.appendChild(node)
+    await mounted.settle()
+    const seen = record(node, ['keydown', 'mousedown']) as Array<KeyboardEvent | MouseEvent>
+    const held = (event: KeyboardEvent | MouseEvent) =>
+      [event.ctrlKey && 'ctrl', event.metaKey && 'meta', event.shiftKey && 'shift', event.altKey && 'alt'].filter(Boolean).join('-')
+    const none = { shift: false, ctrl: false, alt: false, cmd: false }
+    mounted.send(node, { eventType: 'keyDown', key: 'z', modifiers: { ...none, cmd: true } })
+    mounted.send(node, { eventType: 'keyDown', key: 'z', modifiers: { ...none, ctrl: true, shift: true } })
+    mounted.send(node, { eventType: 'keyDown', key: 'y', modifiers: { ...none, alt: true } })
+    mounted.send(node, { eventType: 'keyDown', key: 'b' })
+    mounted.send(node, { eventType: 'mouseDown', x: 1, y: 1, button: 0, modifiers: { ...none, shift: true } })
+    expect(seen.map(held)).toEqual(['meta', 'ctrl-shift', 'alt', '', 'shift'])
+  })
+
+  test('window keys go to the focused element, or the body', async () => {
+    const { container, document, mirror } = await setup()
+    const input = el('input') as HTMLInputElement
+    container.appendChild(input)
+    await mounted.settle()
+    const atInput = record(input, ['keydown'])
+    const atBody = record(document.body, ['keydown'])
+    mirror.windowKey({ elementId: 0, eventType: 'keyDown', key: 'a' })
+    expect(atInput).toHaveLength(0)
+    expect(atBody).toHaveLength(1)
+    input.focus()
+    mirror.windowKey({ elementId: 0, eventType: 'keyDown', key: 'b' })
+    expect(atInput).toHaveLength(1)
+    expect(atBody).toHaveLength(2) // bubbled from the input
+  })
+
+  test('focus and blur fire focus/focusin and blur/focusout', async () => {
+    const { container } = await setup()
+    const node = el('div', 'x')
+    const seen = record(node, ['focus', 'focusin', 'blur', 'focusout'])
+    container.appendChild(node)
+    await mounted.settle()
+    mounted.send(node, { eventType: 'focus' })
+    mounted.send(node, { eventType: 'blur' })
+    expect(names(seen)).toEqual(['focus', 'focusin', 'blur', 'focusout'])
+  })
+
+  test('a native change sets the value, then fires input and change', async () => {
+    const { container } = await setup()
+    const input = el('input') as HTMLInputElement
+    const values: Array<string> = []
+    input.addEventListener('input', () => values.push(`input:${input.value}`))
+    input.addEventListener('change', () => values.push(`change:${input.value}`))
+    container.appendChild(input)
+    await mounted.settle()
+    mounted.send(input, { eventType: 'change', value: 'hello' } as never)
+    expect(values).toEqual(['input:hello', 'change:hello'])
+  })
+})
+
+describe('drag and drop, rebuilt from mouse events', () => {
+  const board = async () => {
+    const { container, gpui } = await setup()
+    const card = el('div', 'card'); const zone = el('div', 'zone'); const elsewhere = el('div', 'elsewhere')
+    const atCard = record(card, ['dragstart', 'dragend', 'click'])
+    const atZone = record(zone, ['dragenter', 'dragover', 'dragleave', 'drop'])
+    container.append(card, zone, elsewhere)
+    await mounted.settle()
+    gpui.setBounds(mounted.idOf(zone), { x: 100, y: 0, width: 100, height: 100 })
+    return { card, zone, atCard, atZone }
+  }
+
+  test('press, move past 4px, over a zone, release: dragstart … drop, dragend', async () => {
+    const { card, atCard, atZone } = await board()
+    mounted.send(card, { eventType: 'mouseDown', x: 10, y: 10, button: 0 })
+    mounted.send(card, { eventType: 'mouseMove', x: 12, y: 11, pressedButton: 0 })
+    expect(names(atCard)).toEqual([]) // under the 4px threshold
+    mounted.send(card, { eventType: 'mouseMove', x: 40, y: 10, pressedButton: 0 })
+    expect(names(atCard)).toEqual(['dragstart'])
+    mounted.send(card, { eventType: 'mouseMove', x: 150, y: 50, pressedButton: 0 })
+    mounted.send(card, { eventType: 'mouseMove', x: 160, y: 50, pressedButton: 0 })
+    mounted.send(card, { eventType: 'mouseUp', x: 160, y: 50, button: 0 })
+    // GPUI then reports the release as a click on the pressed element: not a click.
+    mounted.send(card, { eventType: 'click', x: 160, y: 50, button: 0, clickCount: 1 })
+    expect(names(atZone)).toEqual(['dragenter', 'dragover', 'dragover', 'drop'])
+    expect(names(atCard)).toEqual(['dragstart', 'dragend'])
+  })
+
+  test('leaving the zone fires dragleave; releasing elsewhere ends the drag', async () => {
+    const { card, atCard, atZone } = await board()
+    mounted.send(card, { eventType: 'mouseDown', x: 10, y: 10, button: 0 })
+    mounted.send(card, { eventType: 'mouseMove', x: 150, y: 50, pressedButton: 0 })
+    mounted.send(card, { eventType: 'mouseMove', x: 300, y: 50, pressedButton: 0 })
+    mounted.send(card, { eventType: 'mouseUp', x: 300, y: 50, button: 0 })
+    expect(names(atZone)).toEqual(['dragenter', 'dragover', 'dragleave'])
+    expect(names(atCard)).toEqual(['dragstart', 'dragend'])
+  })
+
+  test('a release only the body hears (outside the source) still ends the drag', async () => {
+    const { card, atCard, atZone } = await board()
+    mounted.send(card, { eventType: 'mouseDown', x: 10, y: 10, button: 0 })
+    mounted.send(card, { eventType: 'mouseMove', x: 150, y: 50, pressedButton: 0 })
+    mounted.send(mounted.document.body as unknown as Node, { eventType: 'mouseUp', x: 150, y: 50, button: 0 })
+    expect(names(atZone)).toEqual(['dragenter', 'dragover', 'drop'])
+    expect(names(atCard)).toEqual(['dragstart', 'dragend'])
+  })
+
+  test('a press without movement is a click, not a drag', async () => {
+    const { card, atCard } = await board()
+    mounted.send(card, { eventType: 'mouseDown', x: 10, y: 10, button: 0 })
+    mounted.send(card, { eventType: 'mouseUp', x: 10, y: 10, button: 0 })
+    mounted.send(card, { eventType: 'click', x: 10, y: 10, button: 0, clickCount: 1 })
+    expect(names(atCard)).toEqual(['click'])
+  })
+})
+
+describe('scroll position, both ways', () => {
+  const scroller = async () => {
+    const { container, gpui } = await setup()
+    const list = el('div')
+    list.style.overflowY = 'scroll'
+    container.appendChild(list)
+    const tops: Array<number> = []
+    list.addEventListener('scroll', () => tops.push(list.scrollTop))
+    list.setAttribute('data-x', '1') // flushes the native scroll listener
+    await mounted.settle()
+    return { list, gpui, tops, id: mounted.idOf(list) }
+  }
+
+  test('a scroll in GPUI reaches the DOM with GPUI\'s offset in scrollTop', async () => {
+    const { list, gpui, tops, id } = await scroller()
+    expect(gpui.node(id).listeners.has('scroll')).toBe(true)
+    // gpuix offsets are negative when scrolled down.
+    gpui.setScrollOffset(id, 0, -440)
+    mounted.send(list, { eventType: 'scroll', deltaY: -440 } as never)
+    expect(tops).toEqual([440])
+    expect(list.scrollTop).toBe(440)
+    // Reading GPUI's position never writes it back.
+    expect(gpui.scrollCalls).toEqual([])
+  })
+
+  test('setting scrollTop scrolls GPUI and fires scroll back, as a browser does', async () => {
+    const { list, gpui, tops, id } = await scroller()
+    list.scrollTop = 880
+    expect(gpui.scrollCalls).toEqual([{ id, x: 0, y: -880 }])
+    await mounted.settle()
+    expect(tops).toEqual([880])
+    // The same value again is no scroll at all.
+    list.scrollTop = 880
+    list.scrollTo({ top: 880 })
+    await mounted.settle()
+    expect(gpui.scrollCalls).toHaveLength(1)
+    expect(tops).toEqual([880])
+  })
+
+  test('an app that scrolls on every scroll event settles instead of echoing', async () => {
+    const { list, gpui, id } = await scroller()
+    // Snap to 44px rows on every scroll, as a list might.
+    list.addEventListener('scroll', () => {
+      list.scrollTop = Math.round(list.scrollTop / 44) * 44
+    })
+    gpui.setScrollOffset(id, 0, -100)
+    mounted.send(list, { eventType: 'scroll', deltaY: -100 } as never)
+    await mounted.settle()
+    await mounted.settle()
+    // One write (100 → 88), its one scroll event, then quiet: 88 snaps to 88.
+    expect(gpui.scrollCalls).toEqual([{ id, x: 0, y: -88 }])
+    expect(list.scrollTop).toBe(88)
+  })
+})
+
+describe('pointer events, and listeners on document', () => {
+  test('a press is pointerdown then mousedown, with the pointer, button and screen position', async () => {
+    const { container } = await setup()
+    const card = el('div', 'card')
+    container.appendChild(card)
+    const seen = record(card, ['pointerdown', 'mousedown', 'pointerup', 'mouseup'])
+    await mounted.settle()
+    mounted.send(card, { eventType: 'mouseDown', x: 30, y: 40, button: 0, clickCount: 1 })
+    mounted.send(card, { eventType: 'mouseUp', x: 30, y: 40, button: 0, clickCount: 1 })
+    expect(names(seen)).toEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup'])
+    const down = seen[0] as PointerEvent
+    expect([down.pointerType, down.button, down.screenX, down.screenY, down.clientX]).toEqual(['mouse', 0, 30, 40, 30])
+  })
+
+  test('only pointerdown: GPUI listens for the press, and the DOM gets it', async () => {
+    const { container } = await setup()
+    const card = el('div', 'card')
+    container.appendChild(card)
+    const seen = record(card, ['pointerdown'])
+    await mounted.settle()
+    expect(mounted.nativeOf(card).listeners.has('mouseDown')).toBe(true)
+    mounted.send(card, { eventType: 'mouseDown', x: 1, y: 1, button: 0 })
+    expect(names(seen)).toEqual(['pointerdown'])
+  })
+
+  test('pointer listeners on document make the body listen, and hear moves and releases', async () => {
+    const { document } = await setup()
+    const body = document.body as unknown as Node
+    expect(mounted.nativeOf(body).listeners.has('mouseMove')).toBe(false)
+    const seen = record(document, ['pointermove', 'pointerup'])
+    document.body.setAttribute('data-x', '1')
+    await mounted.settle()
+    expect(mounted.nativeOf(body).listeners.has('mouseMove')).toBe(true)
+    mounted.send(body, { eventType: 'mouseMove', x: 5, y: 6, pressedButton: 0 })
+    mounted.send(body, { eventType: 'mouseUp', x: 5, y: 6, button: 0 })
+    expect(names(seen)).toEqual(['pointermove', 'pointerup'])
+    expect((seen[0] as PointerEvent).clientY).toBe(6)
+  })
+
+  test("through the global document (src/dom.ts's forwarder), as FoldKit adds them", async () => {
+    const { container } = await setup()
+    const card = el('div', 'card')
+    card.addEventListener('pointerdown', () => {})
+    container.appendChild(card)
+    await mounted.settle()
+    const forwarded = (globalThis as unknown as { document: Document }).document
+    expect(forwarded).not.toBe(mounted.document) // the forwarder, not the window's own document
+    const moves: Array<number> = []
+    forwarded.addEventListener('pointermove', event => moves.push((event as PointerEvent).clientX))
+    card.setAttribute('data-x', '1')
+    await mounted.settle()
+    expect(mounted.nativeOf(mounted.document.body as unknown as Node).listeners.has('mouseMove')).toBe(true)
+    mounted.send(card, { eventType: 'mouseDown', x: 1, y: 1, button: 0 })
+    mounted.send(card, { eventType: 'mouseMove', x: 42, y: 1, pressedButton: 0 })
+    expect(moves).toEqual([42])
+  })
+
+  test('removing them stops the body listening for moves, but it still hears releases', async () => {
+    const { document } = await setup()
+    const body = document.body as unknown as Node
+    const onMove = () => {}
+    document.addEventListener('pointermove', onMove)
+    document.removeEventListener('pointermove', onMove)
+    document.body.setAttribute('data-x', '1')
+    await mounted.settle()
+    expect(mounted.nativeOf(body).listeners.has('mouseMove')).toBe(false)
+    expect(mounted.nativeOf(body).listeners.has('mouseUp')).toBe(true)
+  })
+
+  test('a pressed element hears the whole gesture (GPUI sends it only there)', async () => {
+    const { container } = await setup()
+    const card = el('div', 'card')
+    card.addEventListener('pointerdown', () => {})
+    container.appendChild(card)
+    await mounted.settle()
+    expect([...mounted.nativeOf(card).listeners].sort()).toEqual(['mouseDown', 'mouseMove', 'mouseUp'])
+  })
+
+  test('removed mid-gesture, the pressed element is held, unseen, until the release', async () => {
+    const { container, document, gpui } = await setup()
+    const card = el('div', 'card')
+    const onDown = () => {}
+    card.addEventListener('pointerdown', onDown)
+    container.appendChild(card)
+    await mounted.settle()
+    const id = mounted.idOf(card)
+    const seen = record(document, ['pointermove', 'pointerup'])
+    mounted.send(card, { eventType: 'mouseDown', x: 10, y: 10, button: 0 })
+    // The app lifts the card out of its list, and snabbdom drops its listeners.
+    card.removeEventListener('pointerdown', onDown)
+    card.remove()
+    await mounted.settle()
+    expect(gpui.node(id).style).toEqual({ position: 'absolute', opacity: 0, pointerEvents: 'none' })
+    expect(gpui.node(id).listeners.has('mouseMove')).toBe(true)
+    expect(mounted.inSync()).toBe(false) // the held twin, until the release
+    mounted.send(id, { eventType: 'mouseMove', x: 300, y: 40, pressedButton: 0 })
+    mounted.send(id, { eventType: 'mouseUp', x: 300, y: 40, button: 0 })
+    expect(names(seen)).toEqual(['pointermove', 'pointerup'])
+    expect((seen[0] as PointerEvent).clientX).toBe(300)
+    await mounted.settle()
+    expect(() => gpui.node(id)).toThrow()
+    expect(mounted.inSync()).toBe(true)
+  })
+
+  test('a held element reinserted inside a new parent becomes visible and survives the release', async () => {
+    const { container, gpui } = await setup()
+    const card = el('div', 'card')
+    card.style.opacity = '0.8'
+    card.addEventListener('pointerdown', () => {})
+    container.append(card)
+    await mounted.settle()
+    const id = mounted.idOf(card)
+    mounted.send(card, { eventType: 'mouseDown', x: 10, y: 10, button: 0 })
+    card.remove()
+    await mounted.settle()
+    expect(gpui.node(id).style['opacity']).toBe(0)
+
+    const wrapper = el('div')
+    wrapper.append(card)
+    container.append(wrapper)
+    await mounted.settle()
+    expect(mounted.idOf(card)).toBe(id)
+    expect(gpui.node(id).style['opacity']).toBe(0.8)
+    expect(mounted.send(id, { eventType: 'mouseUp', x: 10, y: 10, button: 0 })).toBe(true)
+    await mounted.settle()
+    expect(mounted.mirror.idFor(card)).toBe(id)
+    expect(mounted.inSync()).toBe(true)
+    expect(gpui.retainedCount()).toBe(gpui.reachableCount())
+  })
+
+  /** A card listening for pointerdown, a drag tracked on document, and the
+   *  card lifted out of the DOM once the press starts, as FoldKit's kanban does. */
+  const liftedCard = async () => {
+    const { container, document, gpui } = await setup()
+    const card = el('div', 'card')
+    const onDown = () => {}
+    card.addEventListener('pointerdown', onDown)
+    container.appendChild(card)
+    await mounted.settle()
+    const id = mounted.idOf(card)
+    const seen = record(document, ['pointerup'])
+    mounted.send(card, { eventType: 'mouseDown', x: 10, y: 10, button: 0 })
+    card.removeEventListener('pointerdown', onDown)
+    card.remove()
+    await mounted.settle()
+    expect(gpui.node(id).style).toMatchObject({ opacity: 0 }) // held, still under its parent
+    expect(mounted.inSync()).toBe(false)
+    return { id, seen, gpui, document, container }
+  }
+
+  test("a release GPUI never sent (let go outside the window): the next move without a button ends the press", async () => {
+    const { id, seen, gpui, container } = await liftedCard()
+    // Back in the window, the pointer moves over another card (cards hear moves).
+    const other = el('div', 'other')
+    other.addEventListener('pointerdown', () => {})
+    container.appendChild(other)
+    await mounted.settle()
+    mounted.send(other, { eventType: 'mouseMove', x: 50, y: 50 })
+    expect(names(seen)).toEqual(['pointerup'])
+    await mounted.settle()
+    expect(() => gpui.node(id)).toThrow()
+    expect(gpui.retainedCount()).toBe(gpui.reachableCount())
+    expect(mounted.inSync()).toBe(true)
+  })
+
+  test('…or the next press elsewhere ends it first', async () => {
+    const { id, seen, gpui, container } = await liftedCard()
+    const other = el('button', 'other')
+    const atOther = record(other, ['pointerdown'])
+    container.appendChild(other)
+    await mounted.settle()
+    mounted.send(other, { eventType: 'mouseDown', x: 50, y: 50, button: 0 })
+    expect(names(seen)).toEqual(['pointerup'])
+    expect(names(atOther)).toEqual(['pointerdown'])
+    await mounted.settle()
+    expect(() => gpui.node(id)).toThrow()
+    expect(gpui.retainedCount()).toBe(gpui.reachableCount())
+  })
+
+  test('a plain click on a pointerdown element: one press, one release, one click, no moves', async () => {
+    const { container } = await setup()
+    const card = el('div', 'card')
+    container.appendChild(card)
+    const seen = record(card, ['pointerdown', 'pointermove', 'pointerup', 'click'])
+    await mounted.settle()
+    mounted.send(card, { eventType: 'mouseDown', x: 5, y: 5, button: 0, clickCount: 1 })
+    mounted.send(card, { eventType: 'mouseUp', x: 5, y: 5, button: 0, clickCount: 1 })
+    mounted.send(card, { eventType: 'click', x: 5, y: 5, button: 0, clickCount: 1 })
+    expect(names(seen)).toEqual(['pointerdown', 'pointerup', 'click'])
+  })
+
+  test('a pressed element that stays keeps its listeners until the release, then drops them', async () => {
+    const { container } = await setup()
+    const card = el('div', 'card')
+    const onDown = () => {}
+    card.addEventListener('pointerdown', onDown)
+    container.appendChild(card)
+    await mounted.settle()
+    mounted.send(card, { eventType: 'mouseDown', x: 10, y: 10, button: 0 })
+    card.removeEventListener('pointerdown', onDown)
+    card.setAttribute('data-x', '1')
+    await mounted.settle()
+    expect(mounted.nativeOf(card).listeners.has('mouseUp')).toBe(true)
+    mounted.send(card, { eventType: 'mouseUp', x: 10, y: 10, button: 0 })
+    card.setAttribute('data-x', '2')
+    await mounted.settle()
+    expect([...mounted.nativeOf(card).listeners]).toEqual([])
+  })
+
+  test("an event that bubbled up from an element isn't dispatched again at the body", async () => {
+    const { container, document } = await setup()
+    const card = el('div', 'card')
+    container.appendChild(card)
+    card.addEventListener('pointermove', () => {})
+    const seen = record(document, ['pointermove'])
+    await mounted.settle()
+    // GPUI sends the move to every listening element under the pointer: the card, then the body.
+    mounted.send(card, { eventType: 'mouseMove', x: 5, y: 5, pressedButton: 0 })
+    mounted.send(document.body as unknown as Node, { eventType: 'mouseMove', x: 5, y: 5, pressedButton: 0 })
+    expect(names(seen)).toEqual(['pointermove'])
+  })
+})
+
+describe('keys: one keystroke, one keydown', () => {
+  const board = async () => {
+    const { container, document } = await setup()
+    const card = el('div', 'card')
+    card.setAttribute('tabindex', '0')
+    card.addEventListener('keydown', () => {})
+    container.appendChild(card)
+    const seen = record(document, ['keydown'])
+    await mounted.settle()
+    return { card, seen }
+  }
+
+  test("GPUI's two copies (the focused element's and the window's) dispatch once", async () => {
+    const { card, seen } = await board()
+    mounted.send(card, { eventType: 'keyDown', key: 'down' })
+    mounted.mirror.windowKey({ eventType: 'keyDown', key: 'down' } as never)
+    expect(seen.map(event => (event as KeyboardEvent).key)).toEqual(['ArrowDown'])
+  })
+
+  test('in either order, and a key pressed twice in one task counts twice', async () => {
+    const { card, seen } = await board()
+    mounted.mirror.windowKey({ eventType: 'keyDown', key: 'down' } as never)
+    mounted.send(card, { eventType: 'keyDown', key: 'down' })
+    mounted.send(card, { eventType: 'keyDown', key: 'down' })
+    mounted.mirror.windowKey({ eventType: 'keyDown', key: 'down' } as never)
+    expect(seen).toHaveLength(2)
+  })
+
+  test('a key only the window hears (nothing focused listens) still dispatches, every time', async () => {
+    const { seen } = await board()
+    mounted.mirror.windowKey({ eventType: 'keyDown', key: 'a' } as never)
+    mounted.mirror.windowKey({ eventType: 'keyDown', key: 'a' } as never)
+    await mounted.settle()
+    mounted.mirror.windowKey({ eventType: 'keyDown', key: 'a' } as never)
+    expect(seen).toHaveLength(3)
+  })
+})
+
+describe('hover during a press', () => {
+  // While a button is held GPUI sends the moves only to the pressed element,
+  // and no enter or leave to what the pointer crosses. The mirror hovers as a
+  // browser does, from where GPUI painted the elements listening for it.
+  const strip = async () => {
+    const { container, gpui } = await setup()
+    const wrapper = el('div')
+    const cells = [el('div', '0'), el('div', '1'), el('div', '2')]
+    wrapper.append(...cells)
+    container.appendChild(wrapper)
+    const seen: Array<string> = []
+    const name = (node: EventTarget) => node === wrapper ? 'wrapper' : (node as Element).textContent!
+    wrapper.addEventListener('mouseleave', event => seen.push(`mouseleave@${name(event.target!)}`))
+    for (const cell of cells) {
+      for (const type of ['mousedown', 'mouseenter', 'mouseover', 'mouseout', 'mouseleave']) {
+        cell.addEventListener(type, event => {
+          if (event.target === cell) seen.push(`${type}@${name(cell)}`)
+        })
+      }
+    }
+    await mounted.settle()
+    gpui.setBounds(mounted.idOf(wrapper), { x: 0, y: 0, width: 300, height: 100 })
+    cells.forEach((cell, i) => gpui.setBounds(mounted.idOf(cell), { x: i * 100, y: 0, width: 100, height: 100 }))
+    const at = (x: number, y = 50) => ({ x, y })
+    return { cells, seen, at }
+  }
+
+  test('a held press crossing elements fires out, leave, over and enter, as the pointer goes', async () => {
+    const { cells, seen, at } = await strip()
+    mounted.send(cells[0]!, { eventType: 'mouseDown', ...at(50), button: 0, clickCount: 1 })
+    // GPUI's moves all go to the pressed element.
+    mounted.send(cells[0]!, { eventType: 'mouseMove', ...at(60), pressedButton: 0 })
+    mounted.send(cells[0]!, { eventType: 'mouseMove', ...at(150), pressedButton: 0 })
+    mounted.send(cells[0]!, { eventType: 'mouseMove', ...at(250), pressedButton: 0 })
+    expect(seen).toEqual([
+      'mousedown@0',
+      'mouseout@0', 'mouseleave@0', 'mouseover@1', 'mouseenter@1',
+      'mouseout@1', 'mouseleave@1', 'mouseover@2', 'mouseenter@2',
+    ])
+    // Out of the strip altogether: the wrapper is left too.
+    seen.length = 0
+    mounted.send(cells[0]!, { eventType: 'mouseMove', ...at(150, 400), pressedButton: 0 })
+    expect(seen).toEqual(['mouseout@2', 'mouseleave@2', 'mouseleave@wrapper'])
+  })
+
+  test('hover listeners survive live moves and detached subtree reinsertion', async () => {
+    const { cells, seen, at } = await strip()
+    const source = cells[0]!
+    const target = cells[1]!
+    const parent = target.parentElement!
+    const other = el('div')
+    mounted.container.append(other)
+    await mounted.settle()
+    const id = mounted.idOf(target)
+    other.append(target)
+    await mounted.settle()
+    expect(mounted.idOf(target)).toBe(id)
+    mounted.send(source, { eventType: 'mouseDown', ...at(50), button: 0 })
+    seen.length = 0
+    mounted.send(source, { eventType: 'mouseMove', ...at(150), pressedButton: 0 })
+    expect(seen).toContain('mouseenter@1')
+    mounted.send(source, { eventType: 'mouseUp', ...at(150), button: 0 })
+    other.remove()
+    await mounted.settle()
+    expect(mounted.mirror.idFor(target)).toBeUndefined()
+    parent.append(other)
+    await mounted.settle()
+    expect(mounted.idOf(target)).not.toBe(id)
+    expect(mounted.nativeOf(target).listeners.has('mouseEnter')).toBe(true)
+    mounted.gpui.setBounds(mounted.idOf(target), { x: 100, y: 0, width: 100, height: 100 })
+    // A recreated native element's first enter is fresh, not a late copy.
+    seen.length = 0
+    expect(mounted.send(target, { eventType: 'mouseEnter', ...at(150), hovered: true })).toBe(true)
+    expect(seen).toContain('mouseenter@1')
+    mounted.send(source, { eventType: 'mouseDown', ...at(50), button: 0 })
+    seen.length = 0
+    mounted.send(source, { eventType: 'mouseMove', ...at(150), pressedButton: 0 })
+    expect(seen).toContain('mouseenter@1')
+    mounted.send(source, { eventType: 'mouseUp', ...at(150), button: 0 })
+  })
+
+  test('listeners changed while detached restore only current native and hover subscriptions', async () => {
+    const { cells, seen, at } = await strip()
+    const source = cells[0]!
+    const target = el('div')
+    const onEnter = () => seen.push('detached enter')
+    const onClick = () => seen.push('detached click')
+    target.addEventListener('mouseenter', onEnter)
+    target.addEventListener('click', onClick)
+    mounted.container.append(target)
+    await mounted.settle()
+    target.remove()
+    await mounted.settle()
+    target.removeEventListener('click', onClick)
+    target.removeEventListener('mouseenter', onEnter)
+    target.addEventListener('mouseenter', onEnter)
+    mounted.container.append(target)
+    await mounted.settle()
+    expect(mounted.nativeOf(target).listeners.has('click')).toBe(false)
+    expect(mounted.nativeOf(target).listeners.has('mouseEnter')).toBe(true)
+    mounted.gpui.setBounds(mounted.idOf(target), { x: 350, y: 0, width: 100, height: 100 })
+    mounted.send(source, { eventType: 'mouseDown', ...at(50), button: 0 })
+    seen.length = 0
+    mounted.send(source, { eventType: 'mouseMove', ...at(400), pressedButton: 0 })
+    expect(seen).toContain('detached enter')
+    mounted.send(source, { eventType: 'mouseUp', ...at(400), button: 0 })
+  })
+
+  test("GPUI's own enter and leave after the release aren't fired twice", async () => {
+    const { cells, seen, at } = await strip()
+    mounted.send(cells[0]!, { eventType: 'mouseDown', ...at(50), button: 0, clickCount: 1 })
+    mounted.send(cells[0]!, { eventType: 'mouseMove', ...at(250), pressedButton: 0 })
+    mounted.send(cells[0]!, { eventType: 'mouseUp', ...at(250), button: 0, clickCount: 1 })
+    seen.length = 0
+    // What GPUI sends once the button is up and it hovers again.
+    mounted.send(cells[0]!, { eventType: 'mouseLeave', ...at(250), hovered: false })
+    mounted.send(cells[2]!, { eventType: 'mouseEnter', ...at(250), hovered: true })
+    expect(seen).toEqual([])
+    // Later ones are real.
+    mounted.send(cells[2]!, { eventType: 'mouseLeave', ...at(350), hovered: false })
+    expect(seen).toEqual(['mouseleave@2', 'mouseout@2'])
+  })
+
+  test('bounds are read once per layout: a drag that only recolours reads them once', async () => {
+    const { cells, at } = await strip()
+    // Painting, as Pixel Art does: entering a cell recolours it.
+    for (const cell of cells) cell.addEventListener('mouseenter', () => { cell.style.backgroundColor = 'red' })
+    mounted.send(cells[0]!, { eventType: 'mouseDown', ...at(50), button: 0, clickCount: 1 })
+    await mounted.settle()
+    const before = mounted.gpui.treeReads()
+    for (const x of [120, 150, 220, 250, 280]) {
+      mounted.send(cells[0]!, { eventType: 'mouseMove', ...at(x), pressedButton: 0 })
+      await mounted.settle()
+    }
+    expect(cells.map(cell => cell.style.backgroundColor)).toEqual(['', 'red', 'red'])
+    expect(mounted.gpui.treeReads() - before).toBe(1)
+    // Something that can move things (a new element) means reading them again.
+    cells[2]!.after(el('div', 'new'))
+    await mounted.settle()
+    mounted.send(cells[0]!, { eventType: 'mouseMove', ...at(150), pressedButton: 0 })
+    expect(mounted.gpui.treeReads() - before).toBe(2)
+  })
+
+  test("the hit test uses each element's border box, padding included", async () => {
+    const { cells, seen, at } = await strip()
+    // Padding moves gpuix's reported corner; a point in the padding is still the cell.
+    for (const cell of cells) cell.style.padding = '20px'
+    await mounted.settle()
+    mounted.send(cells[0]!, { eventType: 'mouseDown', ...at(50), button: 0, clickCount: 1 })
+    seen.length = 0
+    mounted.send(cells[0]!, { eventType: 'mouseMove', ...at(105, 5), pressedButton: 0 })
+    expect(seen).toContain('mouseenter@1')
+  })
+
+  test('without a press, moves hover nothing: GPUI does that itself', async () => {
+    const { cells, seen, at } = await strip()
+    mounted.send(cells[0]!, { eventType: 'mouseDown', ...at(50), button: 0, clickCount: 1 })
+    mounted.send(cells[0]!, { eventType: 'mouseUp', ...at(50), button: 0, clickCount: 1 })
+    seen.length = 0
+    mounted.send(cells[0]!, { eventType: 'mouseMove', ...at(150) })
+    expect(seen).toEqual([])
+  })
+})

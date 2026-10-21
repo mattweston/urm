@@ -1,0 +1,209 @@
+import { Option } from 'effect'
+import { describe, expect, it } from 'vitest'
+import type { Attribute } from 'foldkit/html'
+import { Attr, Attributes, Event, Resolver, Slot, type SlotAttributes } from '../src/index.js'
+import { DiagnosticError } from '../src/diagnostics.js'
+import { fakeChild, h, mount, type TestMessage } from './resolverFixture.js'
+
+const tagOf = <Message>(attribute: SlotAttributes<Message>[number]): string =>
+  Attributes.tagOf(attribute) ?? 'Child'
+
+const tags = <Message>(attributes: SlotAttributes<Message>): ReadonlyArray<string> =>
+  attributes.map(tagOf)
+
+const classOf = <Message>(attributes: SlotAttributes<Message>): unknown =>
+  Attributes.find(attributes, 'Class')?.value
+
+const styleOf = <Message>(attributes: SlotAttributes<Message>): unknown =>
+  Attributes.find(attributes, 'Style')?.value
+
+const mountNames = <Message>(attributes: SlotAttributes<Message>): ReadonlyArray<string> =>
+  Attributes.filter(attributes, 'OnMount').map(attribute => attribute.action.name)
+
+const codeOf = (f: () => unknown): string => {
+  try {
+    f()
+  } catch (error) {
+    if (error instanceof DiagnosticError) return error.diagnostic.code
+    throw error
+  }
+  throw new Error('expected resolve to throw')
+}
+
+describe('Resolver.resolve', () => {
+  it('adds and deduplicates class tokens, emitting one Class', () => {
+    const out = Resolver.resolve([h.Class('a b'), h.Class('b c')], [{ classes: ['c', 'd'] }])
+    expect(classOf(out)).toBe('a b c d')
+    expect(out.filter(attribute => tagOf(attribute) === 'Class')).toHaveLength(1)
+  })
+
+  it('gives a style property one owner between a Behavior and anything else', () => {
+    const behaviorStyle = { attributes: [h.Style({ position: 'absolute', top: '4px' })] }
+    // A Behavior may set a property nothing else set.
+    expect(styleOf(Resolver.resolve([], [behaviorStyle]))).toEqual({
+      position: 'absolute',
+      top: '4px',
+    })
+    // A Style piece may not overwrite it, in either order.
+    expect(codeOf(() => Resolver.resolve([], [behaviorStyle, { style: { top: '0' } }]))).toBe(
+      'mixins:style-property-conflict',
+    )
+    expect(codeOf(() => Resolver.resolve([], [{ style: { top: '0' } }, behaviorStyle]))).toBe(
+      'mixins:style-property-conflict',
+    )
+    // Nor may the view's own base, or a second Behavior.
+    expect(codeOf(() => Resolver.resolve([h.Style({ top: '0' })], [behaviorStyle]))).toBe(
+      'mixins:style-property-conflict',
+    )
+    expect(
+      codeOf(() =>
+        Resolver.resolve([], [behaviorStyle, { attributes: [h.Style({ position: 'fixed' })] }]),
+      ),
+    ).toBe('mixins:style-property-conflict')
+    // Different properties from both channels coexist.
+    expect(styleOf(Resolver.resolve([], [behaviorStyle, { style: { color: 'red' } }]))).toEqual({
+      position: 'absolute',
+      top: '4px',
+      color: 'red',
+    })
+  })
+
+  it('merges inline style per property in attachment order, emitting one Style', () => {
+    const out = Resolver.resolve(
+      [h.Style({ color: 'red', padding: '1px' })],
+      [{ style: { color: 'blue' } }, { style: { padding: '2px' } }],
+    )
+    expect(styleOf(out)).toEqual({ color: 'blue', padding: '2px' })
+    expect(out.filter(attribute => tagOf(attribute) === 'Style')).toHaveLength(1)
+  })
+
+  it('lets a Mixin add an unowned scalar attribute', () => {
+    const out = Resolver.resolve([h.Role('button')], [{ attributes: [h.AriaDisabled(true)] }])
+    expect(tags(out)).toEqual(['Role', 'AriaDisabled'])
+  })
+
+  it('rejects a Mixin that replaces a base scalar attribute', () => {
+    expect(
+      codeOf(() => Resolver.resolve([h.Role('button')], [{ attributes: [h.Role('link')] }])),
+    ).toBe('mixins:attribute-conflict')
+  })
+
+  it('rejects two owners of one semantic event', () => {
+    expect(
+      codeOf(() =>
+        Resolver.resolve(
+          [h.OnClick({ _tag: 'Clicked' })],
+          [{ attributes: [h.OnClick({ _tag: 'Other' })] }],
+        ),
+      ),
+    ).toBe('mixins:event-conflict')
+  })
+
+  it('keys the self-only and before-input variants apart from their base events', () => {
+    // Foldkit 0.159 added `OnKeyDownSelf` and `OnBeforeInput`; each is its own
+    // event token, as `OnKeyDownPreventDefault` already was beside `OnKeyDown`.
+    const out = Resolver.resolve(
+      [h.OnKeyDown(() => ({ _tag: 'Clicked' })), h.OnInput(() => ({ _tag: 'Clicked' }))],
+      [
+        {
+          attributes: [
+            h.OnKeyDownSelf(() => ({ _tag: 'Other' })),
+            h.OnBeforeInput(() => ({ _tag: 'Other' })),
+          ],
+        },
+      ],
+    )
+    expect(tags(out)).toEqual(['OnKeyDown', 'OnInput', 'OnKeyDownSelf', 'OnBeforeInput'])
+  })
+
+  it('treats distinct raw attribute keys as distinct owners', () => {
+    const out = Resolver.resolve(
+      [h.Attribute('data-a', '1')],
+      [{ attributes: [h.Attribute('data-b', '2')] }],
+    )
+    expect(tags(out)).toEqual(['Attribute', 'Attribute'])
+  })
+
+  it('keys a custom event by its name instead of one native event', () => {
+    const custom = (name: string): Attribute<TestMessage> =>
+      ({
+        _tag: 'OnCustomEvent',
+        name,
+        f: () => Option.some({ _tag: 'Clicked' }),
+      }) as Attribute<TestMessage>
+    const out = Resolver.resolve([custom('a')], [{ attributes: [custom('b')] }])
+    expect(tags(out)).toEqual(['OnCustomEvent', 'OnCustomEvent'])
+    expect(codeOf(() => Resolver.resolve([custom('a')], [{ attributes: [custom('a')] }]))).toBe(
+      'mixins:attribute-conflict',
+    )
+  })
+
+  it('rejects a redundant raw attribute key', () => {
+    expect(
+      codeOf(() =>
+        Resolver.resolve(
+          [h.Attribute('data-a', '1')],
+          [{ attributes: [h.Attribute('data-a', '2')] }],
+        ),
+      ),
+    ).toBe('mixins:attribute-conflict')
+  })
+
+  it('refuses Key and InnerHTML from a Mixin', () => {
+    expect(codeOf(() => Resolver.resolve([], [{ attributes: [h.Key('row')] }]))).toBe(
+      'mixins:structural-override',
+    )
+    expect(codeOf(() => Resolver.resolve([], [{ attributes: [h.InnerHTML('<b>x</b>')] }]))).toBe(
+      'mixins:structural-override',
+    )
+  })
+
+  it('preserves a ChildAttribute by identity and reserves its event', () => {
+    const child = fakeChild(h.OnClick({ _tag: 'Clicked' }))
+    const out = Resolver.resolve([child], [])
+    expect(out).toContain(child)
+    expect(
+      codeOf(() => Resolver.resolve([child], [{ attributes: [h.OnClick({ _tag: 'Other' })] }])),
+    ).toBe('mixins:event-conflict')
+  })
+
+  it('composes every Mount into exactly one OnMount', () => {
+    const out = Resolver.resolve([h.OnMount(mount('A'))], [{ mounts: [mount('B'), mount('C')] }])
+    expect(mountNames(out)).toEqual(['Mixins[slot](A,B,C)'])
+  })
+
+  it('rejects two Mounts with one name', () => {
+    expect(
+      codeOf(() => Resolver.resolve([h.OnMount(mount('A'))], [{ mounts: [mount('A')] }])),
+    ).toBe('mixins:duplicate-mount-name')
+  })
+
+  it('honors protected events, attributes, and style properties', () => {
+    const protection = Slot.make({
+      protected: { events: [Event.Click], attributes: [Attr.Role], style: ['position'] },
+    }).protected
+    const options = { slot: 'root', protected: protection }
+    expect(
+      codeOf(() =>
+        Resolver.resolve([], [{ attributes: [h.OnClick({ _tag: 'Clicked' })] }], options),
+      ),
+    ).toBe('mixins:protected-event')
+    expect(codeOf(() => Resolver.resolve([], [{ attributes: [h.Role('button')] }], options))).toBe(
+      'mixins:protected-attribute',
+    )
+    expect(codeOf(() => Resolver.resolve([], [{ style: { position: 'absolute' } }], options))).toBe(
+      'mixins:protected-style-property',
+    )
+  })
+
+  it('is deterministic for the same inputs', () => {
+    const build = (): ReadonlyArray<string> =>
+      tags(
+        Resolver.resolve(
+          [h.Class('a'), h.Role('button'), h.OnClick({ _tag: 'Clicked' })],
+          [{ classes: ['b'], style: { color: 'red' } }],
+        ),
+      )
+    expect(build()).toEqual(build())
+  })
+})

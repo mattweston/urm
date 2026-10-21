@@ -1,0 +1,27 @@
+{
+  "name": "@qaveai/shared",
+  "private": true,
+  "type": "module",
+  "module": "src/platform/rpc.ts",
+  "exports": {
+    "./platform/rpc": "./src/platform/rpc.ts",
+    "./module/auth/auth.schema": "./src/module/auth/auth.schema.ts",
+    "./module/auth/auth.rpc": "./src/module/auth/auth.rpc.ts",
+    "./module/channel/channel.schema": "./src/module/channel/channel.schema.ts",
+    "./module/channel/channel.rpc.interface": "./src/module/channel/channel.rpc.interface.ts",
+    "./module/org/org.schema": "./src/module/org/org.schema.ts",
+    "./module/org/org.rpc": "./src/module/org/org.rpc.ts",
+    "./module/project/project.schema": "./src/module/project/project.schema.ts",
+    "./module/project/project.rpc": "./src/module/project/project.rpc.ts",
+    "./module/task/task.schema": "./src/module/task/task.schema.ts",
+    "./module/task/task.rpc.interface": "./src/module/task/task.rpc.interface.ts",
+    "./module/todo/todo.schema": "./src/module/todo/todo.schema.ts",
+    "./module/todo/todo.rpc": "./src/module/todo/todo.rpc.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.59"
+  }
+}

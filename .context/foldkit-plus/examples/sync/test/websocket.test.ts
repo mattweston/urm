@@ -1,0 +1,182 @@
+import { Effect, Fiber } from 'effect'
+import { IDBFactory } from 'fake-indexeddb'
+import { Sync } from 'foldkit-sync'
+import { WebSocket as WsClient } from 'ws'
+import { afterEach, expect, it, vi } from 'vitest'
+import { Message } from '../src/app.js'
+import { openJournal, type Principal } from '../src/journal.js'
+import { startSyncServer, type Authenticated, type SyncServer } from '../src/server.js'
+import { closeStorages, openReplicaEffect, openStorage, type TodoReplica } from './helpers.js'
+
+const principal: Principal = { actorId: 'owner', documentId: 'todos', canWrite: true }
+const accounts: Record<string, Principal> = {
+  alice: { actorId: 'alice', documentId: 'todos', canWrite: true },
+  bob: { actorId: 'bob', documentId: 'todos', canWrite: false },
+}
+const authenticate = (token: string | null): Authenticated | undefined => {
+  if (token === null) return undefined
+  const account = accounts[token]
+  return account === undefined ? undefined : { principal: account }
+}
+const servers: Array<SyncServer> = []
+
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map(server => server.close()))
+  await closeStorages()
+})
+
+const openReplica = async (id: string): Promise<TodoReplica> =>
+  openReplicaEffect(id, await Effect.runPromise(openStorage(id, new IDBFactory())))
+
+const sync = (url: string, replica: TodoReplica): Promise<void> =>
+  Effect.runPromise(Effect.provide(replica.synchronize, Sync.transport.socket({ url })))
+
+it('converges a replica over a real WebSocket', async () => {
+  const journal = openJournal(':memory:')
+  const server = await startSyncServer({ journal, authenticate: () => ({ principal }) })
+  servers.push(server)
+  const replica = await openReplica('browser')
+  try {
+    journal.appendAsServer(
+      Message.CreatedTodo({ id: 'a', title: 'over the wire' }),
+      principal,
+      'server',
+    )
+
+    await sync(server.url, replica)
+
+    expect(Effect.runSync(replica.cursor)).toBe(1)
+    expect(Effect.runSync(replica.shared).todos).toEqual([{ id: 'a', title: 'over the wire' }])
+  } finally {
+    await Effect.runPromise(replica.close)
+    journal.close()
+  }
+})
+
+it('converges two replicas over the wire', async () => {
+  const journal = openJournal(':memory:')
+  const server = await startSyncServer({ journal, authenticate: () => ({ principal }) })
+  servers.push(server)
+  const a = await openReplica('a')
+  const b = await openReplica('b')
+  try {
+    await Effect.runPromise(a.submit(Message.CreatedTodo({ id: 'a', title: 'from a' })))
+    await Effect.runPromise(b.submit(Message.CreatedTodo({ id: 'b', title: 'from b' })))
+
+    await Promise.all([sync(server.url, a), sync(server.url, b)])
+    await Promise.all([sync(server.url, a), sync(server.url, b)])
+
+    expect(Effect.runSync(a.shared)).toEqual(Effect.runSync(b.shared))
+    expect(
+      Effect.runSync(a.shared)
+        .todos.map(todo => todo.id)
+        .sort(),
+    ).toEqual(['a', 'b'])
+  } finally {
+    await Effect.runPromise(a.close)
+    await Effect.runPromise(b.close)
+    journal.close()
+  }
+})
+
+it('pushes a commit to a replica that is only reading', async () => {
+  const journal = openJournal(':memory:')
+  const server = await startSyncServer({ journal, authenticate: () => ({ principal }) })
+  servers.push(server)
+  const reader = await openReplica('reader')
+  const writer = await openReplica('writer')
+  const loop = Effect.runFork(
+    reader.start.pipe(Effect.provide(Sync.transport.socket({ url: server.url }))),
+  )
+  try {
+    // The reader's own edit, exchanged, then a pause for the exchange its connecting
+    // triggers: after that it submits nothing, so only the server's notice can make it
+    // exchange again.
+    await Effect.runPromise(reader.submit(Message.CreatedTodo({ id: 'r', title: 'mine' })))
+    await vi.waitFor(() => expect(Effect.runSync(reader.cursor)).toBe(1))
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await Effect.runPromise(writer.submit(Message.CreatedTodo({ id: 'a', title: 'pushed' })))
+    await sync(server.url, writer)
+    await vi.waitFor(() =>
+      expect(Effect.runSync(reader.shared).todos.map(todo => todo.id)).toEqual(['r', 'a']),
+    )
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(loop))
+    await Effect.runPromise(reader.close)
+    await Effect.runPromise(writer.close)
+    journal.close()
+  }
+})
+
+it('derives a principal per connection and refuses an unknown token', async () => {
+  const journal = openJournal(':memory:')
+  const server = await startSyncServer({ journal, authenticate })
+  servers.push(server)
+  const alice = await openReplica('alice')
+  const bob = await openReplica('bob')
+  const stranger = await openReplica('stranger')
+  try {
+    await Effect.runPromise(alice.submit(Message.CreatedTodo({ id: 'a', title: 'from alice' })))
+    await sync(`${server.url}?token=alice`, alice)
+
+    await Effect.runPromise(bob.submit(Message.CreatedTodo({ id: 'b', title: 'from bob' })))
+    await sync(`${server.url}?token=bob`, bob)
+
+    // Alice's write commits under her actor; Bob reads it, but his own write is
+    // refused and dropped from his outbox.
+    expect(Effect.runSync(alice.shared).todos).toEqual([{ id: 'a', title: 'from alice' }])
+    expect(Effect.runSync(bob.shared).todos).toEqual([{ id: 'a', title: 'from alice' }])
+    expect(Effect.runSync(bob.pending)).toEqual([])
+    expect(journal.read('todos', 0).at(-1)).toMatchObject({ actorId: 'alice' })
+    expect(journal.snapshot('todos').model.todos.map(todo => todo.id)).toEqual(['a'])
+
+    // An unknown token is closed before it can exchange.
+    await expect(
+      Effect.runPromise(
+        Effect.provide(
+          stranger.synchronize,
+          Sync.transport.socket({ url: server.url, maxRetries: 0 }),
+        ),
+      ),
+    ).rejects.toThrow()
+    expect(Effect.runSync(stranger.cursor)).toBe(0)
+  } finally {
+    await Promise.all([alice, bob, stranger].map(replica => Effect.runPromise(replica.close)))
+    journal.close()
+  }
+})
+
+it('closes a connection when its credential expires and refuses the token afterwards', async () => {
+  const journal = openJournal(':memory:')
+  const expiresAt = Date.now() + 150
+  const server = await startSyncServer({
+    journal,
+    authenticate: token => (token === 'short' ? { principal, expiresAt } : undefined),
+  })
+  servers.push(server)
+
+  // An open connection is closed with 4401 once the credential expires.
+  const socket = new WsClient(`${server.url}?token=short`)
+  const closed = new Promise<number>(resolve => socket.once('close', code => resolve(code)))
+  await new Promise<void>((resolve, reject) => {
+    socket.once('open', () => resolve())
+    socket.once('error', reject)
+  })
+  expect(await closed).toBe(4401)
+
+  // The same token cannot reconnect once it has expired.
+  const replica = await openReplica('browser')
+  try {
+    await expect(
+      Effect.runPromise(
+        Effect.provide(
+          replica.synchronize,
+          Sync.transport.socket({ url: `${server.url}?token=short`, maxRetries: 0 }),
+        ),
+      ),
+    ).rejects.toThrow()
+  } finally {
+    await Effect.runPromise(replica.close)
+    journal.close()
+  }
+})

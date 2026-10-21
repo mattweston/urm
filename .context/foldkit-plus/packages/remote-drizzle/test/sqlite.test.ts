@@ -1,0 +1,464 @@
+import { DatabaseSync } from 'node:sqlite'
+import { eq } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/node-sqlite'
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { Effect, Schema } from 'effect'
+import { Query } from 'foldkit-remote'
+import { describe, expect, it } from 'vitest'
+import {
+  databaseLayer,
+  drizzleWrites,
+  entity,
+  many,
+  manyToMany,
+  one,
+  query,
+  returning,
+  source,
+  type AnyEntityBinding,
+  sortTerms,
+} from '../src/index.js'
+
+const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+})
+
+const projects = sqliteTable('projects', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  ownerId: text('owner_id'),
+  createdAt: text('created_at').notNull(),
+})
+
+const comments = sqliteTable('comments', {
+  id: text('id').primaryKey(),
+  body: text('body').notNull(),
+  projectId: text('project_id').notNull(),
+  createdAt: text('created_at').notNull(),
+})
+
+const tags = sqliteTable('tags', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+})
+
+const postTags = sqliteTable('post_tags', {
+  postId: text('post_id').notNull(),
+  tagId: text('tag_id').notNull(),
+})
+
+const UserBinding = entity('User', users)
+const CommentBinding = entity('Comment', comments)
+const ProjectBinding = entity('Project', projects, {
+  relations: {
+    owner: one(UserBinding, { field: projects.ownerId, nullable: true }),
+    comments: many(CommentBinding, {
+      foreignKey: comments.projectId,
+      localKey: projects.id,
+      orderBy: [{ column: comments.createdAt, direction: 'asc' }],
+    }),
+  },
+  computed: { commentCount: { relation: 'comments' } },
+})
+
+const TagBinding = entity('Tag', tags)
+const TaggedProject = entity('Project', projects, {
+  relations: {
+    tags: manyToMany(TagBinding, {
+      through: postTags,
+      localColumn: postTags.postId,
+      foreignColumn: postTags.tagId,
+    }),
+  },
+})
+
+const Projects = Query.make('Projects', {
+  Input: Schema.Struct({}),
+  Result: Query.connection({ name: 'Project' }),
+})
+
+const setup = () => {
+  const sqlite = new DatabaseSync(':memory:')
+  sqlite.exec(`
+    create table users (id text primary key, name text not null);
+    create table projects (id text primary key, name text not null, owner_id text, created_at text not null);
+    create table comments (id text primary key, body text not null, project_id text not null, created_at text not null);
+    create table tags (id text primary key, name text not null);
+    create table post_tags (post_id text not null, tag_id text not null);
+    insert into users values ('u1', 'Ada'), ('u2', 'Grace');
+    insert into projects values ('p1', 'Alpha', 'u1', '2020-01-01'), ('p2', 'Beta', 'u1', '2020-01-02'), ('p3', 'Gamma', null, '2020-01-03');
+    insert into comments values ('c1', 'a', 'p1', '2020-01-01'), ('c2', 'b', 'p1', '2020-01-02'), ('c3', 'c', 'p2', '2020-01-01');
+    insert into tags values ('t1', 'TypeScript'), ('t2', 'Databases');
+    insert into post_tags values ('p1', 't1'), ('p1', 't2'), ('p2', 't1');
+  `)
+  return { sqlite, database: drizzle({ client: sqlite }) }
+}
+
+const read = (
+  binding: AnyEntityBinding,
+  database: unknown,
+  context: Parameters<ReturnType<typeof source>['read']>[0],
+) =>
+  Effect.runPromise(
+    source(binding)
+      .read(context)
+      .pipe(Effect.provide(databaseLayer(database))),
+  )
+
+describe('RemoteDrizzle against in-process SQLite', () => {
+  it('reads refs, a child list, and a computed count from real SQL', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const records = await read(ProjectBinding, database, {
+        ids: ['p1'],
+        fields: ['id', 'name', 'owner', 'comments', 'commentCount'],
+        principal: null,
+      })
+
+      expect(records).toEqual([
+        {
+          id: 'p1',
+          values: {
+            id: 'p1',
+            name: 'Alpha',
+            owner: 'User:u1',
+            comments: ['Comment:c1', 'Comment:c2'],
+            commentCount: 2,
+          },
+        },
+      ])
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('emits null for a null one relation', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const records = await read(ProjectBinding, database, {
+        ids: ['p3'],
+        fields: ['id', 'owner'],
+        principal: null,
+      })
+      expect(records[0]!.values.owner).toBeNull()
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('loads a many-to-many relation from real SQL', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const records = await read(TaggedProject, database, {
+        ids: ['p1'],
+        fields: ['id', 'tags'],
+        principal: null,
+      })
+      expect(records[0]!.values.tags).toEqual(['Tag:t1', 'Tag:t2'])
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('pages a many-to-many relation through the join table', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const first = await read(TaggedProject, database, {
+        ids: ['p1'],
+        fields: ['tags'],
+        principal: null,
+        windows: { tags: { first: 1 } },
+      })
+      expect(first[0]!.values.tags).toEqual({ refs: ['Tag:t1'], hasNext: true, hasPrevious: false })
+      const rest = await read(TaggedProject, database, {
+        ids: ['p1'],
+        fields: ['tags'],
+        principal: null,
+        windows: { tags: { first: 1, after: 'Tag:t1' } },
+      })
+      expect(rest[0]!.values.tags).toEqual({ refs: ['Tag:t2'], hasNext: false, hasPrevious: true })
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('a window of zero rows reports only the boundaries', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const records = await read(ProjectBinding, database, {
+        ids: ['p1', 'p3'],
+        fields: ['comments'],
+        principal: null,
+        windows: { comments: { first: 0 } },
+      })
+      expect(records.map(record => record.values.comments)).toEqual([
+        { refs: [], hasNext: true, hasPrevious: false },
+        { refs: [], hasNext: false, hasPrevious: false },
+      ])
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('declares the binding’s fields so the server never asks for another', () => {
+    expect(source(ProjectBinding).fields).toEqual(
+      new Set(['id', 'name', 'ownerId', 'createdAt', 'owner', 'comments', 'commentCount']),
+    )
+  })
+
+  it('counts with a where against real SQL', async () => {
+    const counted = entity('Project', projects, {
+      relations: {
+        comments: many(CommentBinding, { foreignKey: comments.projectId, localKey: projects.id }),
+      },
+      computed: { aCount: { relation: 'comments', where: eq(comments.body, 'a') } },
+    })
+    const { sqlite, database } = setup()
+    try {
+      const records = await read(counted, database, {
+        ids: ['p1'],
+        fields: ['id', 'aCount'],
+        principal: null,
+      })
+      expect(records[0]!.values.aCount).toBe(1)
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('applies a principal-scoped relation filter against real SQL', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const records = await Effect.runPromise(
+        source(ProjectBinding, {
+          policies: { comments: (principal: string) => eq(comments.body, principal) },
+        })
+          .read({ ids: ['p1'], fields: ['id', 'comments'], principal: 'a' })
+          .pipe(Effect.provide(databaseLayer(database))),
+      )
+      expect(records[0]!.values.comments).toEqual(['Comment:c1'])
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('pages a windowed relation with a first window and an after cursor', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const first = await read(ProjectBinding, database, {
+        ids: ['p1'],
+        fields: ['id', 'comments'],
+        principal: null,
+        windows: { comments: { first: 1 } },
+      })
+      expect(first[0]!.values.comments).toEqual({
+        refs: ['Comment:c1'],
+        hasNext: true,
+        hasPrevious: false,
+      })
+
+      const second = await read(ProjectBinding, database, {
+        ids: ['p1'],
+        fields: ['id', 'comments'],
+        principal: null,
+        windows: { comments: { first: 1, after: 'Comment:c1' } },
+      })
+      expect(second[0]!.values.comments).toEqual({
+        refs: ['Comment:c2'],
+        hasNext: false,
+        hasPrevious: true,
+      })
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('pages a keyset query forward and backward over real rows', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const source_ = query(Projects, {
+        entity: ProjectBinding,
+        orderBy: [{ column: projects.createdAt, direction: 'asc' }],
+      })
+      const run = (window: Parameters<typeof source_.run>[0]['window']) =>
+        Effect.runPromise(
+          source_
+            .run({ input: {}, window, principal: null })
+            .pipe(Effect.provide(databaseLayer(database))),
+        )
+
+      expect((await run({ first: 2 })).edges.map(edge => edge.id)).toEqual(['p1', 'p2'])
+      expect((await run({ first: 2, after: 'p2' })).edges.map(edge => edge.id)).toEqual(['p3'])
+      expect((await run({ last: 2 })).edges.map(edge => edge.id)).toEqual(['p2', 'p3'])
+    } finally {
+      sqlite.close()
+    }
+  })
+})
+
+describe('a query ordered by its input', () => {
+  const Sorted = Query.make('SortedProjects', {
+    Input: Schema.Struct({ by: Schema.Literals(['name-desc', 'created', 'id']) }),
+    Result: Query.connection({ name: 'Project' }),
+  })
+  const sorted = query(Sorted, {
+    entity: ProjectBinding,
+    orderBy: ({ by }) =>
+      by === 'name-desc'
+        ? [{ column: projects.name, direction: 'desc' }]
+        : by === 'created'
+          ? [{ column: projects.createdAt, direction: 'asc' }]
+          : [],
+  })
+  const ids = async (
+    database: ReturnType<typeof setup>['database'],
+    by: (typeof Sorted.Input.Type)['by'],
+    window: Parameters<typeof sorted.run>[0]['window'],
+  ) =>
+    (
+      await Effect.runPromise(
+        sorted
+          .run({ input: { by }, window, principal: null })
+          .pipe(Effect.provide(databaseLayer(database))),
+      )
+    ).edges.map(edge => edge.id)
+
+  it('reads the order from the input, and pages each order on its own cursors', async () => {
+    const { sqlite, database } = setup()
+    try {
+      expect(await ids(database, 'name-desc', { first: 2 })).toEqual(['p3', 'p2'])
+      expect(await ids(database, 'name-desc', { first: 2, after: 'p2' })).toEqual(['p1'])
+      // An order that names nothing is the id's.
+      expect(await ids(database, 'id', { first: 3 })).toEqual(['p1', 'p2', 'p3'])
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('breaks the ties of an order that is not unique by id, so no row repeats or is lost', async () => {
+    const { sqlite, database } = setup()
+    try {
+      sqlite.exec(`update projects set created_at = '2020-01-01'`)
+      const first = await ids(database, 'created', { first: 1 })
+      const second = await ids(database, 'created', { first: 1, after: first[0]! })
+      const third = await ids(database, 'created', { first: 1, after: second[0]! })
+      expect(new Set([...first, ...second, ...third])).toEqual(new Set(['p1', 'p2', 'p3']))
+      expect([first, second, third]).toEqual([['p1'], ['p2'], ['p3']])
+    } finally {
+      sqlite.close()
+    }
+  })
+})
+
+describe('sortTerms', () => {
+  const columns = { name: projects.name, created: projects.createdAt }
+
+  it('reads the order a client asked for through the columns the server offers', () => {
+    expect(sortTerms({ by: 'name', direction: 'desc' }, columns)).toEqual([
+      { column: projects.name, direction: 'desc' },
+    ])
+  })
+
+  it('gives no terms for no sort, or for a name the server does not offer', () => {
+    expect(sortTerms(null, columns)).toEqual([])
+    expect(sortTerms(undefined, columns)).toEqual([])
+    expect(sortTerms({ by: 'ownerId', direction: 'asc' }, columns)).toEqual([])
+    // Not a column of the map, however it is spelled.
+    expect(sortTerms({ by: 'constructor', direction: 'asc' }, columns)).toEqual([])
+  })
+})
+
+describe('review: windowed relation boundaries', () => {
+  it('an empty page under a cursor keeps the cursor-side boundary', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const forward = await read(ProjectBinding, database, {
+        ids: ['p1'],
+        fields: ['comments'],
+        principal: null,
+        windows: { comments: { first: 1, after: 'Comment:c2' } },
+      })
+      expect(forward[0]!.values.comments).toEqual({ refs: [], hasNext: false, hasPrevious: true })
+      const backward = await read(ProjectBinding, database, {
+        ids: ['p1'],
+        fields: ['comments'],
+        principal: null,
+        windows: { comments: { last: 1, before: 'Comment:c1' } },
+      })
+      expect(backward[0]!.values.comments).toEqual({ refs: [], hasNext: true, hasPrevious: false })
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('a page over a non-unique order is stable: the id breaks ties in ranking and ordering alike', async () => {
+    const { sqlite, database } = setup()
+    try {
+      sqlite.exec(`update comments set created_at = '2020-01-01'`)
+      const first = await read(ProjectBinding, database, {
+        ids: ['p1'],
+        fields: ['comments'],
+        principal: null,
+        windows: { comments: { first: 1 } },
+      })
+      const second = await read(ProjectBinding, database, {
+        ids: ['p1'],
+        fields: ['comments'],
+        principal: null,
+        windows: { comments: { first: 1, after: 'Comment:c1' } },
+      })
+      expect(first[0]!.values.comments).toMatchObject({ refs: ['Comment:c1'], hasNext: true })
+      expect(second[0]!.values.comments).toMatchObject({ refs: ['Comment:c2'], hasNext: false })
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('writes through the typed writes, and returns every column of the row it wrote', async () => {
+    const { sqlite, database } = setup()
+    try {
+      const patches = await Effect.runPromise(
+        Effect.gen(function* () {
+          const writes = yield* drizzleWrites
+          yield* Effect.promise(() =>
+            Promise.resolve(
+              writes
+                .insert(projects)
+                .values({ id: 'p9', name: 'Nine', ownerId: 'u1', createdAt: '2020-02-02' }),
+            ),
+          )
+          yield* Effect.promise(() =>
+            Promise.resolve(
+              writes.update(projects).set({ name: 'Renamed' }).where(eq(projects.id, 'p9')),
+            ),
+          )
+          // @ts-expect-error a column the table does not have
+          writes.update(projects).set({ title: 'x' })
+          return yield* returning.row(ProjectBinding, 'p9')
+        }).pipe(Effect.provide(databaseLayer(database))),
+      )
+      // The name the update wrote, beside what the insert did, with the owner as its ref.
+      expect(patches).toEqual([
+        {
+          entity: 'Project',
+          id: 'p9',
+          values: {
+            id: 'p9',
+            name: 'Renamed',
+            ownerId: 'u1',
+            createdAt: '2020-02-02',
+            owner: 'User:u1',
+          },
+        },
+      ])
+      expect(
+        await Effect.runPromise(
+          returning.row(ProjectBinding, 'nobody').pipe(Effect.provide(databaseLayer(database))),
+        ),
+      ).toEqual([])
+    } finally {
+      sqlite.close()
+    }
+  })
+})

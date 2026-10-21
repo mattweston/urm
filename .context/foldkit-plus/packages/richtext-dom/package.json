@@ -1,0 +1,110 @@
+{
+  "name": "foldkit-richtext-dom",
+  "version": "0.3.1",
+  "description": "The DOM interpreter for a foldkit-richtext editable subtree.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "rich-text",
+    "editor",
+    "contenteditable",
+    "dom",
+    "typescript"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/richtext-dom"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/richtext-dom#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./editor": {
+      "foldkit-plus:source": "./src/editor.ts",
+      "types": "./dist/editor.d.mts",
+      "import": "./dist/editor.mjs"
+    },
+    "./editor-bundle": {
+      "foldkit-plus:source": "./src/editor-bundle.ts",
+      "types": "./dist/editor-bundle.d.mts",
+      "import": "./dist/editor-bundle.mjs"
+    },
+    "./events": {
+      "foldkit-plus:source": "./src/events.ts",
+      "types": "./dist/events.d.mts",
+      "import": "./dist/events.mjs"
+    },
+    "./host": {
+      "foldkit-plus:source": "./src/host.ts",
+      "types": "./dist/host.d.mts",
+      "import": "./dist/host.mjs"
+    },
+    "./input": {
+      "foldkit-plus:source": "./src/input.ts",
+      "types": "./dist/input.d.mts",
+      "import": "./dist/input.mjs"
+    },
+    "./html": {
+      "foldkit-plus:source": "./src/html.ts",
+      "types": "./dist/html.d.mts",
+      "import": "./dist/html.mjs"
+    },
+    "./toolbar": {
+      "foldkit-plus:source": "./src/toolbar.ts",
+      "types": "./dist/toolbar.d.mts",
+      "import": "./dist/toolbar.mjs"
+    },
+    "./view": {
+      "foldkit-plus:source": "./src/view.ts",
+      "types": "./dist/view.d.mts",
+      "import": "./dist/view.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "foldkit-richtext": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0",
+    "foldkit": "^0.165.0",
+    "foldkit-bundle": "workspace:^",
+    "foldkit-form": "workspace:^"
+  },
+  "peerDependenciesMeta": {
+    "foldkit-form": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-bundle": "workspace:*",
+    "foldkit-entity": "workspace:*",
+    "foldkit-form": "workspace:*",
+    "jsdom": "26.1.0",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  }
+}

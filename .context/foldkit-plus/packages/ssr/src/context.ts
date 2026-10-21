@@ -1,0 +1,104 @@
+/**
+ * The render context: what the page's server-owned parts do, set around one
+ * synchronous call of the view. `SSR.static` reads it to decide whether a
+ * region renders, replays, or adopts the server's markup, and the resumable
+ * builder reads it to decide whether to mark the bindings it builds. With no
+ * context, as in a client-only render, both behave as ordinary view code.
+ *
+ * - `collect`: the server's render. Each region runs once and is kept, and
+ *   each binding is recorded in render order.
+ * - `replay`: the server's second render, from the browser's Model. Each
+ *   region is the one already rendered, so it never reads the browser's Model;
+ *   bindings are recorded again, to be compared with the first render's.
+ * - `resume`: the browser. Each region is the markup the server left in the
+ *   page, and its render never runs; no binding is marked.
+ */
+import type { Html } from 'foldkit/html'
+
+export type Region = ReadonlyArray<Html | string>
+
+/** An element whose handler for `event` is a function, which the page cannot describe. */
+export interface UnnamedHandler {
+  readonly element: string
+  readonly event: string
+}
+
+/**
+ * An element's binding as the server's render records it, before encoding:
+ * the Foldkit attribute and its DOM event, the element for diagnostics, and
+ * the Message it causes. For a Message with a hole, `message` is the Message
+ * with the hole filled by a placeholder, and `hole` names the fields the event
+ * fills.
+ */
+export interface Binding {
+  /** Foldkit's attribute, whose tag says what the handler does beside dispatching. */
+  readonly attribute: string
+  readonly event: string
+  readonly element: string
+  readonly message: unknown
+  readonly hole?: ReadonlyArray<string> | undefined
+  /** How many placement wrappers enclose the hole's fields: `message` is entered that many times. */
+  readonly depth?: number | undefined
+  readonly options?: unknown
+}
+
+export type RenderContext =
+  | {
+      readonly mode: 'collect'
+      readonly regions: Map<string, Region>
+      readonly duplicates: Set<string>
+      readonly bindings: Array<Binding>
+      /** Encodes a form's Message for its no-script fallback; absent when the plan has none. */
+      readonly fallback: ((message: unknown) => string | undefined) | undefined
+      /** Lifts a Message of the view in progress to the application's, through each enclosing placement. */
+      wrap: (message: unknown) => unknown
+      /** How many placements enclose the view in progress. */
+      depth: number
+      /** The static region whose render is in progress, if any. */
+      region: string | undefined
+      /** Handlers met inside a static region, which the server alone renders. */
+      readonly inStatic: Array<{
+        readonly region: string
+        readonly element: string
+        readonly event: string
+      }>
+      /** Each element and event marked `*`: a handler the page cannot name. */
+      readonly unnamed: Array<UnnamedHandler>
+    }
+  | {
+      readonly mode: 'replay'
+      readonly regions: ReadonlyMap<string, Region>
+      readonly bindings: Array<Binding>
+      readonly fallback: ((message: unknown) => string | undefined) | undefined
+      wrap: (message: unknown) => unknown
+      depth: number
+    }
+  | {
+      readonly mode: 'resume'
+      readonly snapshots: ReadonlyMap<string, string>
+      readonly reported: Set<string>
+    }
+
+let context: RenderContext | undefined
+
+/** The context of the view call in progress, if any. */
+export const current = (): RenderContext | undefined => context
+
+export const within = <A>(next: RenderContext, run: () => A): A => {
+  const previous = context
+  context = next
+  try {
+    return run()
+  } finally {
+    context = previous
+  }
+}
+
+/** The config whose view runs inside `next`. */
+export const withContext = <Config extends { readonly view: (model: any, h: any) => unknown }>(
+  config: Config,
+  next: RenderContext,
+): Config => ({
+  ...config,
+  view: (model: unknown, h: unknown) => within(next, () => config.view(model, h)),
+})

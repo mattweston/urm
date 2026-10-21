@@ -1,0 +1,9 @@
+google:
+  users:
+    - email: testuser@example.com
+      name: Test User
+  oauth_clients:
+    - client_id: qaveai-client.apps.googleusercontent.com
+      client_secret: GOCSPX-qaveai-secret
+      redirect_uris:
+        - https://backend.fullstack-effect.localhost/auth/google/callback

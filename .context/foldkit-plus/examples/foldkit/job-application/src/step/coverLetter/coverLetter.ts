@@ -1,0 +1,91 @@
+import { Match, Schema } from 'effect'
+import { Submodel, type Update } from 'foldkit'
+import { defineMessageUnion } from 'foldkit/message'
+import { modifyFields } from 'foldkit/struct'
+import { SlotView, Style } from 'foldkit-mixins'
+import { Textarea } from 'foldkit-mixins-ui'
+
+import { CoverLetterPart, type LetterLength, TextareaStyle } from '../../style.js'
+
+// MODEL
+
+export const Model = Schema.Struct({
+  content: Schema.String,
+})
+export type Model = typeof Model.Type
+
+// MESSAGE
+
+export const Message = defineMessageUnion({
+  UpdatedContent: { value: Schema.String },
+})
+
+export type Message = typeof Message.Type
+
+// INIT
+
+export const init = (): Model => ({
+  content: '',
+})
+
+// UPDATE
+
+export const update = (model: Model, message: Message) =>
+  Message.match<Update.Return<Model, Message>>(message, {
+    UpdatedContent: ({ value }) => ({
+      model: modifyFields(model, { content: () => value }),
+    }),
+  })
+
+// VIEW
+
+const MAX_COVER_LETTER_LENGTH = 2000
+const WARNING_THRESHOLD_CHARS = 200
+
+const letterLength = (remaining: number): LetterLength =>
+  Match.value(remaining).pipe(
+    Match.withReturnType<LetterLength>(),
+    Match.when(
+      count => count < 0,
+      () => 'Over',
+    ),
+    Match.when(
+      count => count <= WARNING_THRESHOLD_CHARS,
+      () => 'Nearly',
+    ),
+    Match.orElse(() => 'Plenty'),
+  )
+
+export const CoverLetterView = SlotView.forMessages<Message>()
+  .define(CoverLetterPart.slots, (model: Model, slots, h) => {
+    const remaining = MAX_COVER_LETTER_LENGTH - model.content.length
+    const length = letterLength(remaining)
+
+    return Textarea.view(
+      {
+        id: 'cover-letter',
+        value: model.content,
+        onInput: value => Message.UpdatedContent({ value }),
+        rows: 12,
+        placeholder:
+          'Tell us why you want to work on Foldkit and what excites you about the Elm Architecture...',
+        invalid: length === 'Over',
+        style: TextareaStyle,
+        draw: ({ label, textarea }, h) =>
+          h.div(slots.letter.attrs(), [
+            h.label(label, ['Cover Letter']),
+            h.textarea(textarea),
+            h.div(slots.footer.attrs(), [
+              h.p(slots.hint.attrs(), ['A strong cover letter helps your application stand out.']),
+              h.span(slots.counter.attrs([h.DataAttribute('state', length)]), [
+                `${remaining} characters remaining`,
+              ]),
+            ]),
+          ]),
+      },
+      h,
+    )
+  })
+  .pipe(Style.attach(CoverLetterPart.style))
+
+export const view = Submodel.defineView<Model, Message>(CoverLetterView)

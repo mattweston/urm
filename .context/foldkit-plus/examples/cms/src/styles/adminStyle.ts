@@ -1,0 +1,634 @@
+/**
+ * The authoring shell's look: the studio's sidebar, sections, editor bar and
+ * cards, as `AdminSlots` publishes them. What several owners share (the theme,
+ * links, buttons, badges, disclosures) lives in `style.ts`.
+ */
+import { Slots, Style } from 'foldkit-mixins'
+import { Loading, RowListSlots } from 'foldkit-mixins-crud'
+import { Recipes, Touch } from 'foldkit-mixins-ui'
+import { Layout } from 'foldkit-mixins/layout'
+import {
+  app,
+  button,
+  control,
+  controlHeight,
+  field,
+  hiddenDeclarations,
+  L,
+  navLink,
+  part,
+  phone,
+  skipLink,
+  stateBadge,
+  t,
+} from './style.js'
+
+// --- the authoring shell --------------------------------------------------------
+
+/**
+ * A disclosure's summary: a drawn chevron in place of the browser's marker,
+ * pointing along the line while closed and turned down while open (the turn
+ * is `chevronOpen`, on the `details`).
+ *
+ * Not the Disclosure contract: that is a JS-driven button[aria-expanded] plus
+ * panel, while this is the browser's own details/summary with CSS keyed on
+ * details[open]. Adopting it would replace the element model, not restyle it.
+ */
+const chevron = Style.compose(
+  Style.nest('&::-webkit-details-marker', { display: 'none' }),
+  Style.nest('&::before', {
+    borderBlockEnd: '2px solid currentColor',
+    borderInlineEnd: '2px solid currentColor',
+    boxSizing: 'border-box',
+    content: '""',
+    flexShrink: '0',
+    height: '0.5em',
+    marginInline: '0.1em 0.2em',
+    transform: 'rotate(-45deg)',
+    transition: 'transform 150ms ease',
+    width: '0.5em',
+  }),
+  Style.self({ alignItems: 'center', cursor: 'pointer', display: 'flex', listStyle: 'none' }),
+)
+const chevronOpen = Style.nest('&[open] > summary::before', { transform: 'rotate(45deg)' })
+
+export const AdminSlots = Slots.define({
+  root: part,
+  skipLink: control,
+  /** The studio's sidebar: the brand, the sections, and who is signed in. */
+  sidebar: part,
+  brand: part,
+  brandMark: part,
+  nav: part,
+  navLink: control,
+  account: part,
+  accountLabel: part,
+  whoLink: control,
+  /** A chair's name and role, beside its avatar: on a phone, the avatar alone shows. */
+  whoName: part,
+  whoRole: part,
+  avatar: part,
+  /** A page's History and More, folded under the editor's bar until asked for. */
+  manage: part,
+  manageSummary: control,
+  /** What the fold holds, said beside its name while there is room. */
+  manageHint: part,
+  manageCards: part,
+  main: part,
+  /** A section's screen: its heading, its filters, then what it lists. */
+  screen: part,
+  screenHead: part,
+  screenTitle: part,
+  filters: part,
+  /** Which of a list's views is shown, as buttons that say whether they are pressed. */
+  tabs: part,
+  tab: control,
+  searchBox: part,
+  /** The label over a control the application owns, such as the schedule input. */
+  fieldLabel: part,
+  /** The editor's screen: a bar across the top, then the page and its settings. */
+  editorScreen: part,
+  editorBar: part,
+  barActions: part,
+  editorBody: part,
+  /** Where a page is built, across the whole width. */
+  workbench: part,
+  canvas: part,
+  aside: part,
+  /** One group of settings in the aside. */
+  card: part,
+  cardTitle: part,
+  /** A button with no box until it is pointed at: the bar's back and preview. */
+  ghost: control,
+  /** A post as a reader will see it, in the canvas while previewing. */
+  preview: part,
+  /** The history's revisions, newest first, on a line down to the first. */
+  timeline: part,
+  /** One published revision: its mark on the line, its words, and a way back to it. */
+  revision: part,
+  revisionMark: part,
+  revisionBody: part,
+  revisionTitle: part,
+  /** On the newest revision while it is what the site shows. */
+  revisionLive: part,
+  revisionMeta: part,
+  revisionRestore: control,
+  toolbar: part,
+  button: control,
+  primary: control,
+  danger: control,
+  status: part,
+  muted: part,
+  /** An entry's state, such as Published. */
+  badge: part,
+  search: control,
+})
+
+export const AdminStyle = Style.forSlots(AdminSlots)(
+  {
+    root: Style.compose(
+      Style.self({
+        background: t.surface.base,
+        color: t.text.default,
+        display: 'grid',
+        fontFamily: t.font.body,
+        gridTemplateColumns: '15.5rem minmax(0, 1fr)',
+        minHeight: '100vh',
+      }),
+      // The bar as tall as it is, and the section the rest: a short page does not stretch the bar.
+      Style.media(phone, {
+        gridTemplateColumns: 'minmax(0, 1fr)',
+        gridTemplateRows: 'auto minmax(0, 1fr)',
+      }),
+    ),
+    skipLink,
+    sidebar: Style.compose(
+      Style.self({
+        background: t.surface.subtle,
+        borderInlineEnd: `1px solid ${t.outline.subtle}`,
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: t.space.lg,
+        height: '100vh',
+        padding: `${t.space.lg} ${t.space.sm}`,
+        position: 'sticky',
+        top: '0',
+      }),
+      // On a phone, a bar across the top: the brand and who is looking, then the
+      // sections in a row of their own, scrolled sideways where they do not fit.
+      Style.media(phone, {
+        alignItems: 'center',
+        borderBlockEnd: `1px solid ${t.outline.subtle}`,
+        borderInlineEnd: '0',
+        display: 'grid',
+        gap: t.space.xs,
+        gridTemplateAreas: '"brand account" "nav nav"',
+        gridTemplateColumns: 'auto minmax(0, 1fr)',
+        height: 'auto',
+        padding: `${t.space.sm} ${t.space.md}`,
+        position: 'static',
+      }),
+    ),
+    brand: Style.compose(
+      Style.media(phone, { gridArea: 'brand' }),
+      Touch.target,
+      Style.self({
+        alignItems: 'center',
+        color: t.text.overt,
+        display: 'flex',
+        fontSize: t.size.md,
+        fontWeight: t.weight.bold,
+        gap: t.space.xs,
+        letterSpacing: '-0.01em',
+        padding: `0 ${t.space['2xs']}`,
+        textDecoration: 'none',
+      }),
+    ),
+    brandMark: Style.self({
+      alignItems: 'center',
+      background: `linear-gradient(135deg, ${t.accent.default}, color-mix(in oklch, ${t.accent.default} 50%, ${t.tertiary.default}))`,
+      borderRadius: t.radius.md,
+      color: t.accent['on-fill'],
+      display: 'inline-flex',
+      fontSize: t.size.sm,
+      height: '1.75rem',
+      justifyContent: 'center',
+      width: '1.75rem',
+    }),
+    nav: Style.compose(
+      Style.self({ display: 'flex', flexDirection: 'column', gap: '2px' }),
+      Style.media(phone, {
+        flexDirection: 'row',
+        gridArea: 'nav',
+        marginInline: `calc(-1 * ${t.space.md})`,
+        overflowX: 'auto',
+        paddingInline: t.space.md,
+        scrollbarWidth: 'none',
+      }),
+    ),
+    navLink,
+    account: Style.compose(
+      Style.self({
+        borderBlockStart: `1px solid ${t.outline.subtle}`,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '2px',
+        marginBlockStart: 'auto',
+        paddingBlockStart: t.space.sm,
+      }),
+      Style.media(phone, {
+        border: '0',
+        flexDirection: 'row',
+        gridArea: 'account',
+        justifySelf: 'end',
+        marginBlockStart: '0',
+        paddingBlockStart: '0',
+      }),
+    ),
+    accountLabel: Style.compose(
+      Style.media(phone, { display: 'none' }),
+      Style.self({
+        color: t.text.muted,
+        fontSize: t.size.xs,
+        fontWeight: t.weight.semibold,
+        letterSpacing: '0.05em',
+        margin: `0 0 ${t.space['3xs']}`,
+        padding: `0 ${t.space['2xs']}`,
+        textTransform: 'uppercase',
+      }),
+    ),
+    whoLink: Style.compose(
+      navLink,
+      Style.self({ padding: '0.35rem 0.5rem' }),
+      Style.media(phone, { justifyContent: 'center', padding: '0.3rem' }),
+    ),
+    // Read on a phone, not shown: the avatar stands for the chair.
+    whoName: Style.media(phone, hiddenDeclarations),
+    whoRole: Style.compose(
+      Style.self({
+        color: t.text.muted,
+        display: 'inline-flex',
+        fontSize: t.size.xs,
+        fontWeight: t.weight.normal,
+        marginInlineStart: 'auto',
+      }),
+      Style.media(phone, hiddenDeclarations),
+    ),
+    avatar: Style.compose(
+      Style.self({
+        alignItems: 'center',
+        background: t.surface.muted,
+        borderRadius: t.radius.full,
+        boxShadow: `inset 0 0 0 1px ${t.outline.default}`,
+        color: t.text.default,
+        display: 'inline-flex',
+        fontSize: t.size.xs,
+        fontWeight: t.weight.bold,
+        height: '1.5rem',
+        justifyContent: 'center',
+        width: '1.5rem',
+      }),
+      Style.nest('&[data-chair="wren"]', {
+        background: t.accent.default,
+        boxShadow: 'none',
+        color: t.accent['on-fill'],
+      }),
+      Style.nest('&[data-chair="edda"]', {
+        background: t.tertiary.default,
+        boxShadow: 'none',
+        color: t.tertiary['on-fill'],
+      }),
+    ),
+    main: Style.compose(Style.self({ minWidth: '0' }), Touch.targets),
+    manage: Style.compose(
+      Style.self({ borderBlockEnd: `1px solid ${t.outline.subtle}`, fontSize: t.size.sm }),
+      chevronOpen,
+      Style.nest('&[open]', { background: t.surface.subtle }),
+      Style.nest('&[open] > summary', { color: t.text.overt }),
+    ),
+    // The whole row is the control: a hover and a focus ring across it.
+    manageSummary: Style.compose(
+      chevron,
+      Style.self({
+        color: t.text.default,
+        fontWeight: t.weight.semibold,
+        gap: t.space.xs,
+        minHeight: '2.5rem',
+        padding: `0 ${t.space.lg}`,
+      }),
+      Style.nest('&::before', { color: t.text.muted }),
+      Style.pseudo(':hover', { background: t.surface.muted, color: t.text.overt }),
+      Style.pseudo(':focus-visible', {
+        outline: `2px solid ${t.accent.default}`,
+        outlineOffset: '-2px',
+      }),
+      Style.media(phone, { paddingInline: t.space.md }),
+      Touch.target,
+    ),
+    manageHint: Style.compose(
+      Style.self({ color: t.text.muted, fontWeight: t.weight.normal }),
+      Style.media(phone, { display: 'none' }),
+    ),
+    manageCards: Style.compose(
+      Style.self({
+        display: 'grid',
+        gap: t.space.md,
+        gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 18rem), 1fr))',
+        padding: `${t.space.xs} ${t.space.lg} ${t.space.md}`,
+      }),
+      Style.media(phone, { paddingInline: t.space.md }),
+    ),
+    screen: Style.compose(
+      L.in('layouts', Layout.stack({ gap: t.space.lg })),
+      Style.self({
+        boxSizing: 'border-box',
+        margin: '0 auto',
+        maxWidth: '64rem',
+        padding: `${t.space['2xl']} ${t.space.xl}`,
+      }),
+      Style.media(phone, { padding: `${t.space.lg} ${t.space.md}` }),
+      // A lone link or button in the column is as wide as its words, not the column.
+      Style.nest('> a', { alignSelf: 'flex-start' }),
+    ),
+    screenHead: L.in(
+      'layouts',
+      Layout.cluster({ gap: t.space.md, justify: 'space-between', align: 'end' }),
+    ),
+    screenTitle: Style.self({
+      color: t.text.overt,
+      fontSize: t.size['3xl'],
+      fontWeight: t.weight.bold,
+      letterSpacing: '-0.025em',
+      margin: '0',
+    }),
+    filters: Style.compose(
+      L.in(
+        'layouts',
+        Layout.cluster({ gap: t.space.sm, justify: 'space-between', align: 'center' }),
+      ),
+      Style.self({
+        borderBlockEnd: `1px solid ${t.outline.subtle}`,
+        paddingBlockEnd: t.space.sm,
+      }),
+    ),
+    tabs: Recipes.Segmented({ tray: 'plain', size: 'sm' }).group ?? Style.empty,
+    // A tab and a toolbar button are whole controls a finger aims at, so they
+    // take the floor both ways round; `Touch.targets` gives the controls in a
+    // region height only, which leaves a short one as narrow as its words.
+    tab: Style.compose(
+      Recipes.Segmented({ tray: 'plain', size: 'sm' }).option ?? Style.empty,
+      Touch.target,
+      Style.self({ minBlockSize: controlHeight }),
+    ),
+    searchBox: Style.compose(
+      Style.self({
+        alignItems: 'center',
+        color: t.text.muted,
+        display: 'flex',
+        gap: t.space['2xs'],
+        minWidth: '14rem',
+        position: 'relative',
+      }),
+      Style.media(phone, { flex: '1 1 100%', minWidth: '0' }),
+      Style.nest('> svg', { insetInlineStart: '0.7rem', position: 'absolute' }),
+    ),
+    editorScreen: Style.self({ display: 'flex', flexDirection: 'column', minHeight: '100vh' }),
+    editorBar: Style.compose(
+      Style.self({
+        alignItems: 'center',
+        // Solid, the page's own color: a translucent bar over a blurred
+        // backdrop drew darker and greyer than the page in a GPU-composited Chrome.
+        background: t.surface.base,
+        borderBlockEnd: `1px solid ${t.outline.subtle}`,
+        display: 'flex',
+        gap: t.space.sm,
+        padding: `${t.space.sm} ${t.space.lg}`,
+        position: 'sticky',
+        top: '0',
+        zIndex: '5',
+      }),
+      // Its actions go under the status where the bar is too narrow for both.
+      Style.media(phone, {
+        flexWrap: 'wrap',
+        gap: t.space.xs,
+        padding: `${t.space.xs} ${t.space.md}`,
+      }),
+      Style.nest('& a, & button', { whiteSpace: 'nowrap' }),
+    ),
+    barActions: Style.self({
+      alignItems: 'center',
+      display: 'flex',
+      gap: t.space.xs,
+      marginInlineStart: 'auto',
+    }),
+    // The workbench beside a 20rem sidebar, stacking below 64rem of window.
+    // The Builder's `narrowWidth` is the same number of its own column, which
+    // the sidebar makes narrower than the window: the Builder shows its tabs
+    // before the sidebar has to go, so neither leaves a panel squeezed.
+    editorBody: Style.compose(
+      Style.self({
+        alignItems: 'start',
+        display: 'grid',
+        flex: '1',
+        gridTemplateColumns: 'minmax(0, 1fr) 20rem',
+      }),
+      Style.media('(max-width: 64rem)', { gridTemplateColumns: 'minmax(0, 1fr)' }),
+    ),
+    workbench: Style.compose(
+      Style.self({ padding: t.space.lg }),
+      Style.media(phone, { padding: t.space.sm }),
+    ),
+    canvas: Style.self({
+      boxSizing: 'border-box',
+      margin: '0 auto',
+      maxWidth: '46rem',
+      padding: `${t.space['2xl']} ${t.space.xl} ${t.space['3xl']}`,
+      width: '100%',
+    }),
+    aside: Style.compose(
+      L.in('layouts', Layout.stack({ gap: t.space.md })),
+      Style.self({
+        alignSelf: 'stretch',
+        background: t.surface.subtle,
+        borderInlineStart: `1px solid ${t.outline.subtle}`,
+        boxSizing: 'border-box',
+        padding: t.space.lg,
+      }),
+    ),
+    card: Style.compose(
+      L.in('layouts', Layout.stack({ gap: t.space.xs })),
+      Style.self({
+        background: t.surface.base,
+        border: `1px solid ${t.outline.subtle}`,
+        borderRadius: t.radius.lg,
+        padding: t.space.md,
+      }),
+    ),
+    cardTitle: Style.self({
+      color: t.text.muted,
+      fontSize: t.size.xs,
+      fontWeight: t.weight.semibold,
+      letterSpacing: '0.05em',
+      margin: '0',
+      textTransform: 'uppercase',
+    }),
+    ghost: Style.compose(
+      // Color and padding are the ghost/sm recipe's own; only the pressed state below is bespoke.
+      button({ variant: 'ghost', size: 'sm' }),
+      // A pressed toggle reads selected, as the tabs do.
+      Style.nest('&[aria-pressed="true"]', { background: t.surface.muted, color: t.text.overt }),
+    ),
+    timeline: Style.self({ display: 'grid', listStyle: 'none', margin: '0', padding: '0' }),
+    revision: Style.compose(
+      Style.self({
+        alignItems: 'start',
+        columnGap: t.space.sm,
+        display: 'grid',
+        gridTemplateColumns: '0.75rem minmax(0, 1fr) auto',
+        paddingBlock: t.space.xs,
+        position: 'relative',
+      }),
+      // The line from each mark down to the next; the oldest ends it.
+      Style.nest('&::before', {
+        background: t.outline.subtle,
+        bottom: `calc(-1 * ${t.space.xs})`,
+        content: '""',
+        insetInlineStart: 'calc(0.375rem - 1px)',
+        position: 'absolute',
+        top: `calc(${t.space.xs} + 1.1rem)`,
+        width: '2px',
+      }),
+      Style.nest('&:last-child::before', { display: 'none' }),
+      Style.nest('&[data-live] > :first-child', {
+        background: t.success.default,
+        borderColor: t.success.default,
+        boxShadow: `0 0 0 3px color-mix(in oklch, ${t.success.default} 22%, transparent)`,
+      }),
+    ),
+    revisionMark: Style.self({
+      background: t.surface.base,
+      border: `2px solid ${t.outline.default}`,
+      borderRadius: t.radius.full,
+      boxSizing: 'border-box',
+      height: '0.75rem',
+      marginBlockStart: '0.3rem',
+      position: 'relative',
+      width: '0.75rem',
+    }),
+    revisionBody: Style.self({ display: 'grid', gap: '0.1rem', minWidth: '0' }),
+    revisionTitle: Style.self({
+      alignItems: 'center',
+      color: t.text.overt,
+      display: 'flex',
+      fontSize: t.size.sm,
+      fontWeight: t.weight.semibold,
+      gap: t.space['2xs'],
+      margin: '0',
+    }),
+    revisionLive: Style.self({
+      background: `color-mix(in oklch, ${t.success.default} 14%, ${t.surface.base})`,
+      borderRadius: t.radius.full,
+      color: t.success.ink,
+      fontSize: t.size.xs,
+      fontWeight: t.weight.semibold,
+      padding: '0 0.45rem',
+    }),
+    revisionMeta: Style.self({
+      color: t.text.muted,
+      fontSize: t.size.xs,
+      margin: '0',
+    }),
+    // Bespoke: quieter than the recipe's outline — a timeline affordance, not a form action.
+    revisionRestore: Style.compose(
+      Style.self({
+        background: 'transparent',
+        border: `1px solid ${t.outline.subtle}`,
+        borderRadius: t.radius.md,
+        color: t.text.default,
+        cursor: 'pointer',
+        font: 'inherit',
+        fontSize: t.size.xs,
+        fontWeight: t.weight.medium,
+        padding: '0.25rem 0.6rem',
+      }),
+      Style.pseudo(':hover', {
+        background: t.surface.muted,
+        borderColor: t.outline.default,
+        color: t.text.overt,
+      }),
+      Style.pseudo(':focus-visible', {
+        outline: `2px solid ${t.accent.default}`,
+        outlineOffset: '2px',
+      }),
+      Touch.target,
+    ),
+    preview: Style.self({ paddingBlockEnd: t.space['2xl'] }),
+    toolbar: L.in('layouts', Layout.cluster({ gap: t.space.xs, align: 'center' })),
+    button: Style.compose(
+      button({ tone: 'neutral', variant: 'outline', size: 'sm' }),
+      Touch.target,
+    ),
+    // The accent's solid button, as the forms' submit is: one primary look.
+    primary: Style.compose(
+      button({ tone: 'accent', variant: 'solid', size: 'sm' }),
+      Touch.target,
+      Style.self({ minBlockSize: controlHeight }),
+    ),
+    danger: Style.compose(button({ tone: 'danger', variant: 'outline', size: 'sm' }), Touch.target),
+    status: Style.compose(
+      Style.self({
+        color: t.text.muted,
+        fontSize: t.size.sm,
+        margin: '0',
+        minWidth: '0',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }),
+      Style.nest('&[data-tone="error"]', { color: t.error.ink }),
+      Loading.shown,
+    ),
+    muted: Style.compose(Style.self({ color: t.text.muted, margin: '0' }), Loading.shown),
+    // The attribute `Cms.stateBadge` writes.
+    badge: stateBadge,
+    // As tall as the tabs and buttons beside it, not a form's full field.
+    search: Style.compose(
+      field,
+      Style.self({
+        blockSize: controlHeight,
+        fontSize: t.size.sm,
+        padding: '0 0.7rem 0 2.1rem',
+      }),
+    ),
+    // A label over a control this package did not draw: no `Loading.shown` here.
+    fieldLabel: Style.self({ color: t.text.muted, margin: '0' }),
+  },
+  { name: 'AdminStyle', layer: app },
+)
+
+/**
+ * The pages list, drawn as `RowListView` rows. Its Slots are the package's
+ * `RowListSlots`, so the look lives here beside the tokens rather than on
+ * `AdminSlots`: a nested SlotView carries its own slots.
+ */
+export const PagesListStyle = Style.forSlots(RowListSlots)(
+  {
+    list: Style.compose(
+      Style.self({
+        border: `1px solid ${t.outline.subtle}`,
+        borderRadius: t.radius.lg,
+        listStyle: 'none',
+        margin: '0',
+        overflow: 'hidden',
+        padding: '0',
+      }),
+      Style.nest('> li + li', { borderBlockStart: `1px solid ${t.outline.subtle}` }),
+    ),
+    // Bespoke: the recipe centers inline actions, while this fills its list row start-aligned.
+    open: Style.compose(
+      Style.self({
+        alignItems: 'center',
+        background: t.surface.base,
+        border: '0',
+        color: t.text.overt,
+        cursor: 'pointer',
+        display: 'flex',
+        font: 'inherit',
+        fontSize: t.size.md,
+        fontWeight: t.weight.semibold,
+        gap: t.space.sm,
+        padding: `${t.space.md} ${t.space.lg}`,
+        textAlign: 'start',
+        width: '100%',
+      }),
+      Style.nest('> svg', { color: t.text.muted }),
+      // The state sits at the row's end.
+      Style.nest('> :last-child', { marginInlineStart: 'auto' }),
+      Style.pseudo(':hover', { background: t.surface.subtle }),
+    ),
+    status: Style.compose(Style.self({ color: t.text.muted, margin: '0' }), Loading.shown),
+    retry: button({ tone: 'neutral', variant: 'outline', size: 'sm' }),
+  },
+  { name: 'PagesListStyle', layer: app },
+)

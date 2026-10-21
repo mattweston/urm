@@ -1,0 +1,25 @@
+{
+  "name": "foldkit-example-foldkit-routing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@foldkit/ui": "0.165.0",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-bundle": "workspace:*",
+    "foldkit-mixins": "workspace:*",
+    "foldkit-mixins-ui": "workspace:*",
+    "foldkit-site": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "vite": "5.4.21"
+  }
+}

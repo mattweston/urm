@@ -1,0 +1,426 @@
+/**
+ * A page's life in the CMS, built with the page Builder: the post's story again,
+ * with Blocks instead of a body. A writer builds a page, a reload resumes the
+ * draft, a preview draws it through the site's own views, an editor publishes
+ * it, revises it, goes back, schedules a change, and meets a writer on the same
+ * entry. The Builder adds no CMS state: every save, revision and publish is the
+ * CMS's, with the page as one form key's value.
+ */
+import { Clock, Effect, Option, Schema } from 'effect'
+import { Agent } from 'foldkit-agent'
+import { Message as BuilderMessage, type Model as BuilderModel } from 'foldkit-builder'
+import { Cms } from 'foldkit-cms'
+import { Composition, type Document } from 'foldkit-composition'
+import { Renderer } from 'foldkit-composition/foldkit'
+import { Display } from 'foldkit-crud'
+import { SlotView } from 'foldkit-mixins'
+import { RemotePolicy } from 'foldkit-remote'
+import { inertHtml, type Html } from 'foldkit/html'
+import { fromString } from 'foldkit/url'
+import {
+  Data,
+  Editor,
+  Message,
+  PageEditor,
+  actives,
+  editing,
+  initial,
+  pageView,
+  selectedOf,
+  builderInputs,
+  update,
+} from '../apps/pageApp.js'
+import { PageAgent } from '../content/pageAgent.js'
+import { PageForm, Pages } from '../content/pageDomain.js'
+import type { Principal } from '../server/server.js'
+import { chairHarness, openBackend, visitBySlug } from './harness.js'
+import { PageBuilder, PageEditing, Site, SiteRenderer } from '../content/site.js'
+
+/**
+ * A drawn page as a visitor would read it: its text, element by element, with
+ * what its Query Blocks read when there is any.
+ */
+const read = (document: Document, data?: Readonly<Record<string, unknown>>): string => {
+  const texts: string[] = []
+  const walk = (node: Html | string): void => {
+    if (node === null) return
+    if (typeof node === 'string') return void texts.push(node)
+    if (node.text !== undefined) texts.push(node.text)
+    for (const child of node.children ?? []) walk(child)
+  }
+  for (const root of Renderer.render(
+    SiteRenderer,
+    document,
+    inertHtml,
+    data === undefined ? {} : { data },
+  ))
+    walk(root)
+  return texts.join(' | ') || '(nothing)'
+}
+
+/** The page as an indented outline, one Block per line, on one line of the transcript. */
+/** Every element drawn, depth first. */
+const elements = (node: Html | string): ReadonlyArray<Exclude<Html, null>> =>
+  node === null || typeof node === 'string'
+    ? []
+    : [node, ...(node.children ?? []).flatMap(elements)]
+
+const outline = (document: Document): string =>
+  Composition.describe(Site, document)
+    .split('\n')
+    .map(line => line.trim().replace(/ [0-9a-f-]{36}/, ''))
+    .join(' > ')
+
+export const runPageDemo = async (): Promise<ReadonlyArray<string>> => {
+  const lines: string[] = []
+  const say = (line: string) => lines.push(line)
+
+  const { backend, setNow } = openBackend()
+
+  const chair = (principal: Principal) => {
+    const harness = chairHarness({
+      backend,
+      principal,
+      initial,
+      update,
+      ticked: Message.Ticked(),
+      actives,
+      prefetch: (model, projection) =>
+        Data.prefetch(model, projection, { policy: RemotePolicy.networkOnly }),
+      // The live region's timers read and clear what the Builder announces.
+      // A runtime runs them beside everything else; this story follows each
+      // Command in turn and has no clock to wait on, so it leaves them out.
+      skipCommand: name => name.startsWith('LiveAnnounce.'),
+      /** A Command as the runtime runs it: with a Remote client that asks as this chair. */
+      // A clock whose sleeps end at once: the editor's rest before a save is a pause in
+      // someone's typing, and this story has no one typing to wait for.
+      runCommand: (effect, client) =>
+        Effect.runPromise(
+          Effect.gen(function* () {
+            const clock = yield* Clock.Clock
+            return yield* effect.pipe(
+              Effect.provide(client),
+              // Its other methods are on its prototype, which a spread would drop.
+              Effect.provideService(
+                Clock.Clock,
+                Object.assign(Object.create(clock) as Clock.Clock, { sleep: () => Effect.void }),
+              ),
+            )
+          }),
+        ),
+    })
+    const { send, look, sent } = harness
+    // An agent working beside this chair: it sees this chair's Model, and what it
+    // dispatches goes through this chair's update like anything else.
+    const pending: Message[] = []
+    const agent = Agent.bind({
+      definition: PageAgent,
+      host: {
+        model: () => harness.model(),
+        dispatch: (message: Message) => {
+          pending.push(message)
+        },
+      },
+    })
+    let invocations = 0
+    const editor = (message: typeof PageForm.Message.Type | typeof Editor.Message.Type) =>
+      send(Message.GotEditorMessage({ message }))
+    const document = PageForm.control('document')
+    /** The Builder's Model, as the page form holds it. */
+    const builder = (): BuilderModel => document.field(harness.model().editor.form).value
+    /** One of the Builder's own Messages, carried by the form and the editor. */
+    const build = (message: BuilderMessage) => editor(document.send(message))
+    /** Sets a prop of the selected Block, as typing in the inspector does. */
+    const set = (prop: string, value: string) => {
+      return Option.match(builder().selected, {
+        onNone: () => Promise.resolve(),
+        onSome: selected =>
+          build(BuilderMessage.Applied({ op: Composition.Op.setProp(selected, prop, value) })),
+      })
+    }
+    /** The options of the inspector's select for a prop of the selected Block, drawn as the editor draws it. */
+    const pickerOf = (prop: string) => {
+      // The inspector's fields are its Block's settings form's: `<Block>Settings-<prop>`.
+      const block = Option.match(builder().selected, {
+        onNone: () => '',
+        onSome: id => builder().page.present.nodes[id]?.block ?? '',
+      })
+      const drawn = elements(
+        PageEditing(
+          { ...builder(), ...builderInputs(harness.model()) },
+          SlotView.inertBuilder<BuilderMessage>(),
+        ),
+      )
+      const picker = drawn.find(
+        node => node.sel === 'select' && node.data?.props?.['id'] === `${block}Settings-${prop}`,
+      )
+      return elements(picker ?? null)
+        .filter(node => node.sel === 'option')
+        .map(option => ({
+          value: String(option.data?.props?.['value']),
+          label: (option.children ?? [])
+            .map(child => (typeof child === 'string' ? child : (child?.text ?? '')))
+            .join(''),
+        }))
+    }
+
+    return {
+      send,
+      look,
+      editor,
+      title: (value: string) => editor(PageForm.Message.Changed({ key: 'title', value })),
+      /** Adds a Block where the Builder's palette would, and selects it. */
+      add: (block: 'Section' | 'Heading' | 'Button' | 'LatestPages') => {
+        return Option.match(
+          PageBuilder.placeFor(builder().page.present, builder().selected, block),
+          {
+            onNone: () => Promise.resolve(),
+            onSome: at => build(BuilderMessage.InsertAsked({ block, at })),
+          },
+        )
+      },
+      set,
+      /** What the inspector's picker for a prop of the selected Block offers, as drawn. */
+      offered: (prop: string) =>
+        pickerOf(prop)
+          .map(option => option.label)
+          .join(', ') || 'nothing',
+      /** Chooses in that picker by what it shows, as a person does. */
+      choose: (prop: string, label: string) => {
+        const value = pickerOf(prop).find(option => option.label === label)?.value
+        return value === undefined ? Promise.resolve() : set(prop, value)
+      },
+      /** Selects the first Block of a kind, as clicking it in the layers does. */
+      select: (block: string) => {
+        const id = Object.entries(builder().page.present.nodes).find(
+          ([, node]) => node.block === block,
+        )?.[0]
+        return id === undefined
+          ? Promise.resolve()
+          : build(BuilderMessage.Selected({ id: Composition.NodeId.make(id) }))
+      },
+      builder,
+      /** The Block a link named that has not been selected yet. */
+      waiting: () =>
+        Option.getOrElse(
+          Option.flatMap(harness.model().linked, ({ block }) => block),
+          () => 'nothing waits',
+        ),
+      /** The Block the Builder has selected, by its kind. */
+      selected: () =>
+        Option.match(selectedOf(harness.model()), {
+          onNone: () => 'nothing',
+          onSome: id => builder().page.present.nodes[id]?.block ?? id,
+        }),
+      build,
+      /** One call of the agent's `edit_page` tool: done, or why it was refused. */
+      agent: async (op: unknown): Promise<string> => {
+        invocations += 1
+        const result = await Effect.runPromise(
+          Effect.result(
+            agent.messages.dispatch('edit_page', op, {
+              id: `agent-call-${invocations}`,
+              transport: 'demo',
+            }),
+          ),
+        )
+        for (const message of pending.splice(0)) await send(message)
+        return result._tag === 'Success' ? 'done' : result.failure._tag
+      },
+      /** The id of the first node of a Block, as the agent reads it in the outline. */
+      idOf: (block: string) =>
+        Object.entries(builder().page.present.nodes).find(([, node]) => node.block === block)?.[0],
+      /** The page being edited, drawn with what its Query Blocks have read so far. */
+      drawn: () => read(editing(harness.model()), actives.blocks.data(harness.model())),
+      outline: () => outline(builder().page.present),
+      sent,
+      status: () => PageEditor.status(harness.model()),
+      state: () => {
+        return Option.match(PageEditor.state(harness.model()), {
+          onNone: () => '?',
+          onSome: state => Display.show(Cms.Display.State.of({}), state),
+        })
+      },
+      resumed: () => Option.getOrElse(PageEditor.resumed(harness.model()), () => 'not opened'),
+      /** The page as this chair's own site reads it: what a preview is drawn through. */
+      page: async (): Promise<string> => {
+        const id = PageEditor.pageId(harness.model())
+        if (Option.isNone(id)) return 'no page'
+        const projection = pageView(id.value)
+        const held = projection.read(harness.model())
+        if (held._tag !== 'Ready' && held._tag !== 'Refreshing')
+          harness.setModel(
+            await Effect.runPromise(
+              Data.prefetch(harness.model(), projection).pipe(Effect.provide(harness.client)),
+            ),
+          )
+        const found = projection.read(harness.model())
+        return found._tag === 'Ready' || found._tag === 'Refreshing'
+          ? read(found.value.document)
+          : found._tag
+      },
+      /** The public site at an address: what a visitor is sent, drawn. */
+      visit: (slug: string) =>
+        visitBySlug({
+          chair: harness,
+          query: Cms.bySlug(Pages),
+          entity: 'Page',
+          fields: ['document'],
+          render: values => {
+            const stored = values['document']
+            return stored === undefined
+              ? '404'
+              : read(Schema.decodeUnknownSync(Composition.Document)(stored))
+          },
+          slug,
+        }),
+    }
+  }
+
+  const wren = chair(Option.some({ name: 'wren', role: 'author' }))
+  const edda = chair(Option.some({ name: 'edda', role: 'editor' }))
+  const visitor = chair(Option.none())
+
+  say('— a writer builds a page —')
+  await wren.send(Message.StartedPage({ entry: 'page-entry-1' }))
+  await wren.title('Home')
+  await wren.add('Section')
+  await wren.add('Heading')
+  await wren.set('text', 'Welcome')
+  await wren.add('Button')
+  say(`the page: ${wren.outline()}`)
+  say(`every change is saved as a draft: ${wren.status()}; sent ${wren.sent()}`)
+  say(`undo steps on hand: ${wren.builder().page.past.length}`)
+  say(`a visitor at /home: ${await visitor.visit('home')}`)
+
+  say('— a reload resumes the draft —')
+  const again = chair(Option.some({ name: 'wren', role: 'author' }))
+  await again.send(Message.OpenedEntry({ entry: 'page-entry-1' }))
+  await again.look()
+  say(`resumed from the ${again.resumed()}: ${again.outline()}`)
+  say(`undo starts over after a reload: ${again.builder().page.past.length} steps`)
+
+  say('— a preview, drawn by the site’s own views, sending nothing —')
+  wren.sent()
+  await wren.editor(Editor.Message.PreviewShown())
+  say(`the writer's page: ${await wren.page()}`)
+  await wren.editor(Editor.Message.PreviewHidden())
+  say(`preview off: ${await wren.page()}; sent ${wren.sent()}`)
+
+  say('— an editor publishes it —')
+  await edda.send(Message.OpenedEntry({ entry: 'page-entry-1' }))
+  await edda.look()
+  await edda.editor(Editor.Message.PublishAsked())
+  say(`editor: ${edda.status()}; sent ${edda.sent()}; state ${edda.state()}`)
+  say(`a visitor at /home: ${await visitor.visit('home')}`)
+
+  say('— a second revision, and going back to the first —')
+  await edda.select('Heading')
+  await edda.add('Heading')
+  await edda.set('text', 'News')
+  await edda.editor(Editor.Message.PublishAsked())
+  say(`published again: ${await visitor.visit('home')}`)
+  say(
+    `revisions: ${backend
+      .rows(`select n from cms_revisions order by n`)
+      .map(row => String(row['n']))
+      .join(', ')}`,
+  )
+  await edda.editor(Editor.Message.RestoreAsked({ revision: 1 }))
+  await edda.look()
+  say(`the first, restored as a draft: ${edda.outline()}; state ${edda.state()}`)
+  say(`nothing was published by that: ${await visitor.visit('home')}`)
+  await edda.editor(Editor.Message.DiscardAsked())
+  await edda.look()
+  say(`discarded: ${edda.outline()}; state ${edda.state()}`)
+
+  say('— a change promised for the morning —')
+  await edda.select('Heading')
+  await edda.set('text', 'Good morning')
+  await edda.editor(Editor.Message.ScheduleAsked({ at: '2026-03-02T08:00:00.000Z' }))
+  say(`editor: ${edda.status()}; state ${edda.state()}`)
+  say(`tonight a visitor reads: ${await visitor.visit('home')}`)
+  const morning = new Date('2026-03-02T08:00:30.000Z')
+  setNow(morning)
+  const due = await Effect.runPromise(
+    backend.cms
+      .due(morning, {
+        as: name =>
+          name === 'edda' ? Option.some({ name, role: 'editor' as const }) : Option.none(),
+      })
+      .pipe(Effect.provide(backend.database)),
+  )
+  say(`the host asks what is due: ${JSON.stringify(due)}`)
+  say(`in the morning a visitor reads: ${await visitor.visit('home')}`)
+
+  say('— two people on one page —')
+  await wren.send(Message.OpenedEntry({ entry: 'page-entry-1' }))
+  await wren.look()
+  await edda.send(Message.OpenedEntry({ entry: 'page-entry-1' }))
+  await edda.look()
+  await wren.select('Button')
+  await wren.set('label', 'Read the news')
+  await edda.select('Button')
+  await edda.set('label', 'All posts')
+  say(`writer: ${wren.status()}; editor: ${edda.status()}`)
+  await edda.editor(Editor.Message.OverwriteAsked())
+  await edda.look()
+  say(`the editor saves over it: ${edda.status()}`)
+
+  say('— a Block that lists the site’s pages —')
+  await edda.select('Section')
+  await edda.add('LatestPages')
+  // The editor already read the site's pages for the inspector's picker.
+  say(`at once, from the pages the editor read to pick from: ${edda.drawn()}`)
+  await edda.look()
+  say(`read through Remote, as the editor may see it: ${edda.drawn()}`)
+  say(`it may leave out one of: ${edda.offered('except')}`)
+  await edda.choose('except', 'Home')
+  await edda.look()
+  say(`leaving out the page it is on: ${edda.drawn()}`)
+
+  say('— a link to a Block —')
+  const linked = chair(Option.some({ name: 'edda', role: 'editor' }))
+  const button = edda.idOf('Button')
+  const url = Option.getOrThrow(
+    fromString(`https://cms.example/pages?as=edda&page=page-entry-1&block=${button}`),
+  )
+  await linked.send(Message.UrlChanged({ url }))
+  say(`while the page loads, nothing is selected: ${linked.selected()}`)
+  await linked.look()
+  say(`once it is open, the Block the link names: ${linked.selected()}`)
+  const gone = Option.getOrThrow(
+    fromString('https://cms.example/pages?as=edda&page=page-entry-1&block=gone'),
+  )
+  await linked.send(Message.UrlChanged({ url: gone }))
+  say(
+    `a link to a Block the page lacks is let go: ${linked.waiting()}; ${linked.selected()} selected`,
+  )
+  const shown = Option.getOrThrow(
+    fromString('https://cms.example/pages?as=edda&page=page-entry-1&panel=layers&view=narrow'),
+  )
+  await linked.send(Message.UrlChanged({ url: shown }))
+  say(
+    `a link shows the layers, at a phone’s width: ${linked.builder().panel}, ${linked.builder().viewport}`,
+  )
+
+  say('— an agent edits the page, as a person does —')
+  const inSection = { _tag: 'Region', parent: edda.idOf('Section'), region: 'body', index: 0 }
+  const heading = { text: 'Written by an agent' }
+  say(
+    `it adds a heading: ${await edda.agent({ _tag: 'Insert', id: 'agent-heading', block: 'Heading', props: heading, at: inSection })}`,
+  )
+  say(`the page: ${edda.drawn()}`)
+  say(
+    `a Block outside the Catalog: ${await edda.agent({ _tag: 'Insert', id: 'agent-carousel', block: 'Carousel', props: {}, at: inSection })}`,
+  )
+  await edda.build(BuilderMessage.Undid())
+  say(`and undo takes the agent's edit back: ${edda.drawn()}`)
+
+  say(
+    `and the row holds only what was published: ${JSON.stringify(
+      backend.rows('select id, title, slug, published_at from pages'),
+    )}`,
+  )
+  return lines
+}

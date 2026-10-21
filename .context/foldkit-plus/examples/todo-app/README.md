@@ -1,0 +1,169 @@
+# The todo app
+
+A local-first, agent-ready todo list that shows how the Foldkit Plus packages
+fit together, and why. One application definition drives everything: the view
+a human uses, the tools an agent calls, the document replicas share, and the
+policy the server enforces.
+
+**Try it:** the sandbox is at
+[foldkit-todo-demo.pages.dev](https://foldkit-todo-demo.pages.dev/). Its journal
+runs in your browser, shared by every tab of it: open a second tab, or add
+`?token=bob` to be someone else, and a todo added in one shows in the other.
+
+## Follow one user action
+
+Start with adding a todo. The composer emits `DraftSubmitted`, which names no
+title: `update` reads the draft from the Model, since the view's copy is the
+frame last drawn, and returns a Command that supplies an id and timestamp; its
+`SubmittedTodo` result is the durable fact. Sync persists and exchanges that
+fact. The agent's `add_todo` enters through `RequestedTodo`, which carries its
+title and mints the same fact.
+
+Before adding another feature, classify its state: shared intent belongs in
+the Sync projection, disposable URL/preferences belong in Mirror, and transient
+editing state stays local. Compare your choice with the ownership manifest
+printed by `demo`; a Surface may read across all three without owning them.
+
+## Run it
+
+The example imports the packages by their published entry points, so build the
+workspace once from the repository root:
+
+```bash
+pnpm install && pnpm build
+```
+
+Then, from `examples/todo-app`:
+
+```bash
+pnpm demo    # the whole contract as a transcript — no browser, no network
+pnpm dev     # the SQLite sync server plus Vite, on http://127.0.0.1:5173
+pnpm run server  # the sync server alone, on ws://127.0.0.1:8787
+pnpm build:sandbox  # static files, to dist/: the journal runs in the browser
+```
+
+The sandbox is the same app with no server to run. Its journal is the one
+`pnpm dev` runs, on SQLite compiled to WebAssembly, in a SharedWorker that
+every tab of it shares (`SharedHost` from `foldkit-primitives/net`), and each
+tab's Sync socket reaches it over a `MessagePort` (`portSocket`). The token in
+the address still names who you are, so two tabs, one with `?token=bob`, are
+two people. The journal is in memory: it lives while a tab of the sandbox is
+open, and the next tab after the last closes starts a new history, which each
+replica rebuilds from, sending again what it had not sent. A browser without
+SharedWorker runs a journal in each tab, so its tabs do not meet.
+
+`pnpm vitest run examples/todo-app` from the root runs the tests; `pnpm e2e`
+runs `e2e/todo-app.e2e.ts` too, which starts the server and Vite and drives two
+Chromium browsers as two people, and `e2e/sandbox.e2e.ts`, two tabs of the
+sandbox.
+
+Start with `pnpm demo`. It prints a labelled transcript — capabilities, the
+agent writing through `update`, both authorization boundaries, the ownership
+manifest, the compiled stylesheet, the mirrors — and every section names the
+file it exercises. `test/demo.test.ts` pins its lines.
+
+## The idea in one diagram
+
+```mermaid
+flowchart TB
+  app["app.ts<br/>Model + Message + update — the only reducer"]
+  surface["surface.ts<br/>Surface.application(App)"]
+  surfaces["Surfaces<br/>Header, Composer, Board, Footer, Overview"]
+  fragments["sync fragments (sync.ts)<br/>Todos, ListMeta"]
+  contract["agent contract (agent.ts)<br/>Overview + capabilities"]
+  mirrors["mirrors (surface.ts)<br/>Filters: Mirror.url · Prefs: Mirror.kv"]
+  view["view.ts<br/>slots + styles (style.ts)"]
+  mount["Sync.mount<br/>one reducer, replica, journal, URL"]
+  bind["Agent.bind<br/>WebMCP tools · completion, authorize"]
+  module["module.ts<br/>Module.validate / manifest / toMarkdown"]
+  app --> surface
+  surface --> surfaces --> view --> module
+  surface --> fragments --> mount --> module
+  surface --> mirrors --> mount
+  mirrors --> module
+  surface --> contract --> bind --> module
+```
+
+The top is pure data: schemas, projections, Message sets, styles, rules. The
+bottom is interpreters: the Foldkit runtime, the replica, the SQLite journal,
+the WebMCP registration. `module.ts` is where the pure half is inspected as one
+value.
+
+## The files, in the order to read them
+
+| File | What it teaches |
+| --- | --- |
+| `app.ts` | The Model, the Message union, and `update`. Three kinds of Message: durable facts, effectful intents, and local state. Why an id is minted in a Command and never in `update`. |
+| `principal.ts` | Two principals for two boundaries: the agent's and the server's. The same `isOwner` rule serves both. |
+| `surface.ts` | `Surface.application` and the feature Surfaces. A Surface is what a part of the UI observes and may cause; its Message list is a compile-time capability boundary. It also declares the two mirrors: `Mirror.url` keeps the filter in the URL (`?filter=active`, linkable, read back on navigation) and `Mirror.kv` remembers the composer's draft in Web Storage. Both observe the Model and own nothing, and `update` takes their reducer as an argument so the Model stays a leaf of the import graph. |
+| `style.ts` | Slots, Styles, Behaviors, and a Theme. Appearance and interaction attached from outside the views. `Style.recipe`, `Style.whenInput`, `pseudo`/`media`/`nest` compiling to one stylesheet. |
+| `view.ts` | The views. No class names, no inline style, no keyboard code: `slots.x.attrs(base)` merges what is attached. `@foldkit/ui` Button and Checkbox resolved through `foldkit-mixins-ui`. `Surface.rootView` at the Root boundary. |
+| `sync.ts` | The local-first contract derived from the application: two fragments composed into one document, `authorize` rules per durable variant, and `mountTodos` over `Sync.mount`. |
+| `agent.ts` | The agent contract: capabilities are existing Messages, the context is a Surface, `add_todo` exposes the intent and completes on its fact, `rename_list` completes on state with `Agent.when`, `authorize` mirrors the sync policy. |
+| `module.ts` | `Module.make` over every contract: validation and the ownership manifest. |
+| `runtime.ts`, `client.ts` | Mounting in a browser: the stylesheet injected once, the replica on IndexedDB, the exchange loop, WebMCP registration with the mount as the agent's host. |
+| `serving.ts`, `journal.ts`, `server.ts` | The server: `foldkit-durable` on SQLite, spreading the contract so codecs, reducer, and policy are never written twice; a WebSocket transport that authenticates per connection. |
+| `sandbox/` | The same journal in the browser: its options and exchange from `serving.ts`, on WebAssembly SQLite, served to each tab's conversation. |
+| `store.ts`, `demo.ts` | The transcript, and the few-line host seam it runs on in place of `Sync.mount`. Every section names the file it exercises; the test pins its lines. |
+
+## The rules the code follows
+
+**One reducer.** The human, the agent, and a peer's committed operation all
+become a `Message` and run through `update`. The replica's replay and the
+journal's reducer are `update` on the shared slice; `Sync.forApplication`
+derives them and refuses a durable Message that returns a Command or touches a
+local field.
+
+**Facts carry their own nondeterminism.** `SubmittedTodo` carries the id and
+the timestamp. `DraftSubmitted` and `RequestedTodo` are intents: local, and
+their `update` returns a Command that reads the clock, mints the id, and emits
+the fact. The agent
+exposes the intent, not the fact, and waits for the fact through a completion
+contract. Where the outcome is a state rather than a new fact, it waits for the
+state: `rename_list` is done when the list carries the title, whoever set it.
+
+**One owner per datum.** `todos` and `listTitle` are owned by the sync
+contract; everything else is local. `Module.manifest` prints this, and
+`Module.validate` would report a second owner.
+
+**Policy on the contract, enforced at the journal.** `authorize` rules are
+declared once, next to the Messages they govern, with `message` typed as that
+variant. The server applies them inside the append transaction. The agent
+contract mirrors the two owner-only rules so an agent is refused early with a
+typed error.
+
+**Views publish slots; styles and behaviors attach.** A view names the points
+it lets others customize. `Style` is data, `Behavior` is attributes built from
+the view's input and builder, and one resolver merges them, refusing two owners
+of one event. Per-row concerns (a done title, the priority badge, the editor's
+Escape key) are `Style.whenInput` and a `Behavior` over the row's input, not
+branches in the view.
+
+## Things to try in the browser
+
+- Open the app in two tabs with `?token=owner` and `?token=guest`. Add a todo in
+  one; it reaches the SQLite journal at once, and the server tells the other
+  tab, which shows it without a reload. Each tab is its own replica, so two
+  browsers signed in with one token do not reuse each other's operation ids.
+- Rename the list as `guest`. The field reverts: the server refuses
+  `RenamedList`, and the exchange the submit triggered rolls the edit back. The
+  footer stays quiet — it reports `onPersistenceFailure`, which is the local
+  save, not a server refusal.
+- Double-click a title to rename it; Escape cancels, Enter or blur commits.
+  `EditingCommitted` is local; its Command emits `RenamedTodo`.
+- Click a priority badge to cycle it; the list re-sorts, highest first.
+- With a browser that supports WebMCP, the same capabilities appear as tools
+  named `add_todo`, `toggle_todo`, `rename_todo`, `set_priority`, `delete_todo`,
+  `clear_completed`, and `rename_list`. The composer is `add_todo`'s form
+  (`AddTodoForm` in `agent.ts`), so a browser that reads forms as tools takes
+  it from the markup instead, and an agent's todo goes through the same
+  contract.
+
+## What is deliberately not here
+
+- **Presence.** `startSyncServer` takes a presence hub, but the client would
+  need to share one socket between the sync transport and the presence channel
+  across reconnects. It is a good next exercise; see
+  [`examples/sync`](../sync) for the primitive.
+- **Remote data.** Server-derived, non-replicated entities are `foldkit-remote`;
+  [`examples/kitchen-sink`](../kitchen-sink) shows them beside a sync document.

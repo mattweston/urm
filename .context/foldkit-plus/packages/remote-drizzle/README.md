@@ -1,0 +1,1077 @@
+# `foldkit-remote-drizzle`
+
+**Provisional.** A Drizzle compiler for [`foldkit-remote`](../remote) and
+[`foldkit-remote-server`](../remote-server).
+
+A Remote client already knows **which semantic fields it needs**. A
+`RemoteServer` Source already knows **which ids and authorized fields to load**.
+`foldkit-remote-drizzle` turns that Source request into the smallest useful
+Drizzle query, then turns the rows back into normalized Remote patches.
+
+```text
+Remote Selection
+      |
+      v
+Remote requirement
+  Project:p1 [id,name]
+      |
+      v
+RemoteServer Source context
+  ids=[p1]
+  fields=[id,name]
+      |
+      v
+foldkit-remote-drizzle
+  SELECT id,name
+  FROM projects
+  WHERE id IN (...)
+      |
+      v
+normalized patch
+  Project:p1 { id, name }
+```
+
+The important design choice is that an Entity is declared **once**:
+
+```ts
+const Project = entity('Project', projects)
+```
+
+That value is both the Drizzle binding and the Remote `EntityDescriptor`. A
+Selection therefore checks fields against the real table declaration, while
+`source(Project)` can compile those same semantic fields back into SQL without a
+second mapping per screen.
+
+Use this package when your Remote entities map cleanly onto Drizzle tables and
+you want projection, relation loading, and keyset pagination derived from the
+Remote contract. It is **not** an ORM on top of Drizzle and it does not own the
+database connection. Sources require a `DrizzleDatabase` Effect service supplied
+by the application.
+
+## What it owns
+
+```text
+foldkit-remote
+  semantic Entity / Selection / Query
+             |
+             v
+foldkit-remote-server
+  authorized Source request
+             |
+             v
+foldkit-remote-drizzle
+  columns / joins / pagination SQL
+  row -> Remote normalization
+             |
+             v
+Drizzle
+  database execution
+```
+
+It does not own:
+
+- client caching or rendering;
+- Remote field authorization policy itself;
+- authentication;
+- mutation semantics;
+- a database connection;
+- arbitrary aggregate/query DSLs.
+
+Those boundaries are deliberate. The adapter compiles Remote's existing
+semantics instead of introducing a second data model.
+
+## Install
+
+```bash
+pnpm add foldkit-remote-drizzle drizzle-orm
+```
+
+`effect` and `drizzle-orm` (currently `1.0.0-rc.4`) are peer dependencies, so
+the adapter reads the tables you define with your own Drizzle, not a copy of
+its own; `foldkit-remote` and `foldkit-remote-server` come with the package.
+
+For the ownership and requirement-planning model first, read
+[Server-derived state](../../docs/remote.md).
+
+## Sixty seconds: one table, one Entity, one Source
+
+Start with a normal Drizzle table:
+
+```ts
+import { pgTable, text, uuid } from 'drizzle-orm/pg-core'
+
+export const projects = pgTable('projects', {
+  id: uuid('id').primaryKey(),
+  name: text('name').notNull(),
+  status: text('status').notNull(),
+})
+```
+
+Bind it once:
+
+```ts
+import { entity, source } from 'foldkit-remote-drizzle'
+
+const Project = entity('Project', projects)
+
+// This is a real Remote Selection because Project is also an EntityDescriptor.
+const ProjectSummary = Project.select({
+  id: true,
+  name: true,
+})
+
+// This is a RemoteServer EntitySource backed by Drizzle.
+const ProjectSource = source(Project)
+```
+
+A client requirement for:
+
+```text
+Project:00000000-0000-4000-8000-000000000001 [id,name]
+```
+
+causes that Source to select only the needed columns, plus whatever identity is
+required for normalization:
+
+```text
+SELECT id, name
+FROM projects
+WHERE id IN ('00000000-0000-4000-8000-000000000001')
+```
+
+and return a record with this Remote wire shape:
+
+```json
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "values": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "Apollo"
+  }
+}
+```
+
+There is no per-screen SQL mapping. The Selection declares the semantic shape;
+`RemoteServer` hands the Source the authorized fields; the Drizzle Source turns
+those fields into columns.
+
+`pgTable`, `entity`, `select`, and `source` above are declarations. They do not
+create the table, open a database connection, or execute a query. Apply your
+migrations, register the Source with RemoteServer, and provide the
+[database service](#database-service) when running its handlers. The SQL above
+illustrates the selected columns; actual execution uses bound parameters.
+
+## Put the Source behind `RemoteServer`
+
+```ts
+import { Remote } from 'foldkit-remote'
+import { RemoteServer } from 'foldkit-remote-server'
+
+const Data = Remote.define({
+  entities: [Project],
+})
+
+const Server = RemoteServer.make({
+  entities: [ProjectSource],
+})
+
+RemoteServer.validate(Data, Server)
+
+const handlers = RemoteServer.handlers(Server, principal)
+```
+
+`handlers` now requires the `DrizzleDatabase` service because the Source does.
+Provide your application's database once:
+
+```ts
+import { Layer } from 'effect'
+import { databaseLayer } from 'foldkit-remote-drizzle'
+
+const DatabaseLive = databaseLayer(db)
+
+// Useful in one process: tests, SSR, a worker, or a single service.
+const RemoteClientLive = Remote.clientLayer(handlers).pipe(
+  Layer.provide(DatabaseLive),
+)
+```
+
+The adapter captures no connection. That keeps database ownership at the
+application boundary and makes the Effect requirement visible in the server
+composition.
+
+## The binding is the shared schema
+
+```ts
+const User = entity('User', users)
+```
+
+`entity(name, table, { fields?, relations?, computed? })` derives an Effect
+Schema from the Drizzle table with `drizzle-orm/effect-schema` and exposes the
+table's columns as Remote fields.
+
+The returned binding is simultaneously:
+
+```text
+Drizzle table binding
+        +
+Remote EntityDescriptor
+        +
+relation/computed metadata
+```
+
+That is why this works without a second Entity declaration:
+
+```ts
+const UserSummary = User.select({
+  id: true,
+  name: true,
+})
+```
+
+A table must expose an `id` column. Every entity read selects the primary key for
+normalization even when the client did not explicitly ask for `id`.
+
+Use `fields` when the Remote schema should be narrower than the table or should
+use an application-specific codec:
+
+```ts
+import { Schema } from 'effect'
+
+const User = entity('User', users, {
+  fields: {
+    id: UserId,
+    name: Schema.String,
+  },
+})
+```
+
+Relation/computed fields are derived on top of that map.
+
+Definition-time checks reject ambiguous bindings such as a relation/computed
+name colliding with a scalar field, a computed field naming an invalid
+relation, or a nullable singular foreign key not marked `nullable`.
+
+## Binding a `foldkit-entity` domain
+
+`entity(name, table, …)` makes the table the declaration. When the domain is
+declared with [`foldkit-entity`](../entity/README.md), the Entity already says
+what each relation is, and `bind` says only how the database stores it:
+
+**Which to reach for.** `entity` is the smaller of the two and exists so a field
+is not declared twice — once in the table and once in the domain. Reach for it
+when the database is the whole truth about a domain. Reach for `bind` when the
+domain is its own thing: relations and derived members it declares rather than
+infers, metadata other packages attach, and **a query body**. Only a
+`foldkit-entity` Entity has the addressable fields an `Expr` is built from, so
+`Query.define` cannot be written over an `entity(…)` binding — the same boundary
+`foldkit-remote`'s own `Entity.make` has, for the same reason.
+
+```ts
+import { Derived, Entity, Relation } from 'foldkit-entity'
+import { bind, source } from 'foldkit-remote-drizzle'
+
+const User = Entity.define('User', Schema.Struct({ id: Schema.String, name: Schema.String }))
+const Post = Entity.define('Post', Schema.Struct({ id: Schema.String, title: Schema.String })).pipe(
+  Entity.derived({ fanCount: Derived.make(Schema.Number) }),
+)
+const Blog = Entity.relate(
+  { User, Post },
+  { Post: { author: Relation.one(User), fans: Relation.many(User) }, User: {} },
+)
+
+const Db = bind(Blog, {
+  User: { table: users },
+  Post: {
+    table: posts,
+    relations: { author: { field: posts.authorId }, fans: { foreignKey: users.id } },
+    derived: { fanCount: { relation: 'fans' } },
+  },
+})
+
+source(Db.Post) // an ordinary binding
+```
+
+| Entity member | Storage |
+| --- | --- |
+| Field | the column of the same name, or `fields: { name: posts.title }` |
+| `one` relation | `{ field }`: the foreign key on the owner's table |
+| `many` relation | `{ foreignKey, localKey? }` on the target's table (`localKey` defaults to the owner's `id`), or `{ through, localColumn, foreignColumn }` |
+| Derived | `{ relation, where? }`: a count of a `many` relation |
+
+`orderBy` and `where` go on a `many` storage as they do on `many(…)`.
+
+A derived member is a count, `{ relation, where? }`, the one kind this package
+computes. One it cannot compute is `{ supplied: true }`: `bind` registers the
+member and reads nothing for it, and you wrap the binding's `source` to answer
+for that field yourself, as `foldkit-cms-drizzle` does for an entry's state.
+
+A `one` may also be read from the other side, where the foreign key is a column
+of the target's table, as a member's profile points at its member:
+
+```ts
+Member: { table: members, relations: { profile: { foreignKey: profiles.memberId } } },
+```
+
+It reads as the one ref, or `null` when no row points back, so the relation must
+be `{ optional: true }`. One-to-one only holds if `profiles.memberId` is unique,
+so `bind` refuses a column that is neither `.unique()` nor the primary key. A
+unique index declared on the table is not visible on the column; vouch for it
+with `assumeUnique: true`. Such a relation cannot be windowed or counted.
+
+Target and cardinality are never repeated, so they cannot disagree with the
+Entity. `bind` takes the whole `Entity.relate` result in one step, which lets
+two bindings point at each other; `entity(…, { relations })` cannot, because a
+relation there needs its target binding to exist first.
+
+Each result is the same `EntityBinding` `entity` returns, and the same Remote
+descriptor `Entity.from` gives the client, so register `Db.Post` (or
+`Entity.from(Blog.Post)`) in `Remote.define` and pass `Db.Post` to `source`
+and `query`.
+
+The types and `bind` itself reject: a field with no column, a relation or
+derived member with no storage, a `one` stored as a `many` or the reverse, a
+count over a `one` relation, a required `one` over a nullable column
+(declare the relation `{ optional: true }`), and a `one` read from the target's
+table whose foreign key is not unique.
+
+`bind` also refuses a column that plainly cannot hold its field: text under a
+number field (a Postgres `numeric` reads as text), a number under a flag, and a
+nullable column under a field whose schema admits neither `null` nor
+`undefined`. It compares only what both sides state plainly. A schema that
+transforms (`Schema.NumberFromString`), a mixed union, a struct, and a custom,
+JSON or date column all pass unchecked, so the check never refuses a mapping
+that could work.
+
+## Which rows a principal may see
+
+`authorize` decides which **fields** a principal may read. Which **rows** exist
+for them is the binding's `visible`: a condition over the table's columns, or
+`undefined` for every row.
+
+```ts
+const Db = bind(Blog, {
+  Post: {
+    table: posts,
+    // A visitor sees what is published; an author sees every row.
+    visible: principal => (isAuthor(principal) ? undefined : isNotNull(posts.publishedAt)),
+  },
+})
+```
+
+A rule may also answer with an `Effect` of the condition, for one that must
+ask something first (a guard's server-side body), and it is given its own
+binding as a second argument, `(principal, self)`, so a rule written before
+`bind` can name the table's columns through `self.columns`. `foldkit-guard`
+builds its rules that way.
+
+It is on the binding, not on a source, because a table is read four ways and a
+rule on one would leave three open. Every one applies it:
+
+| The table is read | What a hidden row is |
+| --- | --- |
+| by id | not returned, so the client knows it as `NotFound` |
+| as the children of a relation | not listed, not counted by a derived count, and not a gap in a page |
+| as the target of a `one` ref | the ref reads `null`, so it does not say the row exists |
+| through a query | not in any page; an id cursor on a hidden row does not resolve |
+
+- A required `one` whose target can be hidden will read `null` for a principal
+  who may not see it, which its schema refuses. Make such a relation
+  `{ optional: true }`, or make the owner's `visible` depend on the target's.
+- A relation's own `policies` still apply, beside the target's `visible`.
+- `entity(name, table, { visible })` takes the same rule.
+
+## Field authorization stays in `RemoteServer`
+
+The adapter never decides what a principal may read. It compiles only the fields
+`RemoteServer` has already allowed:
+
+```ts
+const UserSource = source(User, {
+  authorize: (principal, fields) =>
+    fields.filter(field => field !== 'email' || principal.canReadEmail),
+})
+```
+
+Conceptually:
+
+```text
+client asks for [id,name,email]
+          |
+          v
+RemoteServer authorize
+          |
+          v
+allowed [id,name]
+          |
+          v
+Drizzle source
+SELECT id,name ...
+```
+
+`filter` is `RemoteServer.entity`'s per-record decision, passed through the
+same way: the Source reads the fields its plan names, and `RemoteServer`
+applies the plan to each record. `foldkit-guard/server`'s `GuardServer.filter`
+is one.
+
+`shared` names the fields every principal reads alike, of every row, so a live
+hub sends a declared write's value of one without a read per principal (see
+`foldkit-remote-server`'s "Fields every principal reads alike").
+
+A request for a field the Entity does not declare never reaches the read. The
+Source still always selects the id needed to normalize rows.
+
+`reader(binding, run)` is the lower-level injected-executor form when the
+database is not provided as the `DrizzleDatabase` service or when you want to
+test the projection compiler directly. It handles scalar and singular-ref
+normalization, but collection loading/computed fields belong to `source`.
+
+## Singular relations
+
+Declare a foreign key once with `one`:
+
+```ts
+import { entity, one } from 'foldkit-remote-drizzle'
+
+const User = entity('User', users)
+
+const Project = entity('Project', projects, {
+  relations: {
+    owner: one(User, { field: projects.ownerId }),
+  },
+})
+```
+
+Now `owner` is a Remote ref field:
+
+```ts
+const ProjectSummary = Project.select({
+  id: true,
+  name: true,
+  owner: true,
+})
+```
+
+The Source selects `owner_id` but emits the Remote ref key:
+
+```text
+row:         owner_id = u1
+wire value:  owner = "User:u1"
+client:      { entity: 'User', id: 'u1' }
+```
+
+If the foreign key is nullable, declare that explicitly:
+
+```ts
+owner: one(User, {
+  field: projects.ownerId,
+  nullable: true,
+})
+```
+
+A database `NULL` then becomes a **present null** in Remote rather than looking
+like an absent field that should be fetched forever.
+
+A nested Selection does not embed the User row into Project. `RemoteServer`
+follows the ref into the User Source at the next selection level, preserving the
+normalized cache:
+
+```text
+Project:p1.owner -> User:u1
+                      |
+                      v
+                 User Source
+```
+
+## Collection relations
+
+A `many` relation says that the foreign key lives on the target:
+
+```ts
+import { entity, many } from 'foldkit-remote-drizzle'
+
+const Comment = entity('Comment', comments)
+
+const Post = entity('Post', posts, {
+  relations: {
+    comments: many(Comment, {
+      foreignKey: comments.postId,
+      localKey: posts.id,
+    }),
+  },
+})
+```
+
+A normal collection read batches children across all requested parents instead
+of issuing one query per parent. The wire value remains normalized refs:
+
+```text
+Post:p1.comments = ["Comment:c1", "Comment:c2"]
+```
+
+Collection relations may also declare:
+
+- `orderBy` — defaults to target id;
+- `where` — a static filter, such as excluding soft-deleted rows.
+
+### Many-to-many
+
+Use a through table when the relation is many-to-many:
+
+```ts
+import { entity, manyToMany } from 'foldkit-remote-drizzle'
+
+const Tag = entity('Tag', tags)
+
+const Post = entity('Post', posts, {
+  relations: {
+    tags: manyToMany(Tag, {
+      through: postTags,
+      localColumn: postTags.postId,
+      foreignColumn: postTags.tagId,
+    }),
+  },
+})
+```
+
+The Source joins through the link table to the target, drops dangling through
+rows, and emits target refs.
+
+### Principal-scoped collection policy
+
+A collection can add a per-principal SQL predicate:
+
+```ts
+import { eq } from 'drizzle-orm'
+
+const PostSource = source(Post, {
+  policies: {
+    comments: principal => eq(comments.visibleTo, principal.id),
+  },
+})
+```
+
+That predicate is combined with the relation's static `where`. Policies are only
+valid for collection relations; putting one on a singular relation is rejected
+at definition time because it would not filter the target read correctly.
+
+## Windowed collection relations
+
+A Selection can ask for a bounded connection instead of the full collection:
+
+```ts
+import { Selection } from 'foldkit-remote'
+
+const PostView = Selection.make(Post, {
+  id: true,
+  comments: Selection.connection(Comment, {
+    first: 10,
+  }),
+})
+```
+
+For several parent posts, the Source ranks children **per parent** in one SQL
+statement (`row_number() over (partition by ...)`) and keeps the requested page
+plus the extra row needed to determine the boundary. The statement count does
+not grow with the number of parents.
+
+The result carries:
+
+```ts
+{
+  refs,
+  hasNext,
+  hasPrevious,
+}
+```
+
+`first` and `last` work per parent. `after` / `before` cursor pagination is only
+accepted when the read targets one parent because a single cursor is ambiguous
+across several parents.
+
+When the client asks for another cursor page, Remote's reducer merges it onto
+the stored relation page: `after` appends and `before` prepends.
+
+## Query connections
+
+Top-level Remote Queries compile to keyset pagination:
+
+```ts
+import { eq } from 'drizzle-orm'
+import { Schema } from 'effect'
+import { Query } from 'foldkit-remote'
+import { query } from 'foldkit-remote-drizzle'
+
+const ProjectsByOwner = Query.make('ProjectsByOwner', {
+  Input: Schema.Struct({ ownerId: Schema.String }),
+  Result: Query.connection(Project),
+})
+
+const ProjectsByOwnerSource = query(ProjectsByOwner, {
+  entity: Project,
+  orderBy: [
+    { column: projects.createdAt, direction: 'desc' },
+    { column: projects.id, direction: 'desc' },
+  ],
+  where: input => eq(projects.ownerId, input.ownerId),
+})
+```
+
+`query` takes no type arguments. The input is the descriptor's, and a source
+whose `where` or `orderBy` reads nothing of the principal fits any server's. A
+source that does read it says so on the parameter,
+`where: (input, principal: Principal) => …`, and is then a source for a server
+of that `Principal` only; a server with another principal refuses it at the type.
+
+### A query that carries its own meaning
+
+When the descriptor was declared with
+[`Query.define`](../remote#queries-and-pagination), its body already says which
+rows and in what order. Register the source and say no more:
+
+```ts
+import { Expr, Order, Query } from 'foldkit-entity'
+
+const PostsBySlug = Query.define('PostsBySlug', { slug: Schema.String }, ({ input }) =>
+  Query.from(Post).pipe(
+    Query.where(Expr.eq(Post.fields.slug, input.slug)),
+    Query.orderBy(Order.asc(Post.fields.id)),
+  ),
+)
+
+const PostsBySlugSource = query(PostsBySlug, { entity: PostBinding })
+```
+
+The binding is what knows which column holds which field, so nothing in the
+body names a table and the same body could be compiled by something else. Every
+field the body reads — in a predicate or in its ordering — is checked when the
+source is registered, so a server that starts is a server whose queries can be
+answered, rather than one that fails on whichever request first runs this query.
+
+**The body's order is tie-broken by the id.** A body says what the rows mean,
+not how a cursor walks them, so an order that does not already end on the id
+gets it appended, exactly as a computed `orderBy` does. A literal `orderBy`
+written here is this binding's own and stays as given.
+
+Three things are worth being exact about:
+
+- **A body never widens what a principal may see.** The compiled predicates,
+  this server's own `where`, and the binding's `visible` rule are conjoined. A
+  body is the application's question; authorization stays where it was.
+- **A `where` given here is added to the body, not put in its place.** A binding
+  can narrow a query it did not write.
+- **An `orderBy` given here does replace the body's**, because ordering is one
+  decision and a connection pages on exactly one of them.
+
+`Query.make` is unchanged and still the right declaration when the meaning of a
+query lives on this side; such a descriptor has no body, and `orderBy` is then
+required as before.
+
+Think of the pieces as:
+
+```text
+Remote Query descriptor
+  input + result entity
+          |
+          v
+Drizzle query source
+  where + stable total order
+          |
+          v
+QueryPage
+  edges + explicit boundaries
+```
+
+`orderBy` must be non-empty and should form a stable total order. Add a unique
+tie-breaker such as the id.
+
+### Sorting by what the user chose
+
+Put the sort in the query's body, where the client reads it too:
+
+```ts
+const PostsQuery = Query.define('Posts', { sort: PostSort.Schema }, ({ input }) =>
+  Query.from(Post).pipe(
+    Query.orderBy(Order.chosen(input.sort, { title: Post.fields.title, created: Post.fields.createdAt })),
+  ),
+)
+query(PostsQuery, { entity: Db.Post }) // the body's order, resolved per request
+```
+
+The compiler resolves the chosen field for each request's input and ends the
+order on the id. An input naming no order the body offers is refused as a query
+error, the request's mistake. A body that declares its order refuses an
+`orderBy` here: two orders would let the server sort one way while the client
+places rows another.
+
+A `Query.make` descriptor has no body, so its `orderBy` may read the query's
+input, as `where` does:
+
+```ts
+query(PostsQuery, {
+  entity: Db.Post,
+  where: ({ search }) => (search === '' ? undefined : like(posts.title, `%${search}%`)),
+  orderBy: ({ sort }) =>
+    sort === 'title'
+      ? [{ column: posts.title, direction: 'asc' }]
+      : [{ column: posts.id, direction: 'asc' }],
+})
+```
+
+- `sortTerms(sort, { title: posts.title, created: posts.createdAt })` turns the
+  state `foldkit-crud`'s `Sort` makes (`{ by, direction }`, or `null`) into order
+  terms: `orderBy: ({ sort }) => sortTerms(sort, { ... })`. A name the map lacks,
+  or no sort, is no terms, which orders by id.
+- The input should name an order (`'title'`), never a column. With
+  `Order.chosen` the body maps each name to a field; with `sortTerms` the server
+  does.
+- The input is part of a connection's identity, so each order is its own
+  connection with its own cursors. A cursor from one order never pages another.
+- A computed order that leaves the id out is tie-broken by it, ascending, since
+  what a user sorts by is rarely unique. An empty computed order is the id's.
+- A body term's collation is compiled with it, in the `ORDER BY` and the
+  keyset alike: `binary` as `COLLATE BINARY` (SQLite) or `COLLATE "C"`
+  (Postgres, text columns only; a `uuid` takes none and orders by bytes),
+  `asciiFold` as `COLLATE NOCASE` or `lower(x COLLATE "C")` (folded under
+  `"C"`, so only ASCII letters fold), and a locale as
+  `COLLATE "name"` on Postgres; SQLite, which has no locales, refuses one.
+- Where rows without a value go is said on every term and compiled as
+  `NULLS FIRST`/`NULLS LAST`, so a nullable column sorts and pages the same on
+  SQLite and Postgres. The default is Postgres's (last ascending, first
+  descending); a body's term says otherwise with
+  `Order.asc(field, { nulls: 'first' })`, and an `orderBy` term here with
+  `nulls: 'first'`.
+
+A page's cursor is where it ended: the order's key values at its last row, the
+id among them (`k:[...]`). The next page's keyset predicate is built from those
+values, so "load more" carries on after the last row read was deleted, stopped
+matching, or moved, from where the page ended. A cursor is client input, and
+is refused unless it holds exactly one key value (text, a number, a boolean,
+null, or a tagged date or bigint) for each term of the order it pages. A cursor
+from before keys is a row id, still read by re-reading that row's keys; one
+whose row is gone fails rather than restarting at page one.
+
+A key cursor carries those values to the client as they are stored. Ordering
+already tells a reader how rows compare by a field; the cursor tells them the
+value at each page's end. Do not offer an order (`Order.chosen`) by a field
+some reader may not read.
+
+Client-supplied windows are bounded: the default page size is `20`, the default
+maximum is `100`, and malformed combinations such as `after + before` or
+`first + last` fail rather than being guessed.
+
+## Computed fields
+
+The built-in computed field is a count over a collection relation:
+
+```ts
+const Post = entity('Post', posts, {
+  relations: {
+    comments: many(Comment, {
+      foreignKey: comments.postId,
+      localKey: posts.id,
+    }),
+  },
+  computed: {
+    commentCount: { relation: 'comments' },
+  },
+})
+```
+
+`commentCount` becomes a Remote number field. The Source runs a grouped
+`count(*)`, including the relation's static `where` and principal policy. The
+count is the total relation count, not the current page count.
+
+Other aggregate shapes are intentionally not a generic compiler yet.
+
+## Mutations
+
+A mutation declared as a `Write` (`Mutation.write(name, Write.update(input,
+{ id }))`) needs no handler: `writer(binding)` lands it in the binding's table,
+and `RemoteServer.write` serves it.
+
+```ts
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { Schema } from 'effect'
+import { Entity, Write } from 'foldkit-entity'
+import { Mutation } from 'foldkit-remote'
+import { RemoteServer } from 'foldkit-remote-server'
+import { bind, source, writer } from 'foldkit-remote-drizzle'
+
+const Project = Entity.define('Project', Schema.Struct({ id: Schema.String, name: Schema.String }))
+const projects = sqliteTable('projects', { id: text('id').primaryKey(), name: text('name').notNull() })
+const Db = bind({ Project }, { Project: { table: projects } })
+
+const EditProject = Mutation.write(
+  'EditProject',
+  Write.update(Entity.input(Project, Schema.Struct({ id: Schema.String, name: Schema.String })), {
+    id: 'id',
+  }),
+)
+const Server = RemoteServer.make({
+  entities: [source(Db.Project)],
+  mutations: [RemoteServer.write(EditProject, writer(Db.Project))],
+})
+```
+
+It is one `update ... returning` of the row by id, each field's column set to
+the value as the store encodes it, and only the keys the client named when it
+named some, so two authors editing different fields of a row both land. The
+written fields answer as the mutation's patch. A write that `expect`s a revision
+is guarded by that column and moves it on by one in the same statement: of two
+writes made from one revision, the second finds no row and is refused as a
+conflict. A write that expects none, to a row that is not there, fails. A binding with a
+`visible` rule reads the answer back through it: the row as its writer may now
+see it, or, when the write hid it from them, a deletion.
+
+An insert is one `insert ... on conflict do nothing returning` under the id the
+client chose: a retry finds the id taken and answers the row it made. A delete
+is one `delete` by id, guarded by the revision when it expects one; a row
+already gone is gone.
+
+**A retry is safe without a request log.** A guarded write whose answer was
+lost is sent again with the same revision, and the guard misses. The writer
+then reads the row: one revision past the expected one and holding exactly
+these values means this write landed, and the row answers; anything else is a
+conflict. A guarded delete that finds no row succeeds. (Two clients writing
+identical values from one revision are not told apart, which leaves the row
+as both asked.)
+
+### A journal's edits
+
+A table a `foldkit-sync` journal writes (`editsJournal`) takes its `apply` from
+the binding: `applyEdits(Db.Product)` writes one committed cell edit to the
+member's column, and the sequence it committed at to `revision`, in one
+statement that never moves a row back, so recovery may run it again. The
+column is the binding's, never one named by the change. Here the revision is
+the journal's sequence, so such a table should not also take writes that
+`expect` a counter.
+
+Given `{ live: hub }`, it tells that `liveHub` of each edit it applied (the
+member and the revision), so a Remote reader following the row with
+`Data.live` hears a settled edit as the journal applies it, with no refresh.
+An edit the row had already passed, run again by recovery, is not told. The
+hub is in-memory, so this reaches readers of the same process; across
+Workers requests, a live source reads the table instead.
+
+### Writing in a handler
+
+Anything a declared write cannot say (several rows, a computed value, another
+table) is a
+`RemoteServer.mutation` handler using Drizzle directly. The adapter helps
+normalize rows you already chose to return, and runs each statement so a
+database error fails as a `RemoteServerError` saying only what failed, the
+driver's own (which carries the SQL and its parameters) logged, never sent:
+
+```ts
+import { eq } from 'drizzle-orm'
+import { Effect } from 'effect'
+import { RemoteServer } from 'foldkit-remote-server'
+import { returning, runStatement } from 'foldkit-remote-drizzle'
+
+const project = returning(Project, [
+  'id',
+  'name',
+  'owner',
+])
+
+const RenameProjectSource = RemoteServer.mutation(
+  RenameProject,
+  ({ input }) =>
+    Effect.gen(function* () {
+      const rows = yield* runStatement(
+        () =>
+          db
+            .update(projects)
+            .set({ name: input.name })
+            .where(eq(projects.id, input.id))
+            .returning(project.columns),
+        'Database write failed',
+      )
+
+      return {
+        output: { id: input.id },
+        entities: project.patches(rows),
+      }
+    }),
+)
+```
+
+`returning(binding, fields)` pairs the Drizzle column projection with the
+normalizer for those exact fields, so the mutation cannot accidentally select
+one shape and normalize another. Singular relation foreign keys are rewritten
+to Remote ref keys.
+
+`selectColumns` and `normalize` are the lower-level halves when you need them
+separately.
+
+**Return the whole row you wrote.** The client's store learns only what a
+mutation's `entities` patch, so a handler that updates a title and returns
+`{ output: {} }` leaves every screen showing the old title. When a handler
+writes more than it wants to list, `returning.row(binding, id)` reads the row
+back, every column with each `one` relation as its ref:
+
+```ts
+import { drizzleWrites, returning } from 'foldkit-remote-drizzle'
+
+const PublishPostSource = RemoteServer.mutation(PublishPost, ({ input }) =>
+  Effect.gen(function* () {
+    const writes = yield* drizzleWrites
+    yield* Effect.promise(() =>
+      Promise.resolve(writes.update(posts).set({ title: input.title }).where(eq(posts.id, input.id))),
+    )
+    return { output: {}, entities: yield* returning.row(Post, input.id) }
+  }),
+)
+```
+
+`drizzleWrites` is the provided database's `insert`, `update` and `delete`,
+typed by each table's columns, so a handler writes without casting the
+`DrizzleDatabase` service, which names only the reads a Source makes.
+
+**Several rows: the driver's own transaction.** A declared write is one
+statement, so it is atomic already. A handler that writes several rows wraps
+them in its driver's transaction; the adapter adds none, because the drivers
+disagree on what one is. A synchronous SQLite driver (`node-sqlite`,
+`better-sqlite3`) takes a synchronous callback: given an `async` one, it
+commits before the awaits run, and a later failure rolls nothing back. A
+Postgres driver takes an `async` callback. D1 has no interactive transaction;
+`db.batch([...])` runs its statements as one. From
+[`examples/entity`](../../examples/entity/src/server.ts), over `node-sqlite`:
+
+```ts
+const DeletePost = RemoteServer.mutation(DeletePostMutation, ({ input }) =>
+  Effect.sync(() => {
+    db.transaction(tx => {
+      tx.delete(comments).where(eq(comments.postId, input.id)).run()
+      tx.delete(posts).where(eq(posts.id, input.id)).run()
+    })
+    return { output: {}, deleted: [{ entity: 'Post', id: input.id }] }
+  }),
+)
+```
+
+## Compose the server
+
+```ts
+const Data = Remote.define({
+  entities: [User, Project],
+  queries: [ProjectsByOwner],
+  mutations: [RenameProject],
+})
+
+const Server = RemoteServer.make({
+  entities: [source(User), source(Project)],
+  queries: [ProjectsByOwnerSource],
+  mutations: [RenameProjectSource],
+})
+
+RemoteServer.validate(Data, Server)
+
+const handlers = RemoteServer.handlers(Server, principal)
+```
+
+Every Drizzle Source contributes `DrizzleDatabase` to the Effect environment.
+If a server combines Sources requiring different services, make that union
+explicit in the `RemoteServer.make` environment rather than hiding a dependency.
+
+## Database service
+
+```ts
+import { databaseLayer } from 'foldkit-remote-drizzle'
+
+const DatabaseLive = databaseLayer(db)
+```
+
+`db` can be any Drizzle database with the select-builder surface this compiler
+uses. `databaseLayer` contains the structural adaptation once, so Sources simply
+yield `DrizzleDatabase`.
+
+The package deliberately does not import `drizzle-orm/effect-postgres` while its
+Effect RC compatibility differs from this workspace. Provide the database tag
+through `databaseLayer` instead.
+
+## Testing a binding
+
+The package test suite runs the adapter against a real in-process SQLite
+database via Node's `node:sqlite` and `drizzle-orm/node-sqlite`. That is a good
+pattern for application binding tests: build a tiny schema, seed rows, provide
+the database Layer, and assert the actual normalized wire values.
+
+```ts
+const records = await Effect.runPromise(
+  source(Project)
+    .read({
+      ids: ['p1'],
+      fields: ProjectSummary.fields,
+      principal: null,
+    })
+    .pipe(Effect.provide(DatabaseLive)),
+)
+```
+
+For relation-heavy examples, see
+[`example/nested.ts`](./example/nested.ts), which exercises declarations,
+normalization, a windowed relation page, and a keyset Query against seeded
+SQLite.
+
+```bash
+pnpm exec tsx packages/remote-drizzle/example/nested.ts
+```
+
+## Diagnose the first read
+
+| Symptom | Check |
+| --- | --- |
+| Missing service at execution | Provide `DrizzleDatabase` using your application's database layer. |
+| A row is absent for one caller | Inspect the binding's `visible` rule with that principal. |
+| A field is absent from a returned row | Check the Selection, `authorize`, and column/member mapping. |
+| A relation works by itself but not nested | Check that the target binding's Source is registered too. |
+| A query cannot compile | Check the interpreter's supported query capabilities before changing the client. |
+
+Start with one id and one scalar before adding relations or pagination. The
+[Entity example](../../examples/entity/README.md) provides a runnable baseline.
+
+## Dialect and limits
+
+The binding accepts Drizzle's base `Table`, but the pagination semantics are
+currently designed around Postgres behavior:
+
+- windowed nested pagination needs window functions and row-value `IN`
+  (Postgres, SQLite 3.25+, MySQL 8+);
+- computed fields are counts only;
+- there is no mutation DSL;
+- `reader`, the injected-executor path, does not load collections or computed
+  fields;
+- nested targets remain normalized refs and are resolved by
+  `foldkit-remote-server`, never embedded objects.
+
+The SQLite integration tests are a real SQL/compiler check, but they do not
+prove every Postgres-specific NULL-ordering edge case.
+
+## Cloudflare D1
+
+The same reads run over D1, through `drizzle-orm/d1`, with no adapter
+changes: windowed collection pages (`row_number() over (partition by …)`),
+row-value membership, `LIKE … ESCAPE`, `COLLATE "C"` search, keyset queries,
+and `returning` are all statements D1 accepts. `test/d1.test.ts` proves the
+core paths against a miniflare binding, which rejects what production D1
+rejects; `databaseLayer(drizzle(env.DB))` is the only wiring. The
+nullable-column rule above applies as on SQLite: D1 sorts nulls first for
+`ASC`, so sort by columns that are not null.
+
+## License
+
+MIT. The keyset-cursor and projection logic adapts
+[fate](https://github.com/nkzw-tech/fate)'s Drizzle integration (MIT, Copyright
+(c) 2025 Nakazawa Tech); see [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
+
+## See also
+
+- [Server-derived state](../../docs/remote.md) — why Remote requirements exist
+  and who owns server-derived state.
+- [`foldkit-remote`](../remote) — client requirements, normalized Model,
+  subscriptions, mutations, and live data.
+- [`foldkit-remote-server`](../remote-server) — Source authorization,
+  normalization, handlers, and live infrastructure.
+- [`examples/kitchen-sink`](../../examples/kitchen-sink) — Remote + Drizzle +
+  RemoteServer in one executable trace.

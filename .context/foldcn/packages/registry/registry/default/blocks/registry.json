@@ -1,0 +1,54 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "items": [
+    {
+      "name": "login-form",
+      "type": "registry:block",
+      "title": "Login Form",
+      "description": "A login page with email and password fields, error state and submit button. Composed from foldcn primitives.",
+      "registryDependencies": ["@foldcn/button", "@foldcn/input", "@foldcn/card"],
+      "files": [
+        {
+          "path": "login-form/login-form.ts",
+          "type": "registry:component",
+          "target": "@components/login-form.ts"
+        }
+      ]
+    },
+    {
+      "name": "settings-page",
+      "type": "registry:block",
+      "title": "Settings Page",
+      "description": "A settings page with profile and preferences sections. Composed from foldcn primitives.",
+      "registryDependencies": [
+        "@foldcn/button",
+        "@foldcn/input",
+        "@foldcn/textarea",
+        "@foldcn/select",
+        "@foldcn/switch",
+        "@foldcn/fieldset"
+      ],
+      "files": [
+        {
+          "path": "settings-page/settings-page.ts",
+          "type": "registry:component",
+          "target": "@components/settings-page.ts"
+        }
+      ]
+    },
+    {
+      "name": "data-table",
+      "type": "registry:block",
+      "title": "Data Table",
+      "description": "A searchable table with styled rows and cells. Composed from foldcn primitives.",
+      "registryDependencies": ["@foldcn/button", "@foldcn/input"],
+      "files": [
+        {
+          "path": "data-table/data-table.ts",
+          "type": "registry:component",
+          "target": "@components/data-table.ts"
+        }
+      ]
+    }
+  ]
+}

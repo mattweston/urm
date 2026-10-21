@@ -1,0 +1,4 @@
+/* Default Shadcn theme. Multi-theme applications can import base.css and
+ * individual files from themes/ instead. */
+@import "./base.css";
+@import "./themes/shadcn.css";

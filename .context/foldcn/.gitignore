@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.turbo/
+.alchemy/
+*.tgz
+.DS_Store
+packages/registry/styles/
+packages/web/src/generated/
+.tmp/
+.amp/portals/*

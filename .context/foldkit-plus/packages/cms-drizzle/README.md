@@ -1,0 +1,313 @@
+# foldkit-cms-drizzle
+
+The server half of [`foldkit-cms`](../cms/README.md), over
+[`foldkit-remote-drizzle`](../remote-drizzle/README.md). It keeps an author's
+unpublished work in three tables beside your own, and it is where the **audience
+boundary** is enforced, by a [`foldkit-guard`](../guard/README.md) guard set:
+who is not an author is refused entries, drafts and revisions outright, and sees
+of your content only what its Read rules show, such as what is published.
+
+Supports SQLite and Postgres. The conflict check requires `returning`, so this
+adapter does not support MySQL. The [CMS example](../../examples/cms/README.md)
+includes the server, in-app preview, and a browser mode over an in-memory database.
+
+## What it owns
+
+| Fact | Owner |
+| --- | --- |
+| Published content | your tables, bound with `bind` as any are |
+| Unpublished work | `cms_entries`, `cms_drafts`, `cms_revisions` |
+| Which rows of those a principal may see | this package: none, unless they are an author |
+| Which rows of your content a visitor may see | your content Entity's Read rules, compiled into its binding's `visible` |
+| Who is an author, and who may make a transition | your guard set's principal guards, as `authors` and `transitions`; `allow` for a rule about the entry |
+| What publishing a post *does* | your own `create` and `update` handlers |
+| That a publish is whole | this package, inside the `transaction` you name |
+| The time | your `now`, which defaults to the server's clock |
+
+## Mental model
+
+A table is read four ways: by id, as the children of a relation, as the target
+of a ref, and through a query. A rule on one of them leaves three open. So the
+boundary is not a filter this package adds somewhere; it is a
+[`visible`](../remote-drizzle/README.md#which-rows-a-principal-may-see) rule on
+each binding, which every one of those paths applies.
+
+```text
+an author's principal ──> entries, drafts, revisions, every content row
+a visitor's principal ──> published content rows, and nothing else
+```
+
+## Install
+
+```sh
+pnpm add effect drizzle-orm foldkit-cms foldkit-cms-drizzle foldkit-guard foldkit-remote-drizzle foldkit-remote-server
+```
+
+## Example
+
+The following is **wiring pseudocode**: `Blog`, `Posts`, `posts`, `User`,
+and the insert/update handlers belong to your application (a compiled version
+is [`test/readme.test-d.ts`](test/readme.test-d.ts)). Use
+[the runnable server](../../examples/cms/src/server/server.ts) for complete handlers,
+a database layer, and transaction setup. `sqliteTables()` describes tables;
+include them in your migrations before running the server.
+
+```text
+import { CmsServer, Transaction, sqliteTables } from 'foldkit-cms-drizzle'
+import { Guards } from 'foldkit-guard'
+import { GuardDrizzle } from 'foldkit-guard/drizzle'
+
+const cmsTables = sqliteTables() // or pgTables(); add them to your schema and migrations
+
+// Who is an author, who may publish, and what a visitor sees: a guard set.
+const G = Guards.declare('Cms', User, guard => ({
+  isAuthor: guard.principal(),
+  isEditor: guard.principal(),
+  isPublished: guard.row(Blog.Post, () => Expr.isNotNull(Blog.Post.fields.publishedAt)),
+}), { key: user => user.id })
+const Policy = G.implement({
+  isAuthor: principal => Option.exists(principal, user => user.role !== 'reader'),
+  isEditor: principal => Option.exists(principal, user => user.role === 'editor'),
+})
+// A visitor sees what is published; an author sees every row.
+const Post = Blog.Post.pipe(Guards.attach(G, { row: { Read: [G.isPublished, G.isAuthor] } }))
+
+const Db = bind({ ...Blog, Post }, {
+  Post: { table: posts, visible: GuardDrizzle.visible(Policy, [Post]).Post },
+})
+
+// Your own handlers of the two mutations the content type publishes through.
+const CreatePost = RemoteServer.mutation(Posts.publish.create, ({ input }) => /* insert */)
+const UpdatePost = RemoteServer.mutation(Posts.publish.update, ({ input }) => /* update */)
+
+const cms = CmsServer.make({
+  tables: cmsTables,
+  content: [{ type: Posts, entity: Post, binding: Db.Post, create: CreatePost, update: UpdatePost }],
+  transaction: Transaction.statements, // one connection; Transaction.drizzle for Postgres
+  policy: Policy,
+  authors: [G.isAuthor],
+  // An author writes; only an editor puts it in front of visitors.
+  transitions: { publish: [G.isEditor], schedule: [G.isEditor], unpublish: [G.isEditor] },
+})
+
+RemoteServer.make({
+  entities: [...cms.sources, source(Db.Author)],
+  queries: [...cms.queries],
+  mutations: [...cms.mutations],
+})
+```
+
+- **Register `cms.sources`, not `source(Db.Post)`.** They are the content types'
+  sources and the CMS's own, each behind the boundary.
+- **A content type that can be unpublished must be guarded by whether it is.**
+  `CmsServer.make` throws for a type with a `published` role whose Read rule
+  does not read that field, and, through `GuardServer.validate`, for a binding
+  whose `visible` is not the rule your guard set built for it. `entity` is the
+  type's Entity with its guards attached, the one its table was bound from.
+- A content type with no `published` role has nothing to hide, and needs none.
+- **Who is an author** is any of `authors`, principal guards; anyone else is a
+  visitor. Their bodies are asked with the interaction it is for, `Read` for
+  reading unpublished work and `Update` for any operation on it, so a reviewer
+  can read what they may not change. **Who may make a transition** is an author any of its
+  `transitions` guards lets; a transition not named is any author's. Archiving
+  an entry on show takes it off, so it asks `unpublish`'s guards too. `allow`
+  stays for a rule about the entry itself. A refusal is `Forbidden`, with its
+  sentence.
+- **`create` and `update` go to the CMS, not to `RemoteServer.make`.** Registered
+  there too, they are a way to publish with no draft, no revision and no `allow`.
+- **Content that exists already is imported, not inserted.** `cms.import({ type,
+  values, as, at, entry })` makes the entry and a draft of `values`, then publishes
+  it as a publish does: your `create` handler writes the row, as `as`, and revision
+  1 records `values`, dated `at`. It is one transaction, and the server's own act,
+  so `allow` is not asked. Writing the CMS's tables by hand has to match what a
+  publish writes, and drifts.
+
+### Seeding
+
+A seed is a runner over `cms.import` — one item per entry, in dependency order:
+
+- **Fix the clock.** Pass `now` to `CmsServer.make` and `at` to each import,
+  so every run writes the same dates: the build's pages and every sandbox agree.
+- **Name entries that are pointed at.** Pass `entry` where another import names
+  it (a page naming its featured post), and import what is pointed at first so
+  the id is known. Anything else takes the default new id.
+- **Fix `as` once.** Import as an editor and vary the rest; the input is
+  `ImportItem<P>` less `as`, so the runner and the tool cannot drift.
+
+The CMS example's `seed.ts` is the worked shape: dated posts, then the pages
+that point at them.
+
+## Verify the audience boundary
+
+Before connecting the editor, exercise the same content read as an author and
+as a visitor. An author may see working content; a visitor must see only rows
+allowed by the binding's `visible` rule. Repeat through a relation and a query,
+not just a direct id read. CMS state and allowed actions are separate from the
+identity established by your HTTP or RPC authentication.
+
+For the first write, save a draft and read the public row again: it must be
+unchanged. Publishing should then update the row, append a revision, and remove
+the draft within the supplied transaction. A scheduled time alone executes
+nothing; your host must call `cms.due` as described below.
+
+## Saving a draft
+
+`CmsSaveDraft` writes the working copy, valid or not. The client names something
+new (`Cms.newEntryId()`), and the first save of an id nobody has makes the entry.
+
+- **A save names what it was made from** (`basedOn`, the draft's `updatedAt`). A
+  newer one on the server means someone else saved in between, and the save is
+  refused with `Cms.refusal.conflict` instead of undoing their work. It is one
+  statement, compare and set, so two saves cannot both win.
+- A draft is bounded: `maxDraftSize` characters of JSON, values and Model
+  together, one million by default. More is refused, and nothing is written.
+- Two saves in the same instant still get different `updatedAt`s, so the next
+  save can tell them apart.
+- It answers with the entry and the draft as patches, so the client holds both
+  with no refetch. Every operation patches the entry with its `state` and its
+  `revision`, so what is on screen follows what was done.
+- Refused: a type the server does not know, an entry that is not there or is of
+  another type, an archived entry, and, as `Forbidden`, a principal that is not
+  an author and an author your `transitions` or `allow` refuse.
+
+`CmsDiscardDraft` removes the working copy. A published entry is left as it was
+published. An entry that was never published has nothing left, so it is removed
+too, and the client is told both are gone.
+
+## Publishing
+
+`CmsPublish` runs your handler with the draft's value: `create` when the entry
+has no row, `update`, with the row's id added, when it has. Around it, in one
+transaction: the `published` column is set if it was empty, the revision is
+appended, the draft is removed, and the entry is told its row. A handler that
+fails after writing leaves nothing behind.
+
+- **Every operation is one transaction**, not only a publish: a save that made an
+  entry and could not make its draft leaves neither.
+- **You name the transaction**, because Drizzle's differ by driver.
+  `Transaction.statements` is `begin` and `commit` as statements, for a database
+  that is one connection (a SQLite file). `Transaction.drizzle` is
+  `database.transaction`, for a driver whose transactions are asynchronous
+  (Postgres, libSQL); your handlers then get the transaction as their
+  `DrizzleDatabase`. Statements over a pool would not roll back.
+- **One connection holds one transaction**, so under `Transaction.statements` this
+  package's operations take turns at the database. Without that, a save arriving
+  while a publish is failing would be rolled back with it, after it was reported
+  done. A write of your own on the same connection does not take a turn unless
+  you make it inside `Transaction.statements` too.
+- **A publish names the revision it was made from** (`basedOn`, the entry's
+  `revision`, or `null`). A newer one is refused with `Cms.refusal.conflict`, not a publish over
+  someone else's. The entry's `revision` is compared and set first, inside the
+  transaction, so of two publishes made from one revision one writes nothing.
+- A draft your mutation's Input refuses is not published, and the error says why.
+  The draft is kept.
+- A row that is already shown keeps the date it was first published on.
+- The row as your handler left it goes to the client with the entry and the
+  revision, every column of it, so a handler need not patch what it wrote. What
+  your handler returns (patches, connection changes, deletions) goes too.
+
+### Slugs
+
+A content type with a `slug` role is found by it: `cms.queries` has
+`Cms.bySlug(Posts)`, behind the same `visible` rule as every other read, so a
+visitor does not find what is not published.
+
+A publish to a slug another row has is refused with
+`Cms.refusal.field('slug', 'That address is taken: "hello" is already used')`,
+which names the form key to show it on; a client reads it with `Data.refusal`. **The check is advice; a unique index is the
+rule.** Two publishes can both pass the check, and the one the index refuses
+gets the same error. Without a unique index on the column, that race publishes
+two rows at one address. The slug is read from the publish input's member of the
+same key as the Entity's.
+
+### Unpublishing
+
+`CmsUnpublish` empties the `published` column. The row and its revisions are
+kept; a visitor stops seeing it, by every path, and publishing shows it again.
+Only a type with a `published` role offers it.
+
+## Scheduling
+
+`CmsSchedule` promises a draft for later: it sets the draft's `scheduledFor`,
+after checking the publish mutation would take the draft now. What could not be
+published now is not promised for later. `CmsUnschedule` takes the promise back.
+
+Nothing else happens until you call `due`:
+
+```ts
+// A Cloudflare cron trigger, a setInterval, a queue consumer: the host's choice.
+export default {
+  scheduled: () =>
+    run(cms.due(new Date(), { as: name => authors.byName(name) })),
+}
+```
+
+- **The package owns no timer.** Hosts keep time differently, and a library that
+  starts its own runs twice behind a load balancer.
+- `due(now, { as })` publishes every draft whose time has come, each in its own
+  transaction, **as whoever scheduled it**: a draft keeps the name your `nameOf`
+  gave, and `as` says who that is now. Someone who has since lost the right
+  publishes nothing.
+- **A publish that fails stays scheduled, with the reason.** The entry reads
+  overdue with that error, because that is true. It is not tried again until the
+  draft changes: a fault the author must fix is not hammered every minute.
+- **What was promised is changed only by someone who could have promised it.**
+  Since a scheduled draft is published as whoever scheduled it, saving over it,
+  restoring over it or discarding it is refused to an author your `transitions`
+  or `allow` would not let `schedule`. Otherwise someone who may not publish would publish through
+  someone who may.
+- One failure does not stop the rest. `due` answers with each entry and its
+  error, or `null`.
+- An archived entry keeps its promise, and keeps it waiting.
+
+## Restoring
+
+`CmsRestore` makes a revision's value the working copy. **It publishes nothing**:
+what comes back is a draft like any other, to look at, change, and publish, which
+makes the next revision. It replaces what the draft held, and takes back a
+promise made of that. The saved Model goes with it, so an editor fills its form
+from the values, key by key, and a revision older than the form still opens.
+Only what has been published has a past to restore.
+
+## Archiving
+
+`CmsArchive` puts an entry away: off the worklist, and, for a type with a
+`published` role, off show. `CmsUnarchive` brings it back as unpublished work;
+publishing shows it again. Put away, an entry offers nothing else.
+
+## The worklist, and an entry's state
+
+`cms.queries` is `Cms.Entries`: the entries of one content type, searched by
+label (as typed: `%` and `_` are characters, not wildcards), the archived ones or the rest. It lists entries, not content rows, so
+something never published is in it.
+
+An entry's `state` is not a column. This server derives it, with `Cms.state`,
+from whether the entry has a draft and whether a visitor can see its row, using
+your `now`. An overdue scheduled publish reads overdue, with its reason.
+
+## API
+
+| Call | Meaning |
+| --- | --- |
+| `sqliteTables()`, `pgTables()` | The three tables, per dialect. `sqliteSchema` is their `create table` statements. |
+| `Transaction.statements`, `Transaction.drizzle` | How a publish is made whole, by driver. |
+| `CmsServer.make({ tables, content, transaction, policy, authors, transitions?, allow?, now?, nameOf?, maxDraftSize? })` | `sources`, `queries`, `mutations`, `due`, `import`, and `bindings`. Each `content` entry is `{ type, entity, binding, create, update }`. |
+| `cms.due(now, { as })` | Publishes what has come due; an Effect of `{ entry, error }` each. |
+| `cms.import({ type, values, as, at?, entry? })` | Content that is published already (a seed, or what another CMS held), written by the publish path; an Effect of `{ entry, targetId }`. |
+
+## Limits
+
+- `transitions` and `allow` are asked about every transition, and again when an
+  entry is read with `may`: the entry's `may` is the transitions they let the
+  reader ask (`Cms.transitions` filtered; each transition's guards decided once
+  per read), so the client can leave out what would be refused. Whether the
+  entry offers one now is its `state`'s to say. This `may` is the CMS's own,
+  not `foldkit-guard`'s.
+- `CmsPublish` needs a draft. To show an unpublished row again as it is, the
+  editor's publish saves what is there first; a client of your own does the same.
+- A driver's refusal is recognised by its words (`unique` or `duplicate`, and the
+  column's name). SQLite and Postgres say both; a constraint named without the
+  column arrives as the driver's own error.
+- Conflicts are refused, not merged.
+- A client that holds an entry's `revisions` list refetches it after a publish;
+  the new revision arrives as a patch, not as a place in that list.

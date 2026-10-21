@@ -1,0 +1,82 @@
+@import "@foldworks/editor/styles.css";
+@import "@foldworks/ui/base.css";
+@import "@foldworks/ui/themes/shadcn.css";
+@import "@foldworks/ui/themes/blueprint.css";
+@import "@foldworks/ui/themes/office.css";
+@import "@foldworks/ui/themes/fluent2.css";
+@import "@foldworks/ui/themes/google.css";
+@import "@foldworks/ui/themes/apple.css";
+@import "@foldworks/ui/themes/polaris.css";
+@import "@foldworks/code-editor/styles.css";
+@import "./code-editor/styles.css";
+@import "@foldworks/data-grid/styles.css";
+@import "@foldworks/data-table/styles.css";
+@import "@foldworks/diff-viewer/styles.css";
+@import "@foldworks/pdf-annotator/styles.css";
+@import "@foldworks/pdf-viewer/styles.css";
+@import "./diff-viewer/styles.css";
+@import "@foldworks/outliner/styles.css";
+@import "@foldworks/text-intelligence/styles.css";
+@import "./outliner/styles.css";
+@import "./orchestrator/styles.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior: none;
+}
+
+.editor-demo-project {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  background: var(--card);
+}
+.editor-demo-project__icon {
+  padding: 10px 15px;
+  border-radius: 8px;
+  background: var(--muted);
+  font-size: 24px;
+}
+.editor-demo-project > div {
+  flex: 1;
+  min-width: 0;
+}
+.editor-demo-project small {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--muted-foreground);
+}
+.editor-demo-project input {
+  width: 100%;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: transparent;
+  border: none;
+}
+.editor-demo-project select {
+  max-width: 120px;
+}
+@media (max-width: 640px) {
+  .editor-demo-project {
+    flex-wrap: wrap;
+  }
+  .editor-demo-project__icon {
+    display: none;
+  }
+  .editor-demo-project > div {
+    min-width: 140px;
+  }
+}

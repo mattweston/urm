@@ -1,0 +1,30 @@
+{
+  "name": "foldkit-example-sync",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "demo": "tsx src/demo.ts",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-agent": "workspace:*",
+    "foldkit-durable": "workspace:*",
+    "foldkit-sync": "workspace:*",
+    "foldkit-surface": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "@types/jsdom": "21.1.7",
+    "@types/ws": "^8.5.12",
+    "fake-indexeddb": "6.2.4",
+    "foldkit-agent-mcp": "workspace:*",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "vite": "5.4.21"
+  }
+}

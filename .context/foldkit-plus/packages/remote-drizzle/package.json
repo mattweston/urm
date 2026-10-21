@@ -1,0 +1,64 @@
+{
+  "name": "foldkit-remote-drizzle",
+  "version": "0.11.1",
+  "description": "Provisional compiler from Remote Entity/Selection/Query to Drizzle's typed query graph.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "drizzle",
+    "drizzle-orm",
+    "sql",
+    "server-state"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/remote-drizzle"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/remote-drizzle#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "foldkit-entity": "workspace:*",
+    "foldkit-remote": "workspace:*",
+    "foldkit-remote-server": "workspace:*"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "1.0.0-rc.4",
+    "effect": "^4.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "drizzle-orm": "1.0.0-rc.4",
+    "effect": "4.0.0",
+    "foldkit-remote-server": "workspace:*",
+    "miniflare": "3.20250718.3",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  }
+}

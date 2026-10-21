@@ -1,0 +1,27 @@
+{
+  "name": "foldkit-example-foldkit-ssg",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@foldkit/ui": "0.165.0",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-mixins": "workspace:*",
+    "foldkit-ssr": "workspace:*",
+    "foldkit-surface": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "@foldkit/vite-plugin": "0.26.0",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "vite": "^8.3.0"
+  }
+}

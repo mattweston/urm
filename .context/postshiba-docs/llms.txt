@@ -1,0 +1,170 @@
+# PostShiba
+
+> PostShiba is an email API. These docs cover sending, domains, clusters, inboxes, webhooks, tenants, language SDKs, hosted Liquid templates, and the REST API. PostShiba does not ship broadcasts or audiences.
+
+## Get started
+
+- [Introduction](/docs/introduction.md): PostShiba is an email API for SaaS platforms that send and receive on behalf of their customers.
+- [Create an API key](/docs/create-an-api-key.md): Create a Bearer token in the dashboard and make your first authenticated request.
+- [SDKs](/docs/sdks.md): Install a client, mail adapter, or plugin for your language or framework.
+- [Connect MCP](/docs/connect-mcp.md): Set up and query PostShiba from Cursor with the same API key you use for REST.
+- [Add and verify a domain](/docs/add-a-domain.md): Publish DKIM and return-path records, then send from any address on the domain.
+- [Choose a send path](/docs/sending-emails.md): Compare SMTP, HTTP inject, and the REST API, then send your first message.
+
+## Guides
+
+- [Build an ESP on PostShiba](/docs/guides/build-an-esp.md): Give each customer their own domains, credentials, sending data, and controls.
+- [Build an email support desk on PostShiba](/docs/guides/build-email-support-desk.md): Receive support mail, keep conversations together, and send replies.
+- [Build an AI agent inbox on PostShiba](/docs/guides/build-ai-agent-inbox.md): Give an agent a real inbox with signed webhooks and reply support.
+- [Send basic transactional emails with PostShiba](/docs/guides/send-transactional-email.md): Verify a domain and send your first production message.
+- [Protect sign-ups with ShieldShiba](/docs/guides/protect-signups-with-shieldshiba.md): A free captcha that checks the email address and the browser.
+
+## Quickstart
+
+- [Send emails with HTTP](/docs/send-with-http.md): Queue a message with curl and a Bearer token.
+- [Send emails with SMTP](/docs/send-with-smtp.md): STARTTLS on port 587 with AUTH PLAIN.
+- [Send emails with Node.js](/docs/send-with-nodejs.md): Install the Node SDK from GitHub and call emails.send.
+- [Send emails with Rails](/docs/send-with-rails.md): Deliver with Action Mailer and delivery_method = :postshiba.
+- [Send emails with Ruby](/docs/send-with-ruby.md): Install the Ruby SDK from GitHub and call send_email.
+- [Send emails with Python](/docs/send-with-python.md): Install the Python SDK from GitHub and call emails.send.
+- [Send emails with PHP](/docs/send-with-php.md): Install the PHP SDK from GitHub and call emails.send.
+- [Send emails with Go](/docs/send-with-go.md): Install the Go module from GitHub and call EmailsSend.
+- [Send emails with Java](/docs/send-with-java.md): Install the Java SDK from GitHub and call emails.send.
+- [Send emails with Rust](/docs/send-with-rust.md): Install the Rust crate from GitHub and call emails().send.
+- [Send emails with .NET](/docs/send-with-dotnet.md): Install the .NET SDK from GitHub and call Emails.SendAsync.
+- [Send emails with Elixir](/docs/send-with-elixir.md): Install the Elixir SDK from GitHub and call Emails.send.
+- [Send emails with Dart](/docs/send-with-dart.md): Install the Dart SDK from GitHub and call emails.send.
+- [Send emails with Laravel](/docs/send-with-laravel.md): Set the mailer to postshiba and call Mail::raw.
+- [Send emails with Django](/docs/send-with-django.md): Use the PostShiba EmailBackend and django.core.mail.
+- [Send emails with NestJS](/docs/send-with-nestjs.md): Import PostShibaModule and call sendMail.
+- [Send emails with Convex](/docs/send-with-convex.md): Install the Convex component and call sendEmail.
+- [Send emails with Inngest](/docs/send-with-inngest.md): Install the Inngest adapter and call sendEmail inside step.run.
+- [Send emails with Trigger.dev](/docs/send-with-trigger.md): Install the Trigger.dev adapter and call sendEmail from a task.
+- [Send emails with Phoenix](/docs/send-with-phoenix.md): Set the Swoosh adapter to PostShiba.Swoosh.Adapter.
+- [Send emails with WordPress](/docs/send-with-wordpress.md): Install the PostShiba plugin and call wp_mail.
+- [Send emails with Ghost](/docs/send-with-ghost.md): Point Ghost SMTP at PostShiba.
+- [Send emails with Joomla](/docs/send-with-joomla.md): Point Joomla SMTP at PostShiba.
+- [Send emails with Supabase](/docs/send-with-supabase.md): Point Supabase Auth SMTP at PostShiba.
+
+## Emails
+
+- [Sending emails](/docs/dashboard/emails/introduction.md): What you can send today, and how it is queued.
+- [Attachments](/docs/dashboard/emails/attachments.md): MIME on SMTP, structured parts on HTTP inject, base64 on the REST send API.
+- [Custom headers](/docs/dashboard/emails/custom-headers.md): Add headers. Reserved names are ignored.
+- [Unique args](/docs/dashboard/emails/unique-args.md): Pass tracking fields that come back on delivery webhooks.
+- [Email bounces](/docs/dashboard/emails/email-bounces.md): Hard bounces suppress the address. Events stay on the cluster.
+- [How to manage suppressions](/docs/dashboard/emails/email-suppressions.md): Look up, add, import, or remove an address PostShiba will not send to.
+- [How to set the email firewall](/docs/dashboard/emails/email-firewall.md): Block temp mail, free mailboxes, plus-addresses, and listed domains before send.
+- [Send test emails](/docs/dashboard/emails/send-test-emails.md): Use the cluster test-send form, the template editor, or the send API.
+
+## Templates
+
+- [Using templates](/docs/dashboard/templates/introduction.md): Design a message once, then send it with Liquid variables.
+- [Create a template](/docs/dashboard/templates/create-a-template.md): Create a draft in the dashboard or with the API.
+- [Template editor](/docs/dashboard/templates/editor.md): Edit HTML, text, and global CSS with a live preview.
+- [Liquid](/docs/dashboard/templates/liquid.md): Variables, filters, if, and for.
+- [Global CSS](/docs/dashboard/templates/css.md): Write CSS once. PostShiba injects it and inlines it for the inbox.
+- [Send with a template](/docs/dashboard/templates/send-with-a-template.md): Pass template.id and variables instead of html.
+
+## Domains
+
+- [Verified domains](/docs/dashboard/domains/introduction.md): Why send waits on DKIM, and when an imported key can skip return-path.
+- [Managing domains](/docs/dashboard/domains/manage-domains.md): How to create, verify, import, suspend, and delete a sending domain.
+- [Return-path](/docs/dashboard/domains/custom-return-path.md): MAIL FROM uses rp.your-domain when that CNAME verifies. Imported DKIM uses our zone until then.
+
+## Clusters
+
+- [Clusters](/docs/dashboard/clusters/introduction.md): Why a send needs a named environment, and why transactional and bulk stay apart.
+- [What happens at your cap](/docs/dashboard/clusters/what-happens-at-your-cap.md): Every send path refuses the message. The dashboard and an admin email tell you.
+
+## Receiving
+
+- [Receiving emails](/docs/dashboard/receiving/introduction.md): Domain-bound inboxes in the dashboard, or hosted inboxes over the API.
+- [Managing received emails](/docs/dashboard/receiving/manage-emails.md): Poll stored mail or open it in the inbox.
+- [Custom receiving domains](/docs/dashboard/receiving/custom-domains.md): MX on inbound.your-domain, another subdomain, or the root if it has no MX.
+- [Inbox forwarding](/docs/dashboard/receiving/forwarding.md): Resign inbound mail and send it to an address on a sending domain.
+- [Receiving webhooks](/docs/dashboard/receiving/create-receiving-webhook.md): POST signed JSON or SendGrid Inbound Parse.
+- [Receiving attachments](/docs/dashboard/receiving/attachments.md): Bytes on webhook, message show, and a download URL.
+- [Get email content](/docs/dashboard/receiving/get-email-content.md): Text, HTML, headers, raw MIME, and plus-address threads.
+
+## Webhooks
+
+- [Managing webhooks](/docs/webhooks/introduction.md): Get delivery events POSTed to your server in the SendGrid Event Webhook format.
+- [Event types](/docs/webhooks/event-types.md): The seven delivery events PostShiba sends, and the fields on each one.
+- [Retries and replays](/docs/webhooks/retries-and-replays.md): Six attempts over about 35 hours, then replay dead deliveries from the dashboard.
+- [Verify webhook requests](/docs/webhooks/verify-webhooks-requests.md): Check the HMAC-SHA256 signature over {timestamp}.{body} before you trust a webhook.
+- [Forward webhooks to Amazon EventBridge](/docs/webhooks/eventbridge.md): Verify the signature in a Lambda function, then put each event on an EventBridge bus.
+
+## Tenants
+
+- [Tenants](/docs/dashboard/tenants/introduction.md): Why extra tenants exist, and what they isolate.
+
+## API keys
+
+- [Managing API keys](/docs/dashboard/api-keys/introduction.md): How to mint a Full or Support key for one team.
+
+## Knowledge base
+
+- [Does PostShiba require production approval?](/docs/knowledge-base/does-capsule-require-production-approval.md): Yes. You can create one shared cluster and inboxes while pending. Sending to anyone else is kyc_required until approval.
+- [What if my domain is not verifying?](/docs/knowledge-base/what-if-my-domain-is-not-verifying.md): DKIM and return-path records must match exactly.
+- [How do I avoid MX conflicts?](/docs/knowledge-base/how-do-i-avoid-conflicting-with-my-mx-records.md): Default to inbound.your-domain. We refuse a host that already has MX.
+- [How do dedicated IPs work?](/docs/knowledge-base/how-do-dedicated-ips-work.md): Exclusive same-class proxy IPs you pick from Network.
+- [How do capacity boosts work?](/docs/knowledge-base/how-do-capacity-boosts-work.md): A 24-hour outbound allowance on top of the monthly plan.
+- [How do I buy a capacity boost?](/docs/knowledge-base/how-do-i-buy-a-capacity-boost.md): Start, schedule, extend, or cancel a 24-hour outbound boost.
+- [Subdomain or root domain?](/docs/knowledge-base/is-it-better-to-send-emails-from-a-subdomain.md): A sending subdomain keeps root MX free for inbound.
+- [Sender email addresses](/docs/knowledge-base/how-do-i-create-an-email-address.md): You send from any address on a verified domain. Nothing to provision.
+- [Why did an address land on suppressions?](/docs/knowledge-base/why-are-my-emails-landing-on-the-suppression-list.md): Hard bounce, spam report, unsubscribe, or a manual add.
+- [Why did the firewall block a send?](/docs/knowledge-base/why-did-the-firewall-block-a-send.md): A recipient failed a team firewall check before queue.
+- [AUTH PLAIN, not AUTH LOGIN](/docs/knowledge-base/auth-plain.md): Port 587 after STARTTLS. AUTH LOGIN fails.
+- [Setting up PostShiba for multi-tenant apps](/docs/knowledge-base/setting-up-capsule-for-multi-tenants.md): One team, extra tenants, scoped domains and credentials.
+- [Delivered but not in the inbox](/docs/knowledge-base/what-if-an-email-says-delivered.md): Delivered means the destination accepted the message.
+- [How do I report abuse?](/docs/knowledge-base/how-do-i-report-abuse.md): Open the X-Report-Abuse URL or the public abuse form.
+- [How do recipients unsubscribe?](/docs/knowledge-base/how-do-recipients-unsubscribe.md): One-click List-Unsubscribe suppresses that address on the sending tenant.
+
+## For support teams
+
+- [Team roles](/docs/support/roles.md): Viewer, Support, and Team Administrator, and the actions each role allows.
+- [Invite a Support teammate](/docs/support/invite-a-support-teammate.md): An admin invites a teammate with the Support role.
+- [How do I read a bounce reason?](/docs/support/reading-a-bounce-reason.md): Open the event, read the explanation, and paste it to the customer.
+- [Bounce explanations](/docs/support/bounce-explanations.md): Classified pasteable sentences from Events.
+- [Did they get the email?](/docs/support/did-they-get-the-email.md): Look up a recipient from the top bar, read sends, suppressions, and firewall, and remove a suppression when the customer asked.
+- [Why did sending stop?](/docs/support/why-did-sending-stop.md): Run this checklist in order when a customer says mail is not going out.
+- [Create a Support key](/docs/support/create-a-support-key.md): Mint a Bearer token that can look up recipients, read analytics, and remove a suppression.
+- [Ask your assistant](/docs/support/ask-your-assistant.md): Connect a Support key to Cursor and ask whether they got the email.
+- [What is written to the access log?](/docs/support/access-log.md): Recipient lookups and suppression removals, from the dashboard, API, or assistant.
+- [How to reach us](/docs/support/how-to-reach-us.md): Open a ticket from the dashboard.
+- [What can Support see?](/docs/support/what-support-can-see.md): Delivery and ops. Not secrets. Not raw bounce dumps.
+
+## API reference
+
+- [REST API](/docs/api-reference/introduction.md): Base URL, Bearer tokens, ids, lists, rate limits, and OpenAPI.
+- [Errors](/docs/api-reference/errors.md): Status codes and error strings from the REST API, SMTP, and HTTP inject.
+- [Authentication](/docs/api-reference/authentication.md): Send an API key as a Bearer token and check which user it belongs to.
+- [Sending](/docs/api-reference/sending.md): SMTP, HTTP inject, POST /emails, and POST /sends.
+- [Clusters](/docs/api-reference/clusters.md): Shared-IP sending environments.
+- [Network](/docs/api-reference/network.md): Available and owned sending IPs.
+- [Sending domains](/docs/api-reference/domains.md): Create, verify, import DKIM, refresh keys, suspend, resume, and delete domains.
+- [Tenants](/docs/api-reference/tenants.md): Extra tenants under the token's team.
+- [Inboxes](/docs/api-reference/inboxes.md): Hosted or domain-bound receiving addresses.
+- [Inbound messages](/docs/api-reference/messages.md): Received messages for one inbox, with raw MIME and attachments.
+- [Outbound messages](/docs/api-reference/outbound-messages.md): Stored copies of messages PostShiba composed, with the raw .eml.
+- [Outbound retention](/docs/api-reference/outbound-retention.md): How long PostShiba keeps copies of the messages it composes.
+- [Events](/docs/api-reference/events.md): Delivery events for a cluster.
+- [Recipients](/docs/api-reference/recipients.md): Look up one address: sends, suppressions, and firewall.
+- [Analytics](/docs/api-reference/analytics.md): Delivery totals for the token's team.
+- [Status](/docs/api-reference/status.md): Whether the token's team can send right now.
+- [SMTP credentials](/docs/api-reference/smtp-credentials.md): Issue a username and a once-only password.
+- [Webhooks](/docs/api-reference/webhooks.md): Outbound delivery webhook endpoints.
+- [Templates](/docs/api-reference/templates.md): Hosted Liquid templates.
+- [Suppressions](/docs/api-reference/suppressions.md): Addresses that must not be sent to.
+- [Firewall](/docs/api-reference/firewall.md): Pre-send recipient checks for the token's team.
+- [ShieldShiba](/docs/api-reference/shield.md): Bot checks for signup and contact forms.
+
+## Migration Guides
+
+- [Switching from SendGrid](/docs/migration-guides/sendgrid.md): Keep the Event Webhook array and optional Inbound Parse fields. Replace send credentials and webhook verification.
+- [Switching from Mailgun](/docs/migration-guides/mailgun.md): Migrate Mailgun sending, metadata, delivery webhooks, and inbound Routes to PostShiba with a tested rollback path.
+- [Switching from Amazon SES](/docs/migration-guides/amazon-ses.md): Keep your From domains and message content. Replace SES authentication, regional endpoints, event destinations, and receipt rules without sending anything twice.
+- [Switching from SparkPost](/docs/migration-guides/sparkpost.md): Move each SparkPost transmission to one PostShiba request per message, then validate delivery and inbound webhooks before cutover.
+- [Switching from Mailchimp Transactional](/docs/migration-guides/mailchimp.md): Keep your transactional application flow while you replace Mandrill auth, templates, webhooks, and inbound routes with PostShiba.
+- [Switching from Resend](/docs/migration-guides/resend.md): Keep the same core send fields while moving authentication, delivery events, and inbound mail to PostShiba.

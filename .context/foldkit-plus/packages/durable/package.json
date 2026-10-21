@@ -1,0 +1,70 @@
+{
+  "name": "foldkit-durable",
+  "version": "0.8.0",
+  "description": "A durable, ordered operation log with snapshots, cursors, idempotent append, compaction, and a durable effect ledger.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "durable",
+    "journal",
+    "operation-log",
+    "sqlite"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/durable"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/durable#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./core": {
+      "foldkit-plus:source": "./src/core.ts",
+      "types": "./dist/core.d.mts",
+      "import": "./dist/core.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0"
+  },
+  "dependencies": {
+    "@effect/sql-sqlite-node": "4.0.0",
+    "@noble/hashes": "^2.4.0"
+  },
+  "devDependencies": {
+    "@effect/sql-d1": "4.0.0",
+    "@effect/sql-sqlite-node": "4.0.0",
+    "@effect/sql-sqlite-wasm": "4.0.0",
+    "effect": "4.0.0",
+    "esbuild": "0.28.2",
+    "miniflare": "3.20250718.3",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  }
+}

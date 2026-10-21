@@ -1,0 +1,118 @@
+// @vitest-environment jsdom
+import { Effect } from 'effect'
+import { ReplicaId, type Storage } from 'foldkit-sync'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Message } from '../src/app.js'
+import { mountApp } from '../src/runtime.js'
+import { stylesheet } from '../src/sheet.js'
+import { TodoSync } from '../src/sync.js'
+
+/** A storage double, so the runtime can be mounted without IndexedDB. */
+const memoryStorage = (): Storage => {
+  let state: unknown
+  return {
+    load: () => Effect.sync(() => state),
+    save: next =>
+      Effect.sync(() => {
+        state = structuredClone(next)
+      }),
+    close: Effect.void,
+  }
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('the mounted app', () => {
+  it('reads the filter from the URL at start and writes it back as the filter changes', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+      setTimeout(() => callback(performance.now()), 0),
+    )
+    vi.stubGlobal('cancelAnimationFrame', clearTimeout)
+    window.history.replaceState({}, '', '/?filter=active&sort=asc')
+    const container = document.createElement('div')
+    container.id = 'todo-app-mirrors'
+    document.body.appendChild(container)
+    const replica = await Effect.runPromise(
+      TodoSync.openReplica(ReplicaId.make('mirrors'), memoryStorage()),
+    )
+    const mounted = mountApp(replica, container)
+    try {
+      await vi.waitFor(() => expect(mounted.model().filter).toBe('active'))
+      mounted.dispatch(Message.FilterSelected({ filter: 'completed' }))
+      await vi.waitFor(() => expect(window.location.search).toBe('?filter=completed&sort=asc'))
+      // Back to the default drops the key and keeps the rest of the URL.
+      mounted.dispatch(Message.FilterSelected({ filter: 'all' }))
+      await vi.waitFor(() => expect(window.location.search).toBe('?sort=asc'))
+      // A navigation reads back in.
+      window.history.pushState({}, '', '/?filter=active')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      await vi.waitFor(() => expect(mounted.model().filter).toBe('active'))
+    } finally {
+      await mounted.dispose()
+      await Effect.runPromise(replica.close)
+      container.remove()
+      window.history.replaceState({}, '', '/')
+    }
+  })
+
+  it('applies an intent, persists the fact it minted, and renders through the slots', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+      setTimeout(() => callback(performance.now()), 0),
+    )
+    vi.stubGlobal('cancelAnimationFrame', clearTimeout)
+
+    const container = document.createElement('div')
+    container.id = 'todo-app-runtime'
+    document.body.appendChild(container)
+
+    const replica = await Effect.runPromise(
+      TodoSync.openReplica(ReplicaId.make('test'), memoryStorage()),
+    )
+    const mounted = mountApp(replica, container)
+    try {
+      await vi.waitFor(() => expect(document.body.textContent).toContain('0 active'))
+
+      // Typed and submitted before a frame draws the draft: the submit still
+      // adds what was typed, since `update` reads the draft, not the view.
+      const input = document.querySelector<HTMLInputElement>('input[aria-label="New todo"]')!
+      input.value = 'From the UI'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.form!.requestSubmit()
+      // The intent is local; the fact its Command emits is what reaches the outbox.
+      await vi.waitFor(() => expect(document.body.textContent).toContain('From the UI'))
+      await vi.waitFor(() => expect(Effect.runSync(replica.pending)).toHaveLength(1))
+      expect(Effect.runSync(replica.pending)[0]!.message).toMatchObject({ _tag: 'SubmittedTodo' })
+      expect(document.body.textContent).toContain('1 active')
+
+      // The row's checkbox is a `@foldkit/ui` Checkbox and the filter buttons
+      // carry the Behavior's aria-selected, both resolved through slots.
+      expect(document.querySelector('[role="checkbox"]')).not.toBeNull()
+      expect(document.querySelectorAll('[aria-selected="true"]')).toHaveLength(1)
+
+      // The theme ships in the stylesheet on `:root`, not inline on the page, so
+      // a scheme or theme override in a later rule can still reach it.
+      const root = container.querySelector<HTMLElement>('.app') ?? document.querySelector('.app')
+      expect(root).not.toBeNull()
+      expect(root?.getAttribute('style') ?? '').not.toMatch(
+        /--fk-(knob|surface|text|accent)-[a-z-]+:/,
+      )
+
+      // Every generated class the views render is one the sheet defines. A
+      // style layered only in the sheet would carry a different class than the
+      // one its view attached, and this would name the stranded class.
+      const rendered = new Set(
+        [...document.querySelectorAll('[class]')].flatMap(element =>
+          [...element.classList].filter(name => name.startsWith('style-')),
+        ),
+      )
+      expect(rendered.size).toBeGreaterThan(0)
+      expect([...rendered].filter(name => !stylesheet.includes(`.${name}`))).toEqual([])
+    } finally {
+      await mounted.dispose()
+      await Effect.runPromise(replica.close)
+      container.remove()
+    }
+  })
+})

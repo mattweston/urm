@@ -1,0 +1,46 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "items": [
+    {
+      "name": "utils",
+      "type": "registry:lib",
+      "title": "cn",
+      "description": "Class name merger built on cn. Used by every foldcn component.",
+      "dependencies": ["cn"],
+      "files": [
+        {
+          "path": "utils.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "code-block",
+      "type": "registry:lib",
+      "title": "Code Block",
+      "description": "Syntax-highlighted code block with file header and copy button, powered by @tanstack/highlight.",
+      "dependencies": ["@tanstack/highlight"],
+      "registryDependencies": ["@foldcn/utils"],
+      "files": [
+        {
+          "path": "code-block.ts",
+          "type": "registry:lib"
+        }
+      ]
+    },
+    {
+      "name": "icons",
+      "type": "registry:lib",
+      "title": "Icons",
+      "description": "Lucide icons rendered as Foldkit virtual DOM via the h builder. Includes a generic renderer for any lucide icon plus a set of commonly used icons.",
+      "dependencies": ["lucide"],
+      "registryDependencies": ["@foldcn/utils"],
+      "files": [
+        {
+          "path": "icons.ts",
+          "type": "registry:lib"
+        }
+      ]
+    }
+  ]
+}

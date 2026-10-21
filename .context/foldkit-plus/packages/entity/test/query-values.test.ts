@@ -1,0 +1,193 @@
+/**
+ * A query is a value: its nodes cannot be changed after it is built, a shared
+ * node costs one visit however many paths reach it, what it reads is reported
+ * per Entity identity, and the reference interpreter answers what the compiled
+ * one answers, refusing deterministically what neither can.
+ */
+import { Schema } from 'effect'
+import { describe, expect, it } from 'vitest'
+import {
+  Entity,
+  Expr,
+  Order,
+  Query,
+  QueryEvaluateError,
+  dependenciesOf,
+  evaluate,
+  maxQueryNodes,
+  type Predicate,
+  type Row,
+} from '../src/index.js'
+
+const Item = Entity.define(
+  'Item',
+  Schema.Struct({ id: Schema.String, text: Schema.String, rank: Schema.Number }),
+)
+
+/** A predicate whose `_tag` counts its reads, to measure how often a walk visits it. */
+const counted = (): { readonly predicate: Predicate; readonly visits: () => number } => {
+  let reads = 0
+  const predicate = new Proxy(Expr.eq(Item.fields.id, 'a'), {
+    get: (target, key, receiver) => {
+      if (key === '_tag') reads += 1
+      return Reflect.get(target, key, receiver)
+    },
+  })
+  return { predicate, visits: () => reads }
+}
+
+/** `leaf` reached through `depth` levels of `eq(n, n)`: 2^depth paths, depth + 1 nodes. */
+const shared = (leaf: Predicate, depth: number): Predicate =>
+  Array.from({ length: depth }).reduce<Predicate>(node => Expr.eq(node, node), leaf)
+
+// A leaf of three nodes under `depth` levels expands to 2^(depth + 2) - 1:
+// 511 at depth 7, inside the budget, and 1,023 at depth 8, past it.
+describe('a shared expression node (#137)', () => {
+  it('is visited a bounded number of times by Query.where, not once per path', () => {
+    const { predicate, visits } = counted()
+    Query.from(Item).pipe(Query.where(shared(predicate, 7)))
+    expect(visits()).toBeLessThan(20)
+  })
+
+  it('is visited a bounded number of times by Query.dependencies', () => {
+    const { predicate, visits } = counted()
+    const query = Query.from(Item).pipe(Query.where(shared(predicate, 7)))
+    const before = visits()
+    expect(Query.dependencies(query).fields.map(field => field.key)).toEqual(['id'])
+    expect(visits() - before).toBeLessThan(20)
+  })
+
+  it('is refused by Query.where once the tree it expands to passes the budget', () => {
+    const leaf = Expr.eq(Item.fields.id, 'a')
+    expect(() => Query.from(Item).pipe(Query.where(shared(leaf, 8)))).toThrow(
+      new RegExp(`${maxQueryNodes} nodes`),
+    )
+    // Thirty levels: thirty-one objects, and more nodes than evaluate could ever walk.
+    expect(() => Query.from(Item).pipe(Query.where(shared(leaf, 30)))).toThrow(
+      new RegExp(`${maxQueryNodes} nodes`),
+    )
+  })
+
+  it('counts every predicate of the query, not only those of one step', () => {
+    const half = shared(Expr.eq(Item.fields.id, 'a'), 7)
+    const once = Query.from(Item).pipe(Query.where(half))
+    expect(() => once.pipe(Query.where(shared(Expr.eq(Item.fields.id, 'b'), 7)))).toThrow(
+      new RegExp(`${maxQueryNodes} nodes`),
+    )
+  })
+})
+
+describe('an expression node (#138)', () => {
+  it('is frozen, scalar and predicate alike, so a built query cannot change', () => {
+    const nodes = [
+      Expr.literal('a'),
+      Expr.input('slug', Schema.String),
+      Expr.field(Item.fields.id),
+      Expr.eq(Item.fields.id, 'a'),
+      Expr.isNull(Item.fields.text),
+      Expr.isNotNull(Item.fields.text),
+      Expr.contains(Item.fields.text, 'a'),
+      Order.asc(Item.fields.rank),
+    ]
+    expect(nodes.filter(node => !Object.isFrozen(node))).toEqual([])
+  })
+
+  it('keeps the rows a query matched after someone tries to rewrite its predicate', () => {
+    const predicate = Expr.eq(Item.fields.id, 'a')
+    const query = Query.from(Item).pipe(Query.where(predicate))
+    const rows: ReadonlyArray<Row> = [{ id: 'a' }, { id: 'b' }]
+    expect(() => Object.assign(predicate, { right: Expr.literal('b') })).toThrow(TypeError)
+    expect(evaluate(query, {}, rows)).toEqual([{ id: 'a' }])
+  })
+})
+
+describe('dependencies of two Entities that share a name (#139)', () => {
+  it('reports one entry per identity, each naming its owner', () => {
+    const Other = Entity.define('Item', Schema.Struct({ id: Schema.String }))
+    const { fields } = dependenciesOf(Expr.field(Item.fields.id), Expr.field(Other.fields.id))
+    expect(fields.map(field => field.owner)).toEqual([Item.identity, Other.identity])
+    expect(fields.map(field => `${field.entity}.${field.key}`)).toEqual(['Item.id', 'Item.id'])
+  })
+
+  it('still reports a field read twice by one Entity once', () => {
+    const { fields } = dependenciesOf(Expr.field(Item.fields.id), Expr.eq(Item.fields.id, 'a'))
+    expect(fields).toEqual([{ entity: 'Item', key: 'id', owner: Item.identity }])
+  })
+})
+
+describe('contains in the reference interpreter (#136)', () => {
+  const text = Expr.input('text', Schema.String)
+  const search = Expr.input('search', Schema.String)
+  const body = Query.from(Item).pipe(Query.where(Expr.contains(text, search)))
+  const run = (input: Row) => evaluate(body, input, [{ id: 'a' }]).length === 1
+
+  it('folds ASCII letters only, as the compiled SQL does', () => {
+    expect(run({ text: 'Intro', search: 'INTRO' })).toBe(true)
+    expect(run({ text: 'Élan', search: 'é' })).toBe(false)
+    expect(run({ text: 'Élan', search: 'É' })).toBe(true)
+  })
+
+  it('refuses text holding NUL, which SQL text cannot hold portably', () => {
+    expect(() => run({ text: 'a\u0000b', search: 'b' })).toThrow(QueryEvaluateError)
+    expect(() => run({ text: 'ab', search: '\u0000' })).toThrow(QueryEvaluateError)
+  })
+
+  it('refuses it in an equality or a membership test too', () => {
+    const id = Expr.input('id', Schema.String)
+    const ids = Expr.input('ids', Schema.Array(Schema.String))
+    const rows = [{ id: 'a' }]
+    const eq = Query.from(Item).pipe(Query.where(Expr.eq(Item.fields.id, id)))
+    const among = Query.from(Item).pipe(Query.where(Expr.in(Item.fields.id, ids)))
+    expect(() => evaluate(eq, { id: 'a\u0000' }, rows)).toThrow(QueryEvaluateError)
+    expect(() => evaluate(among, { ids: ['b', 'a\u0000'] }, rows)).toThrow(QueryEvaluateError)
+    // Text without one is answered as ever.
+    expect(evaluate(among, { ids: ['b', 'a'] }, rows)).toHaveLength(1)
+  })
+})
+
+describe('an ordering the interpreter refuses (#142)', () => {
+  const byRank = Query.from(Item).pipe(Query.orderBy(Order.asc(Item.fields.rank)))
+  const messageOf = (rows: ReadonlyArray<Row>) => {
+    try {
+      evaluate(byRank, {}, rows)
+      return 'ordered'
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  it('names the first row that breaks the order, in row order, whatever the sort compares', () => {
+    const mixed = messageOf([{ rank: 1 }, { rank: 2 }, { rank: 3 }, { rank: 'x' }])
+    expect(mixed).toContain('(number and string)')
+    expect(messageOf([{ rank: 'x' }, { rank: 1 }, { rank: 2 }, { rank: 3 }])).toContain(
+      '(string and number)',
+    )
+  })
+
+  it('places a null key where its term says, and still checks the kinds of the rest', () => {
+    const rows = [
+      { id: 'a', rank: 2 },
+      { id: 'b', rank: null },
+      { id: 'c', rank: 1 },
+    ]
+    const ids = (body: ReturnType<typeof Query.from>) => evaluate(body, {}, rows).map(row => row.id)
+    expect(ids(Query.from(Item).pipe(Query.orderBy(Order.asc(Item.fields.rank))))).toEqual([
+      'c',
+      'a',
+      'b',
+    ])
+    expect(
+      ids(Query.from(Item).pipe(Query.orderBy(Order.asc(Item.fields.rank, { nulls: 'first' })))),
+    ).toEqual(['b', 'c', 'a'])
+    expect(ids(Query.from(Item).pipe(Query.orderBy(Order.desc(Item.fields.rank))))).toEqual([
+      'b',
+      'a',
+      'c',
+    ])
+    expect(messageOf([{ rank: null }, { rank: 1 }, { rank: 'x' }])).toContain('(number and string)')
+  })
+
+  it('still orders one row, with nothing to compare it to', () => {
+    expect(messageOf([{ rank: null }])).toBe('ordered')
+  })
+})

@@ -1,0 +1,1363 @@
+import { readFileSync } from 'node:fs'
+import { Deferred, Effect, Fiber, Option, PubSub, Schema, Stream } from 'effect'
+import { describe, expect, it } from 'vitest'
+import {
+  defineSync,
+  documentId,
+  layerFromPromise,
+  localSequence as toLocalSequence,
+  opId,
+  replicaId,
+  sequence as toSequence,
+  StorageError,
+  type CommittedOperation,
+  type Exchange,
+  type Operation,
+  type Replica,
+  type ReplicaState,
+  type ReplicaStatus,
+  type Storage,
+  type SyncDefinition,
+  type TransportClient,
+  Transport,
+} from '../src/index.js'
+
+const Todo = Schema.Struct({ id: Schema.String, title: Schema.String })
+const Shared = Schema.Struct({ todos: Schema.Array(Todo) })
+type Shared = typeof Shared.Type
+
+const Message = Schema.Union([
+  Schema.Struct({ _tag: Schema.Literal('CreatedTodo'), id: Schema.String, title: Schema.String }),
+  Schema.Struct({ _tag: Schema.Literal('RenamedTodo'), id: Schema.String, title: Schema.String }),
+  Schema.Struct({ _tag: Schema.Literal('SelectedTodo'), id: Schema.String }),
+])
+type Message = typeof Message.Type
+
+const definition: SyncDefinition<Message, Shared, unknown, unknown> = {
+  documentId: documentId('todos'),
+  message: Message,
+  shared: Shared,
+  empty: { todos: [] },
+  durable: message => message._tag !== 'SelectedTodo',
+  replay: (shared, message) => {
+    switch (message._tag) {
+      case 'CreatedTodo':
+        return {
+          todos: shared.todos.some(todo => todo.id === message.id)
+            ? shared.todos
+            : [...shared.todos, { id: message.id, title: message.title }],
+        }
+      case 'RenamedTodo':
+        return {
+          todos: shared.todos.map(todo =>
+            todo.id === message.id ? { ...todo, title: message.title } : todo,
+          ),
+        }
+      case 'SelectedTodo':
+        return shared
+    }
+  },
+}
+
+const Sync = defineSync(definition)
+
+const replayCalls = { count: 0 }
+const CountingSync = defineSync({
+  ...definition,
+  replay: (shared, message) => {
+    replayCalls.count += 1
+    return definition.replay(shared, message)
+  },
+})
+
+const created = (id: string, title = id): Message => ({ _tag: 'CreatedTodo', id, title })
+
+const operation = (replica: string, local: number, message: Message): Operation => ({
+  protocolVersion: 1,
+  schemaVersion: 1,
+  documentId: documentId('todos'),
+  replicaId: replicaId(replica),
+  localSequence: toLocalSequence(local),
+  opId: opId(`${replica}:${local}`),
+  baseCursor: toSequence(0),
+  message,
+})
+
+const committed = (
+  replica: string,
+  localSequence: number,
+  serverSequence: number,
+  message: Message,
+): CommittedOperation => ({
+  ...operation(replica, localSequence, message),
+  serverSequence: toSequence(serverSequence),
+  actorId: 'owner',
+})
+
+const memoryStorage = (initial?: unknown): Storage => {
+  let state = initial
+  return {
+    load: () => Effect.sync(() => state),
+    save: next =>
+      Effect.sync(() => {
+        state = structuredClone(next)
+      }),
+    close: Effect.void,
+  }
+}
+
+const open = (id: string, storage = memoryStorage()): Promise<Replica<Message, Shared>> =>
+  Effect.runPromise(Sync.openReplica(replicaId(id), storage))
+const submit = (replica: Replica<Message, Shared>, message: Message): Promise<void> =>
+  Effect.runPromise(replica.submit(message))
+const sync = (replica: Replica<Message, Shared>, transport: TransportClient): Promise<void> =>
+  Effect.runPromise(Effect.provide(replica.synchronize, layerFromPromise(transport)))
+const shared = (replica: Replica<Message, Shared>): Shared => Effect.runSync(replica.shared)
+const pending = (replica: Replica<Message, Shared>): ReadonlyArray<Operation> =>
+  Effect.runSync(replica.pending)
+const cursor = (replica: Replica<Message, Shared>): number => Effect.runSync(replica.cursor)
+const status = (replica: Replica<Message, Shared>): Promise<ReplicaStatus> =>
+  Effect.runPromise(replica.status)
+const close = (replica: Replica<Message, Shared>): Promise<void> => Effect.runPromise(replica.close)
+
+describe('the operation codec', () => {
+  it('recovers a replica containing colons from a compacted operation id', () => {
+    expect(Sync.journalContract().legacyReplicaId('actor:tab:42')).toBe('actor:tab')
+  })
+
+  it('says which Messages are durable, as the definition does', () => {
+    expect(Sync.durable(created('t'))).toBe(true)
+    expect(Sync.durable({ _tag: 'SelectedTodo', id: 't' })).toBe(false)
+  })
+
+  it('normalizes a valid operation and refuses a broken identity', () => {
+    const valid = operation('a', 1, created('t'))
+    expect(Sync.codec.normalizeOperation(valid)).toEqual(valid)
+    expect(() => Sync.codec.normalizeOperation({ ...valid, opId: 'b:1' })).toThrow(
+      'Invalid operation identity',
+    )
+    // A 1-based local sequence is refused by the codec before the identity check.
+    expect(() => Sync.codec.normalizeOperation({ ...valid, localSequence: 0 })).toThrow()
+  })
+
+  it('refuses a Message the contract does not call durable', () => {
+    expect(() =>
+      Sync.codec.normalizeOperation(operation('a', 1, { _tag: 'SelectedTodo', id: 't' })),
+    ).toThrow('Message is local-only')
+  })
+
+  it('checks the document only when the caller supplies one', () => {
+    const foreign = { ...operation('a', 1, created('t')), documentId: 'other' }
+    expect(Sync.codec.normalizeOperation(foreign)).toMatchObject({ documentId: 'other' })
+    expect(() => Sync.codec.operationFrom(foreign, documentId('todos'))).toThrow('Wrong document')
+  })
+
+  it('refuses a committed operation without a positive server sequence', () => {
+    expect(() =>
+      Sync.codec.committedFrom(
+        { ...operation('a', 1, created('t')), serverSequence: 0, actorId: 'owner' },
+        documentId('todos'),
+      ),
+    ).toThrow()
+  })
+})
+
+describe('the replica', () => {
+  it('projects a submit optimistically and converges on the committed order', async () => {
+    const replica = await open('a')
+    await submit(replica, created('t', 'first'))
+
+    expect(shared(replica).todos).toEqual([{ id: 't', title: 'first' }])
+    expect(pending(replica).map(op => op.opId)).toEqual(['a:1'])
+
+    await sync(replica, {
+      exchange: async () => ({
+        operations: [committed('a', 1, 1, created('t', 'first'))],
+        rejected: [],
+      }),
+    })
+
+    expect(cursor(replica)).toBe(1)
+    expect(pending(replica)).toEqual([])
+  })
+
+  it('reflects a write that happens after a shared read', async () => {
+    const replica = await open('a')
+    expect(shared(replica)).toEqual({ todos: [] })
+
+    await submit(replica, created('t', 'first'))
+    expect(shared(replica).todos).toEqual([{ id: 't', title: 'first' }])
+
+    await sync(replica, { exchange: async () => ({ operations: [], rejected: ['a:1'] }) })
+    expect(shared(replica)).toEqual({ todos: [] })
+  })
+
+  it('replays once at submit and reuses the projection until the state changes', async () => {
+    const replica = await Effect.runPromise(
+      CountingSync.openReplica(replicaId('a'), memoryStorage()),
+    )
+    replayCalls.count = 0
+
+    // Admission replays the Message once and seeds the projection.
+    await Effect.runPromise(replica.submit(created('t1')))
+    expect(replayCalls.count).toBe(1)
+    Effect.runSync(replica.shared)
+    Effect.runSync(replica.shared)
+    expect(replayCalls.count).toBe(1)
+
+    // A second submit replays only the new Message, not the whole outbox.
+    await Effect.runPromise(replica.submit(created('t2')))
+    Effect.runSync(replica.shared)
+    expect(replayCalls.count).toBe(2)
+
+    // An exchange replaces the state without a seeded projection, so the next
+    // read rebuilds from the remaining outbox.
+    await sync(replica, { exchange: async () => ({ operations: [], rejected: ['a:1'] }) })
+    Effect.runSync(replica.shared)
+    expect(replayCalls.count).toBe(3)
+    expect(shared(replica)).toEqual({ todos: [{ id: 't2', title: 't2' }] })
+
+    await Effect.runPromise(replica.close)
+  })
+
+  it('fails with ReplayError when rebuilding the projection throws for a pending Message', async () => {
+    let poisoned = false
+    const Poisonable = defineSync({
+      ...definition,
+      replay: (shared, message) => {
+        if (poisoned && message._tag === 'CreatedTodo' && message.id === 't1')
+          throw new Error('t1 no longer replays')
+        return definition.replay(shared, message)
+      },
+    })
+    const replica = await Effect.runPromise(Poisonable.openReplica(replicaId('a'), memoryStorage()))
+    await submit(replica, created('t1'))
+    // An exchange replaces the state without a seeded projection.
+    await sync(replica, { exchange: async () => ({ operations: [], rejected: [] }) })
+    poisoned = true
+
+    const refused = await Effect.runPromise(Effect.result(replica.submit(created('t2'))))
+    expect(refused._tag).toBe('Failure')
+    if (refused._tag === 'Failure') {
+      expect(refused.failure._tag).toBe('ReplayError')
+      expect(refused.failure.message).toBe('t1 no longer replays')
+    }
+    expect(pending(replica).map(operation => operation.opId)).toEqual(['a:1'])
+    await Effect.runPromise(replica.close)
+  })
+
+  it('refuses a Message whose replay throws and leaves the outbox unchanged', async () => {
+    const Throwing = defineSync({
+      ...definition,
+      replay: (shared, message) => {
+        if (message._tag === 'CreatedTodo' && message.title === 'boom') throw new Error('boom')
+        return definition.replay(shared, message)
+      },
+    })
+    const replica = await Effect.runPromise(Throwing.openReplica(replicaId('a'), memoryStorage()))
+    await submit(replica, created('t1'))
+
+    const refused = await Effect.runPromise(Effect.result(replica.submit(created('t2', 'boom'))))
+    expect(refused._tag).toBe('Failure')
+    if (refused._tag === 'Failure') {
+      expect(refused.failure._tag).toBe('ReplayError')
+      expect(refused.failure.message).toBe('boom')
+    }
+    expect(pending(replica).map(operation => operation.opId)).toEqual(['a:1'])
+    expect(shared(replica)).toEqual({ todos: [{ id: 't1', title: 't1' }] })
+
+    // The replica is still usable after a refusal.
+    await submit(replica, created('t3'))
+    expect(pending(replica).map(operation => operation.opId)).toEqual(['a:1', 'a:2'])
+    await Effect.runPromise(replica.close)
+  })
+
+  it('drops a rejected operation and reverts its optimistic effect', async () => {
+    const replica = await open('a')
+    await submit(replica, created('t'))
+
+    await sync(replica, { exchange: async () => ({ operations: [], rejected: ['a:1'] }) })
+
+    expect(pending(replica)).toEqual([])
+    expect(shared(replica)).toEqual({ todos: [] })
+  })
+
+  it('adopts a checkpoint in place of the log', async () => {
+    const replica = await open('a')
+    await sync(replica, {
+      exchange: async () => ({
+        operations: [],
+        rejected: [],
+        checkpoint: { cursor: 2, model: { todos: [{ id: 'x', title: 'x' }] } },
+      }),
+    })
+
+    expect(cursor(replica)).toBe(2)
+    expect(shared(replica)).toEqual({ todos: [{ id: 'x', title: 'x' }] })
+  })
+
+  it('rebases a pending operation onto an adopted checkpoint', async () => {
+    const replica = await open('a')
+    await submit(replica, created('t', 'mine'))
+
+    await sync(replica, {
+      exchange: async () => ({
+        operations: [],
+        rejected: [],
+        checkpoint: { cursor: 2, model: { todos: [{ id: 'x', title: 'theirs' }] } },
+      }),
+    })
+
+    expect(cursor(replica)).toBe(2)
+    expect(shared(replica).todos).toEqual([
+      { id: 'x', title: 'theirs' },
+      { id: 't', title: 'mine' },
+    ])
+    expect(pending(replica).map(op => op.opId)).toEqual(['a:1'])
+  })
+
+  it('applies committed operations that follow an adopted checkpoint', async () => {
+    const replica = await open('a')
+
+    await sync(replica, {
+      exchange: async () => ({
+        operations: [committed('b', 1, 2, created('tail'))],
+        rejected: [],
+        checkpoint: { cursor: 1, model: { todos: [{ id: 'base', title: 'base' }] } },
+      }),
+    })
+
+    expect(cursor(replica)).toBe(2)
+    expect(shared(replica).todos.map(todo => todo.id)).toEqual(['base', 'tail'])
+  })
+
+  it('refuses a checkpoint older than its own cursor', async () => {
+    const replica = await open('a')
+    await sync(replica, {
+      exchange: async () => ({ operations: [committed('b', 1, 1, created('t'))], rejected: [] }),
+    })
+    expect(cursor(replica)).toBe(1)
+
+    await expect(
+      sync(replica, {
+        exchange: async () => ({
+          operations: [],
+          rejected: [],
+          checkpoint: { cursor: 0, model: { todos: [] } },
+        }),
+      }),
+    ).rejects.toThrow('Checkpoint is behind the replica')
+    expect(cursor(replica)).toBe(1)
+    // A refused response is a failed exchange like any other, and the UI hears of it.
+    expect(Effect.runSync(replica.status).lastError).toBe('Checkpoint is behind the replica')
+  })
+
+  it('refuses a gap in the committed order', async () => {
+    const replica = await open('a')
+    await expect(
+      sync(replica, {
+        exchange: async () => ({ operations: [committed('b', 1, 2, created('t'))], rejected: [] }),
+      }),
+    ).rejects.toThrow('Invalid committed order')
+    expect(cursor(replica)).toBe(0)
+  })
+
+  it('refuses a rejection it did not send', async () => {
+    const replica = await open('a')
+    await submit(replica, created('t'))
+
+    await expect(
+      sync(replica, { exchange: async () => ({ operations: [], rejected: ['other:1'] }) }),
+    ).rejects.toThrow('Server rejected an operation that was not sent')
+    expect(pending(replica).map(op => op.opId)).toEqual(['a:1'])
+  })
+
+  it('persists the outbox across reopen and projects it optimistically', async () => {
+    const storage = memoryStorage()
+    const first = await open('a', storage)
+    await submit(first, created('t', 'offline'))
+    await close(first)
+
+    const reopened = await open('a', storage)
+    expect(pending(reopened).map(op => op.opId)).toEqual(['a:1'])
+    expect(shared(reopened).todos).toEqual([{ id: 't', title: 'offline' }])
+  })
+
+  it('refuses storage written for another replica', async () => {
+    const storage = memoryStorage()
+    await open('a', storage)
+    await expect(open('b', storage)).rejects.toThrow('different document or replica')
+  })
+
+  it('refuses an outbox the replica could not have produced', async () => {
+    const replicaId = 'a'
+    const storage = memoryStorage({
+      protocolVersion: 1,
+      schemaVersion: 1,
+      documentId: 'todos',
+      replicaId,
+      revision: 1,
+      nextLocalSequence: 1,
+      cursor: 0,
+      committed: { todos: [] },
+      committedIds: [],
+      pending: [operation(replicaId, 1, created('t'))],
+    })
+
+    await expect(open(replicaId, storage)).rejects.toThrow('Invalid outbox')
+  })
+
+  it.each([
+    [
+      'duplicate committed ids',
+      { committedIds: ['a:1', 'a:1'], pending: [] },
+      'Invalid replica history',
+    ],
+    [
+      'a pending operation from another replica',
+      { committedIds: [], pending: [operation('b', 1, created('t'))] },
+      'Invalid outbox',
+    ],
+    [
+      'a pending operation that is already committed',
+      { committedIds: ['a:1'], pending: [operation('a', 1, created('t'))] },
+      'Invalid outbox',
+    ],
+    [
+      'duplicate pending operations',
+      {
+        committedIds: [],
+        pending: [operation('a', 1, created('t')), operation('a', 1, created('t'))],
+      },
+      'Invalid outbox',
+    ],
+  ])('refuses a stored history with %s', async (_, override, message) => {
+    const storage = memoryStorage({
+      protocolVersion: 1,
+      schemaVersion: 1,
+      documentId: 'todos',
+      replicaId: 'a',
+      revision: 1,
+      nextLocalSequence: 2,
+      cursor: 0,
+      committed: { todos: [] },
+      ...override,
+    })
+
+    await expect(open('a', storage)).rejects.toThrow(message)
+  })
+
+  it('refuses work after close and tolerates a second close', async () => {
+    const replica = await open('a')
+    await close(replica)
+    await close(replica)
+
+    await expect(submit(replica, created('t'))).rejects.toThrow('Replica is closed')
+  })
+
+  it('refuses a submit that was queued when the replica closed', async () => {
+    const reached = Effect.runSync(Deferred.make<void>())
+    const release = Effect.runSync(Deferred.make<void>())
+    let saves = 0
+    const storage = memoryStorage()
+    const replica = await open('a', {
+      ...storage,
+      save: (state, revision) =>
+        Effect.gen(function* () {
+          saves += 1
+          if (saves === 2) {
+            yield* Deferred.succeed(reached, undefined)
+            yield* Deferred.await(release)
+          }
+          yield* storage.save(state, revision)
+        }),
+    })
+
+    // The first submit holds the state lock inside its save; the second queues
+    // behind it, then sees the close when it finally acquires the lock.
+    const first = submit(replica, created('first'))
+    await Effect.runPromise(Deferred.await(reached))
+    const queued = submit(replica, created('second'))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await close(replica)
+    Effect.runSync(Deferred.succeed(release, undefined))
+    await first
+    await expect(queued).rejects.toThrow('Replica is closed')
+  })
+
+  it('bounds the retained committed-id set while applying every commit', async () => {
+    const storage = memoryStorage()
+    const replica = await open('a', storage)
+    const operations = Array.from({ length: 1100 }, (_, index) =>
+      committed('seed', index + 1, index + 1, created(`t${index}`)),
+    )
+
+    await sync(replica, { exchange: async () => ({ operations, rejected: [] }) })
+
+    // Every commit applied, but the persisted id set did not grow with the log.
+    expect(cursor(replica)).toBe(1100)
+    const saved = (await Effect.runPromise(storage.load())) as ReplicaState<Shared>
+    expect(saved.committedIds.length).toBeLessThan(1100)
+    // The window keeps the newest ids, not the oldest.
+    expect(saved.committedIds).toContain('seed:1100')
+    expect(saved.committedIds).not.toContain('seed:1')
+  })
+
+  it('recovers a long offline outbox and converges on the committed order', async () => {
+    const replica = await open('a')
+    const count = 500
+    for (let localSequence = 1; localSequence <= count; localSequence += 1)
+      await submit(replica, created(`t${localSequence}`))
+    expect(pending(replica)).toHaveLength(count)
+
+    // The server commits the whole outbox in the order it was sent.
+    const operations = Array.from({ length: count }, (_, index) =>
+      committed('a', index + 1, index + 1, created(`t${index + 1}`)),
+    )
+    await sync(replica, { exchange: async () => ({ operations, rejected: [] }) })
+
+    expect(pending(replica)).toEqual([])
+    expect(cursor(replica)).toBe(count)
+    expect(shared(replica).todos).toHaveLength(count)
+    await close(replica)
+  })
+
+  it('reports a refusal without exposing internals', async () => {
+    const replica = await open('a')
+    await submit(replica, created('t'))
+
+    expect((await status(replica)).rejected).toEqual([])
+
+    await sync(replica, { exchange: async () => ({ operations: [], rejected: ['a:1'] }) })
+
+    expect(await status(replica)).toEqual({
+      pending: 0,
+      cursor: 0,
+      lastError: undefined,
+      // This server names no history.
+      epoch: Option.none(),
+      // The operation the replica sent and has now dropped, so what it changed can be read.
+      rejected: [
+        {
+          opId: 'a:1',
+          reason: Option.none(),
+          operation: expect.objectContaining({ opId: 'a:1', message: created('t') }),
+        },
+      ],
+    })
+  })
+
+  it('keeps the reason the server gave for a refusal', async () => {
+    const replica = await open('a')
+    await submit(replica, created('t'))
+    await submit(replica, created('u'))
+    await sync(replica, {
+      exchange: async () => ({
+        operations: [],
+        rejected: ['a:1', 'a:2'],
+        reasons: [{ opId: 'a:2', reason: 'Only the owner can do that' }],
+      }),
+    })
+    expect((await status(replica)).rejected).toEqual([
+      {
+        opId: 'a:1',
+        reason: Option.none(),
+        operation: expect.objectContaining({ message: created('t') }),
+      },
+      {
+        opId: 'a:2',
+        reason: Option.some('Only the owner can do that'),
+        operation: expect.objectContaining({ message: created('u') }),
+      },
+    ])
+  })
+
+  it('fails an exchange that gives a reason for an operation it did not reject', async () => {
+    const replica = await open('a')
+    await submit(replica, created('t'))
+    await expect(
+      sync(replica, {
+        exchange: async () => ({
+          operations: [],
+          rejected: [],
+          reasons: [{ opId: 'a:1', reason: 'Refused' }],
+        }),
+      }),
+    ).rejects.toThrow('did not reject')
+    expect((await status(replica)).pending).toBe(1)
+  })
+
+  it('records the last exchange failure and clears it after a success', async () => {
+    const replica = await open('a')
+
+    await expect(
+      sync(replica, {
+        exchange: async () => {
+          throw new Error('offline')
+        },
+      }),
+    ).rejects.toThrow('offline')
+    expect((await status(replica)).lastError).toBe('offline')
+
+    await sync(replica, { exchange: async () => ({ operations: [], rejected: [] }) })
+    expect((await status(replica)).lastError).toBeUndefined()
+  })
+
+  it('records a committed operation whose replay throws as the exchange failure', async () => {
+    const Throwing = defineSync({
+      ...definition,
+      replay: (shared, message) => {
+        if (message._tag === 'CreatedTodo' && message.id === 'bad') throw new Error('cannot replay')
+        return definition.replay(shared, message)
+      },
+    })
+    const replica = await Effect.runPromise(Throwing.openReplica(replicaId('a'), memoryStorage()))
+
+    const exit = await Effect.runPromiseExit(
+      Effect.provide(
+        replica.synchronize,
+        layerFromPromise({
+          exchange: async () => ({
+            operations: [committed('b', 1, 1, created('bad'))],
+            rejected: [],
+          }),
+        }),
+      ),
+    )
+
+    expect(exit).toMatchObject({ _tag: 'Failure', cause: { reasons: [{ _tag: 'Fail' }] } })
+    expect((await status(replica)).lastError).toBe('cannot replay')
+    expect(cursor(replica)).toBe(0)
+    await close(replica)
+  })
+
+  it('reports an unsupported newer version without overwriting the stored state', async () => {
+    const saved = {
+      protocolVersion: 1,
+      schemaVersion: 2,
+      documentId: 'todos',
+      replicaId: 'a',
+      revision: 0,
+      nextLocalSequence: 1,
+      cursor: 0,
+      committed: { todos: [] },
+      committedIds: [],
+      pending: [],
+    }
+    const storage = memoryStorage(saved)
+
+    const result = await Effect.runPromise(Effect.result(Sync.openReplica(replicaId('a'), storage)))
+
+    expect(result).toMatchObject({
+      _tag: 'Failure',
+      failure: { _tag: 'UnsupportedReplicaVersionError', protocolVersion: 1, schemaVersion: 2 },
+    })
+    expect(await Effect.runPromise(storage.load())).toEqual(saved)
+  })
+
+  it('opens a checked-in state persisted by a previous release with its outbox intact', async () => {
+    const state = JSON.parse(
+      readFileSync(new URL('./fixtures/previousReplicaState.json', import.meta.url), 'utf8'),
+    )
+    const replica = await open('a', memoryStorage(state))
+
+    expect(pending(replica).map(op => op.opId)).toEqual(['a:1', 'a:2'])
+    expect(shared(replica).todos.map(todo => todo.id)).toEqual(['milk', 'bread'])
+
+    // A new edit continues the stored outbox instead of colliding with it.
+    await submit(replica, created('eggs'))
+    expect(pending(replica).map(op => op.opId)).toEqual(['a:1', 'a:2', 'a:3'])
+    await close(replica)
+  })
+
+  it('closes storage when the open fails', async () => {
+    let closes = 0
+    const storage: Storage = {
+      load: () => Effect.succeed(undefined),
+      save: () => Effect.fail(new StorageError({ message: 'disk full' })),
+      close: Effect.sync(() => {
+        closes += 1
+      }),
+    }
+
+    await expect(open('a', storage)).rejects.toThrow('disk full')
+    expect(closes).toBe(1)
+  })
+
+  it('refuses an acknowledgement for an operation the request never sent', async () => {
+    const replica = await open('a')
+    await submit(replica, created('first'))
+
+    let release!: (value: Exchange<Shared>) => void
+    let started!: () => void
+    const ready = new Promise<void>(resolve => {
+      started = resolve
+    })
+    const response = new Promise<Exchange<Shared>>(resolve => {
+      release = resolve
+    })
+    const running = sync(replica, {
+      exchange: () => {
+        started()
+        return response
+      },
+    })
+    await ready
+    // A second edit lands while the first exchange is in flight.
+    await submit(replica, created('second'))
+    expect(pending(replica).map(op => op.opId)).toEqual(['a:1', 'a:2'])
+
+    // The server claims to have acknowledged a:2, which it was never sent. If
+    // the replica trusted it, a:2 would vanish without ever being committed.
+    release({ operations: [], acknowledged: [opId('a:1'), opId('a:2')], rejected: [] })
+    await expect(running).rejects.toThrow('acknowledged an operation that was not sent')
+    expect(pending(replica).map(op => op.opId)).toEqual(['a:1', 'a:2'])
+  })
+
+  it('skips a committed operation it has already applied', async () => {
+    const replica = await open('a')
+    const applied = committed('b', 1, 1, created('t'))
+
+    await sync(replica, { exchange: async () => ({ operations: [applied], rejected: [] }) })
+    expect(cursor(replica)).toBe(1)
+
+    // A server that resends the last applied operation is idempotent, not a gap.
+    await sync(replica, { exchange: async () => ({ operations: [applied], rejected: [] }) })
+    expect(cursor(replica)).toBe(1)
+    expect(shared(replica).todos).toEqual([{ id: 't', title: 't' }])
+  })
+
+  it('drops an acknowledged operation that is not in the committed log', async () => {
+    const replica = await open('a')
+    await submit(replica, created('t'))
+
+    await sync(replica, {
+      exchange: async () => ({ operations: [], acknowledged: [opId('a:1')], rejected: [] }),
+    })
+
+    expect(pending(replica)).toEqual([])
+    // The optimistic effect is gone because the server owns the commit.
+    expect(shared(replica)).toEqual({ todos: [] })
+  })
+
+  it('reports the most recent rejection first', async () => {
+    const replica = await open('a')
+    await submit(replica, created('t1'))
+    await sync(replica, { exchange: async () => ({ operations: [], rejected: [opId('a:1')] }) })
+    await submit(replica, created('t2'))
+    await sync(replica, { exchange: async () => ({ operations: [], rejected: [opId('a:2')] }) })
+
+    expect((await status(replica)).rejected.map(rejection => rejection.opId)).toEqual([
+      opId('a:2'),
+      opId('a:1'),
+    ])
+  })
+
+  it('refuses an exchange that resolves after the replica closed', async () => {
+    const replica = await open('a')
+    let release!: (value: Exchange<Shared>) => void
+    let started!: () => void
+    const ready = new Promise<void>(resolve => {
+      started = resolve
+    })
+    const response = new Promise<Exchange<Shared>>(resolve => {
+      release = resolve
+    })
+    const running = sync(replica, {
+      exchange: () => {
+        started()
+        return response
+      },
+    })
+    await ready
+    await close(replica)
+    release({ operations: [], rejected: [] })
+
+    await expect(running).rejects.toThrow('Replica is closed')
+  })
+
+  it('refuses a response that both acknowledges and rejects one operation', async () => {
+    const replica = await open('a')
+    await submit(replica, created('first'))
+
+    await expect(
+      sync(replica, {
+        exchange: async () => ({
+          operations: [],
+          acknowledged: [opId('a:1')],
+          rejected: [opId('a:1')],
+        }),
+      }),
+    ).rejects.toThrow('both acknowledged and rejected')
+    expect(pending(replica).map(op => op.opId)).toEqual(['a:1'])
+  })
+
+  it.each([
+    ['missing fields', {}],
+    ['wrong rejected shape', { operations: [], rejected: 'a:1' }],
+    [
+      'invalid checkpoint cursor',
+      { operations: [], rejected: [], checkpoint: { cursor: -1, model: { todos: [] } } },
+    ],
+    ['excess property', { operations: [], rejected: [], extra: true }],
+  ])('fails a malformed exchange response as a typed error: %s', async (_, raw) => {
+    const replica = await open('a')
+    await submit(replica, created('local'))
+
+    const failed = await Effect.runPromise(
+      Effect.result(
+        Effect.provide(replica.synchronize, layerFromPromise({ exchange: async () => raw })),
+      ),
+    )
+    expect(failed).toMatchObject({
+      _tag: 'Failure',
+      failure: { _tag: 'InvalidExchangeError' },
+    })
+    expect(cursor(replica)).toBe(0)
+    expect(pending(replica).map(op => op.opId)).toEqual(['a:1'])
+    expect((await status(replica)).lastError).toBe('Invalid sync exchange response')
+
+    // A malformed response does not poison the replica: a valid one still works.
+    await sync(replica, { exchange: async () => ({ operations: [], rejected: [] }) })
+    expect((await status(replica)).lastError).toBeUndefined()
+    await close(replica)
+  })
+})
+
+describe('a paged exchange', () => {
+  it('asks again at once while the server says there is more', async () => {
+    const replica = await open('a')
+    const log = [1, 2, 3, 4, 5].map(sequence =>
+      committed('b', sequence, sequence, created(`t${sequence}`)),
+    )
+    const asked: Array<number> = []
+    await sync(replica, {
+      exchange: async cursor => {
+        asked.push(cursor)
+        const operations = log.slice(cursor, cursor + 2)
+        return { operations, rejected: [], more: cursor + 2 < log.length }
+      },
+    })
+    expect(asked).toEqual([0, 2, 4])
+    expect(cursor(replica)).toBe(5)
+    await close(replica)
+  })
+
+  it('keeps an acknowledged operation in view until its committed copy arrives on a later page', async () => {
+    const replica = await open('a')
+    await submit(replica, created('mine'))
+    const log = [1, 2, 3].map(sequence =>
+      committed('b', sequence, sequence, created(`t${sequence}`)),
+    )
+    const seen: Array<Array<string>> = []
+    await sync(replica, {
+      exchange: async (cursor, pending) => {
+        seen.push(shared(replica).todos.map(todo => todo.id))
+        for (const sent of pending)
+          if (!log.some(operation => operation.opId === sent.opId))
+            log.push({ ...sent, serverSequence: toSequence(log.length + 1), actorId: 'owner' })
+        return {
+          operations: log.slice(cursor, cursor + 2),
+          acknowledged: pending.map(operation => operation.opId),
+          rejected: [],
+          more: cursor + 2 < log.length,
+        }
+      },
+    })
+    // Every page was asked for with the user's edit still showing.
+    expect(seen).toEqual([['mine'], ['t1', 't2', 'mine']])
+    expect(pending(replica)).toEqual([])
+    expect(shared(replica).todos.map(todo => todo.id)).toEqual(['t1', 't2', 't3', 'mine'])
+    await close(replica)
+  })
+
+  it('stops when a round says there is more but moves the cursor nowhere', async () => {
+    const replica = await open('a')
+    let asked = 0
+    await sync(replica, {
+      exchange: async () => {
+        asked += 1
+        return { operations: [], rejected: [], more: true }
+      },
+    })
+    expect(asked).toBe(1)
+    await close(replica)
+  })
+})
+
+describe('a server that was reset', () => {
+  /**
+   * A server with a log and an epoch, which answers a replica that saw another epoch from
+   * the start of its log, commits what it is sent, and pages its answer.
+   */
+  const server = (epoch: string | undefined, log: Array<CommittedOperation>, page = 100) => {
+    const state = { epoch, log, seen: [] as Array<string | undefined> }
+    const client: TransportClient = {
+      exchange: async (cursor, sent, seen) => {
+        state.seen.push(seen)
+        const from = seen !== undefined && seen !== state.epoch ? 0 : cursor
+        for (const operation of sent)
+          state.log.push({
+            ...operation,
+            serverSequence: toSequence(state.log.length + 1),
+            actorId: 'owner',
+          })
+        return {
+          operations: state.log.slice(from, from + page),
+          rejected: [],
+          acknowledged: sent.map(operation => operation.opId),
+          more: from + page < state.log.length,
+          ...(state.epoch === undefined ? {} : { epoch: state.epoch }),
+        }
+      },
+    }
+    return { state, client }
+  }
+  const titles = (replica: Replica<Message, Shared>) => shared(replica).todos.map(todo => todo.id)
+  const history = (...ids: ReadonlyArray<string>) =>
+    ids.map((id, index) => committed('b', index + 1, index + 1, created(id)))
+
+  it('sends back the epoch it last heard, across a reopen', async () => {
+    const storage = memoryStorage()
+    const one = server('one', history('t1'))
+    const replica = await open('a', storage)
+    await sync(replica, one.client)
+    await close(replica)
+    const reopened = await open('a', storage)
+    await sync(reopened, one.client)
+    expect(one.state.seen).toEqual([undefined, 'one'])
+    await close(reopened)
+  })
+
+  it('rebuilds from a new history and sends its outbox there', async () => {
+    const replica = await open('a')
+    await sync(replica, server('one', history('t1', 't2', 't3')).client)
+    await submit(replica, created('mine'))
+    // The server lost its history and has another since, shorter than the replica's cursor.
+    const two = server('two', history('t9'))
+    await sync(replica, two.client)
+    expect(titles(replica)).toEqual(['t9', 'mine'])
+    expect(Effect.runSync(replica.committed).todos.map(todo => todo.id)).toEqual(['t9', 'mine'])
+    expect(cursor(replica)).toBe(2)
+    expect(pending(replica)).toEqual([])
+    await close(replica)
+  })
+
+  it('takes the first epoch it hears as the one its cursor points into', async () => {
+    const log = history('t1')
+    const replica = await open('a')
+    await sync(replica, server(undefined, log).client)
+    log.push(committed('b', 2, 2, created('t2')))
+    await sync(replica, server('one', log).client)
+    expect(titles(replica)).toEqual(['t1', 't2'])
+    await close(replica)
+  })
+
+  it('pages through a rebuilt history shorter than its old cursor', async () => {
+    const replica = await open('a')
+    await sync(replica, server('one', history(...'abcdefghij')).client)
+    const two = server('two', history('v', 'w', 'x', 'y', 'z'), 2)
+    await sync(replica, two.client)
+    expect(titles(replica)).toEqual(['v', 'w', 'x', 'y', 'z'])
+    expect(two.state.seen).toEqual(['one', 'two', 'two'])
+    await close(replica)
+  })
+})
+
+describe('coalescing', () => {
+  const renamed = (id: string, title: string): Message => ({ _tag: 'RenamedTodo', id, title })
+  const Coalescing = defineSync({
+    ...definition,
+    coalesce: (last, next) =>
+      last._tag === 'RenamedTodo' && next._tag === 'RenamedTodo' && last.id === next.id
+        ? next
+        : undefined,
+  })
+  const openCoalescing = (id: string, storage = memoryStorage()) =>
+    Effect.runPromise(Coalescing.openReplica(replicaId(id), storage))
+  const titles = (replica: Replica<Message, Shared>) =>
+    pending(replica).map(operation => [
+      operation.opId,
+      (operation.message as { title: string }).title,
+    ])
+
+  it('merges into the unsent operation before it, under that one’s identity', async () => {
+    const replica = await openCoalescing('a')
+    await submit(replica, created('t'))
+    await submit(replica, renamed('t', 'one'))
+    await submit(replica, renamed('t', 'two'))
+    await submit(replica, renamed('other', 'x'))
+    // The create and the first rename stand; the second rename took the first one's place,
+    // and a rename of something else is its own operation.
+    expect(titles(replica)).toEqual([
+      ['a:1', 't'],
+      ['a:2', 'two'],
+      ['a:4', 'x'],
+    ])
+    // The sequence still counts every submit.
+    expect(Effect.runSync(replica.snapshot).nextLocalSequence).toBe(5)
+    expect(shared(replica).todos).toEqual([{ id: 't', title: 'two' }])
+    await close(replica)
+  })
+
+  it('names a local-only Message, submitted or merged, as the refusal', async () => {
+    let coalesced = 0
+    const Selecting = defineSync({
+      ...definition,
+      coalesce: (_, next): Message | undefined => {
+        coalesced += 1
+        return next._tag === 'RenamedTodo' ? { _tag: 'SelectedTodo', id: next.id } : undefined
+      },
+    })
+    const replica = await Effect.runPromise(Selecting.openReplica(replicaId('a'), memoryStorage()))
+    const refusal = (message: Message) =>
+      Effect.runPromise(Effect.flip(replica.submit(message))).then(error => error.message)
+    await submit(replica, created('t'))
+
+    expect(await refusal({ _tag: 'SelectedTodo', id: 't' })).toBe('Message is local-only')
+    expect(coalesced).toBe(0)
+    expect(await refusal(renamed('t', 'one'))).toBe('coalesce returned a local-only Message')
+    expect(titles(replica)).toEqual([['a:1', 't']])
+    await close(replica)
+  })
+
+  it('never merges into an operation an exchange carried, even one that failed', async () => {
+    const replica = await openCoalescing('a')
+    await submit(replica, renamed('t', 'one'))
+    await expect(
+      sync(replica, {
+        exchange: async () => {
+          throw new Error('offline')
+        },
+      }),
+    ).rejects.toThrow('offline')
+    // The server may have committed 'one' as it was, so it is not rewritten.
+    await submit(replica, renamed('t', 'two'))
+    expect(titles(replica)).toEqual([
+      ['a:1', 'one'],
+      ['a:2', 'two'],
+    ])
+    await close(replica)
+  })
+
+  it('never merges into an operation it found in storage, which may have been sent', async () => {
+    const storage = memoryStorage()
+    const first = await openCoalescing('a', storage)
+    await submit(first, renamed('t', 'one'))
+    await close(first)
+    const reopened = await openCoalescing('a', storage)
+    await submit(reopened, renamed('t', 'two'))
+    expect(titles(reopened)).toEqual([
+      ['a:1', 'one'],
+      ['a:2', 'two'],
+    ])
+    await close(reopened)
+  })
+})
+
+describe('a transforming shared codec', () => {
+  const Counter = defineSync({
+    documentId: documentId('counter'),
+    message: Schema.Struct({ _tag: Schema.Literal('Incremented') }),
+    // Decoded `count` is a number; encoded it is a string, so a save that skips
+    // encoding cannot be read back.
+    shared: Schema.Struct({ count: Schema.NumberFromString }),
+    empty: { count: 0 },
+    durable: () => true,
+    replay: shared => ({ count: shared.count + 1 }),
+  })
+
+  it('round-trips through storage and reload', async () => {
+    const storage = memoryStorage()
+    const first = await Effect.runPromise(Counter.openReplica(replicaId('a'), storage))
+    await Effect.runPromise(
+      Effect.provide(
+        first.synchronize,
+        layerFromPromise({
+          exchange: async () => ({
+            operations: [
+              {
+                protocolVersion: 1,
+                schemaVersion: 1,
+                documentId: documentId('counter'),
+                replicaId: replicaId('a'),
+                localSequence: 1,
+                opId: opId('a:1'),
+                baseCursor: 0,
+                message: { _tag: 'Incremented' },
+                serverSequence: 1,
+                actorId: 'owner',
+              },
+            ],
+            rejected: [],
+          }),
+        }),
+      ),
+    )
+    expect(Effect.runSync(first.shared)).toEqual({ count: 1 })
+    await Effect.runPromise(first.close)
+
+    // Reopening decodes the stored encoded form; a save that wrote the decoded
+    // `count` would fail here with InvalidReplicaHistoryError.
+    const stored = await Effect.runPromise(storage.load())
+    expect(stored).toMatchObject({ committed: { count: '1' } })
+
+    const second = await Effect.runPromise(Counter.openReplica(replicaId('a'), storage))
+    expect(Effect.runSync(second.shared)).toEqual({ count: 1 })
+    await Effect.runPromise(second.close)
+  })
+
+  it('adopts a checkpoint through the encoded wire form', async () => {
+    const replica = await Effect.runPromise(Counter.openReplica(replicaId('a'), memoryStorage()))
+    await Effect.runPromise(
+      Effect.provide(
+        replica.synchronize,
+        layerFromPromise({
+          // The wire carries the encoded `count` (a string); the decoder turns it
+          // back into the decoded number, so callers only see `Shared`.
+          exchange: async () => ({
+            operations: [],
+            rejected: [],
+            checkpoint: { cursor: 5, model: { count: '5' } },
+          }),
+        }),
+      ),
+    )
+
+    expect(Effect.runSync(replica.cursor)).toBe(5)
+    expect(Effect.runSync(replica.shared)).toEqual({ count: 5 })
+    await Effect.runPromise(replica.close)
+  })
+})
+
+describe('Replica.start', () => {
+  it('exchanges after a submit until the fiber is interrupted', async () => {
+    const replica = await open('a')
+    const exchange = layerFromPromise({
+      exchange: async (cursor, pending) => ({
+        operations: pending.map((operation, index) => ({
+          ...operation,
+          serverSequence: cursor + index + 1,
+          actorId: 'server',
+        })),
+        rejected: [],
+      }),
+    })
+
+    const applied = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          // A deterministic signal that the exchange was applied.
+          const settled = yield* replica.statusChanges.pipe(
+            Stream.filter(status => status.cursor === 1),
+            Stream.take(1),
+            Stream.runHead,
+            Effect.forkScoped,
+          )
+          const fiber = yield* Effect.forkScoped(replica.start.pipe(Effect.provide(exchange)))
+          yield* replica.submit(created('a'))
+          yield* Fiber.join(settled)
+          yield* Fiber.interrupt(fiber)
+          return yield* replica.cursor
+        }),
+      ),
+    )
+
+    expect(applied).toBe(1)
+    expect(shared(replica)).toEqual({ todos: [{ id: 'a', title: 'a' }] })
+    await close(replica)
+  })
+
+  it('tells a slow subscriber of a change made while it held its first status', async () => {
+    const replica = await open('a')
+    const seen = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const gate = yield* Deferred.make<void>()
+          // The subscriber takes the first status, then is busy until the gate opens.
+          const statuses = yield* replica.statusChanges.pipe(
+            Stream.mapEffect(status => Effect.as(Deferred.await(gate), status)),
+            Stream.take(2),
+            Stream.runCollect,
+            Effect.forkScoped,
+          )
+          yield* Effect.yieldNow
+          yield* replica.submit(created('a'))
+          yield* Deferred.succeed(gate, undefined)
+          return yield* Fiber.join(statuses).pipe(Effect.timeout('1 second'))
+        }),
+      ),
+    )
+    expect(seen.map(status => status.pending)).toEqual([0, 1])
+    await close(replica)
+  })
+
+  it('retries a failed exchange on its own, and announces the failure', async () => {
+    const replica = await open('a')
+    let calls = 0
+    const exchange = layerFromPromise({
+      exchange: async (cursor, pending) => {
+        calls += 1
+        if (calls <= 2) throw new Error('offline')
+        return {
+          operations: pending.map((operation, index) => ({
+            ...operation,
+            serverSequence: cursor + index + 1,
+            actorId: 'server',
+          })),
+          rejected: [],
+        }
+      },
+    })
+    await Effect.runPromise(replica.submit(created('a')))
+
+    const seen = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const statuses = yield* replica.statusChanges.pipe(
+            Stream.takeUntil(status => status.pending === 0),
+            Stream.runCollect,
+            Effect.forkScoped,
+          )
+          yield* Effect.yieldNow
+          // The submit's wake-up retries once at once; nothing is submitted after
+          // that, so only the backoff can deliver the outbox.
+          yield* Effect.forkScoped(replica.start.pipe(Effect.provide(exchange)))
+          return yield* Fiber.join(statuses)
+        }),
+      ),
+    )
+
+    expect(seen.map(status => status.lastError)).toContain('offline')
+    expect(seen.at(-1)).toMatchObject({ pending: 0, lastError: undefined })
+    expect(calls).toBe(3)
+    await close(replica)
+  })
+
+  it('exchanges when the transport hears the server changed, with nothing submitted', async () => {
+    const replica = await open('a')
+    const commits: Array<CommittedOperation> = []
+    const exchange = layerFromPromise({
+      exchange: async cursor => ({ operations: commits.slice(cursor), rejected: [] }),
+    })
+    const cursorOne = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const notices = yield* PubSub.sliding<void>(1)
+          const transport = yield* Effect.service(Transport).pipe(Effect.provide(exchange))
+          const settled = yield* replica.statusChanges.pipe(
+            Stream.filter(status => status.cursor === 1),
+            Stream.take(1),
+            Stream.runHead,
+            Effect.forkScoped,
+          )
+          yield* Effect.forkScoped(
+            replica.start.pipe(
+              Effect.provideService(Transport, {
+                ...transport,
+                changes: Stream.fromPubSub(notices),
+              }),
+            ),
+          )
+          // Someone else commits after the loop's first exchange, and the server says so.
+          yield* Effect.sleep('5 millis')
+          commits.push(committed('b', 1, 1, created('t')))
+          yield* PubSub.publish(notices, undefined)
+          return yield* Fiber.join(settled)
+        }),
+      ),
+    )
+    expect(cursorOne).toMatchObject({ _tag: 'Some' })
+    expect(shared(replica).todos.map(todo => todo.id)).toEqual(['t'])
+    await close(replica)
+  })
+
+  it('hears a notice that arrives during its first exchange', async () => {
+    const replica = await open('a')
+    const exchanges = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const notices = yield* PubSub.sliding<void>(1)
+          const second = yield* Deferred.make<void>()
+          let calls = 0
+          yield* Effect.forkScoped(
+            replica.start.pipe(
+              Effect.provideService(Transport, {
+                changes: Stream.fromPubSub(notices),
+                exchange: () =>
+                  Effect.gen(function* () {
+                    calls += 1
+                    if (calls === 1) yield* PubSub.publish(notices, undefined)
+                    else yield* Deferred.succeed(second, undefined)
+                    return { operations: [], rejected: [] }
+                  }),
+              }),
+            ),
+          )
+          yield* Deferred.await(second).pipe(Effect.timeout('1 second'), Effect.ignore)
+          return calls
+        }),
+      ),
+    )
+    expect(exchanges).toBe(2)
+    await close(replica)
+  })
+
+  it('statusChanges re-emits the status after a submit', async () => {
+    const replica = await open('a')
+    const statuses = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fiber = yield* replica.statusChanges.pipe(
+            Stream.filter(status => status.pending === 1),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkScoped,
+          )
+          yield* Effect.yieldNow
+          yield* replica.submit(created('a'))
+          return [...(yield* Fiber.join(fiber))]
+        }),
+      ),
+    )
+
+    expect(statuses[0]).toMatchObject({ pending: 1, cursor: 0 })
+    await close(replica)
+  })
+
+  it('changes emits the current shared value on subscribe', async () => {
+    const replica = await open('a')
+    const snapshots = await Effect.runPromise(
+      Effect.scoped(replica.changes.pipe(Stream.take(1), Stream.runCollect)),
+    )
+
+    expect(snapshots[0]!.status).toMatchObject({ pending: 0, cursor: 0 })
+    expect(snapshots[0]!.shared).toEqual({ todos: [] })
+    await close(replica)
+  })
+
+  it('changes emits the optimistic shared value with the status after a submit', async () => {
+    const replica = await open('a')
+    const snapshots = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fiber = yield* replica.changes.pipe(
+            Stream.filter(snapshot => snapshot.status.pending === 1),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkScoped,
+          )
+          yield* Effect.yieldNow
+          yield* replica.submit(created('a'))
+          return [...(yield* Fiber.join(fiber))]
+        }),
+      ),
+    )
+
+    expect(snapshots[0]!.status).toMatchObject({ pending: 1, cursor: 0 })
+    expect(snapshots[0]!.shared).toEqual({ todos: [{ id: 'a', title: 'a' }] })
+    // The edit is pending, so only the optimistic value has it.
+    expect(snapshots[0]!.committed).toEqual({ todos: [] })
+    await close(replica)
+  })
+})

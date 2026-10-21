@@ -1,0 +1,100 @@
+{
+  "name": "foldkit-sync",
+  "version": "0.10.1",
+  "description": "A local-first replica of a shared Foldkit projection: offline outbox, optimistic updates, and reconciliation.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "local-first",
+    "offline",
+    "replication",
+    "indexeddb"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/sync"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/sync#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./journal": {
+      "foldkit-plus:source": "./src/journal.ts",
+      "types": "./dist/journal.d.mts",
+      "import": "./dist/journal.mjs"
+    },
+    "./entity": {
+      "foldkit-plus:source": "./src/entity.ts",
+      "types": "./dist/entity.d.mts",
+      "import": "./dist/entity.mjs"
+    },
+    "./do": {
+      "foldkit-plus:source": "./src/do.ts",
+      "types": "./dist/do.d.mts",
+      "import": "./dist/do.mjs"
+    },
+    "./remote": {
+      "foldkit-plus:source": "./src/remote.ts",
+      "types": "./dist/remote.d.mts",
+      "import": "./dist/remote.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "foldkit-surface": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0",
+    "foldkit": "^0.165.0",
+    "foldkit-durable": "workspace:*",
+    "foldkit-remote": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "foldkit-remote": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261008.1",
+    "@effect/platform-browser": "4.0.0",
+    "@effect/sql-d1": "4.0.0",
+    "effect": "4.0.0",
+    "esbuild": "0.28.2",
+    "foldkit": "0.165.0",
+    "foldkit-agent": "workspace:*",
+    "foldkit-durable": "workspace:*",
+    "foldkit-entity": "workspace:*",
+    "foldkit-remote": "workspace:*",
+    "jsdom": "26.1.0",
+    "miniflare": "3.20250718.3",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  },
+  "peerDependenciesMeta": {
+    "foldkit-durable": {
+      "optional": true
+    }
+  }
+}

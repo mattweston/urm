@@ -1,0 +1,43 @@
+import { describe, expect, it } from 'vitest'
+import { runDemo } from '../src/demo.js'
+
+describe('foldkit-entity example', () => {
+  it('reads one domain declaration through the server into SQL, then manages it: list, edit, save, delete', async () => {
+    expect(await runDemo()).toEqual([
+      'plan: Post:p1 [title,published,commentCount,author,editor,comments]',
+      'plan follows: author,editor,comments',
+      'before fetch: Initial',
+      'after fetch: Ready {"title":"Notes on the Engine","published":true,"commentCount":2,"author":{"name":"Ada"},"editor":null,"comments":[{"body":"Remarkable.","author":{"name":"Grace"}},{"body":"Thank you.","author":{"name":"Ada"}}]}',
+      "matches the domain's Selection: true",
+      'page plan: [comments@first=1] {"comments@first=1":{"first":1}}',
+      'latest comment: Ready {"title":"Notes on the Engine","comments":{"items":[{"body":"Remarkable."}],"hasNext":true,"hasPrevious":false}}',
+      'every comment, still: 2',
+      'second plan: Author:a1 [posts]',
+      'author: Ready {"name":"Ada","posts":[{"title":"Notes on the Engine","commentCount":2},{"title":"Compilers","commentCount":0}]}',
+      'form controls: Title:Text*, Published:Toggle, Editor:RelationOne',
+      'post list: p1 "Notes on the Engine", p2 "Compilers" (draft)',
+      'row before: {"id":"p2","headline":"Compilers","published":0,"author_id":"a1","editor_id":"a2"}',
+      'editor plan: Post:p2 [editor]; status Loading',
+      'filled: Title="Compilers", Published=false, Editor="a2"; status Editing',
+      'editor choices: a1 Ada, a2 Grace',
+      'invalid submit: Title="" (Title is required), Published=false ok, Editor="a2" ok; status Editing',
+      'valid submit:',
+      '  command Remote.mutate(EditPost): MutationSucceeded',
+      'status: Saved',
+      'row after: {"id":"p2","headline":"Compilers, revised","published":1,"author_id":"a1","editor_id":"a1"}',
+      'edited: Ready {"id":"p2","title":"Compilers, revised","published":true,"editor":{"entity":"Author","id":"a1"}}',
+      'author again: Ready {"name":"Ada","posts":[{"title":"Notes on the Engine","commentCount":2},{"title":"Compilers, revised","commentCount":0}]}',
+      'post list again: p1 "Notes on the Engine", p2 "Compilers, revised"',
+      'asked to delete p1: Confirming; rows 2 posts, 2 comments',
+      '  command Remote.mutate(DeletePost): MutationSucceeded',
+      'confirmed: Deleted; rows 1 posts, 0 comments',
+      'post list after delete: p2 "Compilers, revised"',
+      'author after delete: Ready {"name":"Ada","posts":[{"title":"Compilers, revised","commentCount":0}]}',
+      'nested invalid submit: author.name Invalid; sent false',
+      'nested submit: {"title":"On Looms","author":{"name":"Joseph"}}',
+      '  command Remote.mutate(WritePost): MutationSucceeded',
+      'rows after write: 2 posts, 3 authors',
+      'new post: Ready {"title":"On Looms","author":{"name":"Joseph"}}',
+    ])
+  })
+})

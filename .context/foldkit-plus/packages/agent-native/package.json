@@ -1,0 +1,59 @@
+{
+  "name": "foldkit-agent-native",
+  "version": "0.5.2",
+  "description": "Agent Native adapter for foldkit-agent. Compiles an exposed Foldkit contract into Agent Native actions.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "agents",
+    "agent-native",
+    "tools"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/agent-native"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "peerDependencies": {
+    "@agent-native/core": "0.177.1",
+    "effect": "^4.0.0",
+    "foldkit": "^0.165.0",
+    "foldkit-agent": "workspace:^"
+  },
+  "devDependencies": {
+    "@agent-native/core": "0.177.1",
+    "@effect/platform-browser": "4.0.0",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-agent": "workspace:*",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  }
+}

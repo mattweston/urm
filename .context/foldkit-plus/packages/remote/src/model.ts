@@ -1,0 +1,1483 @@
+/**
+ * The Remote submodel: the store, connections, mutations, live state, and
+ * optimistic layers an application keeps in its Model, the Messages that
+ * change it, and the pure reducer over them.
+ */
+import { Option, Schema } from 'effect'
+import type { RelationRequirement, Requirement } from './requirement.js'
+import {
+  emptyConnection,
+  merge,
+  unknown as unknownBoundary,
+  type Boundary,
+  type Connection,
+  type Edge,
+  type Segment,
+} from './connection.js'
+import {
+  beginOptimistic,
+  emptyOptimistic,
+  pruneOverlays,
+  settleFailure,
+  settleSuccess,
+  type ConnectionChange,
+  type OptimisticState,
+  type OptimisticOperation,
+} from './optimistic.js'
+import {
+  applyConnectionEvent,
+  applyEntityEvent,
+  emptyLiveState,
+  type LiveEvent,
+  type LiveState,
+} from './live.js'
+import {
+  beginMutation,
+  emptyMutationState,
+  failMutation,
+  type MutationState,
+  type NormalizedPatch,
+} from './mutation.js'
+import {
+  entityKey,
+  emptyStore,
+  isTombstone,
+  readField,
+  remove,
+  setStale,
+  setUnavailable,
+  tombstone,
+  writeEntities,
+  type EntityStore,
+  type EntityWrite,
+} from './store.js'
+import { windowKey } from './plan.js'
+import { isRefPage, targetsOf, type RefPageValue } from './relation.js'
+import { gc, reachable, type Retained, type RetentionRoots } from './retain.js'
+import { RemotePersistence, type MergePolicy } from './persistence.js'
+import {
+  NormalizedEntity,
+  ReadBatchResult,
+  ReadRequest,
+  RelationRequest,
+  SettledFields,
+} from './wire.js'
+import { remoteErrorSchema, type RemoteError } from './remoteData.js'
+import type { LivePolicy } from './query.js'
+
+/**
+ * The normalized cache as a Foldkit Submodel. `Remote.define` returns a schema
+ * and an `update` for this shape; `updateRemote` reconciles every producer.
+ */
+export interface RemoteModel {
+  /** Entity values, presence, staleness, tombstones, and applied windows. */
+  readonly entities: EntityStore
+  /** Normalized ordered connections, keyed by connection identity. */
+  readonly connections: Readonly<Record<string, Connection>>
+  /**
+   * How many rows `Data.more` has grown a read's window to, by
+   * `windowGrowthKey`. A read shows at most its window, so this is what "load
+   * more" changes; it lives here because a list holds no state of its own.
+   */
+  readonly grown: Readonly<Record<string, number>>
+  /** Optimistic entity layers and connection overlays over the base store. */
+  readonly optimistic: OptimisticState
+  /** Live cursor and boundary state, keyed by the subscription's stream key. */
+  readonly live: Readonly<Record<string, LiveState>>
+  /** Mutation pending/applied/failed ledger. */
+  readonly mutations: MutationState
+  /**
+   * Streams that broke, by an error or by an event ahead of their cursor, and
+   * have not resubscribed since: changes after the break are missed until the
+   * live entry restarts them and refetches what they cover.
+   */
+  readonly gaps: ReadonlySet<string>
+  /** Each live stream that has ever broken, by stream key. One that never broke is absent. */
+  readonly streams: Readonly<Record<string, StreamHealth>>
+  /**
+   * The `entity\0id\0field` marks a read is currently fetching. A field absent
+   * from the store reads as `Loading` while its mark is here and `Initial`
+   * otherwise, which is what separates "being fetched" from "nothing is
+   * fetching this".
+   */
+  readonly loading: ReadonlySet<string>
+  /**
+   * `Remote.refresh` generations, held per field rather than for the store as a
+   * whole. A read entry restarts when the generation over the fields it plans
+   * moves, so a read sent before a refresh of its own fields cannot land after
+   * it, and a refresh of one field leaves every other entry's read alone.
+   */
+  readonly refresh: RefreshState
+  /**
+   * The reads that failed and have not been settled since, so a read can say
+   * `Failed` rather than `Initial`.
+   *
+   * Without them a read that failed before anything loaded read exactly like
+   * one nobody had asked for, and nothing asked again: a read entry restarts
+   * only when what it plans changes, and a failure changed nothing. What failed
+   * is not planned again on its own either, so a persistent error is not
+   * retried every time an unrelated read restarts the entry. `Remote.refresh`
+   * is how a view retries.
+   */
+  readonly failures: Failures
+  /**
+   * The storage key the cache was last restored from, through `Hydrated`'s
+   * `from`. `Data.persistence` saves under a key only once its own snapshot is
+   * in, so a save at startup cannot write the empty store over it.
+   */
+  readonly restoredFrom: Option.Option<string>
+  /**
+   * Under `verifyPlacement`, the order each list was placed in, by edge key,
+   * and the rows placing took out of its first page, until the server's page
+   * for it arrives to be compared with them.
+   */
+  readonly placed: Readonly<Record<string, PlacedOrder>>
+  /** Under `verifyPlacement`, each placement the server's page disagreed with. */
+  readonly placementMismatches: ReadonlyArray<PlacementMismatch>
+}
+
+/** A list's first page as the client placed it: its keys in order, and those it took out. */
+export interface PlacedOrder {
+  readonly order: ReadonlyArray<string>
+  readonly dropped: ReadonlyArray<string>
+}
+
+/** A list the client placed rows in one order and the server then listed in another. */
+export interface PlacementMismatch {
+  readonly connection: string
+  /** The keys as placed, as far as the server's page reached. */
+  readonly placed: ReadonlyArray<string>
+  /** The keys of the server's first page. */
+  readonly served: ReadonlyArray<string>
+}
+
+/** How a live stream has fared, as its live entry restarts it. */
+export interface StreamHealth {
+  /** How many times it broke. The live entry restarts on each, so it only grows. */
+  readonly restarts: number
+  /** Breaks since its last applied event: what the restart's backoff grows with. */
+  readonly failures: number
+  /** Why it last broke; none for a gap, which is not an error. */
+  readonly error: Option.Option<RemoteError>
+}
+
+/**
+ * Failed reads, as the errors they failed with.
+ *
+ * `connections` is by connection identity, and is settled by a page arriving,
+ * an invalidation, or retention dropping the connection. `fields` is by field
+ * mark (`entity\0id\0field`, the marks `loading` uses), and is settled by the
+ * field being written again, a refresh asking for it, or retention dropping the
+ * entity. A read of it in flight reads `Loading` over the failure without
+ * settling it: if that read fails too, the failure is simply recorded again.
+ */
+export interface Failures {
+  readonly connections: Readonly<Record<string, RemoteError>>
+  readonly fields: Readonly<Record<string, RemoteError>>
+}
+
+export const noFailures: Failures = { connections: {}, fields: {} }
+
+/**
+ * `Remote.refresh` generations, per field mark. `generation` is the last one
+ * handed out; `requested` is when each field was last refreshed, and `started`
+ * is the generation each field's read last began under. Holding them per field
+ * is what keeps one Projection's refresh from restarting every read entry.
+ */
+export interface RefreshState {
+  readonly generation: number
+  readonly requested: ReadonlyMap<string, number>
+  readonly started: ReadonlyMap<string, number>
+  /**
+   * The generation every entry is refreshed at, at least: `forgetRemote` moves
+   * it, so every read and live entry restarts, and a read or stream begun for
+   * the principal before is interrupted rather than landing after.
+   */
+  readonly floor: number
+}
+
+export const emptyRefresh: RefreshState = {
+  generation: 0,
+  requested: new Map(),
+  started: new Map(),
+  floor: 0,
+}
+
+/**
+ * The Model with everything the server told it forgotten: values, tombstones,
+ * unavailable fields, connections, live cursors, failures, and what is in
+ * flight. For a change of principal, whose facts these were. The mutation
+ * sequence is kept, so request ids stay unique, and a mutation in flight is
+ * treated as applied: its answer, when it comes, writes nothing here.
+ */
+export const forgetRemote = (model: RemoteModel): RemoteModel => {
+  const generation = model.refresh.generation + 1
+  return {
+    ...initialRemoteModel,
+    refresh: { generation, requested: new Map(), started: new Map(), floor: generation },
+    mutations: {
+      ...emptyMutationState,
+      sequence: model.mutations.sequence,
+      applied: new Set([...model.mutations.applied, ...model.mutations.pending]),
+    },
+  }
+}
+
+export const initialRemoteModel: RemoteModel = {
+  entities: emptyStore,
+  connections: {},
+  grown: {},
+  optimistic: emptyOptimistic,
+  live: {},
+  mutations: emptyMutationState,
+  gaps: new Set(),
+  streams: {},
+  loading: new Set(),
+  refresh: emptyRefresh,
+  failures: noFailures,
+  restoredFrom: Option.none(),
+  placed: {},
+  placementMismatches: [],
+}
+
+/** The entity store and the mutation ledger are runtime values, not wire shapes. */
+const runtimeSchema = Schema.Unknown
+
+export const remoteModelSchema = (): Schema.Codec<RemoteModel, unknown> =>
+  // The runtime fields decode as `unknown`; their types come from `RemoteModel`.
+  Schema.Struct({
+    entities: runtimeSchema,
+    connections: Schema.Record(Schema.String, runtimeSchema),
+    grown: Schema.Record(Schema.String, Schema.Number),
+    optimistic: runtimeSchema,
+    live: Schema.Record(Schema.String, runtimeSchema),
+    mutations: runtimeSchema,
+    gaps: runtimeSchema,
+    streams: Schema.Record(Schema.String, runtimeSchema),
+    loading: runtimeSchema,
+    refresh: runtimeSchema,
+    failures: Schema.Struct({
+      connections: Schema.Record(Schema.String, remoteErrorSchema),
+      fields: Schema.Record(Schema.String, remoteErrorSchema),
+    }),
+    restoredFrom: runtimeSchema,
+    placed: runtimeSchema,
+    placementMismatches: runtimeSchema,
+  }) as unknown as Schema.Codec<RemoteModel, unknown>
+
+/** The submodel's Messages; each reduces to `RemoteModel` through `updateRemote`. */
+export type RemoteMessage =
+  | {
+      readonly _tag: 'ReadReceived'
+      readonly requests: readonly Requirement[]
+      readonly result: Schema.Schema.Type<typeof ReadBatchResult>
+      readonly now: number
+    }
+  | {
+      readonly _tag: 'ReadFailed'
+      readonly requests: readonly Requirement[]
+      readonly error: RemoteError
+      /**
+       * The live stream whose subscription broke, when this is that rather
+       * than a read. Nothing was being read, so no field failed: the stream is
+       * recorded as a gap, since changes after it are missed until the live
+       * entry restarts it.
+       */
+      readonly stream?: string | undefined
+    }
+  /** A refetch of present fields began; they read as `Refreshing` until it lands. */
+  | { readonly _tag: 'RefreshStarted'; readonly requests: readonly Requirement[] }
+  /** A read began; the fields it asks for that the store lacks read as `Loading`. */
+  | {
+      readonly _tag: 'ReadStarted'
+      readonly requests: readonly Requirement[]
+      /** The refresh generation the read was planned under. */
+      readonly refresh?: number | undefined
+    }
+  /**
+   * Queries for these connections were sent. One with nothing to show reads
+   * `Loading` until its page or its failure arrives, which is what separates
+   * "being fetched" from `Initial`, "nothing is fetching this".
+   */
+  | { readonly _tag: 'QueryStarted'; readonly connections: readonly string[] }
+  /** The active Surfaces' roots changed; everything they do not reach is collected. */
+  | { readonly _tag: 'RetentionChanged'; readonly roots: RetentionRoots }
+  /** A restored snapshot meets the store; runtime state is untouched. */
+  | {
+      readonly _tag: 'Hydrated'
+      readonly entities: EntityStore
+      /**
+       * The connections a snapshot declared should survive, as their edges.
+       * Restored with **unknown** boundaries and marked stale: the rows show
+       * at once and the connection is refetched, because a persisted cursor
+       * may name server state that is gone.
+       */
+      readonly connections?:
+        Readonly<Record<string, ReadonlyArray<ReadonlyArray<Edge>>>> | undefined
+      readonly merge: MergePolicy
+      /** The storage key the snapshot was read from, when it was: `restoredFrom`. */
+      readonly from?: string | undefined
+    }
+  /** A mutation began; its optimistic operations show until it settles. */
+  | {
+      readonly _tag: 'MutationStarted'
+      readonly requestId: string
+      readonly optimistic?: ReadonlyArray<OptimisticOperation> | undefined
+    }
+  | {
+      readonly _tag: 'MutationSucceeded'
+      readonly requestId: string
+      readonly entities: readonly NormalizedPatch[]
+      /** Connection changes the server confirmed; they replace the request's own. */
+      readonly connections?: ReadonlyArray<ConnectionChange> | undefined
+      /** Entities the mutation deleted: tombstoned, which hides them from every connection. */
+      readonly deleted?: ReadonlyArray<{ readonly entity: string; readonly id: string }> | undefined
+      /** Injected clock reading of the answer: how fresh the written entities are. */
+      readonly now: number
+    }
+  | { readonly _tag: 'MutationFailed'; readonly requestId: string; readonly error: RemoteError }
+  /**
+   * Operations shown over the store with no request behind them, until they are
+   * lifted: a preview of a change nobody has made. Showing an id again replaces
+   * what it showed.
+   */
+  | {
+      readonly _tag: 'OverlayShown'
+      readonly id: string
+      readonly optimistic: ReadonlyArray<OptimisticOperation>
+    }
+  | { readonly _tag: 'OverlayLifted'; readonly id: string }
+  /** `Data.more`: a read's window, by `windowGrowthKey`, now shows `size` rows. */
+  | { readonly _tag: 'WindowGrown'; readonly window: string; readonly size: number }
+  | {
+      readonly _tag: 'LiveReceived'
+      readonly stream: string
+      readonly event: LiveEvent
+      readonly policy?: LivePolicy
+      readonly now: number
+    }
+  | { readonly _tag: 'GapCleared'; readonly stream: string }
+  | {
+      readonly _tag: 'ConnectionMerged'
+      readonly connection: string
+      readonly page: Segment
+      /** The page answers the connection's refresh, so the merge also clears `stale`. */
+      readonly refreshes?: boolean | undefined
+      /**
+       * The slice the query asked for, so the payload's entities write like a
+       * read: one request per matching edge. Absent for a page from a server
+       * that predates payload planning, which carries edges only.
+       */
+      readonly select?: RelationRequirement | undefined
+      /** The selected fields of the page's items, as a read batch returns them. */
+      readonly entities?:
+        | ReadonlyArray<{
+            readonly entity: string
+            readonly id: string
+            readonly values: Record<string, unknown>
+          }>
+        | undefined
+      /** Fields asked for that the server settled without a value. */
+      readonly settled?:
+        | ReadonlyArray<{
+            readonly entity: string
+            readonly id: string
+            readonly fields: ReadonlyArray<string>
+          }>
+        | undefined
+      /** Injected clock reading of the answer, dating what the payload writes. */
+      readonly now?: number | undefined
+    }
+  | { readonly _tag: 'ConnectionInvalidated'; readonly connection: string }
+  | { readonly _tag: 'ConnectionRefreshed'; readonly connection: string }
+  /**
+   * A query for the connection failed. Its pages stay as they were, and it
+   * reads `Failed` — with them as `previous`, when it has any — until a page
+   * arrives, it is invalidated, or retention drops it.
+   */
+  | { readonly _tag: 'QueryFailed'; readonly connection: string; readonly error: RemoteError }
+
+export const retentionRootsSchema = Schema.Struct({
+  requirements: Schema.Array(ReadRequest),
+  connections: Schema.Array(
+    Schema.Struct({ identity: Schema.String, select: Schema.optional(RelationRequest) }),
+  ),
+})
+
+/**
+ * The Messages' fields by tag, without `_tag`: what `defineMessageUnion` takes,
+ * so an application spreads them into its own union (`Remote.messages`).
+ */
+export const remoteMessageCases = {
+  ReadReceived: {
+    requests: Schema.Array(ReadRequest),
+    result: ReadBatchResult,
+    now: Schema.Number,
+  },
+  ReadFailed: {
+    requests: Schema.Array(ReadRequest),
+    error: remoteErrorSchema,
+    stream: Schema.optional(Schema.String),
+  },
+  RefreshStarted: { requests: Schema.Array(ReadRequest) },
+  ReadStarted: { requests: Schema.Array(ReadRequest), refresh: Schema.optional(Schema.Number) },
+  QueryStarted: { connections: Schema.Array(Schema.String) },
+  RetentionChanged: { roots: retentionRootsSchema },
+  Hydrated: {
+    connections: Schema.optional(Schema.Unknown),
+    from: Schema.optional(Schema.String),
+    entities: runtimeSchema,
+    merge: Schema.Union([Schema.Literal('replace'), Schema.Literal('preserve-existing')]),
+  },
+  MutationStarted: {
+    requestId: Schema.String,
+    optimistic: Schema.optional(Schema.Array(Schema.Unknown)),
+  },
+  MutationSucceeded: {
+    requestId: Schema.String,
+    entities: Schema.Array(NormalizedEntity),
+    connections: Schema.optional(Schema.Array(Schema.Unknown)),
+    deleted: Schema.optional(
+      Schema.Array(Schema.Struct({ entity: Schema.String, id: Schema.String })),
+    ),
+    now: Schema.Number,
+  },
+  MutationFailed: { requestId: Schema.String, error: remoteErrorSchema },
+  OverlayShown: { id: Schema.String, optimistic: Schema.Array(Schema.Unknown) },
+  OverlayLifted: { id: Schema.String },
+  WindowGrown: { window: Schema.String, size: Schema.Number },
+  LiveReceived: {
+    stream: Schema.String,
+    event: Schema.Unknown,
+    policy: Schema.optional(Schema.Unknown),
+    now: Schema.Number,
+  },
+  GapCleared: { stream: Schema.String },
+  ConnectionMerged: {
+    connection: Schema.String,
+    page: Schema.Unknown,
+    refreshes: Schema.optional(Schema.Boolean),
+    select: Schema.optional(RelationRequest),
+    entities: Schema.optional(Schema.Array(NormalizedEntity)),
+    settled: Schema.optional(Schema.Array(SettledFields)),
+    now: Schema.optional(Schema.Number),
+  },
+  ConnectionInvalidated: { connection: Schema.String },
+  ConnectionRefreshed: { connection: Schema.String },
+  QueryFailed: { connection: Schema.String, error: remoteErrorSchema },
+} satisfies Record<RemoteMessage['_tag'], Schema.Struct.Fields>
+
+export type RemoteMessageTag = RemoteMessage['_tag']
+
+/**
+ * A Remote Message as an application's union constructs it from
+ * `remoteMessageCases`: the same shape `RemoteMessage` names, with the runtime
+ * slots (`entities`, `event`, `page`) typed `unknown` by their schemas.
+ */
+export type RemoteMessageInput = {
+  [Tag in RemoteMessageTag]: { readonly _tag: Tag } & Schema.Struct.Type<
+    (typeof remoteMessageCases)[Tag]
+  >
+}[RemoteMessageTag]
+
+/**
+ * Whether a Message is one of Remote's, by tag. Narrows an application's union
+ * to its Remote cases, and its complement to the application's own.
+ */
+export const isRemoteMessage = <M extends { readonly _tag: string }>(
+  message: M,
+): message is Extract<M, { readonly _tag: RemoteMessageTag }> =>
+  Object.hasOwn(remoteMessageCases, message._tag)
+
+export const remoteMessageSchema = Schema.Union(
+  Object.entries(remoteMessageCases).map(([tag, fields]) =>
+    Schema.Struct({ _tag: Schema.Literal(tag), ...fields }),
+  ),
+) as unknown as Schema.Schema<RemoteMessage>
+
+/** An overlay's layer, named apart from every request's: a request id is the application's to choose too. */
+const OVERLAY = 'overlay:'
+const overlayLayer = (id: string): string => `${OVERLAY}${id}`
+
+/** The ids `OverlayShown` shows now, each once, in the order they are drawn. */
+export const overlaysOf = (model: RemoteModel): ReadonlyArray<string> => [
+  ...new Set(
+    [...model.optimistic.layers, ...model.optimistic.overlays].flatMap(({ id }) =>
+      id.startsWith(OVERLAY) ? [id.slice(OVERLAY.length)] : [],
+    ),
+  ),
+]
+
+/** The key a grown window is kept under: its connection and the window first asked for. */
+export const windowGrowthKey = (identity: string, window: string): string =>
+  `${identity}\u0000${window}`
+
+/**
+ * Whether only overlays show this entity: the server has told the store
+ * nothing of it and no request's layer writes it, so nothing will fetch what an
+ * overlay leaves out.
+ */
+export const onlyOverlaid = (model: RemoteModel, entity: string, id: string): boolean => {
+  if (Object.hasOwn(model.entities, entityKey(entity, id))) return false
+  const writers = model.optimistic.layers.filter(layer =>
+    layer.patches.some(patch => patch.entity === entity && patch.id === id),
+  )
+  return writers.length > 0 && writers.every(layer => layer.id.startsWith('overlay:'))
+}
+
+const marksOf = (
+  requests: ReadonlyArray<Requirement>,
+): ReadonlyArray<readonly [string, ReadonlyArray<string>]> =>
+  requests.map(request => [entityKey(request.entity, request.id), request.fields] as const)
+
+/**
+ * One mark per requested field, `entity\0id\0field`. A read is identified by
+ * what it asks for, not by a request id: two reads asking for one field share
+ * its mark, so the first answer clears it. Over-clearing shows `Initial` rather
+ * than a spinner, which is the safer way to be wrong. The refresh generations
+ * below key off the same marks, so "what a read asks for" means one thing.
+ */
+const fieldMark = (entity: string, id: string, field: string): string =>
+  `${entityKey(entity, id)}\u0000${field}`
+
+const fieldMarks = function* (requests: ReadonlyArray<Requirement>): Generator<string> {
+  for (const request of requests) {
+    for (const field of request.fields) yield fieldMark(request.entity, request.id, field)
+  }
+}
+
+const withLoading = (
+  loading: ReadonlySet<string>,
+  requests: ReadonlyArray<Requirement>,
+): ReadonlySet<string> => {
+  const next = new Set(loading)
+  for (const mark of fieldMarks(requests)) next.add(mark)
+  return next.size === loading.size ? loading : next
+}
+
+const withoutLoading = (
+  loading: ReadonlySet<string>,
+  requests: ReadonlyArray<Requirement>,
+): ReadonlySet<string> => {
+  if (loading.size === 0) return loading
+  const next = new Set(loading)
+  for (const mark of fieldMarks(requests)) next.delete(mark)
+  return next.size === loading.size ? loading : next
+}
+
+/**
+ * A connection's mark. The leading separator keeps it out of the field marks'
+ * space, whatever a connection identity happens to spell.
+ */
+const connectionPrefix = '\u0000connection\u0000'
+const connectionMark = (identity: string): string => `${connectionPrefix}${identity}`
+
+/** Whether a query for this connection is in flight. */
+export const isQueryLoading = (model: RemoteModel, identity: string): boolean =>
+  model.loading.size !== 0 && model.loading.has(connectionMark(identity))
+
+const withoutQueryLoading = (loading: ReadonlySet<string>, identity: string) => {
+  if (!loading.has(connectionMark(identity))) return loading
+  const next = new Set(loading)
+  next.delete(connectionMark(identity))
+  return next
+}
+
+/**
+ * The in-flight marks of connections the roots still name. A query the entry
+ * stopped waiting for — it was restarted or deactivated before an answer came —
+ * leaves its mark behind, and a connection released with that mark would read
+ * `Loading` forever the next time something asked for it before sending.
+ */
+const prunedLoading = (
+  loading: ReadonlySet<string>,
+  roots: RetentionRoots,
+  reached: () => ReadonlySet<string>,
+): ReadonlySet<string> => {
+  if (loading.size === 0) return loading
+  const named = new Set(roots.connections.map(root => connectionMark(root.identity)))
+  // A field mark goes with its entity, exactly as a connection's goes with the
+  // connection: a read the entry stopped waiting for must not leave a value
+  // reading `Loading` with nothing fetching it.
+  const kept = [...loading].filter(mark =>
+    mark.startsWith(connectionPrefix) ? named.has(mark) : reached().has(markEntity(mark)),
+  )
+  return kept.length === loading.size ? loading : new Set(kept)
+}
+
+/**
+ * The windows grown on connections retention keeps; a dropped one starts over.
+ * The same record when every one is kept.
+ */
+const keptWindows = (
+  grown: RemoteModel['grown'],
+  connections: Retained['connections'],
+): RemoteModel['grown'] => {
+  const kept = Object.entries(grown).filter(([key]) =>
+    Object.hasOwn(connections, key.slice(0, key.lastIndexOf('\u0000'))),
+  )
+  return kept.length === Object.keys(grown).length ? grown : Object.fromEntries(kept)
+}
+
+/**
+ * Drops the refresh marks of entities and connections that were collected.
+ * Nothing observes a collected entity — the retention roots are the active
+ * Surfaces — so no read entry's generation can fall back when its mark goes.
+ * Without this the generations would be bounded by how many things the
+ * application has ever refreshed rather than by what it currently holds, which
+ * for a list refreshed on a timer is the same as not bounded at all.
+ */
+const prunedRefresh = (refresh: RefreshState, retained: Retained): RefreshState => {
+  const live = (mark: string): boolean =>
+    mark.startsWith(connectionPrefix)
+      ? retained.connections[mark.slice(connectionPrefix.length)] !== undefined
+      : retained.entities[mark.slice(0, mark.indexOf('\u0000'))] !== undefined
+  const keep = (marks: ReadonlyMap<string, number>): ReadonlyMap<string, number> => {
+    const next = new Map<string, number>()
+    for (const [mark, generation] of marks) if (live(mark)) next.set(mark, generation)
+    return next.size === marks.size ? marks : next
+  }
+  const requested = keep(refresh.requested)
+  const started = keep(refresh.started)
+  return requested === refresh.requested && started === refresh.started
+    ? refresh
+    : { ...refresh, requested, started }
+}
+
+/**
+ * The generation a read is planned under: the highest any of the fields it
+ * reads or connections it runs was refreshed at. A read entry carries this as a
+ * dependency, so it restarts when what it observes is refreshed and not when
+ * anything else is.
+ */
+export const refreshedAt = (
+  refresh: RefreshState,
+  requests: ReadonlyArray<Requirement>,
+  connections: ReadonlyArray<string> = [],
+): number => {
+  let at = refresh.floor
+  for (const mark of fieldMarks(requests)) at = Math.max(at, refresh.requested.get(mark) ?? 0)
+  for (const identity of connections) {
+    at = Math.max(at, refresh.requested.get(connectionMark(identity)) ?? 0)
+  }
+  return at
+}
+
+/**
+ * Marks every field of `requests` and every connection in `connections`
+ * refreshed at the next generation.
+ */
+export const withRefreshRequested = (
+  refresh: RefreshState,
+  requests: ReadonlyArray<Requirement>,
+  connections: ReadonlyArray<string> = [],
+): RefreshState => {
+  const generation = refresh.generation + 1
+  const requested = new Map(refresh.requested)
+  for (const mark of fieldMarks(requests)) requested.set(mark, generation)
+  for (const identity of connections) requested.set(connectionMark(identity), generation)
+  return { ...refresh, generation, requested }
+}
+
+/**
+ * Marks connections as needing to be asked again, and restarts a read of them
+ * already in flight: a page requested before what invalidated it could land
+ * after it, saying what is no longer true. `Remote.refresh` marks the same way.
+ */
+export const invalidateConnections = (
+  model: RemoteModel,
+  connections: ReadonlyArray<string>,
+): RemoteModel => {
+  if (connections.length === 0) return model
+  const marked = connections.reduce(
+    (current, connection) => updateRemote(current, { _tag: 'ConnectionInvalidated', connection }),
+    model,
+  )
+  return { ...marked, refresh: withRefreshRequested(marked.refresh, [], connections) }
+}
+
+/**
+ * Records that a read of `requests` began under `generation`. A read that
+ * carries no generation began under none, and leaves the marks as they are.
+ */
+const withRefreshStarted = (
+  refresh: RefreshState,
+  requests: ReadonlyArray<Requirement>,
+  generation: number | undefined,
+): RefreshState => {
+  if (generation === undefined || generation === 0) return refresh
+  let started: Map<string, number> | undefined
+  for (const mark of fieldMarks(requests)) {
+    if ((refresh.started.get(mark) ?? 0) >= generation) continue
+    started ??= new Map(refresh.started)
+    started.set(mark, generation)
+  }
+  return started === undefined ? refresh : { ...refresh, started }
+}
+
+/**
+ * Whether one field's read already began under the generation that field was
+ * last refreshed at. Such a read is in flight and would otherwise outlive the
+ * refresh, so the refresh takes a new generation to restart it even though the
+ * field is already stale.
+ */
+export const refreshIsInFlight = (
+  refresh: RefreshState,
+  request: Requirement,
+  field: string,
+): boolean => {
+  const mark = fieldMark(request.entity, request.id, field)
+  return (refresh.started.get(mark) ?? 0) === (refresh.requested.get(mark) ?? 0)
+}
+
+/**
+ * Whether a read is fetching any of `fields` for this entity. Consulted only
+ * when the store lacks the value, which is what separates `Loading` from
+ * `Initial`.
+ */
+export const isLoading = (
+  model: RemoteModel,
+  entity: string,
+  id: string,
+  fields: ReadonlyArray<string>,
+): boolean => {
+  if (model.loading.size === 0) return false
+  return fields.some(field => model.loading.has(fieldMark(entity, id, field)))
+}
+
+const setConnectionStale = (
+  connections: Readonly<Record<string, Connection>>,
+  connection: string,
+  stale: boolean,
+): Readonly<Record<string, Connection>> => {
+  const current = connections[connection]
+  if (current?.stale === stale) return connections
+  return { ...connections, [connection]: { ...(current ?? emptyConnection), stale } }
+}
+
+const withLiveState = (
+  live: RemoteModel['live'],
+  stream: string,
+  state: LiveState,
+): RemoteModel['live'] => (live[stream] === state ? live : { ...live, [stream]: state })
+
+const noHealth: StreamHealth = { restarts: 0, failures: 0, error: Option.none() }
+
+/**
+ * A stream broke: it is marked a gap and its restart count moves, which
+ * restarts its live entry. A stream already broken and not yet restarted
+ * changes nothing, so the events a dying stream still delivers restart it once.
+ */
+const broke = (
+  model: RemoteModel,
+  stream: string,
+  error: Option.Option<RemoteError>,
+): RemoteModel => {
+  if (model.gaps.has(stream)) return model
+  const health = model.streams[stream] ?? noHealth
+  return {
+    ...model,
+    gaps: new Set([...model.gaps, stream]),
+    streams: {
+      ...model.streams,
+      [stream]: { restarts: health.restarts + 1, failures: health.failures + 1, error },
+    },
+  }
+}
+
+/**
+ * An event applied on a stream that resubscribed: it works, so its next break
+ * backs off from the start. A broken stream's last events prove nothing.
+ */
+const healthy = (model: RemoteModel, stream: string): RemoteModel => {
+  const health = model.streams[stream]
+  return health === undefined || health.failures === 0 || model.gaps.has(stream)
+    ? model
+    : {
+        ...model,
+        streams: { ...model.streams, [stream]: { ...health, failures: 0, error: Option.none() } },
+      }
+}
+
+const clearGap = (model: RemoteModel, stream: string): RemoteModel =>
+  model.gaps.has(stream)
+    ? { ...model, gaps: new Set([...model.gaps].filter(entry => entry !== stream)) }
+    : model
+
+/**
+ * The pure reducer all four producers share. A live event that arrives ahead of
+ * its cursor is a gap: it is not applied, and the stream is recorded so its
+ * live entry restarts it rather than silently missing facts. When every field a Message
+ * touches keeps its identity, `model` itself is returned, so the application's
+ * root keeps its identity and Foldkit does not render. The common no-ops do (a
+ * duplicate live event, a repeated `ReadStarted`); a repeated failure, or a
+ * `preserve-existing` restore of entities already held, still makes an equal
+ * copy.
+ */
+export const updateRemote = (model: RemoteModel, message: RemoteMessage): RemoteModel => {
+  const next = reduceRemote(model, message)
+  return next === model || !sameFields(model, next) ? next : model
+}
+
+/** Whether every field of `next` is the one `model` holds. */
+const sameFields = (model: RemoteModel, next: RemoteModel): boolean => {
+  const keys = Object.keys(next) as Array<keyof RemoteModel>
+  return (
+    keys.length === Object.keys(model).length && keys.every(key => Object.is(model[key], next[key]))
+  )
+}
+
+/**
+ * A placement compared with the server's first page of the list it placed
+ * in, under `verifyPlacement`: the keys as far as both reach must agree, and
+ * no row placing took out may be one the page still lists. The record goes
+ * once compared; a disagreement is kept.
+ */
+const checkedPlacement = (
+  model: RemoteModel,
+  connection: string,
+  page: { readonly edges: ReadonlyArray<{ readonly key: string }>; readonly start: Boundary },
+  refreshes: boolean,
+): Pick<RemoteModel, 'placed' | 'placementMismatches'> => {
+  const placed = model.placed[connection]
+  if (placed === undefined || !refreshes || page.start._tag !== 'Terminal') {
+    return { placed: model.placed, placementMismatches: model.placementMismatches }
+  }
+  const { [connection]: _, ...rest } = model.placed
+  const reach = Math.min(placed.order.length, page.edges.length)
+  const served = page.edges.slice(0, reach).map(edge => edge.key)
+  const asPlaced = placed.order.slice(0, reach)
+  const listed = new Set(page.edges.map(edge => edge.key))
+  const agrees =
+    served.every((key, index) => key === asPlaced[index]) &&
+    !placed.dropped.some(key => listed.has(key))
+  return {
+    placed: rest,
+    placementMismatches: agrees
+      ? model.placementMismatches
+      : [...model.placementMismatches, { connection, placed: asPlaced, served }],
+  }
+}
+
+const reduceRemote = (model: RemoteModel, message: RemoteMessage): RemoteModel => {
+  switch (message._tag) {
+    case 'ReadReceived':
+      return {
+        ...model,
+        entities: writeRead(model.entities, message.requests, message.result, message.now),
+        loading: withoutLoading(model.loading, message.requests),
+        // What was asked, and what came back: a relation riding on the request
+        // writes its targets too, and a target's old failure must not outlive
+        // the value that answers it.
+        failures: withoutFieldFailures(model.failures, [
+          ...fieldMarks(message.requests),
+          ...patchedMarks(message.result.entities),
+        ]),
+      }
+    case 'ReadFailed':
+      // A broken live stream is not a failed read. Marking its fields failed
+      // would take them out of the read entry's plan, and restart it, which is
+      // the opposite of what missing changes calls for.
+      if (message.stream !== undefined) {
+        return broke(model, message.stream, Option.some(message.error))
+      }
+      // The read is over. Fields it refreshed read as they did, and every field
+      // it asked for carries the error until something settles it.
+      return {
+        ...model,
+        entities: setStale(model.entities, marksOf(message.requests), false),
+        loading: withoutLoading(model.loading, message.requests),
+        failures: withFieldFailures(model.failures, message.requests, message.error),
+      }
+    case 'RetentionChanged': {
+      const retained = gc(model, message.roots)
+      // Retention's own walk over the Model before collection. It counts a
+      // relation's target and a list's row the store does not hold, which is
+      // exactly a value whose first read failed or is still in flight.
+      let reachedKeys: ReadonlySet<string> | undefined
+      const reached = () =>
+        (reachedKeys ??= reachable(
+          model.entities,
+          message.roots,
+          model.connections,
+          model.optimistic,
+          model.mutations.pending,
+        ))
+      return {
+        ...model,
+        ...retained,
+        grown: keptWindows(model.grown, retained.connections),
+        refresh: prunedRefresh(model.refresh, retained),
+        failures: prunedFailures(model.failures, message.roots, reached),
+        loading: prunedLoading(model.loading, message.roots, reached),
+      }
+    }
+    case 'Hydrated': {
+      // A restored connection is evidence about its rows and about nothing
+      // else. Its boundaries are `Unknown` — not `Terminal`, which would claim
+      // there is no more, and not the cursors it had, which the server may no
+      // longer honour — and it is stale, so the planner refetches it while the
+      // rows it held are already on screen.
+      const restored = Object.entries(message.connections ?? {}).map(
+        ([identity, segments]) =>
+          [
+            identity,
+            {
+              // One segment per saved segment: the gaps between them are what
+              // says "these rows do not adjoin", and merging them into one run
+              // would invent an adjacency nobody established.
+              segments: segments.map(edges => ({
+                edges: [...edges],
+                start: unknownBoundary,
+                end: unknownBoundary,
+              })),
+              stale: true,
+            },
+          ] as const,
+      )
+      // A restored value is a write like any other, and settles a failure on the
+      // field it writes: every field under `replace`, and only fields of
+      // entities the store did not hold under `preserve-existing`.
+      const written = Object.entries(message.entities).flatMap(([key, entry]) =>
+        message.merge === 'replace' || !(key in model.entities)
+          ? [...entry.present].map(field => `${key}\u0000${field}`)
+          : [],
+      )
+      return {
+        ...model,
+        entities: RemotePersistence.mergeStores(model.entities, message.entities, message.merge),
+        failures: withoutFieldFailures(model.failures, written),
+        connections:
+          restored.length === 0
+            ? model.connections
+            : message.merge === 'replace'
+              ? { ...model.connections, ...Object.fromEntries(restored) }
+              : { ...Object.fromEntries(restored), ...model.connections },
+        restoredFrom: message.from === undefined ? model.restoredFrom : Option.some(message.from),
+      }
+    }
+    case 'RefreshStarted': {
+      // An entity known to be absent has no field to mark, and nothing plans a
+      // read of it again. Asked about again, it is forgotten, so it is.
+      const asked = message.requests.reduce(
+        (store, request) =>
+          isTombstone(store, entityKey(request.entity, request.id))
+            ? remove(store, entityKey(request.entity, request.id))
+            : store,
+        model.entities,
+      )
+      // A field the server settled without a value is asked for again the same
+      // way, and reads `Loading` while it is.
+      const marks = marksOf(message.requests)
+      const entities = setUnavailable(setStale(asked, marks, true), marks, false)
+      // Asking again is also how a failed field is retried, including one that
+      // never loaded and so has nothing to mark stale, and one on a relation's
+      // target, which the request reaches only through the store: a server need
+      // not expand a relation, and the target is then planned by id once more.
+      const failures = withoutFieldFailures(
+        model.failures,
+        reachedMarks(model.entities, message.requests),
+      )
+      return { ...model, entities, failures }
+    }
+    case 'QueryStarted': {
+      const loading = new Set(model.loading)
+      for (const identity of message.connections) loading.add(connectionMark(identity))
+      return loading.size === model.loading.size ? model : { ...model, loading }
+    }
+    case 'ReadStarted':
+      return {
+        ...model,
+        loading: withLoading(model.loading, message.requests),
+        refresh: withRefreshStarted(model.refresh, message.requests, message.refresh),
+      }
+    case 'MutationStarted':
+      return {
+        ...model,
+        mutations: beginMutation(model.mutations, message.requestId),
+        optimistic: beginOptimistic(model.optimistic, message.requestId, message.optimistic ?? []),
+      }
+    case 'MutationSucceeded': {
+      // Settling is release-the-layer-and-overlays, so overlapping optimistic
+      // layers rebase instead of needing inverse patches.
+      const settled = settleSuccess(
+        model.entities,
+        model.optimistic,
+        model.mutations,
+        message.requestId,
+        message,
+      )
+      return {
+        ...model,
+        entities: settled.store,
+        mutations: settled.state,
+        optimistic: settled.optimistic,
+        failures: withoutFieldFailures(model.failures, [
+          ...patchedMarks(message.entities),
+          ...(message.deleted ?? []).flatMap(ref =>
+            entityFailureMarks(model.failures, entityKey(ref.entity, ref.id)),
+          ),
+        ]),
+      }
+    }
+    case 'OverlayShown':
+      return {
+        ...model,
+        optimistic: beginOptimistic(
+          settleFailure(model.optimistic, overlayLayer(message.id)),
+          overlayLayer(message.id),
+          message.optimistic,
+        ),
+      }
+    case 'WindowGrown':
+      return { ...model, grown: { ...model.grown, [message.window]: message.size } }
+    case 'OverlayLifted': {
+      const optimistic = settleFailure(model.optimistic, overlayLayer(message.id))
+      return optimistic.layers.length === model.optimistic.layers.length &&
+        optimistic.overlays.length === model.optimistic.overlays.length
+        ? model
+        : { ...model, optimistic }
+    }
+    case 'MutationFailed':
+      return {
+        ...model,
+        mutations: failMutation(model.mutations, message.requestId, message.error),
+        optimistic: settleFailure(model.optimistic, message.requestId),
+      }
+    case 'LiveReceived': {
+      const state = model.live[message.stream] ?? emptyLiveState
+      if (message.event._tag === 'EntityPatched' || message.event._tag === 'EntityDeleted') {
+        const event = message.event
+        const applied = applyEntityEvent(state, model.entities, event, message.now)
+        if (applied.outcome === 'gap') return broke(model, message.stream, Option.none())
+        // A value the server sent is newer than any failure to fetch it.
+        const settled =
+          applied.outcome !== 'applied'
+            ? []
+            : event._tag === 'EntityPatched'
+              ? [...patchedMarks([{ ...event.ref, values: event.values }])]
+              : entityFailureMarks(model.failures, entityKey(event.ref.entity, event.ref.id))
+        const next = {
+          ...model,
+          entities: applied.store,
+          live: withLiveState(model.live, message.stream, applied.state),
+          failures: withoutFieldFailures(model.failures, settled),
+        }
+        return applied.outcome === 'applied' ? healthy(next, message.stream) : next
+      }
+      const applied = applyConnectionEvent(state, model.optimistic, message.event, message.policy)
+      if (applied.outcome === 'gap') return broke(model, message.stream, Option.none())
+      const written = {
+        ...model,
+        optimistic: applied.optimistic,
+        live: withLiveState(model.live, message.stream, applied.state),
+      }
+      const next = applied.outcome === 'applied' ? healthy(written, message.stream) : written
+      // An invalidating event means exactly what `ConnectionInvalidated` means,
+      // so it goes through the same reduction rather than a parallel one.
+      return applied.invalidated === undefined
+        ? next
+        : invalidateConnections(next, [applied.invalidated])
+    }
+    case 'GapCleared':
+      return clearGap(model, message.stream)
+    case 'ConnectionMerged': {
+      const current = model.connections[message.connection] ?? emptyConnection
+      const loading = withoutQueryLoading(model.loading, message.connection)
+      // The page answering an invalidation is the server's list as it now is, so it
+      // replaces the pages: removed and reordered items go, and later pages are paged
+      // again. A re-run of a connection that was not invalidated still merges.
+      const replaces = message.refreshes === true && current.stale
+      const merged = merge(replaces ? emptyConnection : current, message.page)
+      // A query payload writes like a read: one synthetic request per matching
+      // edge, so windows, nested relations and settled fields behave as they do
+      // for `ReadReceived`. A page without a payload only merges the connection.
+      // Entities without a select are unsolicited and ignored: there is nowhere
+      // to write them, and they must not clear failures they do not answer.
+      const payload = message.select === undefined ? [] : (message.entities ?? [])
+      const settled = message.select === undefined ? [] : (message.settled ?? [])
+      const requests =
+        message.select === undefined || (payload.length === 0 && settled.length === 0)
+          ? []
+          : message.page.edges
+              .filter(edge => edge.ref.entity === message.select!.entity)
+              .map(edge => ({ ...message.select!, id: edge.ref.id }))
+      const entities =
+        requests.length === 0
+          ? model.entities
+          : writeRead(
+              model.entities,
+              requests,
+              { entities: [...payload], settled: [...settled] },
+              message.now ?? 0,
+            )
+      // Like `ReadReceived`: the answer settles what it was asked, whether
+      // with values or as settled, so a prior failure does not outlive it.
+      const failures = withoutFieldFailures(
+        withoutConnectionFailure(model.failures, message.connection),
+        [...fieldMarks(requests), ...patchedMarks(payload)],
+      )
+      return {
+        ...model,
+        ...checkedPlacement(model, message.connection, message.page, message.refreshes === true),
+        entities,
+        connections: {
+          ...model.connections,
+          [message.connection]: message.refreshes === true ? { ...merged, stale: false } : merged,
+        },
+        optimistic: pruneOverlays(
+          model.optimistic,
+          message.connection,
+          new Set(message.page.edges.map(edge => edge.key)),
+          model.mutations.pending,
+        ),
+        failures,
+        loading,
+      }
+    }
+    case 'ConnectionInvalidated':
+      // Asking again is also how a failed query is retried, so the failure goes
+      // with the mark.
+      // A connection is often both: a failed refresh stays due, and `Hydrated`
+      // restores one stale. Asking again must still settle its failure.
+      return {
+        ...model,
+        connections: setConnectionStale(model.connections, message.connection, true),
+        failures: withoutConnectionFailure(model.failures, message.connection),
+      }
+    case 'QueryFailed':
+      // The pages stay as they were, and a refresh that failed is still owed:
+      // the connection stays stale. The failure is what stops the planner
+      // asking again on its own; whatever settles it next (a retry, or a page
+      // from "load more") leaves the connection due, so the refresh then runs
+      // rather than a later page quietly passing for current.
+      return {
+        ...model,
+        failures: {
+          ...model.failures,
+          connections: { ...model.failures.connections, [message.connection]: message.error },
+        },
+        loading: withoutQueryLoading(model.loading, message.connection),
+      }
+    case 'ConnectionRefreshed':
+      return {
+        ...model,
+        connections: setConnectionStale(model.connections, message.connection, false),
+      }
+  }
+}
+
+/** The failures without one connection's, keeping identity when it had none. */
+const withoutConnectionFailure = (failures: Failures, connection: string): Failures => {
+  if (!(connection in failures.connections)) return failures
+  const { [connection]: _settled, ...connections } = failures.connections
+  return { ...failures, connections }
+}
+
+/** The failures with every field a read asked for failed with `error`. */
+const withFieldFailures = (
+  failures: Failures,
+  requests: ReadonlyArray<Requirement>,
+  error: RemoteError,
+): Failures => {
+  const fields = { ...failures.fields }
+  for (const mark of fieldMarks(requests)) fields[mark] = error
+  return { ...failures, fields }
+}
+
+/**
+ * The failures without the fields `settled` names, keeping identity when none
+ * of them had failed, which is nearly always: this runs on every write.
+ */
+const withoutFieldFailures = (failures: Failures, settled: Iterable<string>): Failures => {
+  if (Object.keys(failures.fields).length === 0) return failures
+  const marks = [...settled].filter(mark => mark in failures.fields)
+  if (marks.length === 0) return failures
+  const fields = { ...failures.fields }
+  for (const mark of marks) delete fields[mark]
+  return { ...failures, fields }
+}
+
+/** Every failed field of one entity: what deleting the entity settles. */
+const entityFailureMarks = (failures: Failures, key: string): ReadonlyArray<string> =>
+  Object.keys(failures.fields).filter(mark => mark.startsWith(`${key}\u0000`))
+
+/** The field marks of written values: each patch settles the fields it carries. */
+const patchedMarks = function* (
+  patches: ReadonlyArray<{ readonly entity: string; readonly id: string; readonly values: object }>,
+): Generator<string> {
+  for (const patch of patches) {
+    for (const field of Object.keys(patch.values)) yield fieldMark(patch.entity, patch.id, field)
+  }
+}
+
+/**
+ * Every field a read's requests reach: their own, and through each relation
+ * the store already holds, the fields they ask of its targets. A request with
+ * a relation riding on it names no target id; the store does, and a failure
+ * recorded on a target is reached only this way.
+ */
+const reachedMarks = (
+  store: EntityStore,
+  requests: ReadonlyArray<Requirement>,
+): ReadonlyArray<string> => {
+  const marks: string[] = []
+  const walked = new Map<string, Set<RelationRequirement>>()
+  const walk = (entity: string, id: string, requirement: RelationRequirement): void => {
+    const key = entityKey(entity, id)
+    const seen = walked.get(key) ?? new Set()
+    if (seen.has(requirement)) return
+    seen.add(requirement)
+    walked.set(key, seen)
+    for (const field of requirement.fields) {
+      marks.push(fieldMark(entity, id, field))
+      const nested = requirement.relations?.[field]
+      if (nested === undefined) continue
+      const value = readField(store, key, field)
+      if (value._tag === 'None') continue
+      for (const ref of targetsOf(value.value, nested)) walk(ref.entity, ref.id, nested)
+    }
+  }
+  for (const request of requests) walk(request.entity, request.id, request)
+  return marks
+}
+
+/** The entity key a field mark belongs to. */
+const markEntity = (mark: string): string => mark.slice(0, mark.indexOf('\u0000'))
+
+/**
+ * The failures of what the roots still reach. A released connection's or
+ * entity's failure goes with it, so asking for it again later asks the server
+ * again rather than repeating an error that may no longer hold.
+ *
+ * Reached is retention's own walk, taken over the Model before collection. It
+ * counts a relation's target and a list's row that the store does not hold,
+ * which is exactly a value whose first read failed: it is still on screen,
+ * behind the parent that refers to it.
+ */
+const prunedFailures = (
+  failures: Failures,
+  roots: RetentionRoots,
+  reached: () => ReadonlySet<string>,
+): Failures => {
+  const named = new Set(roots.connections.map(root => root.identity))
+  const connections = Object.entries(failures.connections).filter(([identity]) =>
+    named.has(identity),
+  )
+  const fields =
+    Object.keys(failures.fields).length === 0
+      ? []
+      : Object.entries(failures.fields).filter(([mark]) => reached().has(markEntity(mark)))
+  return connections.length === Object.keys(failures.connections).length &&
+    fields.length === Object.keys(failures.fields).length
+    ? failures
+    : { connections: Object.fromEntries(connections), fields: Object.fromEntries(fields) }
+}
+
+/** Whether this field's last read failed and nothing has settled it since. */
+export const isFieldFailed = (
+  model: RemoteModel,
+  entity: string,
+  id: string,
+  field: string,
+): boolean => fieldMark(entity, id, field) in model.failures.fields
+
+/**
+ * Whether a read is fetching any field `relation` reads of an entity, its own
+ * or, through each relation the store holds, its targets'. A value whose owner
+ * is being fetched is loading, not `Initial`: nothing is missing a fetch.
+ */
+export const isLoadingThrough = (
+  model: RemoteModel,
+  entity: string,
+  id: string,
+  relation: RelationRequirement,
+): boolean => {
+  if (model.loading.size === 0) return false
+  const walked = new Map<string, Set<RelationRequirement>>()
+  const walk = (target: string, targetId: string, requirement: RelationRequirement): boolean => {
+    const key = entityKey(target, targetId)
+    const seen = walked.get(key) ?? new Set()
+    if (seen.has(requirement)) return false
+    seen.add(requirement)
+    walked.set(key, seen)
+    for (const field of requirement.fields) {
+      if (model.loading.has(fieldMark(target, targetId, field))) return true
+      const nested = requirement.relations?.[field]
+      if (nested === undefined) continue
+      const value = readField(model.entities, key, field)
+      if (value._tag === 'None') continue
+      for (const ref of targetsOf(value.value, nested)) {
+        if (walk(ref.entity, ref.id, nested)) return true
+      }
+    }
+    return false
+  }
+  return walk(entity, id, relation)
+}
+
+/**
+ * The first failure among the fields `relation` reads of an entity, following
+ * each relation the store holds into its targets, as `assemble` does. A read
+ * that consults it shows `Failed` for a related entity's failure too, rather
+ * than waiting on a field nothing will fetch.
+ */
+export const failureOf = (
+  model: RemoteModel,
+  entity: string,
+  id: string,
+  relation: RelationRequirement,
+): RemoteError | undefined => {
+  const failed = model.failures.fields
+  if (Object.keys(failed).length === 0) return undefined
+  // Once per entity and requirement, as retention walks: two relations can
+  // reach one entity for different fields, and skipping the second would hide
+  // its failure. A requirement tree is finite, so cyclic data still ends.
+  const walked = new Map<string, Set<RelationRequirement>>()
+  const walk = (
+    target: string,
+    targetId: string,
+    requirement: RelationRequirement,
+  ): RemoteError | undefined => {
+    const key = entityKey(target, targetId)
+    const seen = walked.get(key) ?? new Set()
+    if (seen.has(requirement)) return undefined
+    seen.add(requirement)
+    walked.set(key, seen)
+    for (const field of requirement.fields) {
+      const error = failed[fieldMark(target, targetId, field)]
+      if (error !== undefined) return error
+      const nested = requirement.relations?.[field]
+      if (nested === undefined) continue
+      const value = readField(model.entities, key, field)
+      if (value._tag === 'None') continue
+      for (const ref of targetsOf(value.value, nested)) {
+        const found = walk(ref.entity, ref.id, nested)
+        if (found !== undefined) return found
+      }
+    }
+    return undefined
+  }
+  return walk(entity, id, relation)
+}
+
+/** Appends (after) or prepends (before) an incoming page onto the stored one. */
+const mergeWireRefPages = (
+  current: RefPageValue,
+  next: RefPageValue,
+  direction: 'after' | 'before',
+): RefPageValue => {
+  const refs =
+    direction === 'after'
+      ? [...new Set([...current.refs, ...next.refs])]
+      : [...new Set([...next.refs, ...current.refs])]
+  // The far boundary is the incoming page's; the near one is still the stored page's.
+  return direction === 'after'
+    ? { refs, hasNext: next.hasNext, hasPrevious: current.hasPrevious }
+    : { refs, hasNext: current.hasNext, hasPrevious: next.hasPrevious }
+}
+
+/**
+ * Writes a read result into the store, recording each field's applied window so
+ * a later request with a different window refetches. A relation page requested
+ * with a cursor is merged onto the page already stored, so "load more"
+ * accumulates rather than replaces. Every read path should use this rather than
+ * reducing `writeEntity` by hand.
+ */
+export const writeRead = (
+  store: EntityStore,
+  requests: ReadonlyArray<Requirement>,
+  result: Schema.Schema.Type<typeof ReadBatchResult>,
+  now = 0,
+): EntityStore => {
+  const returned = new Map<string, Record<string, unknown>>()
+  for (const entity of result.entities) {
+    const key = entityKey(entity.entity, entity.id)
+    returned.set(key, { ...returned.get(key), ...entity.values })
+  }
+  const byEntity = new Map<
+    string,
+    { windows: Record<string, string>; merge: Map<string, 'after' | 'before'> }
+  >()
+  // A request's windows apply to its entity; a relation's windows apply to
+  // each target the returned refs name, and so on down the graph.
+  const record = (
+    key: string,
+    windows: Requirement['windows'],
+    relations: Requirement['relations'],
+  ): void => {
+    let entry = byEntity.get(key)
+    if (entry === undefined) {
+      entry = { windows: {}, merge: new Map() }
+      byEntity.set(key, entry)
+    }
+    for (const [field, window] of Object.entries(windows ?? {})) {
+      entry.windows[field] = windowKey(window)
+      const direction =
+        window.after !== undefined ? 'after' : window.before !== undefined ? 'before' : undefined
+      if (direction !== undefined) entry.merge.set(field, direction)
+    }
+    const values = returned.get(key)
+    if (values === undefined) return
+    for (const [field, relation] of Object.entries(relations ?? {})) {
+      for (const ref of targetsOf(values[field], relation)) {
+        record(entityKey(ref.entity, ref.id), relation.windows, relation.relations)
+      }
+    }
+  }
+  for (const request of requests) {
+    record(entityKey(request.entity, request.id), request.windows, request.relations)
+  }
+
+  const writes: EntityWrite[] = []
+  const pending = new Map<string, Record<string, unknown>>()
+  for (const entity of result.entities) {
+    const key = entityKey(entity.entity, entity.id)
+    const entry = byEntity.get(key)
+    let values = entity.values
+    if (entry !== undefined && entry.merge.size > 0) {
+      // A cursor page merges onto the page stored (or written earlier in this result).
+      const previous = pending.get(key) ?? store[key]?.values
+      if (previous !== undefined) {
+        const merged: Record<string, unknown> = { ...values }
+        for (const [field, direction] of entry.merge) {
+          const incoming = values[field]
+          const existing = previous[field]
+          if (isRefPage(incoming) && isRefPage(existing)) {
+            merged[field] = mergeWireRefPages(existing, incoming, direction)
+          }
+        }
+        values = merged
+      }
+    }
+    pending.set(key, { ...pending.get(key), ...values })
+    writes.push({ key, values, windows: entry?.windows })
+  }
+  // The server was asked for these ids by name and answered without them, and
+  // without settling any of their fields: whether the entity never existed or
+  // is gone, the client knows the same thing: it is not there. Without this the
+  // read would stay `Loading` for good. A forced plan (`refresh`) asks again,
+  // and any later write clears the tombstone.
+  //
+  // An id the server settled fields of is not absent: it was asked about and
+  // the answer was "not this", which is about the fields, not the entity. What
+  // the store already holds of it stays.
+  //
+  // Only ids asked for directly: the target of a returned ref is left alone. A
+  // server need not expand a relation that rides on a request; the planner
+  // follows a relation the store holds and asks for its targets by id next, and
+  // a tombstone here would stop it.
+  const settled = new Set(result.settled.map(entry => entityKey(entry.entity, entry.id)))
+  let answered = store
+  for (const request of requests) {
+    const key = entityKey(request.entity, request.id)
+    if (!returned.has(key) && !settled.has(key)) answered = tombstone(answered, key)
+  }
+  // Settled after the values: a field the same result also answers is present,
+  // and a present field is never marked.
+  return setUnavailable(
+    writeEntities(answered, writes, now),
+    result.settled.map(entry => [entityKey(entry.entity, entry.id), entry.fields] as const),
+    true,
+  )
+}

@@ -1,0 +1,59 @@
+{
+  "name": "foldkit-plus-workspace",
+  "private": true,
+  "license": "MIT",
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "type": "module",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "e2e": "vitest run --config vitest.e2e.config.ts",
+    "bench": "vitest bench --run",
+    "mutate": "tsx scripts/mutate.mjs",
+    "bench:storage": "tsx packages/durable/bench/storage.ts",
+    "bench:manifest": "tsx --tsconfig packages/ssr/tsconfig.json packages/ssr/bench/manifest.ts",
+    "bench:manifest:browser": "tsx --tsconfig packages/ssr/tsconfig.json packages/ssr/bench/manifestBrowser.ts",
+    "demo": "pnpm build && pnpm --filter foldkit-example-todo demo && pnpm --filter foldkit-example-sync demo && pnpm --filter foldkit-example-mixins demo && pnpm --filter foldkit-example-bundle demo && pnpm --filter foldkit-example-react demo && pnpm --filter foldkit-example-remote demo && pnpm --filter foldkit-example-entity demo && pnpm exec tsx packages/remote-drizzle/example/nested.ts && pnpm --filter foldkit-example-kitchen-sink demo && pnpm --filter foldkit-example-todo-app demo && pnpm --filter foldkit-example-pages demo",
+    "test:watch": "vitest",
+    "paths": "node scripts/workspace-paths.mjs",
+    "paths:check": "node scripts/workspace-paths.mjs --check",
+    "tags:check": "node scripts/tags-check.mjs",
+    "typecheck": "tsc -b",
+    "typecheck:force": "tsc -b --force",
+    "check": "pnpm format:check && pnpm paths:check && pnpm tags:check && pnpm typecheck && pnpm test && pnpm demo && pnpm pack:check",
+    "format": "prettier --write \"**/*.{ts,json,yaml}\"",
+    "format:check": "prettier --check --cache \"**/*.{ts,json,yaml}\"",
+    "pack:check": "pnpm build && node scripts/published-types.mjs && pnpm -r --filter \"./packages/*\" exec pnpm pack",
+    "release": "pnpm build && pnpm -r --filter \"./packages/*\" publish --access public --no-git-checks"
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.87.2",
+    "@effect/platform-browser": "4.0.0",
+    "@effect/sql-pg": "4.0.0",
+    "@types/node": "^22.10.2",
+    "@vitest/browser-playwright": "5.0.1",
+    "drizzle-orm": "1.0.0-rc.4",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "playwright": "^1.63.0",
+    "prettier": "^3.9.6",
+    "tsdown": "^0.23.0",
+    "tsx": "^4.23.13",
+    "typescript": "5.9.3",
+    "unrun": "^0.3.1",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "name": "foldkit-mixins-richtext",
+  "version": "0.2.3",
+  "description": "The rich-text editor's chrome, drawn through Mixins slots.",
+  "keywords": [
+    "foldkit",
+    "rich-text",
+    "editor",
+    "toolbar",
+    "mixins",
+    "typescript"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/mixins-richtext"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/mixins-richtext#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b",
+    "smoke": "node smoke/build.mjs"
+  },
+  "dependencies": {
+    "foldkit-mixins": "workspace:*",
+    "foldkit-primitives": "workspace:*",
+    "foldkit-richtext": "workspace:*",
+    "foldkit-richtext-dom": "workspace:*",
+    "foldkit-richtext-markdown": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0",
+    "foldkit": "^0.165.0"
+  },
+  "devDependencies": {
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "jsdom": "26.1.0",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  }
+}

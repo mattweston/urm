@@ -1,0 +1,37 @@
+{
+  "name": "@foldcn/registry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The foldcn registry: shadcn-style manifests and self-contained Foldkit component sources. The web app consumes these sources directly.",
+  "type": "module",
+  "exports": {
+    ".": "./registry.json",
+    "./registry.json": "./registry.json",
+    "./components.json": "./components.json",
+    "./registry/default/ui/registry.json": "./registry/default/ui/registry.json",
+    "./registry/default/lib/registry.json": "./registry/default/lib/registry.json",
+    "./registry/default/blocks/registry.json": "./registry/default/blocks/registry.json",
+    "./registry/default/style/registry.json": "./registry/default/style/registry.json",
+    "./styles/*": "./styles/*"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "resolve": "node scripts/resolve-styles.mjs",
+    "validate": "pnpm dlx shadcn@latest registry validate registry.json --cwd .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@foldkit/ui": "^0.163.0",
+    "@tanstack/highlight": "^0.0.10",
+    "@types/node": "^26.4.0",
+    "cn": "^0.2.4",
+    "effect": "4.0.0-rc.116",
+    "embla-carousel": "^8.6.0",
+    "foldkit": "^0.163.0",
+    "lucide": "^1.37.0",
+    "postcss": "^8.5.26",
+    "postcss-selector-parser": "^7.1.5",
+    "ts-morph": "^28.0.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,195 @@
+import { Effect, Layer, Schema, Stream } from 'effect'
+import { defineMessageUnion } from 'foldkit/message'
+import { Projection, Surface } from 'foldkit-surface'
+import { describe, expect, it } from 'vitest'
+import {
+  Entity,
+  Remote,
+  RemoteClient,
+  RemoteLiveError,
+  Selection,
+  emptyLiveState,
+  emptyStore,
+  entityKey,
+  initialRemoteModel,
+  updateRemote,
+  writeEntity,
+  type LiveEvent,
+  type RemoteMessage,
+} from '../src/index.js'
+
+const User = Entity.make('User', Schema.Struct({ id: Schema.String, name: Schema.String }))
+const Data = Remote.define({ entities: [User] })
+const Model = Schema.Struct({ remote: Data.Model })
+const Message = defineMessageUnion({ Ping: {} })
+const App = Surface.application({ Model, Message })
+const AppRemote = Remote.at(Data, App.model.remote)
+
+const LiveMessage = defineMessageUnion({
+  Patched: { cursor: Schema.Number },
+  ResumeUnavailable: { message: Schema.String },
+})
+type LiveMessageType = Schema.Schema.Type<typeof LiveMessage>
+
+const UserPage = Surface.make(App, 'UserPage', {
+  Params: Schema.Struct({ userId: Schema.String }),
+  model: ({ params }) =>
+    Projection.struct({
+      user: Remote.select(AppRemote, Selection.make(User, { id: true, name: true }))(params.userId),
+    }),
+  messages: [Message.Ping],
+})
+
+const root = {
+  remote: { ...initialRemoteModel, entities: emptyStore },
+}
+
+const patched: LiveEvent = {
+  _tag: 'EntityPatched',
+  ref: { entity: 'User', id: 'u1' },
+  values: { name: 'ada' },
+  changed: ['name'],
+  cursor: 1,
+}
+
+const toMessage = (message: RemoteMessage): LiveMessageType => {
+  switch (message._tag) {
+    case 'LiveReceived':
+      return LiveMessage.Patched({ cursor: message.event.cursor })
+    case 'ReadFailed':
+    case 'MutationFailed':
+      return LiveMessage.ResumeUnavailable({ message: message.error.message })
+    default:
+      throw new Error(`unexpected remote message: ${message._tag}`)
+  }
+}
+
+const entry = Remote.live(AppRemote, UserPage, { userId: 'u1' }, toMessage)
+
+const dependencies = entry.modelToDependencies(root)
+
+const stream = dependencies.requirements
+  .map(
+    requirement =>
+      `${entityKey(requirement.entity, requirement.id)}:${[...requirement.fields].sort().join(',')}`,
+  )
+  .sort()
+  .join('|')
+const advanced = {
+  remote: { ...initialRemoteModel, live: { [stream]: { ...emptyLiveState, cursor: 7 } } },
+}
+
+describe('Remote live subscription', () => {
+  it('reads the resume cursor from the model', () => {
+    expect(entry.modelToDependencies(advanced).cursor).toBe(7)
+  })
+
+  it('keeps its stream as events advance the cursor, and resumes from it on a restart', async () => {
+    // Foldkit restarts an entry's stream when this equivalence says its
+    // dependencies changed.
+    const same = Schema.toEquivalence(entry.dependenciesSchema)
+    const moved = entry.modelToDependencies(advanced)
+    expect(same(dependencies, moved)).toBe(true)
+    expect(same(moved, { ...moved, floor: 1 })).toBe(false)
+    expect(same(moved, { ...moved, requirements: [] })).toBe(false)
+
+    const asked: Array<number> = []
+    const client = Layer.succeed(RemoteClient, {
+      read: () => Effect.die('unused'),
+      query: () => Effect.die('unused'),
+      mutate: () => Effect.die('unused'),
+      live: ({ after }) => {
+        asked.push(after)
+        return Stream.empty
+      },
+    })
+    await Effect.runPromise(
+      Stream.runDrain(entry.dependenciesToStream(moved)).pipe(Effect.provide(client)),
+    )
+    expect(asked).toEqual([7])
+  })
+
+  it('streams live events for a Surface', async () => {
+    const client = Layer.succeed(RemoteClient, {
+      read: () => Effect.die('unused'),
+      query: () => Effect.die('unused'),
+      mutate: () => Effect.die('unused'),
+      live: () => Stream.make(patched),
+    })
+
+    expect(dependencies.requirements).toEqual([
+      { entity: 'User', id: 'u1', fields: ['id', 'name'] },
+    ])
+    expect(dependencies.cursor).toBe(0)
+
+    const messages = await Effect.runPromise(
+      Stream.runCollect(entry.dependenciesToStream(dependencies)).pipe(Effect.provide(client)),
+    )
+    expect([...messages]).toEqual([{ _tag: 'Patched', cursor: 1 }])
+  })
+
+  it('emits RemoteMessage itself by default, stamped with the injected clock', async () => {
+    const client = Layer.succeed(RemoteClient, {
+      read: () => Effect.die('unused'),
+      query: () => Effect.die('unused'),
+      mutate: () => Effect.die('unused'),
+      live: () => Stream.make(patched),
+    })
+    const plain = Remote.live(AppRemote, UserPage, { userId: 'u1' }, undefined, { now: () => 42 })
+
+    const messages = await Effect.runPromise(
+      Stream.runCollect(plain.dependenciesToStream(plain.modelToDependencies(root))).pipe(
+        Effect.provide(client),
+      ),
+    )
+    expect([...messages]).toEqual([
+      { _tag: 'LiveReceived', stream: expect.any(String), event: patched, now: 42 },
+    ])
+  })
+
+  it('emits a ResumeUnavailable message instead of failing the stream', async () => {
+    const client = Layer.succeed(RemoteClient, {
+      read: () => Effect.die('unused'),
+      query: () => Effect.die('unused'),
+      mutate: () => Effect.die('unused'),
+      live: () => Stream.fail(new RemoteLiveError({ message: 'ResumeUnavailable' })),
+    })
+
+    const messages = await Effect.runPromise(
+      Stream.runCollect(entry.dependenciesToStream(dependencies)).pipe(Effect.provide(client)),
+    )
+    expect([...messages]).toEqual([{ _tag: 'ResumeUnavailable', message: 'ResumeUnavailable' }])
+  })
+
+  it('reports a broken stream as a gap, not as a failed read of what it watched', async () => {
+    const client = Layer.succeed(RemoteClient, {
+      read: () => Effect.die('unused'),
+      query: () => Effect.die('unused'),
+      mutate: () => Effect.die('unused'),
+      live: () => Stream.fail(new RemoteLiveError({ message: 'ResumeUnavailable' })),
+    })
+    const raw = Remote.live(
+      AppRemote,
+      UserPage,
+      { userId: 'u1' },
+      (message: RemoteMessage) => message,
+    )
+    const [failure] = await Effect.runPromise(
+      Stream.runCollect(raw.dependenciesToStream(dependencies)).pipe(Effect.provide(client)),
+    )
+    const shown = {
+      ...initialRemoteModel,
+      entities: writeEntity(emptyStore, entityKey('User', 'u1'), { id: 'u1', name: 'ada' }, 0),
+    }
+
+    const after = updateRemote(shown, failure as RemoteMessage)
+
+    expect(failure).toMatchObject({ _tag: 'ReadFailed', stream: expect.any(String) })
+    expect([...after.gaps]).toEqual([(failure as { readonly stream: string }).stream])
+    expect(after.failures).toEqual(initialRemoteModel.failures)
+    expect(UserPage.projection({ userId: 'u1' }).read({ remote: after }).user).toEqual({
+      _tag: 'Ready',
+      value: { id: 'u1', name: 'ada' },
+    })
+  })
+})

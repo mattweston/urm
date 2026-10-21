@@ -1,0 +1,53 @@
+{
+  "name": "foldkit-example-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./demos": {
+      "foldkit-plus:source": "./src/demos.ts",
+      "default": "./src/demos.ts"
+    },
+    "./guide": {
+      "foldkit-plus:source": "./src/guide.ts",
+      "default": "./src/guide.ts"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "readme": "tsx scripts/readme.ts",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@foldkit/ui": "0.165.0",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-mixins": "workspace:*",
+    "foldkit-ssr": "workspace:*",
+    "foldkit-surface": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "@foldkit/vite-plugin": "0.26.0",
+    "@types/mdast": "^4.0.4",
+    "foldkit-agent": "workspace:*",
+    "foldkit-entity": "workspace:*",
+    "foldkit-mirror": "workspace:*",
+    "foldkit-mixins-surface": "workspace:*",
+    "foldkit-mixins-ui": "workspace:*",
+    "foldkit-remote": "workspace:*",
+    "foldkit-richtext-code-shiki": "workspace:*",
+    "foldkit-sync": "workspace:*",
+    "jsdom": "26.1.0",
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-gfm": "^3.1.0",
+    "micromark-extension-gfm": "^3.0.0",
+    "prettier": "^3.9.6",
+    "shiki": "4.4.3",
+    "tsx": "^4.23.13",
+    "typescript": "5.9.3",
+    "vite": "^8.3.0"
+  }
+}

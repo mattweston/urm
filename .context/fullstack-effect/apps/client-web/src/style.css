@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "@qaveai/client-ds/theme.css";
+
+@source "./";
+@source "../../../packages/foldkit-preview/src";

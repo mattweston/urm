@@ -1,0 +1,274 @@
+:root,
+[data-theme] {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial,
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --radius: 0.625rem;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-button: var(--radius-lg);
+  --radius-button-sm: var(--radius-md);
+  --radius-badge: 999px;
+  --radius-panel: 12px;
+  --badge-border: transparent;
+  --button-outline-surface: var(--background);
+  --button-outline-shadow: none;
+  --shadow-card: none;
+  --radius-xl: calc(var(--radius) * 1.4);
+
+  --primary-hover: color-mix(in oklch, var(--primary) 80%, transparent);
+  --ring-muted: color-mix(in oklch, var(--ring) 20%, transparent);
+  --destructive-surface: color-mix(in oklch, var(--destructive) 10%, var(--background));
+  --destructive-border: color-mix(in oklch, var(--destructive) 24%, var(--border));
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 5%);
+  --shadow-control: 0 1px 2px oklch(0 0 0 / 7%);
+  --shadow-interactive: 0 1px 2px oklch(0 0 0 / 8%);
+  --shadow-panel: 0 0 0 1px var(--border);
+  --shadow-float: 0 20px 45px oklch(0 0 0 / 22%);
+  --shadow-sheet: -24px 0 60px oklch(0 0 0 / 16%);
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --duration-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.2, 0.8, 0.2, 1.08);
+
+  --foldworks-ui-success: oklch(0.527 0.154 150.069);
+  --foldworks-ui-success-surface: oklch(0.962 0.044 156.743);
+  --foldworks-ui-warning: oklch(0.555 0.135 66.442);
+  --foldworks-ui-warning-surface: oklch(0.973 0.071 103.193);
+  --foldworks-ui-info: oklch(0.546 0.245 262.881);
+  --foldworks-ui-info-surface: oklch(0.932 0.032 255.585);
+  --foldworks-ui-selection: color-mix(in oklch, var(--primary) 9%, var(--card));
+  --foldworks-ui-selection-foreground: var(--primary);
+  --foldworks-ui-selection-border: var(--primary);
+  --foldworks-ui-drop-target: color-mix(in oklch, var(--primary) 6%, var(--card));
+  --foldworks-ui-drop-target-border: color-mix(in oklch, var(--primary) 52%, var(--border));
+  --foldworks-ui-drop-target-active: color-mix(in oklch, var(--primary) 14%, var(--card));
+  --foldworks-ui-drop-target-active-border: var(--primary);
+  --foldworks-ui-overlay: oklch(0.145 0 0 / 30%);
+  --foldworks-ui-code-keyword: #8741a0;
+  --foldworks-ui-code-string: #246b46;
+  --foldworks-ui-code-number: #975312;
+  --foldworks-ui-code-comment: #6c7180;
+  --foldworks-ui-code-type: #13677b;
+  --foldworks-ui-code-property: #315ba6;
+
+  /* Compatibility aliases for existing Foldworks feature packages. */
+  --foldworks-ui-background: var(--background);
+  --foldworks-ui-canvas: var(--muted);
+  --foldworks-ui-surface: var(--card);
+  --foldworks-ui-surface-subtle: var(--secondary);
+  --foldworks-ui-surface-hover: var(--accent);
+  --foldworks-ui-foreground: var(--foreground);
+  --foldworks-ui-foreground-muted: var(--muted-foreground);
+  --foldworks-ui-foreground-subtle: var(--ring);
+  --foldworks-ui-border: var(--border);
+  --foldworks-ui-border-strong: var(--input);
+  --foldworks-ui-input: var(--input);
+  --foldworks-ui-primary: var(--primary);
+  --foldworks-ui-primary-hover: var(--primary-hover);
+  --foldworks-ui-primary-foreground: var(--primary-foreground);
+  --foldworks-ui-brand: var(--primary);
+  --foldworks-ui-brand-hover: var(--primary-hover);
+  --foldworks-ui-brand-surface: var(--accent);
+  --foldworks-ui-brand-border: var(--border);
+  --foldworks-ui-brand-foreground: var(--accent-foreground);
+  --foldworks-ui-focus: var(--ring);
+  --foldworks-ui-focus-glow: var(--ring-muted);
+  --foldworks-ui-sidebar: var(--sidebar);
+  --foldworks-ui-sidebar-foreground: var(--sidebar-foreground);
+  --foldworks-ui-sidebar-accent: var(--sidebar-accent);
+  --foldworks-ui-sidebar-border: var(--sidebar-border);
+  --foldworks-ui-danger: var(--destructive);
+  --foldworks-ui-danger-surface: var(--destructive-surface);
+  --foldworks-ui-danger-border: var(--destructive-border);
+  --foldworks-ui-radius-sm: var(--radius-sm);
+  --foldworks-ui-radius-md: var(--radius-md);
+  --foldworks-ui-radius-lg: var(--radius-lg);
+  --foldworks-ui-shadow-sm: var(--shadow-sm);
+  --foldworks-ui-shadow-control: var(--shadow-control);
+  --foldworks-ui-shadow-interactive: var(--shadow-interactive);
+  --foldworks-ui-shadow-panel: var(--shadow-panel);
+  --foldworks-ui-shadow-float: var(--shadow-float);
+  --foldworks-ui-shadow-sheet: var(--shadow-sheet);
+  --foldworks-ui-duration-fast: var(--duration-fast);
+  --foldworks-ui-duration-normal: var(--duration-normal);
+  --foldworks-ui-duration-slow: var(--duration-slow);
+  --foldworks-ui-ease-out: var(--ease-out);
+  --foldworks-ui-spring: var(--spring);
+  --foldworks-ui-font: var(--font-sans);
+}
+
+.dark,
+[data-mode="dark"] {
+  --foldworks-ui-success: oklch(0.792 0.209 151.711);
+  --foldworks-ui-success-surface: oklch(0.266 0.065 152.934);
+  --foldworks-ui-warning: oklch(0.852 0.199 91.936);
+  --foldworks-ui-warning-surface: oklch(0.279 0.077 45.635);
+  --foldworks-ui-info: oklch(0.707 0.165 254.624);
+  --foldworks-ui-info-surface: oklch(0.282 0.091 267.935);
+  --foldworks-ui-overlay: oklch(0 0 0 / 58%);
+  --foldworks-ui-code-keyword: #d5a2ef;
+  --foldworks-ui-code-string: #8dcca1;
+  --foldworks-ui-code-number: #efb87d;
+  --foldworks-ui-code-comment: #9a9eaa;
+  --foldworks-ui-code-type: #84c9d9;
+  --foldworks-ui-code-property: #a0bfff;
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 22%);
+  --shadow-control: 0 1px 2px oklch(0 0 0 / 26%);
+  --shadow-interactive: 0 1px 2px oklch(0 0 0 / 28%);
+  --shadow-float: 0 20px 45px oklch(0 0 0 / 42%);
+  --shadow-sheet: -24px 0 60px oklch(0 0 0 / 38%);
+}
+
+@layer foldworks-reset {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    line-height: 1.5;
+    tab-size: 4;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100vh;
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :where(h1, h2, h3, h4, h5, h6, p, blockquote, figure, dl, dd) {
+    margin: 0;
+  }
+
+  :where(h1, h2, h3, h4, h5, h6) {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  :where(ol, ul, menu) {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  :where(a) {
+    color: inherit;
+    text-decoration: inherit;
+  }
+
+  :where(hr) {
+    height: 0;
+    color: inherit;
+    border: 0;
+    border-top: 1px solid;
+  }
+
+  :where(abbr[title]) {
+    text-decoration: underline dotted;
+  }
+
+  :where(b, strong) {
+    font-weight: bolder;
+  }
+
+  :where(code, kbd, samp, pre) {
+    font-family: var(--font-mono);
+    font-size: 1em;
+  }
+
+  :where(small) {
+    font-size: 80%;
+  }
+
+  :where(sub, sup) {
+    position: relative;
+    vertical-align: baseline;
+    font-size: 75%;
+    line-height: 0;
+  }
+
+  :where(sub) {
+    bottom: -0.25em;
+  }
+
+  :where(sup) {
+    top: -0.5em;
+  }
+
+  :where(button, input, optgroup, select, textarea) {
+    margin: 0;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+  }
+
+  :where(button, input, select, textarea) {
+    padding: 0;
+    background-color: transparent;
+    border: 0 solid;
+    border-radius: 0;
+  }
+
+  :where(button, select) {
+    text-transform: none;
+  }
+
+  :where(button, [type="button"], [type="reset"], [type="submit"]) {
+    appearance: button;
+    -webkit-appearance: button;
+  }
+
+  :where(button, [role="button"]) {
+    cursor: pointer;
+  }
+
+  :where(:disabled) {
+    cursor: default;
+  }
+
+  :where(textarea) {
+    resize: vertical;
+  }
+
+  :where(progress) {
+    vertical-align: baseline;
+  }
+
+  :where(img, picture, video, canvas, svg) {
+    display: block;
+    max-width: 100%;
+  }
+
+  :where(img, picture, video, canvas) {
+    height: auto;
+  }
+
+  :where(table) {
+    border-collapse: collapse;
+    border-spacing: 0;
+  }
+
+  :where(summary) {
+    display: list-item;
+  }
+
+  :where(dialog) {
+    padding: 0;
+  }
+
+  :where([hidden]) {
+    display: none !important;
+  }
+}

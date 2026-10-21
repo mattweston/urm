@@ -1,0 +1,59 @@
+import { Message as OrchestratorMessage } from "../orchestrator/message";
+import { Schema as S } from "effect";
+import { ActionIntent } from "@foldworks/generative-ui/core";
+import { Agent } from "@foldworks/agent";
+import { PdfAnnotator } from "@foldworks/pdf-annotator";
+import { Message as EditorMessage } from "@foldworks/editor";
+import { Sidebar } from "@foldworks/sidebar";
+import { defineMessageUnion } from "foldkit/message";
+import { UrlRequest } from "foldkit/navigation";
+import { Url } from "foldkit/url";
+
+import { Message as DocsMessage } from "../docs/message";
+import { Message as CodeEditorMessage } from "../code-editor/message";
+import { Message as WorkbenchMessage } from "../workbench/message";
+import { Message as DataGridMessage } from "../data-grid/message";
+import { Message as DataTableMessage } from "../data-table/message";
+import { Message as DiffViewerMessage } from "../diff-viewer/message";
+import { Message as FormEditorMessage } from "../form-builder/message";
+import { Message as OutlinerDemoMessage } from "../outliner/message";
+import { Message as PdfViewerDemoMessage } from "../pdf-viewer/message";
+import { Message as QueryBuilderDemoMessage } from "../query-builder/message";
+import { ThemeName, ThemePreference } from "../theme";
+import { Message as StatechartMessage } from "../statechart/message";
+import { Message as ThemeBuilderMessage } from "../theme-builder/message";
+import { Message as UiKitMessage } from "../ui-kit/message";
+import { Message as WorkflowEditorMessage } from "../workflow/message";
+
+export const Message = defineMessageUnion({
+  ClickedLink: { request: UrlRequest },
+  ChangedUrl: { url: Url },
+  CompletedNavigateInternal: {},
+  CompletedLoadExternal: {},
+  CompletedApplyTheme: {},
+  CompletedPersistWorkspace: { succeeded: S.Boolean },
+  ChangedSystemTheme: { isDark: S.Boolean },
+  SelectedThemeName: { name: ThemeName },
+  SelectedThemePreference: { preference: ThemePreference },
+  GotDocsMessage: { message: DocsMessage },
+  GotOrchestratorMessage: { message: OrchestratorMessage },
+  GotAgentMessage: { message: Agent.Message },
+  GotWorkflowEditorMessage: { message: WorkflowEditorMessage },
+  GotFormEditorMessage: { message: FormEditorMessage },
+  GotStatechartMessage: { message: StatechartMessage },
+  GotCodeEditorMessage: { message: CodeEditorMessage },
+  GotWorkbenchMessage: { message: WorkbenchMessage },
+  GotDataGridDemoMessage: { message: DataGridMessage },
+  GotDataTableDemoMessage: { message: DataTableMessage },
+  GotDiffViewerDemoMessage: { message: DiffViewerMessage },
+  GotQueryBuilderDemoMessage: { message: QueryBuilderDemoMessage },
+  GotOutlinerDemoMessage: { message: OutlinerDemoMessage },
+  GotPdfAnnotatorMessage: { message: PdfAnnotator.Message },
+  GotPdfViewerDemoMessage: { message: PdfViewerDemoMessage },
+  GotEditorMessage: { message: EditorMessage },
+  GotSidebarMessage: { message: Sidebar.Message },
+  GotUiKitMessage: { message: UiKitMessage },
+  GotThemeBuilderMessage: { message: ThemeBuilderMessage },
+  GotGenerativeUiAction: { intent: ActionIntent },
+});
+export type Message = typeof Message.Type;

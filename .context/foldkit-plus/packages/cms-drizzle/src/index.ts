@@ -1,0 +1,1302 @@
+/**
+ * `foldkit-cms-drizzle` — the server half of `foldkit-cms`.
+ *
+ * It keeps an author's unpublished work in three tables beside the
+ * application's own, and it is where the audience boundary is enforced, by a
+ * `foldkit-guard` guard set: a principal its `authors` guards refuse is refused
+ * entries, drafts and revisions outright, and sees of the content only the
+ * rows the content's own Read rules show. Both are a binding's `visible`, so
+ * they hold on every path a table is read by.
+ *
+ * Publishing runs the application's own mutation with the draft's value, inside
+ * a transaction that also appends the revision and removes the draft, so a
+ * publish happened entirely or did not happen.
+ */
+import {
+  and,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  sql,
+  type AnyColumn,
+  type SQL,
+} from 'drizzle-orm'
+import { Effect, Exit, Option, Schema, Semaphore } from 'effect'
+import { Cms, type Content, type Facts, type Transition } from 'foldkit-cms'
+import { Entity, type AnyEntity } from 'foldkit-entity'
+import { Guards, type Policy, type PrincipalGuard } from 'foldkit-guard'
+import { GuardServer } from 'foldkit-guard/server'
+import type { MutationDescriptor, RemoteForbidden } from 'foldkit-remote'
+import {
+  DrizzleDatabase,
+  drizzleWrites,
+  bind,
+  query,
+  returning,
+  runStatement,
+  source,
+  type AnyEntityBinding,
+  type DrizzleDatabaseService,
+  type Visible,
+} from 'foldkit-remote-drizzle'
+import {
+  RemoteServer,
+  MutationRefused,
+  RemoteServerError,
+  type EntitySource,
+  type MutationOutcome,
+  type MutationSource,
+  type QuerySource,
+} from 'foldkit-remote-server'
+import type { CmsTables } from './tables.js'
+
+export { pgTables, sqliteSchema, sqliteTables, type CmsTables } from './tables.js'
+
+/**
+ * A content type as the server holds it: its declaration, its Entity with the
+ * guards attached that its binding was bound from, the binding of its table,
+ * and the application's own handlers of its two publish mutations. What
+ * publishing a post does stays the application's code.
+ */
+export interface ServedContent<P = any> {
+  readonly type: Content<string, any, any, any>
+  /** `type.entity` with the guard set's rules attached: `Post.pipe(Guards.attach(G, { … }))`. */
+  readonly entity: AnyEntity
+  readonly binding: AnyEntityBinding
+  readonly create: MutationSource<P, DrizzleDatabase>
+  readonly update: MutationSource<P, DrizzleDatabase>
+}
+
+/**
+ * Runs some work so that it happened entirely or did not. Drizzle's own
+ * transactions differ by driver, so the application says which this is. It
+ * fails as the work does, or, when the database refuses the transaction
+ * itself, as a `RemoteServerError` that says nothing of why.
+ */
+export type Transaction = <A, E>(
+  work: Effect.Effect<A, E, DrizzleDatabase>,
+) => Effect.Effect<A, E | RemoteServerError, DrizzleDatabase>
+
+const statement = (database: DrizzleDatabaseService, text: string) =>
+  Effect.promise(() => {
+    const runs = database as unknown as {
+      run?: (query: SQL) => unknown
+      execute?: (query: SQL) => unknown
+    }
+    return Promise.resolve(
+      runs.run !== undefined ? runs.run(sql.raw(text)) : runs.execute!(sql.raw(text)),
+    )
+  })
+
+// One connection holds one transaction. Without this, a write another request
+// makes between this one's `begin` and its `rollback` is rolled back with it,
+// after it was reported done.
+const turns = new WeakMap<object, Semaphore.Semaphore>()
+const turnOf = (database: object): Semaphore.Semaphore => {
+  const held = turns.get(database)
+  if (held !== undefined) return held
+  const made = Semaphore.makeUnsafe(1)
+  turns.set(database, made)
+  return made
+}
+
+export const Transaction = {
+  /**
+   * `begin`, the work, then `commit` or `rollback`, as statements. For a database
+   * that is one connection, such as a SQLite file, which it takes turns at: the
+   * operations of this package wait for one another. A write of your own on the
+   * same connection does not, so make it inside `Transaction.statements` too.
+   * Over a pool each statement may take a different connection: use `drizzle` there.
+   */
+  statements: (<A, E>(work: Effect.Effect<A, E, DrizzleDatabase>) =>
+    Effect.gen(function* () {
+      const database = yield* DrizzleDatabase
+      return yield* turnOf(database).withPermit(
+        statement(database, 'begin').pipe(
+          Effect.andThen(work),
+          Effect.onExit(exit => statement(database, Exit.isSuccess(exit) ? 'commit' : 'rollback')),
+        ),
+      )
+    })) as Transaction,
+  /**
+   * Drizzle's `database.transaction`, with the work given the transaction as its
+   * database. For a driver whose transactions are asynchronous: Postgres, libSQL.
+   */
+  drizzle: (<A, E>(work: Effect.Effect<A, E, DrizzleDatabase>) =>
+    Effect.gen(function* () {
+      const database = (yield* DrizzleDatabase) as unknown as {
+        transaction: <T>(run: (inner: DrizzleDatabaseService) => Promise<T>) => Promise<T>
+      }
+      const failed = Symbol('failed')
+      let exit: Exit.Exit<A, E> | undefined
+      // A failure must leave the callback as a rejection, or Drizzle commits.
+      yield* runStatement(
+        () =>
+          database
+            .transaction(async inner => {
+              exit = await Effect.runPromiseExit(
+                work.pipe(Effect.provideService(DrizzleDatabase, inner)),
+              )
+              if (!Exit.isSuccess(exit)) throw failed
+            })
+            .catch(error => {
+              if (error !== failed) throw error
+            }),
+        'Database write failed',
+      )
+      return yield* exit!
+    })) as Transaction,
+}
+
+export interface CmsServerConfig<User> {
+  readonly tables: CmsTables
+  readonly content: ReadonlyArray<ServedContent<Option.Option<User>>>
+  /** How a publish is made whole: `Transaction.statements` or `Transaction.drizzle`. */
+  readonly transaction: Transaction
+  /** The guard set's bodies, which decide `authors` and `transitions`. */
+  readonly policy: Policy<User>
+  /**
+   * Who reads and writes unpublished work: a principal any of these lets.
+   * Everyone else is a visitor.
+   */
+  readonly authors: ReadonlyArray<PrincipalGuard<User>>
+  /**
+   * Who of the authors may make a transition: any of its guards lets. One not
+   * named is any author's.
+   */
+  readonly transitions?:
+    { readonly [T in Transition]?: ReadonlyArray<PrincipalGuard<User>> | undefined } | undefined
+  /**
+   * Whether this author may make this transition of this entry, for a rule
+   * about the entry itself: asked after the entry is found, the transition is
+   * one its state offers, and `transitions` let. Default: they may.
+   */
+  readonly allow?: (
+    principal: Option.Option<User>,
+    transition: Transition,
+    entry: EntryRow,
+  ) => boolean
+  /** The server's clock, passed in so a test can hold it. */
+  readonly now?: () => Date
+  /**
+   * The most a draft may hold, as the characters of its JSON: its values and its
+   * form's Model together. An author is trusted with their own content, not with
+   * the database's disk. Default: one million.
+   */
+  readonly maxDraftSize?: number
+  /** Who a principal is, for `createdBy` and `updatedBy`. */
+  readonly nameOf?: (principal: Option.Option<User>) => string | null
+}
+
+/** A row of `cms_entries`, as the server's rules see it. */
+export interface EntryRow {
+  readonly id: string
+  readonly type: string
+  readonly targetId: string | null
+  readonly label: string
+  readonly archivedAt: string | null
+  readonly revision: number | null
+}
+
+/**
+ * One import: content published already, such as a site's first pages or what
+ * another CMS held. `as` is whom it is imported as (an editor, so the create
+ * handler writes the row); a runner that imports many fixes `as` once and
+ * varies the rest. `at` is when it was published (default now); `entry`
+ * names the entry (default a new id) — name it where another import points
+ * at it, and import what is pointed at first.
+ */
+export interface ImportItem<P> {
+  readonly type: string
+  readonly values: unknown
+  readonly as: P
+  readonly at?: Date | undefined
+  readonly entry?: string | undefined
+}
+
+const refuse = (message: string) => new RemoteServerError({ message })
+
+/**
+ * Whether a unique index on this column refused a write. Drivers say so in their
+ * own words, and Drizzle wraps what they say, so every message down the chain of
+ * causes is read. SQLite names the column; Postgres names the constraint, which
+ * by default is made of the column's name.
+ */
+const refusedAsDuplicate = (defect: unknown, column: string): boolean => {
+  const said: Array<string> = []
+  for (let at = defect, depth = 0; at != null && depth < 5; depth++) {
+    const { message, constraint, cause } = at as {
+      readonly message?: unknown
+      readonly constraint?: unknown
+      readonly cause?: unknown
+    }
+    // Drizzle's own message quotes the statement, which names every column.
+    if (!String(message).startsWith('Failed query'))
+      said.push(String(message ?? at), String(constraint ?? ''))
+    at = cause
+  }
+  const text = said.join(' ')
+  const named = new RegExp(`(^|[^a-zA-Z0-9])${column.replace(/[^\w]/g, '.')}([^a-zA-Z0-9]|$)`)
+  return /unique|duplicate/i.test(text) && named.test(text)
+}
+
+export const CmsServer = {
+  make: <User>(config: CmsServerConfig<User>) => {
+    type P = Option.Option<User>
+    const { tables, policy } = config
+    const now = config.now ?? (() => new Date())
+    const nameOf = config.nameOf ?? (() => null)
+    const maxDraftSize = config.maxDraftSize ?? 1_000_000
+
+    const byType = new Map(config.content.map(served => [served.type.name, served]))
+    for (const { type, entity, create, update } of config.content) {
+      if (!Entity.same(entity, type.entity))
+        throw new Error(
+          `foldkit-cms-drizzle: content "${type.name}" is of ${type.entity.name}, but was given ${entity.name}'s guards`,
+        )
+      for (const [handler, declared] of [
+        [create, type.publish.create],
+        [update, type.publish.update],
+      ] as const)
+        if (handler.mutation !== declared.name)
+          throw new Error(
+            `foldkit-cms-drizzle: content "${type.name}" publishes through "${declared.name}", but was given the handler of "${handler.mutation}"`,
+          )
+      const shown = type.roles.published
+      if (shown === undefined) continue
+      // Whether the rule is right is the application's to say. That it reads the
+      // published field at all is checked here: one that does not shows a visitor
+      // every row or none.
+      if (!Guards.guardFields(entity, 'Read').includes(shown.key))
+        throw new Error(
+          `foldkit-cms-drizzle: content "${type.name}" can be unpublished, but its Read rule does not read "${shown.key}"; attach one that does, such as \`Read: [G.isPublished, G.isAuthor]\``,
+        )
+    }
+
+    /** Whether any of `guards` lets `principal`, each body told `interaction`. */
+    const anyOf = (
+      guards: ReadonlyArray<PrincipalGuard<User>>,
+      principal: P,
+      interaction: string,
+    ): Effect.Effect<boolean> =>
+      Effect.map(
+        Effect.forEach(guards, guard => policy.decide(guard, { principal, interaction })),
+        decisions => decisions.some(decision => decision === true),
+      )
+    /**
+     * Whether `principal` is an author, asked as the interaction it is for:
+     * reading unpublished work, or changing it, so a body can tell the two.
+     */
+    const isAuthor = (principal: P, interaction: 'Read' | 'Update') =>
+      anyOf(config.authors, principal, interaction)
+    /** Whether `transitions` let this author make `transition`; an author's when it names none. */
+    const transitionLets = (principal: P, transition: Transition) =>
+      Option.match(Option.fromUndefinedOr(config.transitions?.[transition]), {
+        onNone: () => Effect.succeed(true),
+        onSome: guards => anyOf(guards, principal, transition),
+      })
+
+    // Unpublished work is an author's. To anyone else these tables are empty, on
+    // every path they are read by.
+    // The principal reaches a binding untyped: one that is not the guard set's is a
+    // defect, never read as a visitor.
+    const authorsOnly: Visible = principal =>
+      policy.isPrincipal(principal)
+        ? Effect.map(isAuthor(principal, 'Read'), author => (author ? undefined : sql`0 = 1`))
+        : Effect.die(
+            new Error('[foldkit-cms-drizzle] the principal is not an Option of the guard set’s'),
+          )
+    const Db = bind(Cms.Entities, {
+      Entry: {
+        table: tables.entries,
+        visible: authorsOnly,
+        relations: {
+          draft: { foreignKey: tables.drafts.id },
+          revisions: {
+            foreignKey: tables.revisions.entryId,
+            orderBy: [{ column: tables.revisions.n, direction: 'desc' }],
+          },
+        },
+        // Not a column: this server derives it, below, with its own clock.
+        derived: { state: { supplied: true }, may: { supplied: true } },
+      },
+      Draft: { table: tables.drafts, visible: authorsOnly },
+      Revision: { table: tables.revisions, visible: authorsOnly },
+    })
+
+    /** What is known of some entries, for their state: their drafts, and whether a visitor sees their rows. */
+    const factsOf = (entries: ReadonlyArray<EntryRow>) =>
+      Effect.gen(function* () {
+        const database = yield* DrizzleDatabase
+        const ids = entries.map(entry => entry.id)
+        const drafts =
+          ids.length === 0
+            ? []
+            : yield* runStatement(
+                () =>
+                  database
+                    .select({
+                      id: tables.drafts.id,
+                      scheduledFor: tables.drafts.scheduledFor,
+                      scheduleError: tables.drafts.scheduleError,
+                    })
+                    .from(tables.drafts)
+                    .where(inArray(tables.drafts.id, ids)),
+                'Database query failed',
+              )
+        const draftOf = new Map(drafts.map(draft => [String(draft.id), draft]))
+
+        // Per content type, which target rows exist and which a visitor would see.
+        const rows = new Map<string, 'visible' | 'hidden'>()
+        for (const [name, { type, binding }] of byType) {
+          const targets = entries.flatMap(entry =>
+            entry.type === name && entry.targetId !== null ? [entry.targetId] : [],
+          )
+          if (targets.length === 0) continue
+          const id = binding.columns.id!
+          const publishedColumn =
+            type.roles.published === undefined
+              ? undefined
+              : binding.columns[type.roles.published.key]
+          const found = yield* runStatement(
+            () =>
+              database
+                .select({
+                  id,
+                  ...(publishedColumn === undefined ? {} : { shown: publishedColumn }),
+                })
+                .from(binding.table)
+                .where(inArray(id, targets)),
+            'Database query failed',
+          )
+          for (const row of found)
+            rows.set(
+              `${name}:${String(row.id)}`,
+              publishedColumn === undefined || row.shown !== null ? 'visible' : 'hidden',
+            )
+        }
+
+        return new Map(
+          entries.map((entry): readonly [string, Facts] => {
+            const draft = draftOf.get(entry.id)
+            return [
+              entry.id,
+              {
+                archivedAt: entry.archivedAt,
+                row:
+                  entry.targetId === null
+                    ? 'none'
+                    : (rows.get(`${entry.type}:${entry.targetId}`) ?? 'none'),
+                draft:
+                  draft === undefined
+                    ? null
+                    : {
+                        scheduledFor: (draft.scheduledFor as string | null) ?? null,
+                        scheduleError: (draft.scheduleError as string | null) ?? null,
+                      },
+              },
+            ]
+          }),
+        )
+      })
+
+    const entryColumns = {
+      id: tables.entries.id,
+      type: tables.entries.type,
+      targetId: tables.entries.targetId,
+      label: tables.entries.label,
+      archivedAt: tables.entries.archivedAt,
+      revision: tables.entries.revision,
+    }
+    const findEntry = (id: string) =>
+      Effect.gen(function* () {
+        const database = yield* DrizzleDatabase
+        const [row] = yield* runStatement(
+          () =>
+            database
+              .select(entryColumns)
+              .from(tables.entries)
+              .where(eq(tables.entries.id, id))
+              .limit(1),
+          'Database query failed',
+        )
+        return row as EntryRow | undefined
+      })
+
+    // An entry's `state` and `may` are not columns. The generated source reads the
+    // rest; the state is derived from what is known of each entry, with this server's
+    // clock, and `may` is what `allow` lets the reader ask of it.
+    const generated = source<P>(Db.Entry)
+    const entries: EntitySource<P, DrizzleDatabase> = {
+      ...generated,
+      read: context =>
+        Effect.gen(function* () {
+          const wantsState = context.fields.includes('state')
+          const wantsMay = context.fields.includes('may')
+          const fields = context.fields.filter(field => field !== 'state' && field !== 'may')
+          const records = yield* generated.read({
+            ...context,
+            // Both need these of each entry, asked for or not; `allow` is given the row.
+            fields:
+              wantsState || wantsMay
+                ? [
+                    ...new Set([
+                      ...fields,
+                      'type',
+                      'targetId',
+                      'archivedAt',
+                      ...(wantsMay ? ['label', 'revision'] : []),
+                    ]),
+                  ]
+                : fields,
+          })
+          if (!wantsState && !wantsMay) return records
+          const rows = records.map((record): EntryRow => ({
+            id: record.id,
+            type: String(record.values.type),
+            targetId: (record.values.targetId as string | null) ?? null,
+            label: String(record.values.label ?? ''),
+            archivedAt: (record.values.archivedAt as string | null) ?? null,
+            revision: (record.values.revision as number | null) ?? null,
+          }))
+          const facts = yield* factsOf(rows)
+          const at = now()
+          // Each transition's guards are decided once for this reader, not per entry.
+          const lets = new Map(
+            wantsMay
+              ? yield* Effect.forEach(Cms.transitions, transition =>
+                  Effect.map(
+                    transitionLets(context.principal, transition),
+                    allowed => [transition, allowed] as const,
+                  ),
+                )
+              : [],
+          )
+          return records.map((record, index) => {
+            const row = rows[index]!
+            const known = facts.get(record.id)!
+            return {
+              id: record.id,
+              values: {
+                ...Object.fromEntries(
+                  Object.entries(record.values).filter(
+                    ([field]) => field === 'id' || context.fields.includes(field),
+                  ),
+                ),
+                ...(wantsState ? { state: Cms.state(known, at) } : {}),
+                // What `transitions` and `allow` let this reader ask of this entry,
+                // whatever its state offers now: the state says that, and a draft
+                // saved a moment later changes it without asking the server again.
+                ...(wantsMay
+                  ? {
+                      may: Cms.transitions.filter(
+                        transition =>
+                          lets.get(transition) === true &&
+                          config.allow?.(context.principal, transition, row) !== false,
+                      ),
+                    }
+                  : {}),
+              },
+            }
+          })
+        }),
+    }
+
+    // The descriptor carries all three questions and the order; this says only
+    // which table answers them. The audience boundary is unchanged: `visible`
+    // on the binding is conjoined with the body, as for every source here.
+    const worklist: QuerySource<P, DrizzleDatabase> = query(Cms.Entries, { entity: Db.Entry })
+
+    /** A mutation of this server: its principal and its database are fixed, its input is the descriptor's. */
+    const operation = <Name extends string, Input, Output>(
+      descriptor: MutationDescriptor<Name, Input, Output>,
+      run: (context: {
+        readonly input: Input
+        readonly principal: P
+      }) => Effect.Effect<
+        MutationOutcome<Output>,
+        RemoteServerError | MutationRefused | RemoteForbidden,
+        DrizzleDatabase
+      >,
+    ): MutationSource<P, DrizzleDatabase> =>
+      // Asked before anything is looked up: a visitor is not told which entries there are.
+      // Then the whole of it is one transaction: a save that made an entry and
+      // could not make its draft leaves neither.
+      RemoteServer.mutation<P, DrizzleDatabase, Name, Input, Output>(descriptor, context =>
+        Effect.flatMap(isAuthor(context.principal, 'Update'), author =>
+          author
+            ? config.transaction(run(context))
+            : Effect.fail(RemoteServer.forbid('Only an author may change unpublished work')),
+        ),
+      )
+
+    /**
+     * A scheduled draft is published, when its time comes, as whoever scheduled it.
+     * So changing it, replacing it or removing it is for someone who could have
+     * scheduled it: otherwise an author who may not publish would publish through
+     * someone who may.
+     */
+    const promised = (principal: P, entry: EntryRow) =>
+      Effect.gen(function* () {
+        const [draft] = yield* readRows(
+          Db.Draft,
+          { scheduledFor: tables.drafts.scheduledFor },
+          entry.id,
+        )
+        if (draft?.scheduledFor == null) return
+        if (
+          !(yield* transitionLets(principal, 'schedule')) ||
+          config.allow?.(principal, 'schedule', entry) === false
+        )
+          return yield* RemoteServer.forbid(
+            'This draft is scheduled, and only someone who may schedule it may change it',
+          )
+      })
+
+    /**
+     * Whether this author may make this transition: its `transitions`, and `allow`
+     * of the entry once there is one.
+     */
+    const asking = (principal: P, transition: Transition, entry: EntryRow | undefined) =>
+      Effect.flatMap(transitionLets(principal, transition), lets =>
+        !lets || (entry !== undefined && config.allow?.(principal, transition, entry) === false)
+          ? Effect.fail(RemoteServer.forbid(`This author may not ${transition} this entry`))
+          : Effect.void,
+      )
+
+    const draftFields = ['values', 'model', 'form', 'updatedAt', 'updatedBy', 'baseRevision']
+    const draftPatch = returning(Db.Draft, draftFields)
+    const entryPatch = returning(Db.Entry, [
+      'type',
+      'targetId',
+      'label',
+      'createdAt',
+      'archivedAt',
+      'revision',
+    ])
+    /**
+     * The entry as the client should now hold it, its state with it: an operation
+     * changes the state, and a patch without it would leave the old one on screen.
+     */
+    const entryPatches = (id: string) =>
+      Effect.gen(function* () {
+        const patches = entryPatch.patches(yield* readRows(Db.Entry, entryPatch.columns, id))
+        const entry = yield* findEntry(id)
+        if (entry === undefined) return patches
+        const facts = (yield* factsOf([entry])).get(id)!
+        return patches.map(patch => ({
+          ...patch,
+          values: { ...patch.values, state: Cms.state(facts, now()) },
+        }))
+      })
+    const readRows = (binding: AnyEntityBinding, columns: Record<string, AnyColumn>, id: string) =>
+      Effect.gen(function* () {
+        const database = yield* DrizzleDatabase
+        return yield* runStatement(
+          () => database.select(columns).from(binding.table).where(eq(binding.columns.id!, id)),
+          'Database query failed',
+        )
+      })
+
+    const SaveDraft = operation(Cms.Operations.SaveDraft, ({ input, principal }) =>
+      Effect.gen(function* () {
+        if (!byType.has(input.type))
+          return yield* refuse(`"${input.type}" is not a type of content this server knows`)
+        const size = JSON.stringify([input.values, input.model]).length
+        if (size > maxDraftSize)
+          return yield* refuse(
+            `This draft is too large to save: ${size} characters, and ${maxDraftSize} is the most`,
+          )
+        // An id nobody has is something new: the client named it, and this makes it.
+        const existing = yield* findEntry(input.entry)
+        if (existing !== undefined && existing.type !== input.type)
+          return yield* refuse(`This entry is of "${existing.type}", not "${input.type}"`)
+        if (existing?.archivedAt != null) return yield* refuse('An archived entry takes no draft')
+        yield* asking(principal, 'save', existing)
+        if (existing !== undefined) yield* promised(principal, existing)
+
+        const database = yield* drizzleWrites
+        const who = nameOf(principal)
+        const id = existing?.id ?? input.entry
+        const [held] = yield* readRows(Db.Draft, { updatedAt: tables.drafts.updatedAt }, id)
+        const previous = held === undefined ? null : String(held.updatedAt)
+        // Two saves in one millisecond must still be told apart by the next one.
+        const at = now().toISOString()
+        const updatedAt =
+          previous !== null && at <= previous
+            ? new Date(new Date(previous).getTime() + 1).toISOString()
+            : at
+        const written = {
+          values: input.values,
+          model: input.model,
+          form: input.form,
+          updatedAt,
+          updatedBy: who,
+          // A draft that changed is worth trying again when its time comes.
+          scheduleError: null,
+        }
+
+        // The first draft of an entry has nothing to have been based on. Asked before
+        // anything is written, so a refusal leaves no entry behind.
+        if (previous === null && input.basedOn !== null)
+          return yield* RemoteServer.refuse(
+            Cms.Operations.SaveDraft,
+            Cms.refusal.conflict,
+            'This draft was discarded',
+          )
+        if (existing === undefined) {
+          yield* runStatement(
+            () =>
+              database.insert(tables.entries).values({
+                id,
+                type: input.type,
+                targetId: null,
+                label: input.label,
+                createdBy: who,
+                createdAt: at,
+                archivedAt: null,
+                revision: null,
+              }),
+            'Database write failed',
+          )
+        }
+        if (previous === null) {
+          yield* runStatement(
+            () => database.insert(tables.drafts).values({ id, ...written, baseRevision: null }),
+            'Database write failed',
+          )
+        } else {
+          // Compare and set: the save names what it was made from, and a newer one
+          // on the server means someone else saved in between.
+          const changed = yield* runStatement(
+            () =>
+              database
+                .update(tables.drafts)
+                .set(written)
+                .where(
+                  and(eq(tables.drafts.id, id), eq(tables.drafts.updatedAt, input.basedOn ?? '')),
+                )
+                .returning({ id: tables.drafts.id }),
+            'Database write failed',
+          )
+          if (changed.length === 0)
+            return yield* RemoteServer.refuse(
+              Cms.Operations.SaveDraft,
+              Cms.refusal.conflict,
+              'This draft was saved by someone else since',
+            )
+        }
+        if (existing !== undefined && existing.label !== input.label) {
+          yield* runStatement(
+            () =>
+              database
+                .update(tables.entries)
+                .set({ label: input.label })
+                .where(eq(tables.entries.id, id))
+                .returning({ id: tables.entries.id }),
+            'Database write failed',
+          )
+        }
+
+        const entities = [
+          ...(yield* entryPatches(id)),
+          ...draftPatch.patches(yield* readRows(Db.Draft, draftPatch.columns, id)),
+        ]
+        return { output: { entry: id as never, updatedAt }, entities }
+      }),
+    )
+
+    const DiscardDraft = operation(Cms.Operations.DiscardDraft, ({ input, principal }) =>
+      Effect.gen(function* () {
+        const entry = yield* findEntry(input.entry)
+        if (entry === undefined) return yield* refuse('There is no such entry')
+        yield* asking(principal, 'discard', entry)
+        yield* promised(principal, entry)
+        const database = yield* drizzleWrites
+        yield* runStatement(
+          () => database.delete(tables.drafts).where(eq(tables.drafts.id, entry.id)),
+          'Database write failed',
+        )
+        const gone = [{ entity: 'CmsDraft', id: entry.id }]
+        // Never published, and now with nothing entered: there is nothing left of it.
+        if (entry.targetId !== null)
+          return { output: {}, deleted: gone, entities: yield* entryPatches(entry.id) }
+        yield* runStatement(
+          () => database.delete(tables.entries).where(eq(tables.entries.id, entry.id)),
+          'Database write failed',
+        )
+        return { output: {}, deleted: [...gone, { entity: 'CmsEntry', id: entry.id }] }
+      }),
+    )
+
+    const done: Readonly<Record<Exclude<Transition, 'save' | 'discard'>, string>> = {
+      publish: 'published',
+      unpublish: 'unpublished',
+      schedule: 'scheduled',
+      unschedule: 'unscheduled',
+      archive: 'archived',
+      unarchive: 'unarchived',
+      restore: 'restored',
+    }
+    /** The entry, if its state offers this transition now. */
+    const offering = (id: string, transition: Exclude<Transition, 'save' | 'discard'>) =>
+      Effect.gen(function* () {
+        const entry = yield* findEntry(id)
+        if (entry === undefined) return yield* refuse('There is no such entry')
+        const served = byType.get(entry.type)
+        if (served === undefined)
+          return yield* refuse(`"${entry.type}" is not a type of content this server knows`)
+        const facts = (yield* factsOf([entry])).get(entry.id)!
+        if (!Cms.offers(facts, now(), served.type).includes(transition))
+          return yield* refuse(`This entry cannot be ${done[transition]} as it stands`)
+        return { entry, served, facts }
+      })
+
+    /** What the `published` role's column holds for "now". */
+    const stamp = (column: AnyColumn, at: Date) => {
+      const kind = column.dataType.split(' ')[0]
+      return kind === 'string' ? at.toISOString() : kind === 'number' ? at.getTime() : at
+    }
+
+    const scheduledPatch = returning(Db.Draft, ['scheduledFor', 'scheduleError'])
+    const revisionPatch = returning(Db.Revision, ['n', 'values', 'publishedAt', 'publishedBy'])
+
+    type Found = Effect.Success<ReturnType<typeof offering>>
+
+    /** The draft as the publish mutation would take it, or why it would not. */
+    const readied = ({ entry, served, facts }: Found) =>
+      Effect.gen(function* () {
+        const [draft] = yield* readRows(Db.Draft, { values: tables.drafts.values }, entry.id)
+        // A row that was deleted under its entry is made again.
+        const creating = facts.row === 'none'
+        const handler = creating ? served.create : served.update
+        const value =
+          creating || typeof draft?.values !== 'object' || draft.values === null
+            ? draft?.values
+            : { ...draft.values, id: entry.targetId }
+        const decoded = yield* Schema.decodeUnknownEffect(handler.Input)(value).pipe(
+          Effect.mapError(error => refuse(`This draft is not ready to publish: ${String(error)}`)),
+        )
+        return { draft, creating, handler, decoded }
+      })
+
+    /** A publish, for the operation that asks for one, the schedule that comes due, and an import. */
+    const publishing = (found: Found, principal: P, basedOn: number | null, at: Date = now()) =>
+      Effect.gen(function* () {
+        const { entry, served } = found
+        const database = yield* DrizzleDatabase
+        const held = entry.revision
+        const conflict = RemoteServer.refuse(
+          Cms.Operations.Publish,
+          Cms.refusal.conflict,
+          'This entry was published by someone else since',
+        )
+        if (held !== basedOn) return yield* conflict
+        const { draft, creating, handler, decoded } = yield* readied(found)
+
+        // A taken slug is refused by name, on its key. This is advice: two publishes
+        // can both pass it, and then the unique index is the rule, below.
+        const address = served.type.roles.slug
+        const slug =
+          address === undefined
+            ? undefined
+            : (decoded as Readonly<Record<string, unknown>> | null)?.[address.key]
+        const taken = (key: string) =>
+          RemoteServer.refuse(
+            Cms.Operations.Publish,
+            Cms.refusal.field(key, `That address is taken: "${String(slug)}" is already used`),
+          )
+        if (address !== undefined && typeof slug === 'string') {
+          const column = served.binding.columns[address.key]!
+          const id = served.binding.columns.id!
+          const others = yield* runStatement(
+            () =>
+              database
+                .select({ id })
+                .from(served.binding.table)
+                .where(and(eq(column, slug), creating ? undefined : ne(id, entry.targetId!)))
+                .limit(1),
+            'Database query failed',
+          )
+          if (others.length > 0) return yield* taken(address.key)
+        }
+
+        return yield* Effect.gen(function* () {
+          const writes = yield* drizzleWrites
+          const n = (held ?? 0) + 1
+          // Compare and set, first: of two publishes made from one revision, one
+          // finds the number already moved, and nothing of it is written.
+          const moved = yield* runStatement(
+            () =>
+              writes
+                .update(tables.entries)
+                .set({ revision: n })
+                .where(
+                  and(
+                    eq(tables.entries.id, entry.id),
+                    held === null
+                      ? isNull(tables.entries.revision)
+                      : eq(tables.entries.revision, held),
+                  ),
+                )
+                .returning({ id: tables.entries.id }),
+            'Database write failed',
+          )
+          if (moved.length === 0) return yield* conflict
+          // Scheduled publishing has no client request, so the id names this
+          // publish of this entry: the same on a retry, another on the next.
+          const ran = yield* handler.run({
+            input: decoded,
+            principal,
+            requestId: `publish:${entry.id}:${held ?? 'new'}`,
+          })
+          const targetId = creating
+            ? String((ran.output as { readonly id: unknown }).id)
+            : entry.targetId!
+          const shown = served.type.roles.published
+          if (shown !== undefined) {
+            // Publishing shows the row. One already shown keeps its first date.
+            const column = served.binding.columns[shown.key]!
+            yield* runStatement(
+              () =>
+                writes
+                  .update(served.binding.table)
+                  .set({ [shown.key]: stamp(column, at) })
+                  .where(and(eq(served.binding.columns.id!, targetId), isNull(column)))
+                  .returning({ id: served.binding.columns.id! }),
+              'Database write failed',
+            )
+          }
+          const revisionId = `${entry.id}:${n}`
+          yield* runStatement(
+            () =>
+              writes.insert(tables.revisions).values({
+                id: revisionId,
+                entryId: entry.id,
+                n,
+                values: draft?.values,
+                publishedAt: at.toISOString(),
+                publishedBy: nameOf(principal),
+              }),
+            'Database write failed',
+          )
+          yield* runStatement(
+            () => writes.delete(tables.drafts).where(eq(tables.drafts.id, entry.id)),
+            'Database write failed',
+          )
+          yield* runStatement(
+            () =>
+              writes
+                .update(tables.entries)
+                .set({ targetId })
+                .where(eq(tables.entries.id, entry.id))
+                .returning({ id: tables.entries.id }),
+            'Database write failed',
+          )
+          return {
+            output: { entry: entry.id as never, targetId, revision: n },
+            entities: [
+              ...ran.entities,
+              // The row as the handler left it, every column: a handler need not patch what it wrote.
+              ...(yield* returning.row(served.binding, targetId)),
+              ...(yield* entryPatches(entry.id)),
+              ...revisionPatch.patches(
+                yield* readRows(Db.Revision, revisionPatch.columns, revisionId),
+              ),
+            ],
+            connections: ran.connections,
+            deleted: [...ran.deleted, { entity: 'CmsDraft', id: entry.id }],
+          }
+        }).pipe(
+          // The publish that lost the race: the index refused it, and it is the same
+          // news as the check's. Any other defect is left as it was.
+          Effect.catchDefect(defect =>
+            address !== undefined &&
+            refusedAsDuplicate(defect, served.binding.columns[address.key]!.name)
+              ? Effect.fail(taken(address.key))
+              : Effect.die(defect),
+          ),
+        )
+      })
+
+    const Publish = operation(Cms.Operations.Publish, ({ input, principal }) =>
+      Effect.gen(function* () {
+        const found = yield* offering(input.entry, 'publish')
+        yield* asking(principal, 'publish', found.entry)
+        return yield* publishing(found, principal, input.basedOn)
+      }),
+    )
+
+    /** Writes to an entry's draft, and answers with both as the client should now hold them. */
+    const drafted = (id: string, values: object) =>
+      Effect.gen(function* () {
+        const writes = yield* drizzleWrites
+        yield* runStatement(
+          () =>
+            writes
+              .update(tables.drafts)
+              .set(values)
+              .where(eq(tables.drafts.id, id))
+              .returning({ id: tables.drafts.id }),
+          'Database write failed',
+        )
+        return {
+          output: {},
+          entities: [
+            ...(yield* entryPatches(id)),
+            ...scheduledPatch.patches(yield* readRows(Db.Draft, scheduledPatch.columns, id)),
+          ],
+        }
+      })
+
+    const Schedule = operation(Cms.Operations.Schedule, ({ input, principal }) =>
+      Effect.gen(function* () {
+        const found = yield* offering(input.entry, 'schedule')
+        yield* asking(principal, 'schedule', found.entry)
+        if (Number.isNaN(new Date(input.at).getTime()))
+          return yield* refuse(`"${input.at}" is not a time`)
+        // What cannot be published now is not promised for later.
+        yield* readied(found)
+        return yield* drafted(found.entry.id, {
+          scheduledFor: new Date(input.at).toISOString(),
+          scheduledBy: nameOf(principal),
+          scheduleError: null,
+        })
+      }),
+    )
+
+    const Unschedule = operation(Cms.Operations.Unschedule, ({ input, principal }) =>
+      Effect.gen(function* () {
+        const found = yield* offering(input.entry, 'unschedule')
+        yield* asking(principal, 'unschedule', found.entry)
+        return yield* drafted(found.entry.id, {
+          scheduledFor: null,
+          scheduledBy: null,
+          scheduleError: null,
+        })
+      }),
+    )
+
+    /** Archiving and its undoing: a fact about the entry, and for what can be hidden, the row. */
+    const archiving = (transition: 'archive' | 'unarchive') =>
+      operation(
+        transition === 'archive' ? Cms.Operations.Archive : Cms.Operations.Unarchive,
+        ({ input, principal }) =>
+          Effect.gen(function* () {
+            const { entry, served } = yield* offering(input.entry, transition)
+            yield* asking(principal, transition, entry)
+            const shown = served.type.roles.published
+            // Archiving what is on show takes it off: that is unpublishing, and asks as it does.
+            if (transition === 'archive' && shown !== undefined && entry.targetId !== null) {
+              const published = returning(served.binding, [shown.key])
+              const [row] = published.patches(
+                yield* readRows(served.binding, published.columns, entry.targetId),
+              )
+              const onShow =
+                row !== undefined && Option.isSome(Option.fromNullishOr(row.values[shown.key]))
+              if (onShow) yield* asking(principal, 'unpublish', entry)
+            }
+            const writes = yield* drizzleWrites
+            yield* runStatement(
+              () =>
+                writes
+                  .update(tables.entries)
+                  .set({ archivedAt: transition === 'archive' ? now().toISOString() : null })
+                  .where(eq(tables.entries.id, entry.id))
+                  .returning({ id: tables.entries.id }),
+              'Database write failed',
+            )
+            if (transition === 'unarchive' || shown === undefined || entry.targetId === null)
+              return { output: {}, entities: yield* entryPatches(entry.id) }
+            // What is put away is not left on show. It comes back as unpublished work.
+            yield* runStatement(
+              () =>
+                writes
+                  .update(served.binding.table)
+                  .set({ [shown.key]: null })
+                  .where(eq(served.binding.columns.id!, entry.targetId!))
+                  .returning({ id: served.binding.columns.id! }),
+              'Database write failed',
+            )
+            const content = returning(served.binding, [shown.key])
+            return {
+              output: {},
+              entities: [
+                ...content.patches(
+                  yield* readRows(served.binding, content.columns, entry.targetId),
+                ),
+                ...(yield* entryPatches(entry.id)),
+              ],
+            }
+          }),
+      )
+
+    /**
+     * A revision's value becomes the working copy, and nothing is published. It
+     * replaces what the draft held, and takes back a promise made of that: what
+     * was scheduled is not what is there now. The saved Model goes too, so an
+     * editor fills its form from the values, key by key.
+     */
+    const Restore = operation(Cms.Operations.Restore, ({ input, principal }) =>
+      Effect.gen(function* () {
+        const { entry } = yield* offering(input.entry, 'restore')
+        yield* asking(principal, 'restore', entry)
+        yield* promised(principal, entry)
+        const database = yield* DrizzleDatabase
+        const [revision] = yield* runStatement(
+          () =>
+            database
+              .select({ values: tables.revisions.values })
+              .from(tables.revisions)
+              .where(
+                and(eq(tables.revisions.entryId, entry.id), eq(tables.revisions.n, input.revision)),
+              )
+              .limit(1),
+          'Database query failed',
+        )
+        if (revision === undefined)
+          return yield* refuse(`This entry has no revision ${input.revision}`)
+
+        const writes = yield* drizzleWrites
+        const [held] = yield* readRows(Db.Draft, { updatedAt: tables.drafts.updatedAt }, entry.id)
+        const at = now().toISOString()
+        const updatedAt =
+          held !== undefined && at <= String(held.updatedAt)
+            ? new Date(new Date(String(held.updatedAt)).getTime() + 1).toISOString()
+            : at
+        const restored = {
+          values: revision.values,
+          model: null,
+          form: `restored@${input.revision}`,
+          updatedAt,
+          updatedBy: nameOf(principal),
+          baseRevision: entry.revision,
+          scheduledFor: null,
+          scheduledBy: null,
+          scheduleError: null,
+        }
+        yield* runStatement(
+          () =>
+            held === undefined
+              ? writes.insert(tables.drafts).values({ id: entry.id, ...restored })
+              : writes
+                  .update(tables.drafts)
+                  .set(restored)
+                  .where(eq(tables.drafts.id, entry.id))
+                  .returning({ id: tables.drafts.id }),
+          'Database write failed',
+        )
+        return {
+          output: { updatedAt },
+          entities: [
+            ...(yield* entryPatches(entry.id)),
+            ...draftPatch.patches(yield* readRows(Db.Draft, draftPatch.columns, entry.id)),
+            ...scheduledPatch.patches(yield* readRows(Db.Draft, scheduledPatch.columns, entry.id)),
+          ],
+        }
+      }),
+    )
+
+    /**
+     * Publishes every draft whose time has come, each in its own transaction, as
+     * whoever scheduled it: `as` says who a stored name is. One that fails stays
+     * scheduled with the reason, and is left alone until its draft changes, so a
+     * fault the author must fix is not tried again every minute. The package owns
+     * no timer: a cron trigger, an interval or a queue calls this.
+     */
+    const due = (at: Date, options: { readonly as: (scheduledBy: string | null) => P }) =>
+      Effect.gen(function* () {
+        const database = yield* DrizzleDatabase
+        const waiting = yield* runStatement(
+          () =>
+            database
+              .select({ id: tables.drafts.id, scheduledBy: tables.drafts.scheduledBy })
+              .from(tables.drafts)
+              .where(
+                and(
+                  isNotNull(tables.drafts.scheduledFor),
+                  lte(tables.drafts.scheduledFor, at.toISOString()),
+                  isNull(tables.drafts.scheduleError),
+                  // What is put away keeps its promise, and keeps it waiting.
+                  sql`${tables.drafts.id} in (select ${tables.entries.id} from ${tables.entries} where ${tables.entries.archivedAt} is null)`,
+                ),
+              ),
+          'Database query failed',
+        )
+        const outcomes: Array<{ readonly entry: string; readonly error: string | null }> = []
+        for (const draft of waiting) {
+          const id = String(draft.id)
+          const principal = options.as((draft.scheduledBy as string | null) ?? null)
+          const error = yield* config
+            .transaction(
+              Effect.gen(function* () {
+                if (!(yield* isAuthor(principal, 'Update')))
+                  return yield* RemoteServer.forbid('Whoever scheduled this is no longer an author')
+                const found = yield* offering(id, 'publish')
+                yield* asking(principal, 'publish', found.entry)
+                yield* publishing(found, principal, found.entry.revision)
+                return null
+              }),
+            )
+            .pipe(
+              Effect.catch(failure => Effect.succeed(failure.message)),
+              Effect.catchDefect(defect => Effect.succeed(String(defect))),
+            )
+          // Recorded after the failed publish was undone, or it would be undone with it.
+          if (error !== null) yield* config.transaction(drafted(id, { scheduleError: error }))
+          outcomes.push({ entry: id, error })
+        }
+        return outcomes
+      })
+
+    /**
+     * Content published already, such as a site's first pages or what another CMS
+     * held, written by the path a publish takes: an entry and a draft of
+     * `values`, then the publish, which runs the type's own `create` handler as
+     * `as` and records revision 1. It is the server's act, not an author's, so
+     * `allow` is not asked. `at` is when it was published (default now); `entry`
+     * names the entry (default a new id). One transaction: it all lands or none.
+     */
+    const importing = (item: ImportItem<P>) =>
+      config.transaction(
+        Effect.gen(function* () {
+          const served = byType.get(item.type)
+          if (served === undefined)
+            return yield* refuse(`"${item.type}" is not a type of content this server knows`)
+          const writes = yield* drizzleWrites
+          const id = item.entry ?? Cms.newEntryId()
+          const at = item.at ?? now()
+          const labelKey = served.type.roles.label?.key
+          const named =
+            labelKey === undefined
+              ? undefined
+              : (item.values as Readonly<Record<string, unknown>> | null)?.[labelKey]
+          const entry: EntryRow = {
+            id,
+            type: item.type,
+            targetId: null,
+            label: typeof named === 'string' ? named : '',
+            archivedAt: null,
+            revision: null,
+          }
+          yield* runStatement(
+            () =>
+              writes.insert(tables.entries).values({
+                ...entry,
+                createdBy: nameOf(item.as),
+                createdAt: at.toISOString(),
+              }),
+            'Database write failed',
+          )
+          yield* runStatement(
+            () =>
+              writes.insert(tables.drafts).values({
+                id,
+                values: item.values,
+                model: null,
+                form: '',
+                updatedAt: at.toISOString(),
+                updatedBy: nameOf(item.as),
+                baseRevision: null,
+              }),
+            'Database write failed',
+          )
+          const facts: Facts = {
+            archivedAt: null,
+            row: 'none',
+            draft: { scheduledFor: null, scheduleError: null },
+          }
+          const published = yield* publishing({ entry, served, facts }, item.as, null, at)
+          return { entry: id, targetId: published.output.targetId }
+        }),
+      )
+
+    const Unpublish = operation(Cms.Operations.Unpublish, ({ input, principal }) =>
+      Effect.gen(function* () {
+        const { entry, served } = yield* offering(input.entry, 'unpublish')
+        yield* asking(principal, 'unpublish', entry)
+        const shown = served.type.roles.published!
+        const writes = yield* drizzleWrites
+        yield* runStatement(
+          () =>
+            writes
+              .update(served.binding.table)
+              .set({ [shown.key]: null })
+              .where(eq(served.binding.columns.id!, entry.targetId!))
+              .returning({ id: served.binding.columns.id! }),
+          'Database write failed',
+        )
+        const content = returning(served.binding, [shown.key])
+        return {
+          output: {},
+          entities: [
+            ...content.patches(yield* readRows(served.binding, content.columns, entry.targetId!)),
+            ...(yield* entryPatches(entry.id)),
+          ],
+        }
+      }),
+    )
+
+    const sources: ReadonlyArray<EntitySource<P, DrizzleDatabase>> = [
+      entries,
+      source<P>(Db.Draft),
+      source<P>(Db.Revision),
+      // A content type's own members' Read rules, as well as its rows'.
+      ...config.content.map(served =>
+        source<P>(served.binding, { filter: GuardServer.filter(served.entity, policy) }),
+      ),
+    ]
+    const mutations: ReadonlyArray<MutationSource<P, DrizzleDatabase>> = [
+      SaveDraft,
+      DiscardDraft,
+      Publish,
+      Unpublish,
+      Schedule,
+      Unschedule,
+      archiving('archive'),
+      archiving('unarchive'),
+      Restore,
+    ]
+
+    // A content type with an address is found by it, behind the same boundary as
+    // every other read of its table.
+    // The descriptor carries what the query means, so this registers the source
+    // and says no more: the address column and the order come from the body,
+    // through the binding that knows which column holds which field.
+    const slugQueries = config.content.flatMap(({ type, binding }) =>
+      type.roles.slug === undefined ? [] : [{ descriptor: Cms.bySlug(type), binding }],
+    )
+    const bySlug = slugQueries.map(({ descriptor, binding }) =>
+      query(descriptor, { entity: binding }),
+    )
+    // The content's bindings must apply the guard set's own rules, not one that only
+    // looks like them: what `GuardServer.validate` checks of any server.
+    GuardServer.validate(policy, {
+      entities: config.content.map(served => served.entity),
+      domain: {
+        registry: {
+          queries: new Map(slugQueries.map(({ descriptor }) => [descriptor.name, descriptor])),
+        },
+      },
+      server: RemoteServer.make({ entities: sources, queries: bySlug }),
+    })
+
+    return {
+      /**
+       * The sources of the content types and of the CMS's own Entities, each behind
+       * the audience boundary. Register these and not `source(binding)` of a content
+       * table: that is how the boundary cannot be forgotten.
+       */
+      sources,
+      queries: [worklist, ...bySlug] as ReadonlyArray<QuerySource<P, DrizzleDatabase>>,
+      mutations,
+      due,
+      import: importing,
+      /** The bindings of `Entry`, `Draft` and `Revision`, for a handler that returns patches of them. */
+      bindings: Db,
+    }
+  },
+}

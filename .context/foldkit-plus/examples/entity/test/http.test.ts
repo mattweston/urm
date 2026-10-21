@@ -1,0 +1,125 @@
+import { Effect, Option } from 'effect'
+import { Remote, RemoteData, type RemoteClient } from 'foldkit-remote'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  Data,
+  EditForm,
+  Message,
+  PostEditor,
+  Posts,
+  initial,
+  searchSettled,
+  searched,
+  update,
+} from '../src/app.js'
+import { PostId } from '../src/domain.js'
+import { EditPostForm } from '../src/editForm.js'
+import { startHttpServer } from '../src/http.js'
+
+let server: Awaited<ReturnType<typeof startHttpServer>>
+beforeAll(async () => {
+  server = await startHttpServer(0)
+})
+afterAll(() => server.close())
+
+describe('the HTTP transport the browser uses', () => {
+  it('reads a list, saves an edit, and reports a server failure, over real HTTP', async () => {
+    const client = Remote.clientLayer(Remote.http(server.url))
+    const run = <A, E>(effect: Effect.Effect<A, E, RemoteClient>) =>
+      Effect.runPromise(effect.pipe(Effect.provide(client)))
+
+    // Sorted by title, so a rename can move a post.
+    const byTitle = update(initial(), Message.SortedPosts({ column: 'title' })).model
+    const listed = await run(
+      Data.prefetch(byTitle, Option.getOrThrow(Posts.active.projectionOf(byTitle))),
+    )
+    const page = Posts.page(listed)
+    expect(page._tag === 'Ready' && page.value.items.map(row => row.title)).toEqual([
+      'Compilers',
+      'Notes on the Engine',
+    ])
+
+    const opened = EditForm.helpers.open(PostId.make('p2'))(listed).model
+    const loaded = PostEditor.sync(
+      await run(Data.prefetch(opened, Option.getOrThrow(PostEditor.active.projectionOf(opened)))),
+    ).model
+    const form = (model: typeof loaded, message: typeof EditPostForm.Message.Type) =>
+      update(model, Message.GotEditPostMessage({ message }))
+
+    const typed = form(loaded, EditPostForm.Message.Changed({ key: 'title', value: 'about HTTP' }))
+    const submitted = form(typed.model, EditPostForm.Message.Submitted())
+    expect(PostEditor.status(submitted.model)).toBe('Saving')
+
+    const settled = await run(submitted.commands![0]!.effect)
+    const saved = update(submitted.model, settled as Message).model
+    expect(PostEditor.status(saved)).toBe('Saved')
+    // The row shows the edit at once, and moves where its new title sorts:
+    // binary, as SQLite orders, puts a lowercase title after every capital,
+    // where a case-folding order would put it first.
+    const placed = (model: typeof saved) =>
+      RemoteData.match(Posts.page(model), {
+        Initial: () => [],
+        Loading: () => [],
+        NotFound: () => [],
+        Failed: () => [],
+        Ready: value => value.items.map(row => row.title),
+        Refreshing: value => value.items.map(row => row.title),
+      })
+    expect(placed(saved)).toEqual(['Notes on the Engine', 'about HTTP'])
+    // In tests the list is fetched too (`verifyPlacement`), and SQLite's page
+    // agrees with the order placed.
+    expect(Posts.page(saved)._tag).toBe('Refreshing')
+    const verified = await run(
+      Data.prefetch(saved, Option.getOrThrow(Posts.active.projectionOf(saved))),
+    )
+    expect(Posts.page(verified)._tag).toBe('Ready')
+    expect(placed(verified)).toEqual(['Notes on the Engine', 'about HTTP'])
+    expect(Data.inspect(verified).placementMismatches).toEqual([])
+  })
+
+  it('sorts and searches a list by changing the query’s input, which the Model holds', async () => {
+    const client = Remote.clientLayer(Remote.http(server.url))
+    const titles = async (model: ReturnType<typeof initial>) => {
+      const read = await Effect.runPromise(
+        Data.prefetch(model, Option.getOrThrow(Posts.active.projectionOf(model))).pipe(
+          Effect.provide(client),
+        ),
+      )
+      const page = Posts.page(read)
+      return page._tag === 'Ready' ? page.value.items.map(row => row.title) : page._tag
+    }
+
+    // A click on Title sorts ascending; a second, descending.
+    const byTitle = update(initial(), Message.SortedPosts({ column: 'title' })).model
+    expect(byTitle.postSort).toEqual({ by: 'title', direction: 'asc' })
+    const [first, second] = (await titles(byTitle)) as ReadonlyArray<string>
+    expect(first! < second!).toBe(true)
+
+    const reversed = update(byTitle, Message.SortedPosts({ column: 'title' })).model
+    expect(await titles(reversed)).toEqual([second, first])
+
+    // The box is debounced, so a keystroke moves the box and not the query:
+    // `postSearch` is what the query reads, and it is still what it was.
+    const typed = update(reversed, searched('Engine')).model
+    expect(typed.postSearch).toBe('')
+    expect(await titles(typed)).toEqual([second, first])
+
+    // A quarter second later the settled value arrives and the input changes.
+    const settled = update(typed, searchSettled(typed, 'Engine')).model
+    expect(settled.postSearch).toBe('Engine')
+    expect(await titles(settled)).toEqual(['Notes on the Engine'])
+    // Another input is another connection: the unsearched list is untouched.
+    expect(Posts.page(settled)._tag).toBe('Initial')
+  })
+
+  it('turns a failure on the server into the client’s own error', async () => {
+    const client = Remote.clientLayer(Remote.http(server.url.replace('/remote', '/nowhere')))
+    const failed = await Effect.runPromise(
+      Data.prefetch(initial(), Option.getOrThrow(Posts.active.projectionOf(initial()))).pipe(
+        Effect.provide(client),
+        Effect.flip,
+      ),
+    )
+    expect(failed._tag).toBe('RemoteQueryError')
+  })
+})

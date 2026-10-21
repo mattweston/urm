@@ -1,0 +1,277 @@
+import { describe, expect, it } from 'vitest'
+import {
+  Attributes,
+  Capability,
+  Layers,
+  Slot,
+  SlotView,
+  Slots,
+  Style,
+  type SlotAttributes,
+  type StyleValue,
+} from '../src/index.js'
+import * as Rules from '../src/styleRules.js'
+import { h, type TestMessage } from './resolverFixture.js'
+
+const RuleSlots = Slots.define({ root: Slot.make({ capability: Capability.Container }) })
+
+const classValue = (attributes: SlotAttributes<TestMessage>): string | undefined =>
+  Attributes.find(attributes, 'Class')?.value
+
+describe('Style rule compiler', () => {
+  it('compiles a pseudo rule to one deterministic class and CSS', () => {
+    const Hover = Style.forSlots(RuleSlots)({
+      root: Style.pseudo(':hover', { color: 'red' }),
+    })
+    const builders = SlotView.buildersFor(RuleSlots, [Hover.mixin], { input: undefined, h })
+    const generated = classValue(builders.root.attrs())
+    expect(generated).toMatch(/^style-[a-z0-9]+$/)
+    expect(Hover.css).toBe(`.${generated}:hover{color:red}`)
+  })
+
+  it('self is a rule on the generated class itself, which a layer can hold', () => {
+    const Own = Style.forSlots(RuleSlots)({
+      root: Layers.standard.in('components', Style.self({ display: 'grid' })),
+    })
+    const builders = SlotView.buildersFor(RuleSlots, [Own.mixin], { input: undefined, h })
+    const generated = classValue(builders.root.attrs())
+    expect(Own.css).toBe(`@layer components{.${generated}{display:grid}}`)
+    expect(Attributes.find(builders.root.attrs(), 'Style')).toBeUndefined()
+  })
+
+  it('is declaration-order independent and content sensitive', () => {
+    const one = Style.forSlots(RuleSlots)({
+      root: Style.pseudo(':hover', { color: 'red', background: 'blue' }),
+    })
+    const two = Style.forSlots(RuleSlots)({
+      root: Style.pseudo(':hover', { background: 'blue', color: 'red' }),
+    })
+    const other = Style.forSlots(RuleSlots)({
+      root: Style.pseudo(':hover', { color: 'blue', background: 'blue' }),
+    })
+    expect(one.css).toBe(two.css)
+    expect(one.css).not.toBe(other.css)
+  })
+
+  it('wraps a media rule', () => {
+    const Wide = Style.forSlots(RuleSlots)({
+      root: Style.media('(min-width: 40rem)', { display: 'grid' }),
+    })
+    const builders = SlotView.buildersFor(RuleSlots, [Wide.mixin], { input: undefined, h })
+    const generated = classValue(builders.root.attrs())
+    expect(Wide.css).toBe(`@media (min-width: 40rem){.${generated}{display:grid}}`)
+  })
+
+  it('composes rules in authored order', () => {
+    const Both = Style.forSlots(RuleSlots)({
+      root: Style.compose(
+        Style.pseudo(':hover', { color: 'red' }),
+        Style.media('(min-width: 40rem)', { display: 'grid' }),
+      ),
+    })
+    expect(Both.css).toContain(':hover{color:red}')
+    expect(Both.css).toContain('@media (min-width: 40rem)')
+  })
+
+  it('compiles supports, container and nested selectors', () => {
+    const Combined = Style.forSlots(RuleSlots)({
+      root: Style.compose(
+        Style.supports('(display: grid)', { display: 'grid' }),
+        Style.container('(min-width: 30rem)', { gridTemplateColumns: '1fr 1fr' }),
+        Style.nest('> span', { color: 'red' }),
+      ),
+    })
+    const builders = SlotView.buildersFor(RuleSlots, [Combined.mixin], { input: undefined, h })
+    const generated = classValue(builders.root.attrs())
+    expect(Combined.css).toBe(
+      `@supports (display: grid){.${generated}{display:grid}}` +
+        `@container (min-width: 30rem){.${generated}{grid-template-columns:1fr 1fr}}` +
+        `.${generated} > span{color:red}`,
+    )
+  })
+
+  it('puts a selector and declarations inside an at-rule, and refuses what cannot go there', () => {
+    const Narrow = Style.forSlots(RuleSlots)({
+      root: Style.at(
+        '@container builder (max-width: 40rem)',
+        Style.compose(
+          Style.inline({ gap: '0' }),
+          Style.pseudo('[data-open="false"]', { display: 'none' }),
+        ),
+      ),
+    })
+    const builders = SlotView.buildersFor(RuleSlots, [Narrow.mixin], { input: undefined, h })
+    const generated = classValue(builders.root.attrs())
+    expect(Narrow.css).toBe(
+      `@container builder (max-width: 40rem){.${generated}{gap:0}}` +
+        `@container builder (max-width: 40rem){.${generated}[data-open="false"]{display:none}}`,
+    )
+    expect(() => Style.at('(max-width: 40rem)', Style.self({ gap: '0' }))).toThrow('at-rule')
+    expect(() => Style.at('@media print', Style.class('hidden'))).toThrow('a class')
+    expect(() =>
+      Style.at(
+        '@media print',
+        Style.whenInput(() => true, Style.self({ gap: '0' })),
+      ),
+    ).toThrow('chosen when drawn')
+    expect(() => Style.at('@media print', Style.global('body{margin:0}'))).toThrow('global CSS')
+    expect(() => Style.at('@media print', Style.media('(min-width: 1px)', { gap: '0' }))).toThrow(
+      'inside "@media (min-width: 1px)"',
+    )
+  })
+
+  it('shares a class for equal rules and not for different ones', () => {
+    const one = Style.forSlots(RuleSlots)({ root: Style.pseudo(':hover', { color: 'red' }) })
+    const two = Style.forSlots(RuleSlots)({ root: Style.pseudo(':hover', { color: 'red' }) })
+    const other = Style.forSlots(RuleSlots)({ root: Style.pseudo(':hover', { color: 'blue' }) })
+    expect(one.css).toBe(two.css)
+    expect(one.css).not.toBe(other.css)
+  })
+
+  it('does not evaluate an input predicate until render', () => {
+    const calls: Array<number> = []
+    const Conditional = Style.forSlots(RuleSlots)({
+      root: Style.whenInput<{ readonly n: number }>(input => {
+        calls.push(input.n)
+        return input.n > 0
+      }, Style.class('positive')),
+    })
+    expect(calls).toEqual([])
+
+    const active = SlotView.buildersFor(RuleSlots, [Conditional.mixin], { input: { n: 1 }, h })
+    expect(classValue(active.root.attrs())).toBe('positive')
+    expect(calls).toEqual([1])
+
+    const inactive = SlotView.buildersFor(RuleSlots, [Conditional.mixin], { input: { n: 0 }, h })
+    expect(classValue(inactive.root.attrs())).toBeUndefined()
+  })
+
+  it('compiles deterministic keyframes and puts them in globalCss', () => {
+    const Fade = Style.keyframes({ from: { opacity: '0' }, to: { opacity: '1' } })
+    expect(Fade.name).toMatch(/^kf-[a-z0-9]+$/)
+    const Reveal = Style.forSlots(RuleSlots)({
+      root: Style.compose(Fade.style, Style.inline({ animation: `${Fade.name} 200ms` })),
+    })
+    expect(Reveal.globalCss).toBe(`@keyframes ${Fade.name}{from{opacity:0}to{opacity:1}}`)
+    expect(Reveal.css).toBe('')
+    expect(Style.keyframes({ from: { opacity: '0' }, to: { opacity: '1' } }).name).toBe(Fade.name)
+    expect(Style.keyframes({ from: { opacity: '0' }, to: { opacity: '0.5' } }).name).not.toBe(
+      Fade.name,
+    )
+  })
+
+  it('carries raw global CSS and joins it before scoped rules', () => {
+    const Base = Style.forSlots(RuleSlots)({
+      root: Style.compose(Style.global('@layer base{}'), Style.pseudo(':hover', { color: 'red' })),
+    })
+    expect(Base.globalCss).toBe('@layer base{}')
+    const builders = SlotView.buildersFor(RuleSlots, [Base.mixin], { input: undefined, h })
+    const generated = classValue(builders.root.attrs())
+    expect(Style.stylesheet(Base)).toBe(`@layer base{}.${generated}:hover{color:red}`)
+  })
+
+  it('keeps top-level rule CSS when the style also has an input condition', () => {
+    const Mixed = Style.forSlots(RuleSlots)({
+      root: Style.compose(
+        Style.pseudo(':hover', { color: 'red' }),
+        Style.whenInput<{ readonly on: boolean }>(input => input.on, Style.class('on')),
+      ),
+    })
+    expect(Mixed.css).toContain(':hover{color:red}')
+  })
+
+  it('emits global CSS contributed by a conditional piece', () => {
+    const Fade = Style.keyframes({ from: { opacity: '0' }, to: { opacity: '1' } })
+    const Mixed = Style.forSlots(RuleSlots)({
+      root: Style.whenInput<{ readonly on: boolean }>(input => input.on, Fade.style),
+    })
+    expect(Mixed.globalCss).toContain('@keyframes')
+  })
+
+  it('composes rule-bearing recipe variants', () => {
+    const Recipe = Style.recipe({
+      base: Style.class('button'),
+      variants: {
+        intent: {
+          primary: Style.pseudo(':hover', { color: 'red' }),
+          ghost: Style.class('ghost'),
+        },
+      },
+    })
+    const Primary = Style.forSlots(RuleSlots)({ root: Recipe({ intent: 'primary' }) })
+    const Ghost = Style.forSlots(RuleSlots)({ root: Recipe({ intent: 'ghost' }) })
+    expect(Primary.css).toContain(':hover{color:red}')
+    expect(Ghost.css).toBe('')
+  })
+
+  it('deduplicates identical scoped rules across styles', () => {
+    const a = Style.forSlots(RuleSlots)({ root: Style.pseudo(':hover', { color: 'red' }) })
+    const b = Style.forSlots(RuleSlots)({ root: Style.pseudo(':hover', { color: 'red' }) })
+    const c = Style.forSlots(RuleSlots)({ root: Style.pseudo(':hover', { color: 'blue' }) })
+    expect(Style.stylesheet(a, b)).toBe(a.css)
+    const both = Style.stylesheet(a, c)
+    expect(both).toContain('color:red')
+    expect(both).toContain('color:blue')
+    expect(both).toHaveLength(a.css.length + c.css.length)
+  })
+
+  it('deduplicates shared keyframes across styles', () => {
+    const Fade = Style.keyframes({ from: { opacity: '0' }, to: { opacity: '1' } })
+    const a = Style.forSlots(RuleSlots)({ root: Fade.style })
+    const b = Style.forSlots(RuleSlots)({ root: Fade.style })
+    expect(Style.stylesheet(a, b)).toBe(`@keyframes ${Fade.name}{from{opacity:0}to{opacity:1}}`)
+  })
+
+  it('compiles identically across independent evaluations', () => {
+    const build = () =>
+      Style.forSlots(RuleSlots)({
+        root: Style.compose(
+          Style.pseudo(':hover', { color: 'red' }),
+          Style.media('(min-width: 40rem)', { display: 'grid' }),
+        ),
+      })
+    const a = build()
+    const b = build()
+    expect(a.css).toBe(b.css)
+    expect(a.rules.map(rule => rule.className)).toEqual(b.rules.map(rule => rule.className))
+    expect(Style.stylesheet(a)).toBe(Style.stylesheet(b))
+  })
+})
+
+describe('selector lists', () => {
+  const cssOf = (piece: StyleValue) => {
+    const Named = Style.forSlots(RuleSlots)({ root: piece })
+    const generated = Named.rules[0]?.className
+    return { css: Named.css, c: `.${generated}` }
+  }
+
+  it.each([
+    [
+      'nest scopes every selector of a list',
+      Style.nest(':hover > .x, .y', { opacity: '1' }),
+      (c: string) => `${c} :hover > .x, ${c} .y{opacity:1}`,
+    ],
+    [
+      'pseudo scopes every selector of a list',
+      Style.pseudo(':hover, :focus-visible', { color: 'red' }),
+      (c: string) => `${c}:hover, ${c}:focus-visible{color:red}`,
+    ],
+    [
+      'a comma inside :is() or an attribute value does not split',
+      Style.nest(':is(h2, h3) + p, [title="a, b"]', { color: 'red' }),
+      (c: string) => `${c} :is(h2, h3) + p, ${c} [title="a, b"]{color:red}`,
+    ],
+    [
+      'a selector that writes & places the class itself',
+      Style.nest('[data-open] &, > span', { color: 'red' }),
+      (c: string) => `[data-open] ${c}, ${c} > span{color:red}`,
+    ],
+  ])('%s', (_name, piece, expected) => {
+    const { css, c } = cssOf(piece)
+    expect(css).toBe(expected(c))
+  })
+
+  it('splits only top-level commas', () => {
+    expect(Rules.selectorList(':is(a, b), [x=","], c')).toEqual([':is(a, b)', '[x=","]', 'c'])
+  })
+})

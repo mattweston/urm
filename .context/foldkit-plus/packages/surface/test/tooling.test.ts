@@ -1,0 +1,14 @@
+import { describe, expect, it } from 'vitest'
+import { Surface } from '../src/index.js'
+import { App, Message, TodoList } from './todoFixture.js'
+
+describe('Surface inspection', () => {
+  it('reports what a Surface observes and emits', () => {
+    const inspection = Surface.inspect(TodoList, undefined)
+
+    expect(inspection.name).toBe('TodoList')
+    expect(inspection.dependencies).toEqual([['todos'], ['selectedTodoId']])
+    expect(inspection.metadata).toEqual([])
+    expect(inspection.emits).toEqual([Message.CreatedTodo, Message.RenamedTodo])
+  })
+})

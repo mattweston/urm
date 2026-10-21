@@ -1,0 +1,4566 @@
+openapi: 3.1.0
+info:
+  title: PostShiba API
+  description: |
+    Email infrastructure for platforms that send on behalf of their customers. Customer sending controls, delivery diagnostics, and monthly capacity pricing from the team behind Bento.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  version: "V1"
+servers:
+  - url: https://app.postshiba.com/api/v1
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    TeamAttributes:
+      type: object
+      title: Teams
+      description: Teams
+      required:
+      - id
+      - name
+      properties:
+        id:
+          type: string
+          description: Team ID
+        name:
+          type: string
+          description: Team
+        time_zone:
+          type:
+          - string
+          - 'null'
+          description: Primary Time Zone
+        locale:
+          type:
+          - string
+          - 'null'
+          description: Language
+        created_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Signed Up At
+        updated_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Updated At
+      example:
+        id: WjmmMj
+        name: EXAMPLE Generic Team 153
+        time_zone: International Date Line West
+        locale: en
+        created_at: '2023-01-01T00:00:00.000Z'
+        updated_at: '2023-01-02T00:00:00.000Z'
+    TeamParametersUpdate:
+      type: object
+      title: Teams
+      description: Teams
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          description: Team
+        time_zone:
+          type:
+          - string
+          - 'null'
+          description: Primary Time Zone
+        locale:
+          type:
+          - string
+          - 'null'
+          description: Language
+      example:
+        team:
+          name: EXAMPLE Generic Team 153
+          time_zone: International Date Line West
+          locale: en
+
+    UserAttributes:
+      type: object
+      title: Users
+      description: Users
+      required:
+      - id
+      - email
+      properties:
+        id:
+          type: string
+          description: Team ID
+        email:
+          type: string
+          description: Email address
+        first_name:
+          type:
+          - string
+          - 'null'
+          description: First Name
+        last_name:
+          type:
+          - string
+          - 'null'
+          description: Last Name
+        time_zone:
+          type:
+          - string
+          - 'null'
+          description: Your Time Zone
+        locale:
+          type:
+          - string
+          - 'null'
+          description: Language
+        created_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Signed Up At
+        updated_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Updated At
+        profile_photo:
+          type: object
+          description: Profile Photo
+      example:
+        id: WJmmMJ
+        email: generic-user-153@example.com
+        first_name: Example First Name
+        last_name: Example Last Name
+        time_zone: International Date Line West
+        locale:
+        created_at: '2023-01-01T00:00:00.000Z'
+        updated_at: '2023-01-02T00:00:00.000Z'
+        profile_photo:
+    UserParametersUpdate:
+      type: object
+      title: Users
+      description: Users
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          description: Email address
+        first_name:
+          type:
+          - string
+          - 'null'
+          description: First Name
+        last_name:
+          type:
+          - string
+          - 'null'
+          description: Last Name
+        time_zone:
+          type:
+          - string
+          - 'null'
+          description: Your Time Zone
+        locale:
+          type:
+          - string
+          - 'null'
+          description: Language
+      example:
+        user:
+          email: generic-user-153@example.com
+          first_name: Example First Name
+          last_name: Example Last Name
+          time_zone: International Date Line West
+          locale:
+
+    MembershipAttributes:
+      type: object
+      title: Team Members
+      description: Team Members
+      required:
+      - id
+      - team_id
+      properties:
+        id:
+          type: string
+          description: Membership ID
+        team_id:
+          type: string
+          description: Team ID
+        user_id:
+          type:
+          - integer
+          - 'null'
+          description: User ID
+        invitation_id:
+          type:
+          - string
+          - 'null'
+          description: Invitation ID
+        user_first_name:
+          type:
+          - string
+          - 'null'
+          description: First Name
+        user_last_name:
+          type:
+          - string
+          - 'null'
+          description: Last Name
+        user_profile_photo_id:
+          type:
+          - string
+          - 'null'
+          description: Profile Photo
+        user_email:
+          type:
+          - string
+          - 'null'
+          description: User Email
+        added_by_id:
+          type:
+          - string
+          - 'null'
+          description: Added by User ID
+        platform_agent_of_id:
+          type:
+          - string
+          - 'null'
+          description: Platform Agent of ID
+        role_ids:
+          type:
+          - array
+          - 'null'
+          minContains: 0
+          contains:
+            type: string
+          description: Special Privileges
+        platform_agent:
+          type:
+          - boolean
+          - 'null'
+          description: Platform Agent
+        created_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Created At
+        updated_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Updated At
+        user_profile_photo:
+          type: object
+          description: User Profile Photo
+      example:
+        id: WJmmMJ
+        team_id: WjmmMj
+        user_id: 42
+        invitation_id:
+        user_first_name: Example First Name
+        user_last_name: Example Last Name
+        user_profile_photo_id: '1'
+        user_email: generic-user-154@example.com
+        added_by_id:
+        platform_agent_of_id:
+        role_ids:
+        - admin
+        platform_agent: false
+        created_at: '2023-01-01T00:00:00.000Z'
+        updated_at: '2023-01-02T00:00:00.000Z'
+        user_profile_photo:
+    MembershipParameters:
+      type: object
+      title: Team Members
+      description: Team Members
+      required: []
+      properties:
+        user_first_name:
+          type:
+          - string
+          - 'null'
+          description: First Name
+        user_last_name:
+          type:
+          - string
+          - 'null'
+          description: Last Name
+      example:
+        membership:
+          user_first_name: Example First Name
+          user_last_name: Example Last Name
+    MembershipParametersUpdate:
+      type: object
+      title: Team Members
+      description: Team Members
+      required: []
+      properties:
+        user_first_name:
+          type:
+          - string
+          - 'null'
+          description: First Name
+        user_last_name:
+          type:
+          - string
+          - 'null'
+          description: Last Name
+      example:
+        membership:
+          user_first_name: Example First Name
+          user_last_name: Example Last Name
+
+    InvitationAttributes:
+      type: object
+      title: Invitations
+      description: Invitations
+      required:
+      - id
+      - team_id
+      - email
+      - from_membership_id
+      properties:
+        id:
+          type: string
+          description: Invitation ID
+        team_id:
+          type: string
+          description: Team ID
+        email:
+          type: string
+          description: Email Address
+        from_membership_id:
+          type: integer
+          description: Who sent ID
+        created_at:
+          type:
+          - string
+          - 'null'
+          description: Sent
+        updated_at:
+          type:
+          - string
+          - 'null'
+          description: Updated
+      example:
+        id: WNmmMN
+        team_id: WjmmMj
+        email: example45@email.com
+        from_membership_id: 42
+        created_at:
+        updated_at:
+    InvitationParameters:
+      type: object
+      title: Invitations
+      description: Invitations
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          description: Email Address
+      example:
+        invitation:
+          email: example45@email.com
+
+    WebhooksOutgoingEndpointAttributes:
+      type: object
+      title: Webhooks
+      description: Webhooks
+      required:
+      - id
+      - team_id
+      - url
+      - name
+      properties:
+        id:
+          type: integer
+          description: Endpoint ID
+        team_id:
+          type: integer
+          description: Team ID
+        url:
+          type: string
+          description: URL
+        name:
+          type: string
+          description: Name
+        event_type_ids:
+          type:
+          - array
+          - 'null'
+          description: Event Types
+        deactivation_limit_reached_at:
+          type:
+          - string
+          - 'null'
+          description: Deactivation Limit Reached At
+        deactivated_at:
+          type:
+          - string
+          - 'null'
+          description: Deactivated At
+        consecutive_failed_deliveries:
+          type:
+          - integer
+          - 'null'
+          description: Consecutive Failed Deliveries
+        created_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Added
+        updated_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Updated
+      example:
+        id: 42
+        team_id: 42
+        url: https://example.com/some-endpoint-url
+        name: Example Endpoint
+        event_type_ids: []
+        deactivation_limit_reached_at:
+        deactivated_at:
+        consecutive_failed_deliveries: 0
+        created_at: '2023-01-01T00:00:00.000Z'
+        updated_at: '2023-01-02T00:00:00.000Z'
+    WebhooksOutgoingEndpointParameters:
+      type: object
+      title: Webhooks
+      description: Webhooks
+      required:
+      - url
+      - name
+      properties:
+        url:
+          type: string
+          description: URL
+        name:
+          type: string
+          description: Name
+        event_type_ids:
+          type:
+          - array
+          - 'null'
+          description: Event Types
+        deactivated_at:
+          type:
+          - string
+          - 'null'
+          description: Deactivated At
+      example:
+        webhooks_outgoing_endpoint:
+          url: https://example.com/some-endpoint-url
+          name: Example Endpoint
+          event_type_ids: []
+          deactivated_at:
+    WebhooksOutgoingEndpointParametersUpdate:
+      type: object
+      title: Webhooks
+      description: Webhooks
+      required:
+      - url
+      - name
+      properties:
+        url:
+          type: string
+          description: URL
+        name:
+          type: string
+          description: Name
+        event_type_ids:
+          type:
+          - array
+          - 'null'
+          description: Event Types
+        deactivated_at:
+          type:
+          - string
+          - 'null'
+          description: Deactivated At
+      example:
+        webhooks_outgoing_endpoint:
+          url: https://example.com/some-endpoint-url
+          name: Example Endpoint
+          event_type_ids: []
+          deactivated_at:
+
+    WebhooksOutgoingEventAttributes:
+      type: object
+      title: Webhooks Events
+      description: Webhooks Events
+      required:
+      - id
+      - team_id
+      - subject_id
+      properties:
+        id:
+          type: integer
+          description: Event ID
+        team_id:
+          type: integer
+          description: Team ID
+        uuid:
+          type:
+          - string
+          - 'null'
+          description: UUID
+        event_type_id:
+          type:
+          - string
+          - 'null'
+          description: Event Type
+        subject_id:
+          type: integer
+          description: Subject ID
+        subject_type:
+          type:
+          - string
+          - 'null'
+          description: Subject Type
+        data:
+          type:
+          - string
+          - 'null'
+          description: Object Data
+        created_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Happened At
+      example:
+        id: 42
+        team_id: 42
+        uuid: c7232a57788121753ce8d3a9dcb625b3
+        event_type_id: scaffolding/absolutely_abstract/creative_concept.created
+        subject_id: 42
+        subject_type: Scaffolding::AbsolutelyAbstract::CreativeConcept
+        data: '{"id":42,"created_at":"2023-01-01T00:00:00.000Z","updated_at":"2023-01-02T00:00:00.000Z","value":"one"}'
+        created_at: '2023-01-01T00:00:00.000Z'
+
+    
+    CapsuleCluster:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: NmQpXr }
+        name: { type: string }
+        region: { type: string }
+        size: { type: string }
+        plan: { type: string }
+        emails_per_hour: { type: integer, description: "Current hourly throttle, including an active outbound boost." }
+        emails_per_day: { type: integer, description: "Current 24-hour outbound cap, including an active outbound boost." }
+        base_emails_per_hour: { type: integer, description: "Monthly plan hourly throttle." }
+        base_emails_per_day: { type: integer, description: "Monthly plan 24-hour outbound cap." }
+        boost:
+          type: [object, "null"]
+          additionalProperties: false
+          properties:
+            sku: { type: string }
+            trigger: { type: string, enum: [manual, auto], description: "auto when the cluster boosted itself at its limit." }
+            status: { type: string }
+            target_plan: { type: string }
+            target_emails_per_hour: { type: integer, description: "Boosted hourly throttle." }
+            target_emails_per_day: { type: integer, description: "Boosted 24-hour outbound cap." }
+            starts_at: { type: [string, "null"] }
+            ends_at: { type: [string, "null"] }
+        auto_boost:
+          type: object
+          additionalProperties: false
+          properties:
+            sku: { type: [string, "null"], description: "The boost the cluster switches on at its limit, or null when auto-boost is off." }
+            monthly_limit: { type: integer, minimum: 1, maximum: 10 }
+            used_this_month: { type: integer }
+        ip_assignment: { type: string }
+        desired_status: { type: string }
+        status: { type: string }
+        smtp_endpoint: { type: [string, "null"] }
+        http_endpoint: { type: [string, "null"] }
+        classification: { type: string, enum: [transactional, bulk] }
+        assigned_ip:
+          type: [object, "null"]
+          additionalProperties: false
+          properties:
+            address: { type: [string, "null"] }
+            status: { type: string }
+        sending_ips:
+          type: array
+          items:
+            $ref: "#/components/schemas/CapsuleSendingIp"
+        sending_ready: { type: boolean }
+        refused_sends:
+          type: array
+          description: "SMTP refusals from the last 7 days. Empty when the cluster accepted every login."
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              smtp_username: { type: string }
+              reason: { type: string, enum: [unavailable] }
+              count: { type: integer }
+              first_at: { type: string, format: date-time }
+              last_at: { type: string, format: date-time }
+    CapsuleSendingIp:
+      type: object
+      additionalProperties: false
+      properties:
+        address: { type: [string, "null"] }
+        status: { type: string }
+        kind: { type: string, enum: [shared, dedicated] }
+        classification: { type: string, enum: [transactional, bulk] }
+        weight: { type: integer }
+        provider: { type: [string, "null"] }
+    CapsuleNetworkIp:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: IpQwEr }
+        address: { type: [string, "null"] }
+        status: { type: string }
+        kind: { type: string, enum: [shared, dedicated] }
+        classification: { type: string, enum: [transactional, bulk] }
+        provider: { type: [string, "null"] }
+        owned: { type: boolean }
+        available: { type: boolean }
+        cluster_ids:
+          type: array
+          items: { type: string, example: NmQpXr }
+        feedback_loops:
+          type: array
+          items: { type: string, example: Validity }
+    CapsuleSendingDomain:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: HsVtYk }
+        name: { type: string }
+        tenant_id: { type: string, example: WbLcFd }
+        tenant: { type: string }
+        dkim_status: { type: string }
+        return_path_status: { type: string }
+        dmarc_status: { type: string }
+        sending_allowed: { type: boolean }
+        dkim_selector: { type: string }
+        dkim_manual: { type: boolean }
+        dkim_txt: { type: string }
+        dkim_cname_host: { type: string }
+        dkim_cname_target: { type: [string, "null"] }
+        dmarc_host: { type: string }
+        dmarc_record: { type: string }
+        return_path_host: { type: string }
+        return_path_target: { type: string }
+        last_verification_error: { type: [string, "null"] }
+        suspended: { type: boolean }
+        operator_held: { type: boolean }
+        primary: { type: boolean }
+    CapsuleCanISendThisReady:
+      type: object
+      additionalProperties: false
+      required: [status, report]
+      properties:
+        status: { type: string, enum: [ready] }
+        report:
+          type: object
+          additionalProperties: false
+          required: [subject, from, score, checks, spf, dkim, dmarc, spamassassin, report_url]
+          properties:
+            subject: { type: string }
+            from: { type: string }
+            score:
+              type: object
+              additionalProperties: false
+              properties:
+                pass: { type: integer }
+                total: { type: integer }
+            checks:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  id: { type: string }
+                  kind: { type: string }
+                  detail: { type: string }
+            spf:
+              type: object
+              additionalProperties: false
+              properties:
+                kind:
+                  type: string
+                  description: pass, fail, or pending. pending means the return-path CNAME is live in DNS but CanISendThis has not seen it yet. Run the test again later.
+                detail: { type: string }
+            dkim:
+              type: object
+              additionalProperties: false
+              properties:
+                kind: { type: string }
+                detail: { type: string }
+            dmarc:
+              type: object
+              additionalProperties: false
+              properties:
+                kind:
+                  type: string
+                  description: pass, fail, pending (published but not seen yet), or none (no DMARC record in DNS).
+                detail: { type: string }
+            spamassassin: {}
+            report_url: { type: string }
+    CapsuleTenant:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: WbLcFd }
+        name: { type: string }
+        slug: { type: string }
+        suspended: { type: boolean }
+    CapsuleInbox:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: PqRzMn }
+        name: { type: string }
+        address: { type: string }
+        local_part: { type: string }
+        host: { type: string }
+        tenant_id: { type: string, example: WbLcFd }
+        sending_domain_id: { type: [string, "null"] }
+        webhook_url: { type: [string, "null"] }
+        webhook_format: { type: string }
+        webhook_secret: { type: string }
+        forward_to: { type: [string, "null"] }
+        mx_status: { type: string }
+        mx_record: { type: [string, "null"] }
+        mx_target: { type: [string, "null"] }
+        inbound_emails_per_hour: { type: integer }
+        retention_hours: { type: integer }
+        stored_bytes:
+          type: integer
+          description: Bytes of received mail this inbox holds right now. Omitted from the list. Storage bills per GB-month.
+    CapsuleInboundMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: GxTyVu }
+        inbox_id: { type: string, example: PqRzMn }
+        to: { type: string }
+        from: { type: [string, "null"] }
+        subject: { type: [string, "null"] }
+        text: { type: [string, "null"] }
+        html: { type: [string, "null"] }
+        thread_id: { type: [string, "null"] }
+        in_reply_to: { type: [string, "null"] }
+        headers: { type: object }
+        envelope: { type: object }
+        authentication:
+          type: object
+          additionalProperties: false
+          properties:
+            spf:
+              type: object
+              additionalProperties: false
+              properties:
+                result: { type: string }
+                domain: { type: string }
+            dkim:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                properties:
+                  result: { type: string }
+                  domain: { type: string }
+                  selector: { type: string }
+            dmarc:
+              type: object
+              additionalProperties: false
+              properties:
+                result: { type: string }
+                policy: { type: string }
+                aligned: { type: boolean }
+            arc:
+              type: object
+              additionalProperties: false
+              properties:
+                result: { type: string }
+        attachments:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              filename: { type: string }
+              content_type: { type: string }
+              size: { type: integer }
+              content_base64: { type: [string, "null"], description: "Base64 of the decoded attachment. Present on show and JSON webhooks. Null after a webhook inbox delivers or gives up." }
+        expires_at: { type: string }
+        drain_status: { type: string }
+        raw: { type: [string, "null"], description: "Raw MIME. Null after a webhook inbox delivers or gives up." }
+    CapsuleOutboundMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: OuTbMs }
+        message_id: { type: string }
+        from: { type: [string, "null"] }
+        to: { type: array, items: { type: string } }
+        cc: { type: array, items: { type: string } }
+        bcc: { type: array, items: { type: string } }
+        subject: { type: [string, "null"] }
+        source: { type: string, enum: [api, account, template_test] }
+        sandbox: { type: boolean }
+        bytesize: { type: integer }
+        retention_days: { type: integer }
+        cluster_id: { type: [string, "null"], example: NmQpXr }
+        tenant_id: { type: [string, "null"], example: WbLcFd }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        text: { type: [string, "null"], description: Show only. }
+        html: { type: [string, "null"], description: Show only. }
+        attachments:
+          type: array
+          description: Show only. Metadata; download the raw message for the bytes.
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              filename: { type: [string, "null"] }
+              content_type: { type: [string, "null"] }
+              size: { type: integer }
+    CapsuleOutboundRetention:
+      type: object
+      additionalProperties: false
+      properties:
+        retention_days: { type: integer, enum: [0, 7, 28, 45, 90, 180, 365] }
+        options:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              days: { type: integer }
+              price_per_1000_cents: { type: number }
+    CapsuleMessageEvent:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: JkLmNp }
+        event_type: { type: string }
+        recipient: { type: [string, "null"] }
+        sender: { type: [string, "null"] }
+        message_id: { type: [string, "null"] }
+        mx_provider: { type: [string, "null"], description: MX provider reported for this delivery event. }
+        sending_ip: { type: [string, "null"], description: Sending IP used for this delivery when known. }
+        bounce_classification: { type: [string, "null"] }
+        bounce_reason: { type: [string, "null"] }
+        smtp_code: { type: [integer, "null"] }
+        enhanced_code: { type: [string, "null"] }
+        explanation: { type: [string, "null"] }
+        occurred_at: { type: string, format: date-time }
+        drain_status: { type: string }
+        tenant_id: { type: [string, "null"], example: WbLcFd }
+        sending_domain_id: { type: [string, "null"], example: HsVtYk }
+        node_id: { type: [string, "null"], example: ZxHvTb }
+        payload: { type: object, description: "Present for Full access. Omitted for a Support key." }
+    CapsuleSmtpCredential:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: RvWsXq }
+        username: { type: string }
+        password: { type: string }
+        tenant_id: { type: string, example: WbLcFd }
+        tenant: { type: string }
+        cluster_id: { type: string, example: NmQpXr }
+    CapsuleWebhookEndpoint:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: CdFgHj }
+        url: { type: string }
+        enabled: { type: boolean }
+        event_types: { type: array, items: { type: string } }
+        last_success_at: { type: [string, "null"], format: date-time }
+        last_failure_at: { type: [string, "null"], format: date-time }
+        consecutive_failures: { type: integer }
+        last_probed_at: { type: [string, "null"], format: date-time }
+        last_probe_ok: { type: [boolean, "null"] }
+        last_probe_code: { type: [integer, "null"] }
+        secret: { type: string }
+    CapsuleEmailTemplate:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: TpLmQr }
+        name: { type: string }
+        alias: { type: [string, "null"] }
+        from: { type: [string, "null"] }
+        reply_to: { type: [string, "null"] }
+        subject: { type: [string, "null"] }
+        html: { type: [string, "null"] }
+        text: { type: [string, "null"] }
+        css: { type: [string, "null"] }
+        sample_data: { type: object }
+        published: { type: boolean }
+        published_at: { type: [string, "null"], format: date-time }
+        has_unpublished_changes: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CapsuleRecipient:
+      type: object
+      additionalProperties: false
+      properties:
+        email: { type: string }
+        can_receive: { type: boolean }
+        suppressions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CapsuleSuppression"
+        firewall: { type: [string, "null"] }
+        sends:
+          type: array
+          items:
+            $ref: "#/components/schemas/CapsuleRecipientSend"
+    CapsuleRecipientSend:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: JkLmNp }
+        event_type: { type: string }
+        message_id: { type: [string, "null"] }
+        occurred_at: { type: string, format: date-time }
+        explanation: { type: [string, "null"] }
+    CapsuleAnalyticsRow:
+      type: object
+      additionalProperties: false
+      properties:
+        key: { type: [string, "null"] }
+        label: { type: [string, "null"] }
+        processed: { type: integer }
+        delivered: { type: integer }
+        deferred: { type: integer }
+        bounce: { type: integer }
+        spamreport: { type: integer }
+        unsubscribe: { type: integer }
+    CapsuleAnalytics:
+      type: object
+      additionalProperties: false
+      properties:
+        dimension: { type: string }
+        window:
+          type: object
+          additionalProperties: false
+          properties:
+            since: { type: string, format: date-time }
+            until: { type: string, format: date-time }
+        totals:
+          type: object
+          additionalProperties: { type: integer }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/CapsuleAnalyticsRow"
+        compare:
+          type: [object, "null"]
+          additionalProperties: false
+          properties:
+            dimension: { type: string }
+            window:
+              type: object
+              additionalProperties: false
+              properties:
+                since: { type: string, format: date-time }
+                until: { type: string, format: date-time }
+            totals:
+              type: object
+              additionalProperties: { type: integer }
+            rows:
+              type: array
+              items:
+                $ref: "#/components/schemas/CapsuleAnalyticsRow"
+    CapsuleStatus:
+      type: object
+      additionalProperties: false
+      properties:
+        suspended: { type: boolean }
+        kyc_status: { type: [string, "null"] }
+        clusters_at_cap:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              id: { type: string }
+              name: { type: string }
+              hourly_remaining: { type: integer }
+              daily_remaining: { type: integer }
+              queued: { type: integer }
+        held_tenants:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              id: { type: string }
+              slug: { type: string }
+    CapsulePlannedSend:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: PlAnSd }
+        name: { type: [string, "null"] }
+        cluster_id: { type: string, example: NmQpXr }
+        volume_per_hour: { type: integer }
+        scheduled_for: { type: string, format: date-time }
+        status: { type: string }
+        assessment: { type: string, enum: [covered, boost_available, needs_operator] }
+    CapsuleSuppression:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: YtReWq }
+        email: { type: string }
+        reason: { type: string }
+        tenant_id: { type: string, example: WbLcFd }
+        tenant: { type: string }
+        created_at: { type: string, format: date-time }
+    CapsuleSuppressionImport:
+      type: object
+      additionalProperties: false
+      properties:
+        imported: { type: integer }
+        existing: { type: integer }
+        invalid: { type: integer }
+    CapsuleFirewallEntry:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: BnMkLo }
+        list: { type: string }
+        value: { type: string }
+        created_at: { type: string, format: date-time }
+    CapsuleFirewall:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled_checks: { type: array, items: { type: string } }
+        available_checks: { type: array, items: { type: string } }
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/CapsuleFirewallEntry"
+    CapsuleShieldSite:
+      type: object
+      additionalProperties: false
+      properties:
+        id: { type: string, example: ShLdSt }
+        name: { type: string }
+        public_key: { type: string }
+        allowed_hostnames: { type: array, items: { type: string } }
+        block_hosting: { type: boolean }
+        block_free_email: { type: boolean }
+        verifications_7d:
+          type: object
+          additionalProperties: false
+          properties:
+            passed: { type: integer }
+            blocked: { type: integer }
+        created_at: { type: string, format: date-time }
+        secret_key: { type: string, description: "Present on create, show, and rotate_secret." }
+    CapsuleSend:
+      type: object
+      additionalProperties: false
+      properties:
+        queued: { type: boolean }
+        message_id: { type: string }
+        from: { type: string }
+        to: { type: array, items: { type: string } }
+        subject: { type: string }
+        unique_args: { type: object }
+    CapsuleSendRequest:
+      type: object
+      properties:
+        from: { type: string }
+        to:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+        cc:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+        bcc:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+        reply_to: { type: string }
+        subject: { type: string }
+        text: { type: string }
+        html: { type: string }
+        attachments:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              filename: { type: string }
+              content_type: { type: string }
+              content: { type: string }
+        headers:
+          type: object
+          description: "Extra headers. Names must be RFC 5322 field names, or the request is 422 {error: invalid, field: headers}. Reserved names such as From, To, Subject, Date, Return-Path, DKIM-Signature, Content-*, Resent-*, and X-Capsule-* are ignored. X-Capsule-Ip is kept and sends the message from that sending IP on the cluster. _ counts as -."
+        unique_args: { type: object }
+        tenant: { type: string }
+        template:
+          type: object
+          additionalProperties: false
+          properties:
+            id: { type: string, description: Template alias or public id }
+            alias: { type: string }
+            variables: { type: object }
+        sandbox:
+          description: true, "true", or 1 composes without inject. Success is 200 with queued false.
+        send:
+          description: Nested alias. Wins when present.
+          type: object
+    CapsuleError:
+      type: object
+      additionalProperties: false
+      properties:
+        error: { type: string }
+        field: { type: string }
+        message: { type: string }
+        rule: { type: string, description: Firewall check that blocked the send. }
+        retryable: { type: boolean, description: "On throttled and inject errors. true only when nothing was sent." }
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    obfuscated_team_id:
+      name: obfuscated_team_id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: KjkAJW
+    obfuscated_cluster_id:
+      name: obfuscated_cluster_id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: NmQpXr
+    after:
+      name: after
+      in: query
+      required: false
+      schema:
+        type: integer
+      description: "ID of item after which the collection should be returned"
+  headers:
+    PaginationNext:
+      description: "ID of next item in collection if exists, to be used in `after` route param for cursor-style pagination"
+      schema:
+        type: integer
+    Link:
+      description: "Link to the next page"
+      schema:
+        type: string
+  responses:
+    CapsuleUnauthorized:
+      description: Invalid token
+    CapsuleNotFound:
+      description: Not found
+    CapsuleForbidden:
+      description: Forbidden for this token
+    CapsuleUnprocessable:
+      description: Invalid import
+security:
+  - BearerAuth: []
+paths:
+  /teams:
+    get:
+      tags:
+        - Team
+      summary: "List Teams"
+      description: "List all Teams"
+      operationId: listTeams
+      parameters:
+        - $ref: "#/components/parameters/after"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          headers:
+            Pagination-Next:
+              $ref: "#/components/headers/PaginationNext"
+            Link:
+              $ref: "#/components/headers/Link"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamAttributes"
+              example:
+                - id: WjmmMj
+                  name: EXAMPLE Generic Team 157
+                  time_zone: International Date Line West
+                  locale: en
+                  created_at: '2023-01-01T00:00:00.000Z'
+                  updated_at: '2023-01-02T00:00:00.000Z'
+                - id: WjmmMj
+                  name: EXAMPLE Generic Team 158
+                  time_zone: International Date Line West
+                  locale: en
+                  created_at: '2023-01-01T00:00:00.000Z'
+                  updated_at: '2023-01-02T00:00:00.000Z'
+  
+  
+  /teams/{id}:
+    get:
+      tags:
+        - Team
+      summary: "Fetch Team"
+      description: "Fetch a single Team"
+      operationId: fetchTeam
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamAttributes"
+              example:
+                id: WjmmMj
+                name: EXAMPLE Generic Team 159
+                time_zone: International Date Line West
+                locale: en
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+    put:
+      tags:
+        - Team
+      summary: "Update Team"
+      description: "Update a single Team"
+      operationId: updateTeam
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        description: "Information about updated fields in Team"
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                team:
+                  type: object
+                  $ref: "#/components/schemas/TeamParametersUpdate"
+            example:
+              team:
+                name: EXAMPLE Generic Team 160
+                time_zone: International Date Line West
+                locale: en
+  
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamAttributes"
+              example:
+                id: WjmmMj
+                name: EXAMPLE Generic Team 161
+                time_zone: International Date Line West
+                locale: en
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+
+  /users:
+    get:
+      tags:
+        - User
+      summary: "List Users"
+      description: "List all Users"
+      operationId: listUsers
+      parameters:
+        - $ref: "#/components/parameters/after"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          headers:
+            Pagination-Next:
+              $ref: "#/components/headers/PaginationNext"
+            Link:
+              $ref: "#/components/headers/Link"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserAttributes"
+              example:
+                - id: WJmmMJ
+                  email: generic-user-157@example.com
+                  first_name: Example First Name
+                  last_name: Example Last Name
+                  time_zone: International Date Line West
+                  locale:
+                  created_at: '2023-01-01T00:00:00.000Z'
+                  updated_at: '2023-01-02T00:00:00.000Z'
+                - id: WJmmMJ
+                  email: generic-user-158@example.com
+                  first_name: Example First Name
+                  last_name: Example Last Name
+                  time_zone: International Date Line West
+                  locale:
+                  created_at: '2023-01-01T00:00:00.000Z'
+                  updated_at: '2023-01-02T00:00:00.000Z'
+  
+  /users/{id}:
+    get:
+      tags:
+        - User
+      summary: "Fetch User"
+      description: "Fetch a single User"
+      operationId: fetchUser
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAttributes"
+              example:
+                id: WJmmMJ
+                email: generic-user-159@example.com
+                first_name: Example First Name
+                last_name: Example Last Name
+                time_zone: International Date Line West
+                locale:
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+    put:
+      tags:
+        - User
+      summary: "Update User"
+      description: "Update a single User"
+      operationId: updateUser
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        description: "Information about updated fields in User"
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user:
+                  type: object
+                  $ref: "#/components/schemas/UserParametersUpdate"
+            example:
+              user:
+                email: generic-user-160@example.com
+                first_name: Example First Name
+                last_name: Example Last Name
+                time_zone: International Date Line West
+                locale:
+  
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserAttributes"
+              example:
+                id: WJmmMJ
+                email: generic-user-161@example.com
+                first_name: Example First Name
+                last_name: Example Last Name
+                time_zone: International Date Line West
+                locale:
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+
+  /teams/{team_id}/memberships:
+    get:
+      tags:
+        - Membership
+      summary: List Memberships
+      description: List Memberships
+      operationId: listMemberships
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/after"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          headers:
+            Pagination-Next:
+              $ref: "#/components/headers/PaginationNext"
+            Link:
+              $ref: "#/components/headers/Link"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MembershipAttributes"
+              example:
+                - id: WJmmMJ
+                  team_id: WjmmMj
+                  user_id: 42
+                  invitation_id:
+                  user_first_name: Example First Name
+                  user_last_name: Example Last Name
+                  user_profile_photo_id: '1'
+                  user_email: generic-user-162@example.com
+                  added_by_id:
+                  platform_agent_of_id:
+                  role_ids:
+                  - admin
+                  platform_agent: false
+                  created_at: '2023-01-01T00:00:00.000Z'
+                  updated_at: '2023-01-02T00:00:00.000Z'
+                - id: WJmmMJ
+                  team_id: WjmmMj
+                  user_id: 42
+                  invitation_id:
+                  user_first_name: Example First Name
+                  user_last_name: Example Last Name
+                  user_profile_photo_id: '1'
+                  user_email: generic-user-163@example.com
+                  added_by_id:
+                  platform_agent_of_id:
+                  role_ids:
+                  - admin
+                  platform_agent: false
+                  created_at: '2023-01-01T00:00:00.000Z'
+                  updated_at: '2023-01-02T00:00:00.000Z'
+  
+    post:
+      tags:
+        - Membership
+      summary: Create Membership
+      description: Create Membership
+      operationId: createMemberships
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        description: "Information about a new Membership"
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                membership:
+                  type: object
+                  $ref: "#/components/schemas/MembershipParameters"
+            example:
+              $ref: "#/components/schemas/MembershipParameters/example"
+      responses:
+        "404":
+          description: "Not Found"
+        "201":
+          description: "Created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MembershipAttributes"
+              example:
+                id: WJmmMJ
+                team_id: WjmmMj
+                user_id: 42
+                invitation_id:
+                user_first_name: Example First Name
+                user_last_name: Example Last Name
+                user_profile_photo_id: '1'
+                user_email: generic-user-165@example.com
+                added_by_id:
+                platform_agent_of_id:
+                role_ids:
+                - admin
+                platform_agent: false
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+  /memberships/{id}:
+    get:
+      tags:
+        - Membership
+      summary: Fetch Membership
+      description: Fetch Membership
+      operationId: getMemberships
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MembershipAttributes"
+              example:
+                id: WJmmMJ
+                team_id: WjmmMj
+                user_id: 42
+                invitation_id:
+                user_first_name: Example First Name
+                user_last_name: Example Last Name
+                user_profile_photo_id: '1'
+                user_email: generic-user-164@example.com
+                added_by_id:
+                platform_agent_of_id:
+                role_ids:
+                - admin
+                platform_agent: false
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+    put:
+      tags:
+        - Membership
+      summary: Update Membership
+      description: Update Membership
+      operationId: updateMemberships
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        description: "Information about updated fields in Membership"
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                membership:
+                  type: object
+                  $ref: "#/components/schemas/MembershipParametersUpdate"
+            example:
+              $ref: "#/components/schemas/MembershipParametersUpdate/example"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MembershipAttributes"
+              example:
+                id: WJmmMJ
+                team_id: WjmmMj
+                user_id: 42
+                invitation_id:
+                user_first_name: Example First Name
+                user_last_name: Example Last Name
+                user_profile_photo_id: '1'
+                user_email: generic-user-167@example.com
+                added_by_id:
+                platform_agent_of_id:
+                role_ids:
+                - admin
+                platform_agent: false
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+    delete:
+      tags:
+        - Membership
+      summary: List Memberships
+      description: List Memberships
+      operationId: removeMemberships
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          description: "Not Found"
+        "204":
+          description: "No Content"
+
+  
+  "/teams/{team_id}/invitations":
+    get:
+      tags:
+      - Invitation
+      summary: List Invitations
+      description: List Invitations
+      operationId: listInvitations
+      parameters:
+      - name: team_id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - "$ref": "#/components/parameters/after"
+      responses:
+        '404':
+          description: Not Found
+        '200':
+          description: OK
+          headers:
+            Pagination-Next:
+              "$ref": "#/components/headers/PaginationNext"
+            Link:
+              "$ref": "#/components/headers/Link"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/InvitationAttributes"
+              example:
+              - id: WNmmMN
+                team_id: WjmmMj
+                email: example47@email.com
+                from_membership_id: 42
+                created_at:
+                updated_at:
+              - id: WNmmMN
+                team_id: WjmmMj
+                email: example48@email.com
+                from_membership_id: 42
+                created_at:
+                updated_at:
+    post:
+      tags:
+      - Invitation
+      summary: Create Invitation
+      description: Create Invitation
+      operationId: createInvitations
+      parameters:
+      - name: team_id
+        in: path
+        required: true
+        schema:
+          type: integer
+      requestBody:
+        description: Information about a new Invitation
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                invitation:
+                  type: object
+                  "$ref": "#/components/schemas/InvitationParameters"
+            example:
+              "$ref": "#/components/schemas/InvitationParameters/example"
+      responses:
+        '404':
+          description: Not Found
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/InvitationAttributes"
+              example:
+                id: WNmmMN
+                team_id: WjmmMj
+                email: example50@email.com
+                from_membership_id: 42
+                created_at:
+                updated_at:
+  "/invitations/{id}":
+    get:
+      tags:
+      - Invitation
+      summary: Fetch Invitation
+      description: Fetch Invitation
+      operationId: getInvitations
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      responses:
+        '404':
+          description: Not Found
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/InvitationAttributes"
+              example:
+                id: WNmmMN
+                team_id: WjmmMj
+                email: example49@email.com
+                from_membership_id: 42
+                created_at:
+                updated_at:
+    delete:
+      tags:
+      - Invitation
+      summary: List Invitations
+      description: List Invitations
+      operationId: removeInvitations
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      responses:
+        '404':
+          description: Not Found
+        '204':
+          description: No Content
+  "/invitations/{id}/resend":
+    post:
+      tags:
+      - Invitation
+      summary: Resend Invitation
+      description: Resend an Invitation
+      operationId: resendInvitation
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      responses:
+        '404':
+          description: Not Found
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/InvitationAttributes"
+              example:
+                id: WNmmMN
+                team_id: WjmmMj
+                email: example46@email.com
+                from_membership_id: 42
+                created_at:
+                updated_at:
+
+  /teams/{team_id}/webhooks/outgoing/endpoints:
+    get:
+      tags:
+        - Webhooks::Outgoing::Endpoint
+      summary: List Endpoints
+      description: List Endpoints
+      operationId: listWebhooksOutgoingEndpoints
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/after"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          headers:
+            Pagination-Next:
+              $ref: "#/components/headers/PaginationNext"
+            Link:
+              $ref: "#/components/headers/Link"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebhooksOutgoingEndpointAttributes"
+              example:
+                - id: 42
+                  team_id: 42
+                  url: https://example.com/some-endpoint-url
+                  name: Example Endpoint
+                  event_type_ids: []
+                  deactivation_limit_reached_at:
+                  deactivated_at:
+                  consecutive_failed_deliveries: 0
+                  created_at: '2023-01-01T00:00:00.000Z'
+                  updated_at: '2023-01-02T00:00:00.000Z'
+                - id: 42
+                  team_id: 42
+                  url: https://example.com/some-endpoint-url
+                  name: Example Endpoint
+                  event_type_ids: []
+                  deactivation_limit_reached_at:
+                  deactivated_at:
+                  consecutive_failed_deliveries: 0
+                  created_at: '2023-01-01T00:00:00.000Z'
+                  updated_at: '2023-01-02T00:00:00.000Z'
+  
+    post:
+      tags:
+        - Webhooks::Outgoing::Endpoint
+      summary: Create Endpoint
+      description: Create Endpoint
+      operationId: createWebhooksOutgoingEndpoints
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        description: "Information about a new Endpoint"
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                webhooks_outgoing_endpoint:
+                  type: object
+                  $ref: "#/components/schemas/WebhooksOutgoingEndpointParameters"
+            example:
+              $ref: "#/components/schemas/WebhooksOutgoingEndpointParameters/example"
+      responses:
+        "404":
+          description: "Not Found"
+        "201":
+          description: "Created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhooksOutgoingEndpointAttributes"
+              example:
+                id: 42
+                team_id: 42
+                url: https://example.com/some-endpoint-url
+                name: Example Endpoint
+                event_type_ids: []
+                deactivation_limit_reached_at:
+                deactivated_at:
+                consecutive_failed_deliveries: 0
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+  /webhooks/outgoing/endpoints/{id}:
+    get:
+      tags:
+        - Webhooks::Outgoing::Endpoint
+      summary: Fetch Endpoint
+      description: Fetch Endpoint
+      operationId: getWebhooksOutgoingEndpoints
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhooksOutgoingEndpointAttributes"
+              example:
+                id: 42
+                team_id: 42
+                url: https://example.com/some-endpoint-url
+                name: Example Endpoint
+                event_type_ids: []
+                deactivation_limit_reached_at:
+                deactivated_at:
+                consecutive_failed_deliveries: 0
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+    put:
+      tags:
+        - Webhooks::Outgoing::Endpoint
+      summary: Update Endpoint
+      description: Update Endpoint
+      operationId: updateWebhooksOutgoingEndpoints
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        description: "Information about updated fields in Endpoint"
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                webhooks_outgoing_endpoint:
+                  type: object
+                  $ref: "#/components/schemas/WebhooksOutgoingEndpointParametersUpdate"
+            example:
+              $ref: "#/components/schemas/WebhooksOutgoingEndpointParametersUpdate/example"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhooksOutgoingEndpointAttributes"
+              example:
+                id: 42
+                team_id: 42
+                url: https://example.com/some-endpoint-url
+                name: Example Endpoint
+                event_type_ids: []
+                deactivation_limit_reached_at:
+                deactivated_at:
+                consecutive_failed_deliveries: 0
+                created_at: '2023-01-01T00:00:00.000Z'
+                updated_at: '2023-01-02T00:00:00.000Z'
+  
+    delete:
+      tags:
+        - Webhooks::Outgoing::Endpoint
+      summary: List Endpoints
+      description: List Endpoints
+      operationId: removeWebhooksOutgoingEndpoints
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          description: "Not Found"
+        "204":
+          description: "No Content"
+
+  /teams/{team_id}/webhooks/outgoing/events:
+    get:
+      tags:
+        - Webhooks::Outgoing::Event
+      summary: List Events
+      description: List Events
+      operationId: listWebhooksOutgoingEvents
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/after"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          headers:
+            Pagination-Next:
+              $ref: "#/components/headers/PaginationNext"
+            Link:
+              $ref: "#/components/headers/Link"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebhooksOutgoingEventAttributes"
+              example:
+                - id: 42
+                  team_id: 42
+                  uuid: fb70091717741be6b8ea7a2505cc6d47
+                  event_type_id: scaffolding/absolutely_abstract/creative_concept.created
+                  subject_id: 42
+                  subject_type: Scaffolding::AbsolutelyAbstract::CreativeConcept
+                  data: '{"id":42,"created_at":"2023-01-01T00:00:00.000Z","updated_at":"2023-01-02T00:00:00.000Z","value":"one"}'
+                  created_at: '2023-01-01T00:00:00.000Z'
+                - id: 42
+                  team_id: 42
+                  uuid: 7bf2eab88de3093208e435d30e06c690
+                  event_type_id: scaffolding/absolutely_abstract/creative_concept.created
+                  subject_id: 42
+                  subject_type: Scaffolding::AbsolutelyAbstract::CreativeConcept
+                  data: '{"id":42,"created_at":"2023-01-01T00:00:00.000Z","updated_at":"2023-01-02T00:00:00.000Z","value":"one"}'
+                  created_at: '2023-01-01T00:00:00.000Z'
+  
+  /webhooks/outgoing/events/{id}:
+    get:
+      tags:
+        - Webhooks::Outgoing::Event
+      summary: Fetch Event
+      description: Fetch Event
+      operationId: getWebhooksOutgoingEvents
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          description: "Not Found"
+        "200":
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhooksOutgoingEventAttributes"
+              example:
+                id: 42
+                team_id: 42
+                uuid: 06a8f246e50813d234e85be266e9c8ea
+                event_type_id: scaffolding/absolutely_abstract/creative_concept.created
+                subject_id: 42
+                subject_type: Scaffolding::AbsolutelyAbstract::CreativeConcept
+                data: '{"id":42,"created_at":"2023-01-01T00:00:00.000Z","updated_at":"2023-01-02T00:00:00.000Z","value":"one"}'
+                created_at: '2023-01-01T00:00:00.000Z'
+  
+    delete:
+      tags:
+        - Webhooks::Outgoing::Event
+      summary: List Events
+      description: List Events
+      operationId: removeWebhooksOutgoingEvents
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "404":
+          description: "Not Found"
+        "204":
+          description: "No Content"
+
+  
+  /teams/{obfuscated_team_id}/clusters:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listClusters
+      summary: List clusters
+      description: Live clusters only. Excludes deprovisioned. Computed status and SMTP.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Cluster list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleCluster"
+    post:
+      operationId: createCluster
+      summary: Create a shared-IP cluster
+      description: A pending team can create one. A second cluster returns kyc_required until the team is approved. Issues a default SMTP user that is not in the response. Returns payment_required when Stripe billing is on and the team has no card. Always sets ip_assignment to shared. During beta, plan must be nano, micro, small, medium, or large.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                cluster:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    name: { type: string }
+                    region: { type: string }
+                    size: { type: string }
+                    plan: { type: string }
+                    classification: { type: string, enum: [transactional, bulk] }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Created cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+        "403":
+          description: kyc_required (second cluster while pending) or payment_required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: Validation failed, including no shared IP stocked for the chosen classification
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  errors:
+                    type: array
+                    items: { type: string }
+  /clusters/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getCluster
+      summary: Get a cluster
+      description: Computed status, SMTP endpoint, assigned IP, sending_ready, and refused_sends from the last 7 days.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+    patch:
+      operationId: updateCluster
+      summary: Update a cluster
+      description: Same fields as account edit. During beta, plan must be nano, micro, small, medium, or large. Changing plan bumps the hourly throttle and syncs Stripe capacity when configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                cluster:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    name: { type: string }
+                    region: { type: string }
+                    size: { type: string }
+                    plan: { type: string }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Updated cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+        "422":
+          description: "Validation failed, or {error: archived} if the cluster is deprovisioned"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  errors:
+                    type: array
+                    items: { type: string }
+                  error: { type: string }
+    delete:
+      operationId: teardownCluster
+      summary: Teardown a cluster
+      description: Calls Cluster#teardown!. The row stays. desired_status becomes deprovisioned. Live SMTP credentials are disabled. Domains are untouched.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Torn-down cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+  /clusters/{id}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: suspendCluster
+      summary: Suspend a cluster
+      description: "Calls Cluster#suspend!. Returns 422 {error: archived} if the cluster is deprovisioned."
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Suspended cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+        "422":
+          description: "{error: archived} if the cluster is deprovisioned"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /emails:
+    post:
+      operationId: createEmail
+      summary: Compose and queue. Optional X-Capsule-Cluster-Id pins a cluster
+      description: "Same body and gates as POST /sends. The token picks the team. POST /emails still does not need a cluster id. Optional request header X-Capsule-Cluster-Id pins a sending cluster the token's team owns. With tenant and no header, it uses a sending-ready cluster that has a live credential for that tenant. Otherwise the first sending-ready cluster. Returns 403 {error: cluster_not_ready, field: cluster} when none matches. A cluster the token's team does not own is 404."
+      parameters:
+        - name: X-Capsule-Cluster-Id
+          in: header
+          required: false
+          schema: { type: string, example: NmQpXr }
+          description: Optional request header. Public cluster id the token's team owns. Overrides tenant and first-ready pick.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CapsuleSendRequest"
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Queued send
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSend"
+        "403":
+          description: "{error, field, message}. cluster_not_ready, domain_unverified, domain_suspended, credential_missing, suppressed, firewall, or kyc_required."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "413":
+          description: "{error: payload_too_large, field, message}. A request body over 36 MB, attachments over 18 MB in total, or a composed message over 25 MB."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: "{error: invalid | too_many_recipients, field, message}. too_many_recipients when to, cc, and bcc hold more than 50 addresses."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "502":
+          description: "{error: inject_failed | inject_timeout_unknown, field: base, message, retryable: false}. inject_timeout_unknown means the message may have been queued."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "503":
+          description: "{error: inject_unavailable, field: base, message, retryable: true}. The cluster could not be reached and nothing was sent."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /teams/{obfuscated_team_id}/clusters/{obfuscated_cluster_id}/sends:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+      - $ref: "#/components/parameters/obfuscated_cluster_id"
+    post:
+      operationId: createSend
+      summary: Compose and queue a message on one cluster
+      description: Validates a verified From domain and a sending_ready cluster, composes RFC822, and POSTs inject. A flat body is preferred. Nested send is still accepted. Optional Idempotency-Key replays the first 201 for 24 hours and is reserved before the send, so a concurrent or timed-out request with the same key is never sent twice.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 256 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CapsuleSendRequest"
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Sandbox compose. queued is false. Inject was not called.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSend"
+        "201":
+          description: Queued send
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSend"
+        "400":
+          description: Idempotency-Key is present and not 1 to 256 characters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "403":
+          description: "{error, field, message}. cluster_not_ready, domain_unverified, domain_suspended, credential_missing, suppressed, firewall, or kyc_required."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "409":
+          description: "idempotency_conflict when the key was used with a different body, cluster, or sandbox flag. idempotency_in_progress while the first request runs. idempotency_outcome_unknown when that request timed out and may have been queued."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "413":
+          description: "{error: payload_too_large, field, message}. A request body over 36 MB, attachments over 18 MB in total, or a composed message over 25 MB."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: "{error: invalid | too_many_recipients, field, message}. too_many_recipients when to, cc, and bcc hold more than 50 addresses."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "502":
+          description: "{error: inject_failed | inject_timeout_unknown, field: base, message, retryable: false}. inject_timeout_unknown means the message may have been queued."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "503":
+          description: "{error: inject_unavailable | idempotency_unavailable, field, message, retryable: true}. The cluster could not be reached, or an Idempotency-Key could not be stored. Nothing was sent."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /clusters/{id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: resumeCluster
+      summary: Resume a cluster
+      description: "Calls Cluster#resume!. Returns 422 {error: archived} if the cluster is deprovisioned."
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Resumed cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+        "422":
+          description: "{error: archived} if the cluster is deprovisioned"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /clusters/{id}/reactivate:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: reactivateCluster
+      summary: Reactivate an archived shared-IP cluster
+      description: "Calls Cluster#reactivate!. A pending team can reactivate when it has no live cluster. Returns 403 {error: kyc_required} when a live cluster already exists and the team is not approved. Returns 403 {error: payment_required} when Stripe billing is on and the team has no card. Returns 403 {error: team_suspended} while the account is suspended. Returns 422 {error: dedicated} for a dedicated cluster and 422 {error: not_archived} if the cluster is still live."
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Reactivated cluster
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+        "403":
+          description: kyc_required, payment_required, or team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: "{error: dedicated} or {error: not_archived}"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /clusters/{id}/boost:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: boostCluster
+      summary: Buy a 24-hour outbound capacity boost
+      description: "Server chooses price and target from sku. Does not change cluster.plan or the monthly subscription. Returns 404 {error: feature_disabled} unless CAPACITY_BOOSTS_ENABLED=1. Returns 403 {error: payment_required} when Stripe billing is on and the team has no card."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                sku: { type: string, example: small_to_large }
+                starts_at: { type: [string, "null"] }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          description: "Cluster missing, or {error: feature_disabled}"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "201":
+          description: Cluster with an active or scheduled boost
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+        "403":
+          description: payment_required or team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: "{error: archived} if the cluster is deprovisioned"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /clusters/{id}/extend_boost:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: extendClusterBoost
+      summary: Add 24 hours to an active boost
+      description: "Scheduled boosts cannot be extended. Pass idempotency_key to retry safely. Returns 403 {error: extensions_disabled} when CAPACITY_BOOST_EXTENSIONS_ENABLED=0."
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                idempotency_key: { type: string, example: extend-1 }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          description: "Cluster missing, or {error: feature_disabled}"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "200":
+          description: Cluster with the extended boost
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+        "403":
+          description: extensions_disabled or team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: "{error: archived} or not_extendable"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /clusters/{id}/cancel_boost:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: cancelClusterBoost
+      summary: Cancel a scheduled boost that has not started
+      description: Refunds the one-time charge. Active boosts cannot be cancelled.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          description: "Cluster missing, or {error: feature_disabled}"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "200":
+          description: Cluster after the scheduled boost is cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+        "403":
+          description: team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: "{error: archived} or not_cancellable"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /clusters/{id}/auto_boost:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    patch:
+      operationId: updateClusterAutoBoost
+      summary: Turn auto-boost on or off
+      description: With a sku set, a cluster that reaches its hourly or 24-hour limit boosts itself for 24 hours and the boost's one-time price is charged to the card on file. A blank sku turns it off. monthly_limit caps auto-boosts per calendar month (UTC).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sku:
+                  type: [string, "null"]
+                  description: A boost sku for the cluster's current plan, or blank to turn auto-boost off
+                monthly_limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          description: "Cluster missing, or {error: feature_disabled}"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "200":
+          description: Cluster with the updated auto_boost setting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCluster"
+        "403":
+          description: payment_required or team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: "{error: archived} or {error: invalid}"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /teams/{obfuscated_team_id}/network:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listNetwork
+      summary: List available and owned sending IPs
+      description: Optional classification or cluster_id filters to that class. Shared addresses mask the last octet until assigned to one of your clusters. Dedicated addresses are full when the team owns the row.
+      parameters:
+        - name: classification
+          in: query
+          required: false
+          schema: { type: string, enum: [transactional, bulk] }
+        - name: cluster_id
+          in: query
+          required: false
+          schema: { type: string, example: NmQpXr }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Network IP list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleNetworkIp"
+    post:
+      operationId: createNetworkIp
+      summary: Buy or assign a chosen sending IP
+      description: Shared IPs require cluster_id. A dedicated IP may stay unassigned. Paid adds return payment_required when Stripe billing is on and the team has no card.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ip_address_id: { type: string, example: IpQwEr }
+                cluster_id: { type: string, example: NmQpXr }
+                classification: { type: string, enum: [transactional, bulk] }
+                split: { type: string, enum: [default, custom] }
+                percents: { type: object, additionalProperties: { type: integer } }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Purchased or assigned IP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleNetworkIp"
+        "403":
+          description: payment_required or team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: empty_inventory, sku_unprovisioned, class_mismatch, cluster_required, already_claimed, or weights
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /teams/{obfuscated_team_id}/network/assign:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    post:
+      operationId: assignNetworkIp
+      summary: Assign an owned dedicated IP to a same-class cluster
+      description: The IP can already sit on another of the team's same-class clusters. Returns dedicated_taken when that cluster already has a dedicated IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ip_address_id: { type: string, example: IpQwEr }
+                cluster_id: { type: string, example: NmQpXr }
+                split: { type: string, enum: [default, custom] }
+                percents: { type: object, additionalProperties: { type: integer } }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Assigned IP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleNetworkIp"
+        "403":
+          description: team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: class_mismatch, dedicated_taken, cluster_required, or weights
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /teams/{obfuscated_team_id}/network/unassign:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    post:
+      operationId: unassignNetworkIp
+      summary: Remove an IP from a cluster
+      description: Returns last_ip when it is the cluster's only sending IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ip_address_id: { type: string, example: IpQwEr }
+                cluster_id: { type: string, example: NmQpXr }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Unassigned IP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleNetworkIp"
+        "403":
+          description: team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: last_ip or cluster_required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /teams/{obfuscated_team_id}/network/switch:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    post:
+      operationId: switchNetworkIp
+      summary: Replace the included shared IP
+      description: Free same-class shared switch of the included slot. No card required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ip_address_id: { type: string, example: IpQwEr }
+                cluster_id: { type: string, example: NmQpXr }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Switched IP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleNetworkIp"
+        "403":
+          description: team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: last_ip, class_mismatch, or cluster_required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /teams/{obfuscated_team_id}/network/release:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    post:
+      operationId: releaseNetworkIp
+      summary: Return an owned dedicated IP to inventory
+      description: Stops the dedicated IP bill. Returns last_ip when a cluster still has only that IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ip_address_id: { type: string, example: IpQwEr }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Released IP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleNetworkIp"
+        "403":
+          description: team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: last_ip or not_dedicated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /teams/{obfuscated_team_id}/clusters/{obfuscated_cluster_id}/smtp_credentials:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+      - $ref: "#/components/parameters/obfuscated_cluster_id"
+    post:
+      operationId: createSmtpCredential
+      summary: Create SMTP credentials
+      description: Password is returned once.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                smtp_credential:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    tenant_id: { type: string, example: WbLcFd }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSmtpCredential"
+  /teams/{obfuscated_team_id}/clusters/{obfuscated_cluster_id}/smtp_credentials/{id}:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+      - $ref: "#/components/parameters/obfuscated_cluster_id"
+      - $ref: "#/components/parameters/id"
+    delete:
+      operationId: disableSmtpCredential
+      summary: Disable SMTP credentials
+      description: Calls SmtpCredential#disable!. Password is omitted.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Disabled credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSmtpCredential"
+  /teams/{obfuscated_team_id}/sending_domains:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listSendingDomains
+      summary: List sending domains
+      description: Includes DKIM, SPF, and return-path records.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Domain list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleSendingDomain"
+    post:
+      operationId: createSendingDomain
+      summary: Create a sending domain
+      description: Optional tenant_id. Queues a DNS check.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                sending_domain:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    name: { type: string }
+                    dkim_selector: { type: string }
+                    dkim_manual: { type: boolean }
+                    dkim_private_key: { type: string, description: RSA private key PEM. Never returned. }
+                    tenant_id: { type: string, example: WbLcFd }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Created domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSendingDomain"
+  /sending_domains/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getSendingDomain
+      summary: Get a sending domain
+      description: DKIM CNAME or TXT, return-path CNAME, and optional DMARC TXT.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSendingDomain"
+    delete:
+      operationId: deleteSendingDomain
+      summary: Delete a sending domain
+      description: Calls SendingDomain#remove!. Live inboxes block. Disabled inboxes do not.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "204":
+          description: Deleted
+        "422":
+          description: Cannot delete
+    patch:
+      operationId: updateSendingDomain
+      summary: Update DKIM on a sending domain
+      description: Change dkim_selector, dkim_manual, or import a PEM private key. Breaks authentication and sending until the new record verifies. Never returns dkim_private_key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                sending_domain:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    dkim_selector: { type: string }
+                    dkim_manual: { type: boolean }
+                    dkim_private_key: { type: string, description: RSA private key PEM. Never returned. }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          description: team_suspended
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "422":
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  errors:
+                    type: array
+                    items: { type: string }
+        "200":
+          description: Updated domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSendingDomain"
+  /sending_domains/{id}/refresh:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: refreshSendingDomain
+      summary: Issue new DKIM keys
+      description: Breaks authentication and sending until you publish the new CNAME or TXT and verify.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          description: team_suspended
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "422":
+          description: Operator DNS publish failed
+        "200":
+          description: Domain with new keys
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSendingDomain"
+  /sending_domains/{id}/verify:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: verifySendingDomain
+      summary: Verify a sending domain
+      description: Runs a DNS check now and returns current statuses.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSendingDomain"
+  /sending_domains/{id}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: suspendSendingDomain
+      summary: Suspend a sending domain
+      description: Calls SendingDomain#suspend!.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Suspended domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSendingDomain"
+  /sending_domains/{id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: resumeSendingDomain
+      summary: Resume a sending domain
+      description: "Calls SendingDomain#resume!. Returns 422 {error: operator_held} while PostShiba support has turned the domain off, 403 {error: dbl_listed} while the domain is on the Spamhaus DBL, and 503 {error: dbl_unavailable} when the listing cannot be re-checked."
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Resumed domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSendingDomain"
+        "403":
+          description: dbl_listed while the domain is on the Spamhaus DBL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "422":
+          description: operator_held while PostShiba support has turned the domain off
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+        "503":
+          description: dbl_unavailable when the listing cannot be re-checked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /sending_domains/{id}/make_primary:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: makePrimarySendingDomain
+      summary: Make a sending domain the account primary
+      description: "Sets the account primary sending domain. The domain must be verified and not suspended."
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "422":
+          description: Domain must be verified and not suspended
+        "200":
+          description: Primary domain
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSendingDomain"
+  /sending_domains/{id}/can_i_send_this:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: canISendThisSendingDomain
+      summary: Test a sending domain with CanISendThis
+      description: Mints a CanISendThis inbox and sends one message from hello@domain. Poll the same path with the returned token.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          description: Cluster not ready, domain unverified, or KYC blocked
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "502":
+          description: CanISendThis or inject failed
+        "200":
+          description: Inbox minted and message queued
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [token, email, poll_after_seconds, poll_path, report_url]
+                properties:
+                  token: { type: string }
+                  email: { type: string }
+                  poll_after_seconds: { type: integer }
+                  poll_path: { type: string }
+                  report_url: { type: string }
+    get:
+      operationId: pollCanISendThisSendingDomain
+      summary: Poll a CanISendThis report
+      description: 202 waiting. 200 ready. 410 expired. 404 missing.
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "410":
+          description: Inbox expired
+        "202":
+          description: Waiting for mail
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties:
+                  status: { type: string, enum: [waiting] }
+        "200":
+          description: Report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleCanISendThisReady"
+  /teams/{obfuscated_team_id}/tenants:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listTenants
+      summary: List extra tenants
+      description: Hides the default tenant.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Tenant list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleTenant"
+    post:
+      operationId: createTenant
+      summary: Create a tenant
+      description: Slug is generated from name when omitted. Returns team_suspended while the account is suspended.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                tenant:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    name: { type: string }
+                    slug: { type: string }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Created tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleTenant"
+        "403":
+          description: team_suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /tenants/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getTenant
+      summary: Get a tenant
+      description: Includes the default tenant.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleTenant"
+    delete:
+      operationId: deleteTenant
+      summary: Delete a tenant
+      description: SMTP users are deleted. Domains and inboxes move to destination_tenant_id, or the default tenant when that is omitted. Rejected for the default tenant.
+      parameters:
+        - name: destination_tenant_id
+          in: query
+          required: false
+          schema: {type: string}
+          description: Tenant that receives domains and inboxes. Defaults to the team's default tenant.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "204":
+          description: Deleted
+        "422":
+          description: Cannot delete
+  /tenants/{id}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: suspendTenant
+      summary: Suspend a tenant
+      description: Calls Tenant#suspend!.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Suspended tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleTenant"
+  /tenants/{id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: resumeTenant
+      summary: Resume a tenant
+      description: Calls Tenant#resume!.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Resumed tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleTenant"
+  /teams/{obfuscated_team_id}/inboxes:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listInboxes
+      summary: List live inboxes
+      description: Omits webhook_secret.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Inbox list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleInbox"
+    post:
+      operationId: createInbox
+      summary: Create an inbox
+      description: Returns the webhook secret. Inbox create is open while KYC is pending. An active shared cluster is required for edge routing. Omit host and sending_domain_id for a hosted address. Set local_part and host for a domain-bound address; sending_domain_id is inferred from host when omitted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                inbox:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    name: { type: string }
+                    local_part: { type: string }
+                    sending_domain_id: { type: string, example: HsVtYk }
+                    tenant_id: { type: string, example: WbLcFd }
+                    host: { type: string }
+                    forward_to: { type: string }
+                    webhook_url: { type: string }
+                    webhook_format: { type: string }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Created inbox
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleInbox"
+  /inboxes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getInbox
+      summary: Get a live inbox
+      description: Includes webhook_secret.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Inbox
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleInbox"
+    delete:
+      operationId: disableInbox
+      summary: Disable an inbox
+      description: Calls Inbox#disable!. The address can be created again.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Disabled inbox
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleInbox"
+  /inboxes/{id}/verify:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: verifyInbox
+      summary: Verify inbox MX
+      description: Queues Inbound::VerifyJob.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Inbox
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleInbox"
+  /inboxes/{inbox_id}/inbound_messages:
+    parameters:
+      - name: inbox_id
+        in: path
+        required: true
+        schema: { type: string, example: PqRzMn }
+    get:
+      operationId: listInboundMessages
+      summary: List alive inbound messages
+      description: Newest first, capped at 200. Attachment rows omit content_base64.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Message list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleInboundMessage"
+  /inboxes/{inbox_id}/inbound_messages/{id}:
+    parameters:
+      - name: inbox_id
+        in: path
+        required: true
+        schema: { type: string, example: PqRzMn }
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getInboundMessage
+      summary: Get an inbound message
+      description: Includes raw MIME and attachment content_base64. Both are null after a webhook inbox delivers or gives up.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleInboundMessage"
+  /inboxes/{inbox_id}/inbound_messages/{id}/attachments/{index}:
+    parameters:
+      - name: inbox_id
+        in: path
+        required: true
+        schema: { type: string, example: PqRzMn }
+      - $ref: "#/components/parameters/id"
+      - name: index
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+        description: 1-based position in the message attachments array.
+    get:
+      operationId: downloadInboundAttachment
+      summary: Download an inbound attachment
+      description: Returns the decoded file. Index is 1-based and matches the attachments array on show. Returns 410 after a webhook inbox delivers or gives up.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "410":
+          description: Attachment bytes were removed after the webhook delivered or gave up.
+        "200":
+          description: Decoded attachment bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /teams/{obfuscated_team_id}/outbound_messages:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listOutboundMessages
+      summary: List stored outbound messages
+      description: Newest first. Omits text, html, and attachments. Team Administrator keys only.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+          description: Matches message_id, subject, from, or to.
+        - name: before
+          in: query
+          required: false
+          schema: { type: string, example: OuTbMs }
+          description: Public id of the last message on the previous page.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 100, maximum: 200 }
+          description: Page size. Default 100. Max 200.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          $ref: "#/components/responses/CapsuleForbidden"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Message list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleOutboundMessage"
+  /outbound_messages/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getOutboundMessage
+      summary: Get a stored outbound message
+      description: Includes the text and html parts and attachment metadata. Team Administrator keys only.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          $ref: "#/components/responses/CapsuleForbidden"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleOutboundMessage"
+  /outbound_messages/{id}/raw:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: downloadOutboundMessage
+      summary: Download a stored outbound message
+      description: Returns the message as a .eml file. Team Administrator keys only.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          $ref: "#/components/responses/CapsuleForbidden"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "410":
+          description: The stored copy can't be read.
+        "200":
+          description: Raw message
+          content:
+            message/rfc822:
+              schema:
+                type: string
+                format: binary
+  /outbound_messages/{id}/attachments/{index}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: index
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+        description: 1-based position in the message attachments array.
+    get:
+      operationId: downloadOutboundAttachment
+      summary: Download an outbound attachment
+      description: Returns the decoded file. Index is 1-based and matches the attachments array on show. Team Administrator keys only.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          $ref: "#/components/responses/CapsuleForbidden"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "410":
+          description: The stored copy can't be read.
+        "200":
+          description: Decoded attachment bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /teams/{obfuscated_team_id}/outbound_retention:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: getOutboundRetention
+      summary: Get outbound retention
+      description: Days a copy of each composed message is kept, and the allowed values. Team Administrator keys only.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          $ref: "#/components/responses/CapsuleForbidden"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Outbound retention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleOutboundRetention"
+    patch:
+      operationId: updateOutboundRetention
+      summary: Update outbound retention
+      description: outbound_retention_days must be one of the options. Team Administrator keys only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                team:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    outbound_retention_days: { type: integer, enum: [0, 7, 28, 45, 90, 180, 365] }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          $ref: "#/components/responses/CapsuleForbidden"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "422":
+          description: outbound_retention_days is not an allowed value.
+        "200":
+          description: Outbound retention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleOutboundRetention"
+  /teams/{obfuscated_team_id}/message_events:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listTeamMessageEvents
+      summary: List latest team events
+      description: Newest first, capped at 200. Filters apply first.
+      parameters:
+        - name: cluster_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: Public cluster id. Same window as the cluster Events page.
+        - name: message_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: Exact message id
+        - name: recipient
+          in: query
+          required: false
+          schema: { type: string }
+          description: Case-insensitive exact recipient
+        - name: mx_provider
+          in: query
+          required: false
+          schema: { type: string }
+          description: Case-insensitive exact MX provider
+        - name: sending_ip
+          in: query
+          required: false
+          schema: { type: string, example: "203.0.113.10" }
+          description: Exact sending IP
+        - name: tenant_id
+          in: query
+          required: false
+          schema: { type: string, example: WbLcFd }
+          description: Public tenant id
+        - name: sending_domain_id
+          in: query
+          required: false
+          schema: { type: string, example: HsVtYk }
+          description: Public sending domain id
+        - name: event_type
+          in: query
+          required: false
+          schema: { type: string }
+          description: Exact event type
+        - name: since
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Occurred at on or after
+        - name: until
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Occurred at on or before
+        - name: query
+          in: query
+          required: false
+          schema: { type: string }
+          description: JSON and/or group of field rules. Same fields as the Events page.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Event list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleMessageEvent"
+  /teams/{obfuscated_team_id}/recipients:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: lookupRecipient
+      summary: Look up a recipient
+      description: Recent sends, suppressions, firewall verdict, and whether the address can receive mail.
+      parameters:
+        - name: email
+          in: query
+          required: false
+          schema: { type: string }
+          description: Recipient address. Case-insensitive.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Recipient lookup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleRecipient"
+  /teams/{obfuscated_team_id}/analytics:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: getAnalytics
+      summary: Delivery analytics
+      description: Totals and rows for the token's team. Optional compare returns the previous window of the same length.
+      parameters:
+        - name: since
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: until
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: dimension
+          in: query
+          required: false
+          schema: { type: string }
+        - name: min_processed
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: compare
+          in: query
+          required: false
+          schema: { type: boolean }
+        - name: compare_since
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: compare_until
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          $ref: "#/components/responses/CapsuleForbidden"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleAnalytics"
+  /teams/{obfuscated_team_id}/status:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: getStatus
+      summary: Team sending status
+      description: Cap, holds, suspension, and KYC for the token's team.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "403":
+          $ref: "#/components/responses/CapsuleForbidden"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleStatus"
+  /teams/{obfuscated_team_id}/planned_sends:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listPlannedSends
+      summary: List open planned sends
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Planned send list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsulePlannedSend"
+    post:
+      operationId: createPlannedSend
+      summary: Record a planned send
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                planned_send:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    cluster_id: { type: string }
+                    volume_per_hour: { type: integer }
+                    scheduled_for: { type: string, format: date-time }
+                    name: { type: string }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Planned send
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsulePlannedSend"
+  /teams/{obfuscated_team_id}/planned_sends/{id}:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getPlannedSend
+      summary: Get one planned send
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Planned send
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsulePlannedSend"
+    delete:
+      operationId: cancelPlannedSend
+      summary: Cancel a planned send
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Cancelled planned send
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsulePlannedSend"
+  /teams/{obfuscated_team_id}/clusters/{obfuscated_cluster_id}/message_events:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+      - $ref: "#/components/parameters/obfuscated_cluster_id"
+    get:
+      operationId: listMessageEvents
+      summary: List latest events
+      description: Newest first, capped at 200. Filters apply first.
+      parameters:
+        - name: message_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: Exact message id
+        - name: recipient
+          in: query
+          required: false
+          schema: { type: string }
+          description: Case-insensitive exact recipient
+        - name: mx_provider
+          in: query
+          required: false
+          schema: { type: string }
+          description: Case-insensitive exact MX provider
+        - name: sending_ip
+          in: query
+          required: false
+          schema: { type: string, example: "203.0.113.10" }
+          description: Exact sending IP
+        - name: tenant_id
+          in: query
+          required: false
+          schema: { type: string, example: WbLcFd }
+          description: Public tenant id
+        - name: sending_domain_id
+          in: query
+          required: false
+          schema: { type: string, example: HsVtYk }
+          description: Public sending domain id
+        - name: event_type
+          in: query
+          required: false
+          schema: { type: string }
+          description: Exact event type
+        - name: since
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Occurred at on or after
+        - name: until
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Occurred at on or before
+        - name: query
+          in: query
+          required: false
+          schema: { type: string }
+          description: JSON and/or group of field rules. Same fields as the Events page.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Event list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleMessageEvent"
+  /message_events/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getMessageEvent
+      summary: Get an event
+      description: Full access includes the raw payload. A Support key omits payload and masks digits in subject-like fields.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleMessageEvent"
+  /teams/{obfuscated_team_id}/webhook_endpoints:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listWebhookEndpoints
+      summary: List webhook endpoints
+      description: Omits the signing secret.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Endpoint list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleWebhookEndpoint"
+    post:
+      operationId: createWebhookEndpoint
+      summary: Create a webhook endpoint
+      description: Returns the signing secret.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                webhook_endpoint:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    url: { type: string }
+                    enabled: { type: boolean }
+                    event_types:
+                      type: array
+                      items: { type: string }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Created endpoint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleWebhookEndpoint"
+  /webhook_endpoints/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getWebhookEndpoint
+      summary: Get a webhook endpoint
+      description: Includes the signing secret.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Endpoint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleWebhookEndpoint"
+  /teams/{obfuscated_team_id}/templates:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listEmailTemplates
+      summary: List templates
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Template list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleEmailTemplate"
+    post:
+      operationId: createEmailTemplate
+      summary: Create a draft template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email_template:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    name: { type: string }
+                    alias: { type: string }
+                    from: { type: string }
+                    reply_to: { type: string }
+                    subject: { type: string }
+                    html: { type: string }
+                    text: { type: string }
+                    css: { type: string }
+                    sample_data: { type: object }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Created template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleEmailTemplate"
+        "422":
+          description: Invalid template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+  /templates/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getEmailTemplate
+      summary: Get a template
+      description: id is the public id or alias.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleEmailTemplate"
+    patch:
+      operationId: updateEmailTemplate
+      summary: Update a template draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email_template:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    name: { type: string }
+                    alias: { type: string }
+                    from: { type: string }
+                    reply_to: { type: string }
+                    subject: { type: string }
+                    html: { type: string }
+                    text: { type: string }
+                    css: { type: string }
+                    sample_data: { type: object }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleEmailTemplate"
+        "422":
+          description: Invalid template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleError"
+    delete:
+      operationId: deleteEmailTemplate
+      summary: Delete a template
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "204":
+          description: Deleted
+  /templates/{id}/publish:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: publishEmailTemplate
+      summary: Publish a template
+      description: Copies the current draft into the published snapshot used at send time.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Published template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleEmailTemplate"
+  /templates/{id}/duplicate:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: duplicateEmailTemplate
+      summary: Duplicate a template
+      description: Copies the draft into a new unpublished template.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Duplicated template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleEmailTemplate"
+  /teams/{obfuscated_team_id}/suppressions:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listSuppressions
+      summary: List suppressions
+      description: Id-ascending pages. Default 100, max 1000.
+      parameters:
+        - $ref: "#/components/parameters/after"
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 100, maximum: 1000 }
+          description: Page size. Default 100. Max 1000.
+        - name: email
+          in: query
+          required: false
+          schema: { type: string }
+          description: Case-insensitive exact address. Plus tags collapse to the stripped address.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Suppression list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleSuppression"
+    post:
+      operationId: createSuppression
+      summary: Add a suppression
+      description: Reason is always manual. Optional tenant_id defaults to the team's default tenant.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                suppression:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    email: { type: string }
+                    tenant_id: { type: string, example: WbLcFd }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Created suppression
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSuppression"
+  /teams/{obfuscated_team_id}/suppressions/import:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    post:
+      operationId: importSuppressions
+      summary: Import suppressions
+      description: Add many addresses. Reason is always manual. Optional tenant_id defaults to the team's default tenant. Existing rows are skipped. Max 10,000 addresses. A CSV file is also accepted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                emails:
+                  type: array
+                  items: { type: string }
+                  example: ["blocked@example.com", "old@example.com"]
+                tenant_id: { type: string, example: WbLcFd }
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                file: { type: string, format: binary }
+                emails:
+                  type: array
+                  items: { type: string }
+                tenant_id: { type: string, example: WbLcFd }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "422":
+          $ref: "#/components/responses/CapsuleUnprocessable"
+        "200":
+          description: Import counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleSuppressionImport"
+  /suppressions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    delete:
+      operationId: deleteSuppression
+      summary: Remove a suppression
+      description: Deletes the row.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "204":
+          description: Removed
+  /teams/{obfuscated_team_id}/firewall:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: getFirewall
+      summary: Get the sending firewall
+      description: Team-scoped pre-send recipient checks.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Firewall policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleFirewall"
+    patch:
+      operationId: updateFirewall
+      summary: Update enabled firewall checks
+      description: Replaces enabled_checks. Unknown ids are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                firewall:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    enabled_checks: { type: array, items: { type: string } }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Firewall policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleFirewall"
+  /teams/{obfuscated_team_id}/firewall_entries:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    post:
+      operationId: createFirewallEntry
+      summary: Add a firewall deny or allow value
+      description: list is deny or allow. value is a domain or address.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                firewall_entry:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    list: { type: string }
+                    value: { type: string }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Created entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleFirewallEntry"
+  /firewall_entries/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    delete:
+      operationId: deleteFirewallEntry
+      summary: Remove a firewall entry
+      description: Deletes the row.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "204":
+          description: Removed
+  /teams/{obfuscated_team_id}/shield_sites:
+    parameters:
+      - $ref: "#/components/parameters/obfuscated_team_id"
+    get:
+      operationId: listShieldSites
+      summary: List ShieldShiba sites
+      description: Omits secret_key.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Site list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CapsuleShieldSite"
+    post:
+      operationId: createShieldSite
+      summary: Create a ShieldShiba site
+      description: Returns secret_key. allowed_hostnames also takes a comma or space separated string.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                shield_site:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    name: { type: string }
+                    allowed_hostnames:
+                      oneOf:
+                        - { type: string }
+                        - { type: array, items: { type: string } }
+                    block_hosting: { type: boolean }
+                    block_free_email: { type: boolean }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "201":
+          description: Created site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleShieldSite"
+        "422":
+          description: Invalid site
+  /shield_sites/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      operationId: getShieldSite
+      summary: Get a ShieldShiba site
+      description: Includes secret_key.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleShieldSite"
+    patch:
+      operationId: updateShieldSite
+      summary: Update a ShieldShiba site
+      description: Omits secret_key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                shield_site:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    name: { type: string }
+                    allowed_hostnames:
+                      oneOf:
+                        - { type: string }
+                        - { type: array, items: { type: string } }
+                    block_hosting: { type: boolean }
+                    block_free_email: { type: boolean }
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleShieldSite"
+        "422":
+          description: Invalid site
+    delete:
+      operationId: deleteShieldSite
+      summary: Delete a ShieldShiba site
+      description: Widgets using its site key stop passing.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "204":
+          description: Removed
+  /shield_sites/{id}/rotate_secret:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      operationId: rotateShieldSiteSecret
+      summary: Rotate a ShieldShiba secret key
+      description: Returns the new secret_key. The old one stops working at once.
+      responses:
+        "401":
+          $ref: "#/components/responses/CapsuleUnauthorized"
+        "404":
+          $ref: "#/components/responses/CapsuleNotFound"
+        "200":
+          description: Site with the new secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapsuleShieldSite"

@@ -1,0 +1,70 @@
+{
+  "name": "foldkit-remote-server",
+  "version": "0.13.1",
+  "description": "Server sources and handler compilation for foldkit-remote: entities, selection authorization, and normalization.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "server-state",
+    "rpc",
+    "authorization",
+    "normalization"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/remote-server"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/remote-server#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./port": {
+      "foldkit-plus:source": "./src/port.ts",
+      "types": "./dist/port.d.mts",
+      "import": "./dist/port.mjs"
+    },
+    "./fetch": {
+      "foldkit-plus:source": "./src/fetch.ts",
+      "types": "./dist/fetch.d.mts",
+      "import": "./dist/fetch.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "foldkit-entity": "workspace:*",
+    "foldkit-remote": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-surface": "workspace:*",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  }
+}

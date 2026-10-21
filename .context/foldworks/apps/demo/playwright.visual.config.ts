@@ -1,0 +1,48 @@
+import { fileURLToPath } from "node:url";
+import { defineConfig, devices } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./visual",
+  outputDir: "../../test-results/visual",
+  fullyParallel: true,
+  forbidOnly: Boolean(process.env.CI),
+  retries: process.env.CI ? 1 : 0,
+  reporter: [["list"], ["html", { open: "never", outputFolder: "../../playwright-report/visual" }]],
+  expect: {
+    timeout: 10_000,
+    toHaveScreenshot: {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.001,
+      scale: "css",
+    },
+  },
+  use: {
+    ...devices["Desktop Chrome"],
+    baseURL: "http://127.0.0.1:4175",
+    colorScheme: "light",
+    // reducedMotion is only honored as a context option, not a top-level test option.
+    contextOptions: { reducedMotion: "reduce" },
+    locale: "en-US",
+    timezoneId: "UTC",
+    viewport: { width: 1440, height: 1000 },
+    launchOptions: {
+      // Repaints during capture (injected screenshot styles, animations) otherwise
+      // re-raster only dirty rects, varying anti-aliased curves by a step between runs.
+      args: ["--disable-partial-raster"],
+      // Render only pinned fonts with explicit settings, not the host's /etc/fonts.
+      env: {
+        ...process.env,
+        FONTCONFIG_FILE: fileURLToPath(new URL("./visual/fonts.conf", import.meta.url)),
+      },
+    },
+  },
+  projects: [{ name: "chromium", use: { browserName: "chromium" } }],
+  snapshotPathTemplate: "{testDir}/__screenshots__/{arg}{ext}",
+  webServer: {
+    command: "pnpm build && pnpm exec vite preview --host 127.0.0.1 --port 4175 --strictPort",
+    url: "http://127.0.0.1:4175",
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
+});

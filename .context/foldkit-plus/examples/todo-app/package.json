@@ -1,0 +1,43 @@
+{
+  "name": "foldkit-example-todo-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/dev.ts",
+    "server": "tsx src/serverMain.ts",
+    "build:sandbox": "vite build --mode sandbox",
+    "demo": "tsx src/main.ts",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@effect/sql-sqlite-wasm": "4.0.0",
+    "@effect/wa-sqlite": "0.1.2",
+    "@foldkit/ui": "0.165.0",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-agent": "workspace:*",
+    "foldkit-agent-webmcp": "workspace:*",
+    "foldkit-bundle": "workspace:*",
+    "foldkit-durable": "workspace:*",
+    "foldkit-example-site": "workspace:*",
+    "foldkit-mixins": "workspace:*",
+    "foldkit-mixins-surface": "workspace:*",
+    "foldkit-mixins-ui": "workspace:*",
+    "foldkit-mirror": "workspace:*",
+    "foldkit-primitives": "workspace:*",
+    "foldkit-surface": "workspace:*",
+    "foldkit-sync": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "@types/jsdom": "21.1.7",
+    "@types/ws": "^8.5.12",
+    "fake-indexeddb": "6.2.4",
+    "jsdom": "26.1.0",
+    "playwright": "^1.63.0",
+    "typescript": "5.9.3",
+    "vite": "5.4.21"
+  }
+}

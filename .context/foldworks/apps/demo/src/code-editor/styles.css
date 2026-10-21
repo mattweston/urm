@@ -1,0 +1,194 @@
+.code-demo {
+  padding: 36px;
+  overflow: auto;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.code-demo__workspace {
+  height: 640px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.code-demo__reference-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+}
+.code-demo__intro {
+  max-width: 680px;
+  margin-bottom: 28px;
+}
+.code-demo__eyebrow {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.code-demo__intro h1 {
+  font-size: clamp(26px, 3vw, 36px);
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  margin: 0 0 12px;
+}
+.code-demo__intro > p:last-child {
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+.code-demo__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.code-demo__save {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.code-demo__announcement {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  margin: 16px 0;
+}
+/* The environment file's host token kinds and highlights. */
+.code-demo .native-token--semantic[data-kind="reference"] {
+  color: var(--native-keyword);
+}
+.code-demo .native-token--semantic[data-kind="unknown"] {
+  color: var(--native-comment);
+  font-style: italic;
+}
+.code-demo .native-token--highlight[data-highlight="reference"] {
+  outline: 1px solid color-mix(in srgb, var(--primary, #5674c7) 45%, transparent);
+  outline-offset: -1px;
+}
+.code-demo-hover {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.code-demo-hover p {
+  margin: 0;
+}
+.code-demo-hover__heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.code-demo-hover__heading code {
+  font-weight: 600;
+}
+.code-demo-hover__heading span {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.code-demo-hover__values code + code::before {
+  content: " · ";
+  color: var(--muted-foreground);
+}
+.code-demo-settings {
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  padding: 10px 6px;
+}
+.code-demo-settings h2 {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 4px 6px 6px;
+}
+.code-demo-settings h2:not(:first-child) {
+  margin-top: 14px;
+}
+.code-demo-settings ul {
+  display: grid;
+  gap: 1px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.code-demo-settings__entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 8px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 4px 6px;
+  text-align: left;
+  cursor: pointer;
+}
+.code-demo-settings__entry:hover {
+  background: var(--muted);
+}
+.code-demo-settings__entry:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.code-demo-settings__entry[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--primary, #5674c7) 14%, transparent);
+}
+.code-demo-settings__entry code {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.code-demo-settings__entry[data-known="false"] code {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.code-demo-settings__uses,
+.code-demo-settings__value {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.code-demo-settings__value {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .code-demo {
+    padding: 22px 16px;
+  }
+  .code-demo__save {
+    margin-left: 0;
+  }
+  .code-demo__workspace {
+    height: auto;
+    overflow: visible;
+  }
+  .code-demo__workspace [data-workspace] {
+    height: auto;
+    overflow: visible;
+  }
+  .code-demo__workspace [data-workspace] > div {
+    display: flex;
+    flex-direction: column;
+    min-width: 0 !important;
+    min-height: 0 !important;
+  }
+  .code-demo__workspace [data-workspace] > div > section {
+    width: 100%;
+    min-height: 0;
+  }
+  .code-demo__workspace [data-workspace] > div > [role="separator"] {
+    display: none;
+  }
+}

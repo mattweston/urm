@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "types": ["node", "vite/client"],
+    "paths": {
+      "@/*": ["../registry/styles/default/*"],
+      "@/components/ui/*": ["../registry/styles/default/ui/*"],
+      "@foldcn/registry": ["../registry/registry.json"],
+      "@foldcn/registry/styles/default/*": ["../registry/styles/default/*"],
+      "@foldcn/registry/styles/*": ["../registry/styles/*"],
+      "@foldcn/registry/registry/default/ui/registry.json": [
+        "../registry/registry/default/ui/registry.json"
+      ],
+      "@foldcn/registry/registry/default/lib/registry.json": [
+        "../registry/registry/default/lib/registry.json"
+      ],
+      "@foldcn/registry/registry/default/blocks/registry.json": [
+        "../registry/registry/default/blocks/registry.json"
+      ],
+      "@foldcn/registry/registry/default/style/registry.json": [
+        "../registry/registry/default/style/registry.json"
+      ]
+    }
+  },
+  "include": ["src/**/*", "scripts/**/*"]
+}

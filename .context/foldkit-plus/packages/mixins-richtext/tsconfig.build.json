@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": ".tsbuild/build",
+    "tsBuildInfoFile": ".tsbuild/build/tsconfig.build.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    {
+      "path": "../mixins/tsconfig.build.json"
+    },
+    {
+      "path": "../richtext/tsconfig.build.json"
+    },
+    {
+      "path": "../richtext-dom/tsconfig.build.json"
+    },
+    {
+      "path": "../primitives/tsconfig.build.json"
+    },
+    {
+      "path": "../richtext-markdown/tsconfig.build.json"
+    }
+  ]
+}

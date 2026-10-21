@@ -1,0 +1,3 @@
+# ADR-004: Self-contained component modules
+
+Each `registry:ui` item is a single `.ts` file containing everything: Model type, Message type, update function, and styled view function. Users copy the file and it works — no manual wiring of types. For stateless helpers (Button, Input, etc.), the file exports a view function. For stateful submodels (Dialog, Menu, etc.), the file exports Model/Message/OutMessage/init/update/view wired via `h.submodel` — either re-exported from a backing @foldkit/ui submodel or, when no such primitive exists (toggle, toggle-group, accordion, collapsible, resizable), authored in the file itself following the same conventions.

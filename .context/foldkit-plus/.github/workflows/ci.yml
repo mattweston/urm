@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      # tsdown needs Promise.withResolvers, so Node 22 is the floor. The version
+      # is pinned in pnpm-workspace.yaml for local runs.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm format:check
+
+      - run: pnpm paths:check
+
+      # Every branch on a `_tag` goes through a type the checker holds (AGENTS.md).
+      - run: pnpm tags:check
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Forced, so a warm `.tsbuild` cannot hide a project-graph change.
+      - run: pnpm typecheck:force
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The browser binaries survive across runs; the install skips what the
+      # cache already holds and fetches the rest, so a version bump stays correct.
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # The browser tests (`*.browser.test.ts`) run in headless Chromium.
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm test
+
+  # The examples with a server, end to end: each test starts the server and
+  # Vite, and drives a real Chromium.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm e2e
+
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Also proves the example runs against the packages' published entry
+      # points, which is how it imports them. Plain `tsx` traces: no browser.
+      # The build id names no deployment; the SSG example's build refuses an
+      # empty one, so CI names its own.
+      - run: pnpm demo
+        env:
+          FOLDKIT_BUILD_ID: ci
+
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # And that every package still packs with those entry points, which is
+      # what a release actually publishes. The build id names no deployment;
+      # see above.
+      - run: pnpm pack:check
+        env:
+          FOLDKIT_BUILD_ID: ci

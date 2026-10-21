@@ -1,0 +1,590 @@
+# `foldkit-agent`
+
+Lets an agent use a Foldkit application through the transitions it already
+has. It adds two boundaries and nothing else:
+
+```text
+Model         -> context projection   what an agent may see
+Message union -> Agent.expose         what an agent may do
+```
+
+A capability **is** a Message, so an agent cannot do anything the application
+cannot, and there is no second implementation of a feature to keep in step. The
+context is a `foldkit-surface` projection, so the value a view renders is the
+value an agent reads. `update` remains the single source of truth, and the
+protocol adapters are translation only.
+
+What you get for declaring that once: typed input decoded at the boundary,
+capabilities that appear and disappear with the Model, authorization beside the
+Messages it governs, a completion contract so a call resolves on the fact rather
+than on receipt, an audit log of every decision, and four protocol adapters that
+add no authority of their own.
+
+**Use it when** an assistant, a copilot, or another service should drive the
+application the way a person does. **Not for** DOM automation: this dispatches
+Messages, so if the behaviour is not a Message, add one. **Not a guarantee of
+exactly-once effects**: completion says a correlated fact was applied, not that
+an external action can be safely repeated.
+
+## Install
+
+```bash
+pnpm add foldkit-agent
+```
+
+`foldkit` and `effect` are peer dependencies. The
+[agents guide](https://github.com/doeixd/foldkit-plus/blob/main/docs/agents.md) covers the mental model, and
+[examples/todo](https://github.com/doeixd/foldkit-plus/tree/main/examples/todo) is a worked contract.
+
+A community package, not affiliated with or endorsed by the Foldkit
+maintainers.
+
+## Usage
+
+Start from a normal Foldkit application:
+
+```ts
+import { Schema } from 'effect'
+import { defineMessageUnion } from 'foldkit/message'
+
+const Todo = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  completed: Schema.Boolean,
+})
+
+const Model = Schema.Struct({
+  todos: Schema.Array(Todo),
+  selectedTodoId: Schema.Option(Schema.String),
+})
+
+type Model = typeof Model.Type
+
+const Message = defineMessageUnion({
+  RequestedCreateTodo: { title: Schema.String },
+  RequestedRenameTodo: { id: Schema.String, title: Schema.String },
+  RequestedDeleteTodo: { id: Schema.String },
+  ReceivedTodos: { todos: Schema.Array(Todo) },
+  FailedToLoadTodos: { message: Schema.String },
+})
+```
+
+Bind the constructors to your application, then declare the contract:
+
+```ts
+import { Agent } from 'foldkit-agent'
+import { Projection, Surface } from 'foldkit-surface'
+import { Effect, Option } from 'effect'
+
+const App = Surface.application({ Model, Message })
+
+const TodoAgent = Agent.forApplication(App)
+
+const AppAgent = TodoAgent.make({
+  // This projection is the context returned to the agent.
+  context: Projection.pick(App.model.todos, App.model.selectedTodoId),
+
+  messages: TodoAgent.expose(Message, {
+    // A variant that needs nothing but a description can be written as one.
+    RequestedCreateTodo: 'Create a new todo',
+    RequestedRenameTodo: 'Rename an existing todo',
+    RequestedDeleteTodo: {
+      name: 'delete_todo',
+      description: 'Delete the selected todo',
+      available: model => Option.isSome(model.selectedTodoId),
+    },
+  }),
+})
+```
+
+`ReceivedTodos` and `FailedToLoadTodos` are never reachable by an agent.
+Exposure is opt-in, and there is deliberately no `exposeAll()`.
+
+The contract is a declaration: it does not run `update` or register tools.
+Bind it to your existing runtime using three host functions: `currentModel`
+reads the current immutable Model, `sendToRuntime` dispatches a Message, and
+`onModelChange` subscribes a callback and returns an unsubscribe function.
+[The todo host](../../examples/todo/src/store.ts) implements that seam.
+
+```ts
+const agentRuntime = TodoAgent.bind({
+  definition: AppAgent,
+  host: {
+    model: currentModel,
+    dispatch: sendToRuntime,
+    subscribe: onModelChange,
+  },
+})
+```
+
+Once bound, an in-process invocation uses the same path as a protocol adapter:
+
+```ts
+const result = await Effect.runPromise(
+  agentRuntime.messages.dispatch(Message.RequestedCreateTodo, { title: 'Read the guide' }),
+)
+```
+
+`dispatch` returns an Effect; constructing it performs no dispatch. Running it
+decodes the input, checks policy, and sends the Message. This example has no
+completion contract, so success means dispatch finished, not that a remote
+save completed. Add completion when the application's later result matters.
+
+The host must accept every Message the contract can construct -- a wider union
+is fine, a narrower one is a type error -- and a contract whose hooks read a
+principal must be given a `principal` provider of the matching type.
+
+### Wiring
+
+The contract joins a `foldkit-bundle` assembly contract-only, so the Module
+sees it:
+
+```ts
+const wiring = AppAgent.wiring()
+```
+
+It routes nothing and subscribes to nothing -- an agent adds no state -- and
+`wiring.contract` is the same contract above.
+
+## Choosing the completion boundary
+
+| Capability does | Meaning of a successful call | Required host seam |
+| --- | --- | --- |
+| Immediate transition, no completion declared | Validated dispatch finished | `model`, `dispatch` |
+| Work that later emits a result Message | A matching result was observed | Add `observe`; correlate overlapping calls |
+| Work whose result is a condition on state | The declared condition holds | Add `subscribe` (or a subscribable source) |
+
+A timeout or cancellation after dispatch does not roll back the application.
+Read current state before deciding whether to retry an effectful operation.
+
+## API
+
+| Function | Purpose |
+| --- | --- |
+| `Surface.application({ Model, Message, initial, update })` | Captures the application once; `App.model` are typed field references. `initial`/`update` are optional (a runnable application is needed only for sync). |
+| `Projection.pick(App.model.todos, ...)` | The information boundary: what an agent may see. |
+| `Projection.compose(...)` | Compose disjoint picks into one context. |
+| `MessageSet.make(App, [constructors])` / `MessageSet.union(...)` | A typed Message subset, and the union of several disjoint subsets. |
+| `Agent.expose(Message, variants)` | The capability boundary: what an agent may do. |
+| `Agent.exposeSubset(subset, variants)` | The same, restricted to a `MessageSet.make` subset. |
+| `Agent.variant(config)` | A mapped variant whose callbacks are inferred from its `input`. |
+| `Agent.action(action, { available?, authorize? })` | A `foldkit-surface` Action as a variant: its name, description, input and Message. |
+| `Agent.resource(name, options)` | A named read-only projection of Model state. |
+| `Agent.make({ context, messages, resources })` | The protocol-neutral contract; `context` is a `Projection`, a `Projection.pick`, or a feature Surface. |
+| `Agent.forApplication(App)` / `Agent.forApplication(App).withPrincipal<Principal>()` | The above, with `Model` inferred from a `Surface.application`; `withPrincipal` fixes the `Principal` type, or takes it from the Context key a server reads it from (`withPrincipal(G.Principal)`), so the two are one type. |
+| `Agent.forModel<Model>()` | The same, when only a Model (no application) is available. |
+| `Agent.bind({ definition, host })` | Binds the contract to a live Runtime. |
+| `Agent.schema/messages/resources/contextSchema` | Introspection, as plain data. |
+| `Agent.toManifest(definition)` | The contract as `agent.json`, for committing and diffing. |
+| `Agent.toMarkdown(definition)` | The contract as documentation. |
+| `Agent.auditLog(options)` | A bounded record of decisions, refusals included. |
+| `Agent.summarize(result)` | One outcome summary, so the adapters map results to their protocols the same way. |
+| `Agent.newInvocationId()` | The default invocation id generator, for an adapter supplying its own. |
+
+### Variant configuration
+
+```ts
+RequestedDeleteTodo: {
+  name: 'delete_todo',              // optional; defaults to requested_delete_todo
+  description: 'Delete a todo',     // required
+  available: model => ...,          // optional: does the capability exist in this Model?
+  authorize: ({ principal, input, model, transport }) => ...,  // optional
+  input: Schema.Struct({ id: Schema.String }),                 // optional external input
+  toMessage: ({ id }, { invocation }) => ({ id, source: 'Agent' }),
+}
+```
+
+`input` and `toMessage` must be supplied together; supplying `input` alone is a
+type error and a runtime error.
+
+Written inline, `toMessage` and `authorize` are both checked against the
+variant's own input -- the payload for a direct variant, the `input` codec's
+decoded type for a mapped one -- alongside `principal`, `model` and `transport`.
+No annotation is needed.
+
+`authorize` answers `true`, `false`, or `{ allowed: false, reason }`, or an
+`Effect` of one. A refusal with a `reason` is the `AgentAuthorizationError`'s
+message, so the agent learns why; a bare `false` says only that it was not
+authorized.
+
+The one thing `expose` cannot infer inline is `completion`. `success` and
+`failure` are inference sites, so written inline `correlate` receives any
+Message of the union; `Agent.variant` narrows it to the Messages the contract
+actually names:
+
+```ts
+RequestedDeleteTodo: Agent.variant({
+  description: 'Delete a todo',
+  input: Schema.Struct({ id: Schema.String }),
+  toMessage: ({ id }, { invocation }) => ({ id, requestId: invocation.id }),
+  completion: {
+    success: Message.DeletedTodo,
+    // `result` is DeletedTodo here, not any Message.
+    correlate: (request, result) => request.id === result.id,
+  },
+}),
+```
+
+Reach for it when a completion contract's `correlate` should be checked against
+the Messages it names. Otherwise write the variant inline.
+
+A capability already declared as a `foldkit-surface` Action, because a page
+Block's button causes it too, is exposed with `Agent.action` under the tag of
+the Message it makes; exposing it under another tag is a type error, and a
+dispatch through it refused:
+
+```ts
+Agent.expose(Message, {
+  AddedToCart: Agent.action(AddToCart, {
+    // Give the principal its type: an Action's extras are not tied to an application.
+    authorize: ({ principal }: { readonly principal: Shopper }) => principal.canBuy,
+  }),
+})
+```
+
+Without an explicit `name`, the tag is normalized: `RequestedDeleteTodo` becomes
+`requested_delete_todo`. Every capital starts a word, with no special case for
+runs of them, so a tag with an acronym is better given an explicit name.
+
+A capability `name` becomes a protocol-facing tool name, so it must match
+`[a-zA-Z0-9_-]{1,128}`. An invalid name fails at `Agent.expose`, rather than at
+registration where the client would reject it with no reference back to the
+contract.
+
+### Introspection
+
+The contract is data, so it is testable without an LLM:
+
+```ts
+expect(Agent.messages(AppAgent).map(message => message.name)).toEqual([
+  'create_todo',
+  'rename_todo',
+  'delete_todo',
+])
+```
+
+### Documenting a contract
+
+The contract is data, so its documentation is generated rather than written:
+
+```ts
+writeFileSync('agent.json', JSON.stringify(Agent.toManifest(AppAgent), null, 2))
+writeFileSync('AGENT.md', Agent.toMarkdown(AppAgent))
+```
+
+Both are reproducible for a given contract and read nothing from the Model, so a
+committed manifest makes a change to what an application exposes show up in
+review rather than only at runtime.
+
+### Dispatch
+
+Every invocation runs the same five steps, in this order:
+
+1. **Resolve** the capability, by Message constructor or by protocol name.
+2. **`available(model)`** — does this capability exist in the current Model?
+3. **Decode** the input through the capability's own Effect Schema.
+4. **`authorize`** — may this principal do it?
+5. **Construct and dispatch** the Message into the host.
+
+A refusal at any step before the last sends no Message at all. `available` runs
+before `authorize` deliberately: a capability the Model does not offer reports
+as unavailable rather than leaking whether the caller would have been permitted.
+All of steps 2 to 4 read one Model snapshot, taken when dispatch begins.
+
+A capability can be named by its Message constructor or by its protocol name.
+Both are checked, and both infer the input:
+
+```ts
+agentRuntime.messages.dispatch(Message.RequestedDeleteTodo, { id: 'todo-1' })
+agentRuntime.messages.dispatch('delete_todo', { id: 'todo-1' })
+
+// Errors, at compile time:
+agentRuntime.messages.dispatch(Message.RequestedDeleteTodo, { todoId: 'x' }) // wrong payload
+agentRuntime.messages.dispatch(Message.ReceivedTodos, { todos: [] })        // not exposed
+agentRuntime.messages.dispatch('delete_todoo', { id: 'todo-1' })            // no such capability
+```
+
+The reference form is worth preferring: it survives a rename of the capability,
+and it needs no name at all for a variant that never declared one.
+
+`invocation` is optional. In-app callers can omit it -- the id is generated and
+the transport defaults to `in-app` -- while an adapter passes its own:
+
+```ts
+agentRuntime.messages.dispatch(Message.RequestedDeleteTodo, { id: 'todo-1' }, {
+  id: crypto.randomUUID(),
+  transport: 'webmcp',
+  signal,
+})
+```
+
+An adapter reads a tool name and an unvalidated payload off the wire, so
+neither can be checked at compile time. That path is `dispatchUnknown`:
+
+```ts
+agentRuntime.messages.dispatchUnknown(nameFromTheWire, payloadFromTheWire, invocation)
+```
+
+Input is typed as the **encoded** side of the capability's schema, because that
+is what dispatch decodes. A payload of `Schema.NumberFromString` is sent as a
+string and reaches `update` as a number.
+
+### Audit
+
+Every decision the contract makes can be recorded, refusals included:
+
+```ts
+const audit = Agent.auditLog({
+  capacity: 500,
+  principal: (caller: User) => caller.id, // an id, not the whole identity
+})
+
+const agentRuntime = TodoAgent.bind({ definition: AppAgent, host, audit })
+
+audit.entries()
+// [{ at, invocation, transport, capability, tag, principal,
+//    decision: 'refused', outcome: 'AgentAuthorizationError' }]
+```
+
+What it will not keep:
+
+- **The input, unless you ask.** It is caller-supplied and may carry anything.
+  `includeInput: true` turns it on, and `redact: ['token']` replaces named
+  fields.
+- **The principal, without a projection.** No projection, no principal --
+  identities carry secrets.
+- **The Model.** Never, by any setting.
+
+The log is a bounded ring buffer, and a sink that throws never fails a dispatch:
+accountability must not become a new way for a capability to break. Pass any
+`AuditSink` to forward entries somewhere durable instead.
+
+This is not Model replay. Re-dispatching a recorded invocation stays an explicit
+human action.
+
+### Completion
+
+Dispatching a Message and completing an operation are not always the same event.
+A capability can say which Messages finish its work:
+
+```ts
+RequestedDeleteTodo: {
+  description: 'Delete a todo',
+  completion: {
+    success: Message.DeletedTodo,
+    failure: Message.FailedDeleteTodo,
+    correlate: (request, result) => request.id === result.id,
+    timeout: Duration.seconds(10),
+  },
+}
+```
+
+`dispatch` then waits, and the result carries
+`completion: { status: 'completed' | 'failed', message }`. Without a contract,
+validated dispatch remains the boundary and the field is absent.
+
+This needs a host that can see Messages, not only receive them:
+
+```ts
+host: {
+  model: currentModel,
+  dispatch: sendToRuntime,
+  observe: onMessage, // required by a contract that declares completion
+}
+```
+
+A contract declaring completion is refused at `bind` when the host cannot
+observe, rather than silently reporting every call as complete.
+
+Waiting always has a deadline; it defaults to 30 seconds. It runs from the
+moment the host's `dispatch` is called, so a host that never returns is bounded
+by the same budget. `AgentCompletionTimeoutError` means the wait ended, **not**
+that anything was undone -- the Message reached `update`. The same is true of
+cancelling while a completion is pending.
+
+An abort also settles a host `dispatch` that has not returned, with or without a
+completion contract; without one there is no deadline, so only the signal
+bounds it. Either way the error says delivery is unknown, `AgentCancelledError`
+carries `dispatched: false`, and the audit records `decision: 'unknown'`.
+
+Give `correlate` whenever two invocations of a capability can be in flight at
+once. Without it the first matching Message wins, whichever invocation caused it.
+Its third argument is the call, `{ invocation }`. Where the input cannot tell
+two calls apart (two todos titled "Milk"), pass `invocation.id` into the Message
+from `toMessage`, carry it onto the fact the Command produces, and correlate on
+it:
+
+```ts
+toMessage: ({ title }, { invocation }) => ({ title, requestId: invocation.id }),
+completion: {
+  success: Message.SubmittedTodo,
+  correlate: (_, result, { invocation }) => result.requestId === invocation.id,
+},
+```
+
+#### Completing on state
+
+A Message names one implementation path. When what matters is the outcome --
+the project now has the requested name, whether a Command result, a live update,
+a Sync exchange, or another device put it there -- complete on state instead:
+
+```ts
+RequestedRenameProject: {
+  description: 'Rename a project',
+  completion: Agent.when({
+    projection: ProjectName,
+    predicate: (name, request) => name === request.name,
+  }),
+}
+```
+
+`predicate` reads the projection's value and the capability's input. Both are
+inferred when `when` is written inline in `Agent.expose`; inside `Agent.variant`
+annotate `request`, which is checked against the variant's `input`. The projection must read
+this application's Model, and the host needs `subscribe`; `bind` refuses one
+without it. A value outside the Model reads through `source: { get, subscribe }`
+instead, such as `foldkit-sync`'s `mounted.committed`.
+
+Completed means the condition holds, not that this call made it true. Dispatch
+subscribes before sending and checks once more when it starts waiting, so a
+change `update` makes synchronously is not missed, and a state that already
+holds completes at once. Write a predicate only this call can make true; a
+creation, where only the resulting fact says which record is this call's,
+completes on its Message with `correlate`.
+
+The result carries `status: 'completed'` and no `message`. A predicate that
+throws fails that invocation as a defect, never the code that changed the Model,
+and a projected value a notification left unchanged is not evaluated again (a
+`source` is re-evaluated on every notification, since it may mutate in place). `timeout` and
+cancellation behave as they do for a Message contract.
+
+An invocation whose signal is already aborted is refused before the Model is
+read, and one aborted while decoding or `authorize` is pending never constructs
+or dispatches its Message. Both fail with `AgentCancelledError`.
+
+A host failure may occur after delivery, and completion timeouts and
+cancellation after delivery do not undo it: the Message reached `update`.
+
+Checking `available` before `authorize` is one half of a single guarantee: an
+unavailable capability is
+absent from `messages.available`, and dispatching it by name fails with
+`AgentCapabilityUnavailableError`. Availability is stronger than tool
+visibility -- knowing the name is not enough. Splitting it into separate
+discoverability and invocability predicates was considered and rejected:
+whichever predicate gates dispatch still has to run before `authorize`, so a
+split reintroduces the ordering hazard this order exists to prevent. A
+genuinely "hidden but invocable" capability would be a second predicate layered
+on `available`, not a replacement for it, and nothing here needs one yet.
+
+Decoding rejects undeclared fields, matching the `additionalProperties: false`
+the derived JSON Schema advertises. A capability
+with no payload accepts `{}` and nothing else -- not `[]`, not a string, and not
+an object with fields it never declared.
+
+Failures are tagged and `Schema`-backed, so `Effect.catchTag` narrows them and
+an adapter can encode one to JSON and send it across a protocol boundary:
+
+```ts
+dispatch.pipe(
+  Effect.catchTag('AgentCapabilityUnavailableError', error =>
+    Effect.succeed(`${error.capability} is not available`),
+  ),
+)
+```
+
+`AgentUnknownCapabilityError`, `AgentCapabilityUnavailableError`,
+`AgentInvalidInputError`, `AgentAuthorizationError`, `AgentCancelledError`, and
+`AgentResourceError`
+for resource reads. Every `message` is written for the calling agent: it names
+the capability and never restates the underlying decode failure, which stays on
+the error's `cause` for the application.
+
+Dispatch runs inside an `Agent.dispatch` span annotated with the capability,
+transport, and invocation id, so agent-originated transitions show up in
+tracing alongside the rest of the application.
+
+### The Model snapshot
+
+An invocation captures one Model snapshot when dispatch begins. `available`,
+`authorize`, and `toMessage` all observe that snapshot, and a later Model change
+does not retarget an invocation already in flight.
+
+`host.model()` is called once per invocation, not once per predicate, and
+`InvocationContext.model` is that snapshot -- the same value `available` was
+checked against. There is no separate field for it.
+
+The host must treat returned Models as immutable and replace them on updates.
+The runtime retains the reference; it does not clone the Model. Unknown
+capabilities and already-cancelled invocations never read the Model.
+
+This matters because a contextual capability can read the Model twice:
+
+```ts
+RequestedDeleteTodo: {
+  name: 'delete_selected_todo',
+  description: 'Delete the currently selected todo',
+  available: model => Option.isSome(model.selectedTodoId),
+  input: Schema.Struct({}),
+  toMessage: (_, { model }) => ({ id: Option.getOrThrow(model.selectedTodoId) }),
+}
+```
+
+That is [examples/todo](https://github.com/doeixd/foldkit-plus/tree/main/examples/todo) as written.
+
+The `getOrThrow` is safe only because the Model `toMessage` reads is the one
+`available` approved. Re-reading after an async `authorize` would let the two
+disagree: `available` passing against a new Model while `toMessage` built from
+the old one, or the reverse, so a capability could be dispatched with the
+selection it was never offered for -- or throw on a selection that had just been
+cleared.
+
+Snapshot consistency is not live-state freshness. One invocation sees one Model;
+a later invocation sees the newer one. The Runtime guarantees the first, not the
+second. If the user changes the selection while an invocation is suspended, that
+invocation still targets the selection captured when dispatch began.
+
+Nothing rejects a dispatch because the live Model has advanced since capture.
+Optimistic concurrency -- a version on the snapshot, and an adapter opting into
+failing the stale invocation -- is deliberately not provided, on the same footing
+as the second availability predicate above: it can be added when a real case
+needs it, and adding it early would fix semantics nothing has asked for.
+
+## Why the API looks like this
+
+**Why `bind` and a host, rather than a runtime option.** Foldkit `0.163.0`
+accepts no `agent` option on `makeApplication`, and its runtime handle exposes
+neither the current Model nor a dispatch function, so an agent seam cannot be
+installed from outside Foldkit. `Agent.bind({ definition, host })` is that seam,
+with the application supplying `model` and `dispatch`. `Sync.mount` returns a
+host of the right shape; [examples/todo](https://github.com/doeixd/foldkit-plus/tree/main/examples/todo) writes one
+by hand. If Foldkit later grows the option, it can construct the same seam.
+
+**Why `forApplication` and `forModel`, rather than plain `make`.** TypeScript
+cannot infer `Model` from an `available` callback alone, so `available: model =>
+…` would leave `model` as `any`. `Agent.forApplication(App)` infers it from a
+`Surface.application`, with `App.model` typed; `Agent.forModel<Model>()` fixes
+it when there is no application. `Agent.make` is still there when the Model does
+not matter.
+
+**Effect 4, not 3.** Foldkit `0.165.0` peer-depends on `effect@4.0.0`, so
+snippets written against Effect 3 need translating: `Schema.OptionFromSelf` is
+`Schema.Option` here.
+
+**Why capabilities expose Messages, never setters.** An agent changes the
+application exactly the way a person does: by causing a Message the
+application already handles, which `update` (normally via `modifyFields`) reduces.
+There is no agent-side Model write, so nothing the agent does can bypass
+transition semantics or diverge from what replay shows.
+
+The [design rationale](https://github.com/doeixd/foldkit-plus/blob/main/docs/design/agent-DESIGN.md) records the
+alternatives that were considered and rejected.
+
+## See also
+
+- [The agents guide](https://github.com/doeixd/foldkit-plus/blob/main/docs/agents.md) — what an agent may see and
+  do, and why a capability is a Message.
+- The adapters that serve this contract: [`foldkit-agent-webmcp`](https://github.com/doeixd/foldkit-plus/tree/main/packages/agent-webmcp) in the page,
+  [`foldkit-agent-mcp`](https://github.com/doeixd/foldkit-plus/tree/main/packages/agent-mcp) over MCP, [`foldkit-agent-a2a`](https://github.com/doeixd/foldkit-plus/tree/main/packages/agent-a2a) over A2A, and
+  [`foldkit-agent-native`](https://github.com/doeixd/foldkit-plus/tree/main/packages/agent-native) as Agent Native actions.
+- [`examples/todo`](https://github.com/doeixd/foldkit-plus/tree/main/examples/todo) — a worked contract with a hand-written host; [`examples/todo-app`](https://github.com/doeixd/foldkit-plus/tree/main/examples/todo-app)
+  binds one to a local-first application.

@@ -1,0 +1,73 @@
+// User-facing caveats for registry items whose behavior differs from their
+// shadcn/ui counterpart. Most of these stem from foldkit primitive ceilings
+// (no submenu kinds, no pointer-position anchoring) that are
+// documented in depth in docs/shadcn-base-parity-audit.md; this map surfaces
+// the short version on the item pages themselves so adopters learn the limits
+// before installing.
+//
+// Keep entries short and behavioral. If a caveat becomes false — because a
+// @foldkit/ui primitive lands or the component gains the behavior — delete the
+// entry in the same change that adds the behavior.
+
+export const gapsByItem = {
+  command: [
+    'Data-driven Foldkit API: provide stable item values and content instead of cmdk React children. CommandDialog uses Foldkit Dialog; nested pages and async fetching remain application-owned.',
+  ],
+  menubar: [
+    'Renders independent menus in a bar — no cross-menu keyboard traversal or open-on-hover of the next trigger.',
+  ],
+  'context-menu': [
+    'Right-click opens the menu anchored to the trigger region — foldkit has no pointer-position anchoring primitive yet.',
+  ],
+  toast: [
+    'Only a swipe plays the full leave animation. Closing, the auto-dismiss timer, and Dismiss all unmount the entry after roughly 60ms and cut off the card’s own slide-out — foldkit settles leave animations on the entry wrapper, which is where the swipe exit runs.',
+  ],
+  drawer: [
+    'No snap points, nested stacks, or non-modal drawers — handle drag-to-dismiss and all four directions work.',
+  ],
+  'scroll-area': [
+    "Wheel events over the scrollbar don't scroll the viewport — foldkit has no wheel-delta listener yet.",
+    'No RTL mirroring for the horizontal scrollbar — LTR geometry only.',
+    'Track clicks jump without continuing into a drag — dragging starts on the thumb only.',
+  ],
+  'navigation-menu': [
+    'Each dropdown is its own independently-anchored Popover panel — no shared/morphing Viewport panel or slide-direction indicator like upstream.',
+  ],
+  calendar: ['Single-date selection — no ranges or week numbers.'],
+  slider: ['Single thumb, horizontal orientation only.'],
+  combobox: ['Filtering is owned by your model — no built-in chips UI for multi-select.'],
+  'input-group': [
+    'Addons do not focus the input on click — foldkit has no scoped click-to-focus primitive yet.',
+  ],
+  carousel: [
+    'Embla options are a serializable schema subset on the model (align/loop/duration/startIndex/direction/containScroll/slidesToScroll); plugin instances register via Carousel.configure(id, { plugins }) since they cannot be serialized.',
+    'No imperative API hand-off: listen for ChangedIndex out-messages instead of upstream setApi.',
+  ],
+  menu: [
+    'No submenu, checkbox-item, or radio-item kinds — submenus render as labelled groups and checkbox/radio rows run off demo state; toggling one closes the panel.',
+  ],
+  progress: [
+    'Indeterminate state renders an empty track — animated indeterminacy awaits primitive support.',
+  ],
+  'input-otp': [
+    'Numeric codes only — non-digits are stripped with no pattern or alphanumeric mode like upstream.',
+    'onInput fires on every change; onComplete alone doubles as the update channel, so derive completion from the stored value.',
+  ],
+  'message-scroller': [
+    'Reimplemented as a Foldkit submodel — @foldkit/ui has no message-scroller primitive. Auto-follow at the live edge, the default open position, anchored-turn alignment with previous-turn peek, and the scroll-to-end/start button all work; no visibility tracking (currentAnchorId / visibleMessageIds), no prepend preservation, and no anchored-turn tail spacer — a reply streaming below an anchored turn is not held while it grows (the anchor scrolls once; follow resumes once the reply reaches the live edge).',
+  ],
+  questionnaire: [
+    'Data-driven Foldkit API: questions are declared as an items array on init instead of React children.',
+    'Focus stays where it was after moving between questions — upstream moves focus to the newly active question. Validation failures do focus the invalid answer.',
+    'No arrow-key answer traversal or left/right question navigation — Enter-to-advance and letter/number shortcuts work.',
+    'No native form semantics: no FormData or reset-event integration; answers flow out via the SubmittedAnswers out-message.',
+  ],
+  bubble: [
+    "BubbleContent supports `as: 'div' | 'button' | 'a'` in place of upstream's render prop — other element substitutions need a manual wrapper.",
+  ],
+} as const
+
+const isGapItem = (name: string): name is keyof typeof gapsByItem => name in gapsByItem
+
+export const gapsForItem = (name: string): ReadonlyArray<string> | undefined =>
+  isGapItem(name) ? gapsByItem[name] : undefined

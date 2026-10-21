@@ -1,0 +1,149 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const fixtures = [
+  {
+    name: "first-principles-foundations",
+    heading: "First-principles foundations",
+    catalog: true,
+  },
+  { name: "stateful-floating-primitives", heading: "Stateful floating primitives", catalog: true },
+  { name: "data-display-and-feedback", heading: "Data display and feedback", catalog: true },
+  { name: "forms-and-selection", heading: "Forms and selection", catalog: true },
+  { name: "navigation", heading: "Navigation", catalog: true },
+  { name: "disclosure-and-layout", heading: "Disclosure and layout", catalog: true },
+  { name: "overlays-menus-and-command", heading: "Overlays, menus, and command", catalog: true },
+  { name: "calendar-and-messages", heading: "Calendar and messages", catalog: true },
+  { name: "metrics-and-details", heading: "Metrics and details", catalog: true },
+  { name: "button", heading: "Button" },
+  { name: "badge", heading: "Badge" },
+  { name: "icon", heading: "Icon" },
+  { name: "field-input-textarea-select", heading: "Field, input, textarea, and select" },
+  { name: "read-only-answers", heading: "Read-only answers" },
+  { name: "selection-controls", heading: "Selection controls" },
+  { name: "choice-and-disclosure", heading: "Choice and disclosure" },
+  { name: "panel-and-layout", heading: "Panel and Layout" },
+  { name: "toolbar", heading: "Toolbar" },
+  { name: "semantic-tokens", heading: "Semantic tokens" },
+  { name: "loading-feedback", heading: "Loading feedback" },
+] as const;
+
+type Mode = "Light" | "Dark";
+
+const openCatalog = async (page: Page, mode: Mode): Promise<void> => {
+  await page.addInitScript(() => window.localStorage.clear());
+  await page.goto("/ui-kit", { waitUntil: "networkidle" });
+  await page.getByLabel("Theme", { exact: true }).selectOption("Polaris");
+  await page.getByLabel("Appearance", { exact: true }).selectOption(mode);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "polaris");
+  await expect(page.locator("html")).toHaveAttribute("data-mode", mode.toLowerCase());
+};
+
+const fixtureHeading = (page: Page, fixture: (typeof fixtures)[number]) =>
+  ("catalog" in fixture ? page.locator('[data-component-catalog="true"]') : page).getByRole(
+    "heading",
+    { name: fixture.heading, exact: true },
+  );
+
+const isolateFixture = async (component: ReturnType<Page["locator"]>): Promise<void> => {
+  await component.evaluate((element) => {
+    const catalog = element.closest('[data-component-catalog="true"]');
+    const fixtureGrid = catalog ?? element.parentElement;
+    const outerItem = catalog?.parentElement ?? element;
+    const outerGrid = outerItem.parentElement;
+
+    if (!fixtureGrid || !outerGrid || (catalog && element.parentElement !== catalog)) {
+      throw new Error("Visual fixture is no longer a direct child of its grid");
+    }
+
+    // Keep both grid widths, but remove every other fixture's height and grid placement.
+    if (catalog) {
+      for (const sibling of fixtureGrid.children) {
+        if (sibling !== element) (sibling as HTMLElement).style.display = "none";
+      }
+    }
+    for (const sibling of outerGrid.children) {
+      if (sibling !== outerItem) (sibling as HTMLElement).style.display = "none";
+    }
+  });
+};
+
+// Families from the npm fonts exposed by visual/fonts.conf; any system font means drift.
+const pinnedFontFamily = /^(Inter|DejaVu Sans)( |$)/;
+
+test("renders text only with pinned fonts", async ({ page }) => {
+  await openCatalog(page, "Light");
+  await page.evaluate(() => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.textContent?.trim()) node.parentElement?.setAttribute("data-font-probe", "");
+    }
+  });
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("DOM.enable");
+  await cdp.send("CSS.enable");
+  const { root } = await cdp.send("DOM.getDocument", { depth: -1 });
+  const { nodeIds } = await cdp.send("DOM.querySelectorAll", {
+    nodeId: root.nodeId,
+    selector: "[data-font-probe]",
+  });
+  const families = new Set<string>();
+  for (const nodeId of nodeIds) {
+    const { fonts } = await cdp.send("CSS.getPlatformFontsForNode", { nodeId });
+    for (const font of fonts) families.add(font.familyName);
+  }
+
+  expect(nodeIds.length).toBeGreaterThan(100);
+  expect([...families].filter((family) => !pinnedFontFamily.test(family))).toEqual([]);
+});
+
+for (const mode of ["Light", "Dark"] as const) {
+  test.describe(`Polaris ${mode.toLowerCase()}`, () => {
+    test.beforeEach(async ({ page }) => openCatalog(page, mode));
+
+    test("catalog coverage stays explicit", async ({ page }) => {
+      for (const fixture of fixtures) {
+        await expect(fixtureHeading(page, fixture), fixture.name).toHaveCount(1);
+      }
+    });
+
+    for (const fixture of fixtures) {
+      test(`${fixture.name} matches its approved image`, async ({ page }) => {
+        const component = fixtureHeading(page, fixture).locator("xpath=ancestor::section[1]");
+        await isolateFixture(component);
+        await component.scrollIntoViewIfNeeded();
+        await expect(component).toBeVisible();
+        await expect(component).toHaveScreenshot([
+          `polaris-${mode.toLowerCase()}`,
+          `${fixture.name}.png`,
+        ]);
+      });
+    }
+
+    test("code snippet copy confirms and resets", async ({ page }) => {
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+      const codeBlock = page.locator('[data-component-catalog="true"] [data-language="liquid"]');
+      const copy = codeBlock.getByRole("button");
+
+      await copy.click();
+      await expect(copy).toHaveText("Copied");
+      await expect(copy).toHaveText("Copy", { timeout: 5_000 });
+    });
+
+    test("open dialog matches its approved image", async ({ page }) => {
+      await page.getByRole("button", { name: "Dialog", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "Dialog example" });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveScreenshot([`polaris-${mode.toLowerCase()}`, "dialog-open.png"]);
+    });
+
+    test("open dropdown menu matches its approved image", async ({ page }) => {
+      await page.getByRole("button", { name: "Dropdown menu", exact: true }).click();
+      const menu = page.getByRole("menu").last();
+      await expect(menu).toBeVisible();
+      await expect(menu).toHaveScreenshot([
+        `polaris-${mode.toLowerCase()}`,
+        "dropdown-menu-open.png",
+      ]);
+    });
+  });
+}

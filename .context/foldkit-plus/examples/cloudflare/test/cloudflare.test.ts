@@ -1,0 +1,443 @@
+// @vitest-environment node
+/**
+ * The example worker, end to end on miniflare over real HTTP: Remote reads
+ * an empty list, a Sync exchange commits through the object, `settle`
+ * applies it where Remote reads it back, and a live stream carries the next
+ * commit. D1 holds the operations underneath it all.
+ */
+import { Effect, Fiber } from 'effect'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  exchange,
+  firstChange,
+  pause,
+  takeChanges,
+  queryTodos,
+  readTodo,
+  remoteClient,
+  syncOp,
+  upgradeSync,
+  type ClientSocket,
+} from '../src/client.js'
+import { AllTodos } from '../src/operations.js'
+import { startStack, type CloudflareStack } from '../src/stack.js'
+
+let stack: CloudflareStack
+const sockets: Array<ClientSocket> = []
+
+/**
+ * The first live change a fiber collects, or `null` if none arrives in time.
+ * A stream that delivers nothing must fail the assertion, not hang the test.
+ */
+const firstWithin = (
+  fiber: Fiber.Fiber<ReadonlyArray<unknown>, unknown>,
+  ms = 5000,
+): Promise<unknown> =>
+  Promise.race([
+    Effect.runPromise(Fiber.join(fiber)).then(changes => changes[0]),
+    new Promise<null>(resolve => setTimeout(() => resolve(null), ms)),
+  ])
+
+const changesWithin = (
+  fiber: Fiber.Fiber<Iterable<unknown>, unknown>,
+  ms = 5000,
+): Promise<ReadonlyArray<unknown> | null> =>
+  Promise.race([
+    Effect.runPromise(Fiber.join(fiber)).then(changes => Array.from(changes)),
+    new Promise<null>(resolve => setTimeout(() => resolve(null), ms)),
+  ])
+
+beforeAll(async () => {
+  stack = await startStack()
+}, 120_000)
+
+afterAll(async () => {
+  for (const socket of sockets) socket.close()
+  await stack.stop()
+}, 120_000)
+
+describe('cloudflare example', () => {
+  it('writes through Sync, reads through Remote, and pushes live', async () => {
+    const remote = remoteClient(`${stack.origin}/remote`, 'ada', fetch)
+
+    expect(await queryTodos(remote, { first: 10 })).toEqual([])
+
+    const writer = await upgradeSync(stack.mf, 'ada')
+    expect(writer.status).toBe(101)
+    expect(writer.socket).not.toBeNull()
+    sockets.push(writer.socket!)
+    const sent = await exchange(writer.socket!, {
+      id: '1',
+      cursor: 0,
+      pending: [syncOp('demo', 1, { _tag: 'CreatedTodo', id: 't1', title: 'Milk' })],
+    })
+    expect(sent.error).toBeUndefined()
+    expect((sent.result as { acknowledged: ReadonlyArray<string> }).acknowledged).toEqual([
+      'demo:1',
+    ])
+
+    const rows = await stack.db.prepare('SELECT id, title, done FROM todos').all()
+    expect(rows.results).toEqual([{ id: 't1', title: 'Milk', done: 0 }])
+
+    const read = await readTodo(remote, 't1', ['id', 'title', 'done'])
+    expect(read.entities).toEqual([
+      { entity: 'Todo', id: 't1', values: { id: 't1', title: 'Milk', done: 0 } },
+    ])
+
+    const live = Effect.runFork(
+      firstChange(remote, [{ entity: 'Todo', id: 't1', fields: ['done'] }]),
+    )
+    await pause(300)
+    const toggled = await exchange(writer.socket!, {
+      id: '2',
+      cursor: 1,
+      pending: [syncOp('demo', 2, { _tag: 'ToggledTodo', id: 't1' })],
+    })
+    expect(toggled.error).toBeUndefined()
+    const change = await firstWithin(live)
+    // The change is the toggle, not the row's opening values: a stream that
+    // read no baseline emits its first tick's whole row instead.
+    expect(change).toEqual({
+      _tag: 'EntityPatched',
+      cursor: 1,
+      entity: 'Todo',
+      id: 't1',
+      values: { done: 1 },
+      changed: ['done'],
+    })
+
+    const flipped = await readTodo(remote, 't1', ['done'])
+    expect(flipped.entities).toEqual([{ entity: 'Todo', id: 't1', values: { done: 1 } }])
+
+    const reader = await upgradeSync(stack.mf, 'grace')
+    expect(reader.status).toBe(101)
+    expect(reader.socket).not.toBeNull()
+    sockets.push(reader.socket!)
+    const caughtUp = await exchange(reader.socket!, { id: '1', cursor: 0, pending: [] })
+    expect(caughtUp.error).toBeUndefined()
+    expect((caughtUp.result as { operations: ReadonlyArray<unknown> }).operations).toHaveLength(2)
+  }, 120_000)
+
+  it('carries a row that appears after the stream opened', async () => {
+    // A subscription opened before the row existed reads no baseline for it,
+    // and a tick that only reported settled values would never mention it.
+    const remote = remoteClient(`${stack.origin}/remote`, 'ada', fetch)
+    const waiting = Effect.runFork(
+      firstChange(remote, [{ entity: 'Todo', id: 't9', fields: ['title', 'done'] }]),
+    )
+    await pause(300)
+    const writer = await upgradeSync(stack.mf, 'ada')
+    expect(writer.status).toBe(101)
+    sockets.push(writer.socket!)
+    await exchange(writer.socket!, {
+      id: '1',
+      cursor: 0,
+      pending: [syncOp('appeared', 1, { _tag: 'CreatedTodo', id: 't9', title: 'Bread' })],
+    })
+    const appeared = await firstWithin(waiting)
+    expect(appeared).toEqual({
+      _tag: 'EntityPatched',
+      cursor: 1,
+      entity: 'Todo',
+      id: 't9',
+      values: { title: 'Bread', done: 0 },
+      changed: ['title', 'done'],
+    })
+  }, 120_000)
+
+  it('renames and deletes a row, and live drops it', async () => {
+    const remote = remoteClient(`${stack.origin}/remote`, 'ada', fetch)
+    const writer = await upgradeSync(stack.mf, 'ada')
+    expect(writer.status).toBe(101)
+    expect(writer.socket).not.toBeNull()
+    sockets.push(writer.socket!)
+
+    const created = await exchange(writer.socket!, {
+      id: '1',
+      cursor: 0,
+      pending: [syncOp('crud', 1, { _tag: 'CreatedTodo', id: 't-crud', title: 'Eggs' })],
+    })
+    expect(created.error).toBeUndefined()
+    const renamed = await exchange(writer.socket!, {
+      id: '2',
+      cursor: 0,
+      pending: [syncOp('crud', 2, { _tag: 'RenamedTodo', id: 't-crud', title: 'Rolls' })],
+    })
+    expect(renamed.error).toBeUndefined()
+
+    const read = await readTodo(remote, 't-crud', ['title', 'done'])
+    expect(read.entities).toEqual([
+      { entity: 'Todo', id: 't-crud', values: { title: 'Rolls', done: 0 } },
+    ])
+    const rows = await stack.db
+      .prepare('SELECT title, done FROM todos WHERE id = ?')
+      .bind('t-crud')
+      .all()
+    expect(rows.results).toEqual([{ title: 'Rolls', done: 0 }])
+
+    const waiting = Effect.runFork(
+      firstChange(remote, [{ entity: 'Todo', id: 't-crud', fields: ['title', 'done'] }]),
+    )
+    await pause(300)
+    const deleted = await exchange(writer.socket!, {
+      id: '3',
+      cursor: 0,
+      pending: [syncOp('crud', 3, { _tag: 'DeletedTodo', id: 't-crud' })],
+    })
+    expect(deleted.error).toBeUndefined()
+    const gone = await firstWithin(waiting)
+    expect(gone).toEqual({
+      _tag: 'EntityDeleted',
+      cursor: 1,
+      entity: 'Todo',
+      id: 't-crud',
+    })
+
+    const after = await readTodo(remote, 't-crud', ['title'])
+    expect(after.entities).toEqual([])
+    expect(await queryTodos(remote, { first: 50 })).not.toContain('t-crud')
+    const left = await stack.db.prepare('SELECT id FROM todos WHERE id = ?').bind('t-crud').all()
+    expect(left.results).toEqual([])
+  }, 120_000)
+
+  it('announces a row that joined or left the list', async () => {
+    const remote = remoteClient(`${stack.origin}/remote`, 'ada', fetch)
+    const writer = await upgradeSync(stack.mf, 'ada')
+    expect(writer.status).toBe(101)
+    expect(writer.socket).not.toBeNull()
+    sockets.push(writer.socket!)
+    const anchor = 't-live-a'
+    const joined = 't-live-b'
+    try {
+      const created = await exchange(writer.socket!, {
+        id: '1',
+        cursor: 0,
+        pending: [syncOp('live-member', 1, { _tag: 'CreatedTodo', id: anchor, title: 'Anchor' })],
+      })
+      expect(created.error).toBeUndefined()
+      const watching = Effect.runFork(
+        takeChanges(remote, [{ entity: 'Todo', id: anchor, fields: ['title'] }], 2, joined),
+      )
+      await pause(300)
+      const added = await exchange(writer.socket!, {
+        id: '2',
+        cursor: 0,
+        pending: [syncOp('live-member', 2, { _tag: 'CreatedTodo', id: joined, title: 'Joined' })],
+      })
+      expect(added.error).toBeUndefined()
+      const joinedEvents = await changesWithin(watching)
+      expect(joinedEvents).toEqual([
+        {
+          _tag: 'EntityPatched',
+          cursor: expect.any(Number),
+          entity: 'Todo',
+          id: joined,
+          values: { id: joined, title: 'Joined', done: 0 },
+          changed: ['id', 'title', 'done'],
+        },
+        {
+          _tag: 'ConnectionInsert',
+          cursor: expect.any(Number),
+          connection: AllTodos.ref({}).identity,
+          position: 'prepend',
+          edge: { entity: 'Todo', id: joined, key: `Todo:${joined}` },
+        },
+      ])
+
+      const removing = Effect.runFork(
+        takeChanges(remote, [{ entity: 'Todo', id: anchor, fields: ['title'] }], 2, joined),
+      )
+      await pause(300)
+      const removed = await exchange(writer.socket!, {
+        id: '3',
+        cursor: 0,
+        pending: [syncOp('live-member', 3, { _tag: 'DeletedTodo', id: joined })],
+      })
+      expect(removed.error).toBeUndefined()
+      const leftEvents = await changesWithin(removing)
+      expect(leftEvents).toEqual([
+        {
+          _tag: 'EntityDeleted',
+          cursor: expect.any(Number),
+          entity: 'Todo',
+          id: joined,
+        },
+        {
+          _tag: 'ConnectionRemove',
+          cursor: expect.any(Number),
+          connection: AllTodos.ref({}).identity,
+          edge: { entity: 'Todo', id: joined, key: `Todo:${joined}` },
+        },
+      ])
+    } finally {
+      await stack.db.prepare('DELETE FROM todos WHERE id = ?').bind(anchor).run()
+      await stack.db.prepare('DELETE FROM todos WHERE id = ?').bind(joined).run()
+    }
+  }, 120_000)
+
+  it('answers a non-upgrade without opening anything', async () => {
+    const response = await fetch(`${stack.origin}/sync`)
+    expect(response.status).toBe(404)
+  }, 120_000)
+
+  it('writes a row through a Remote mutation', async () => {
+    const remote = remoteClient(`${stack.origin}/remote`, 'ada', fetch)
+    const mutate = async (payload: {
+      readonly requestId: string
+      readonly mutation: string
+      readonly input: unknown
+    }) => {
+      const response = await fetch(`${stack.origin}/remote`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-actor': 'ada' },
+        body: JSON.stringify({ operation: 'mutate', payload }),
+      })
+      const body = (await response.json()) as { result?: unknown; error?: string }
+      expect(response.status).toBe(200)
+      expect(body.error).toBeUndefined()
+      return body
+    }
+
+    const answer = await mutate({
+      requestId: 'm-create',
+      mutation: 'CreateTodo',
+      input: { id: 't-remote', title: 'Peas' },
+    })
+    // It names no list: the client places the row by the list's body.
+    expect(JSON.stringify(answer.result)).not.toContain('prepend')
+    // The triggers logged the row, for the live poll to read it alone.
+    const logged = await stack.db
+      .prepare('SELECT id FROM todo_row_changes ORDER BY seq DESC LIMIT 1')
+      .all()
+    expect(logged.results).toEqual([{ id: 't-remote' }])
+    expect(await queryTodos(remote, { first: 50 })).toContain('t-remote')
+    const created = await readTodo(remote, 't-remote', ['title', 'done'])
+    expect(created.entities).toEqual([
+      { entity: 'Todo', id: 't-remote', values: { title: 'Peas', done: 0 } },
+    ])
+
+    // The id is already there: the second write does not replace the title.
+    await mutate({
+      requestId: 'm-again',
+      mutation: 'CreateTodo',
+      input: { id: 't-remote', title: 'Beans' },
+    })
+    const kept = await readTodo(remote, 't-remote', ['title', 'done'])
+    expect(kept.entities).toEqual([
+      { entity: 'Todo', id: 't-remote', values: { title: 'Peas', done: 0 } },
+    ])
+
+    await mutate({
+      requestId: 'm-toggle',
+      mutation: 'ToggleTodo',
+      input: { id: 't-remote', done: 1 },
+    })
+    // The same value again stores 1, rather than flipping back to 0.
+    await mutate({
+      requestId: 'm-toggle-again',
+      mutation: 'ToggleTodo',
+      input: { id: 't-remote', done: 1 },
+    })
+    const toggled = await readTodo(remote, 't-remote', ['done'])
+    expect(toggled.entities).toEqual([{ entity: 'Todo', id: 't-remote', values: { done: 1 } }])
+
+    await mutate({
+      requestId: 'm-rename',
+      mutation: 'RenameTodo',
+      input: { id: 't-remote', title: 'Pods' },
+    })
+    const renamed = await readTodo(remote, 't-remote', ['title'])
+    expect(renamed.entities).toEqual([
+      { entity: 'Todo', id: 't-remote', values: { title: 'Pods' } },
+    ])
+
+    await mutate({
+      requestId: 'm-delete',
+      mutation: 'DeleteTodo',
+      input: { id: 't-remote' },
+    })
+    expect(await queryTodos(remote, { first: 50 })).not.toContain('t-remote')
+    expect((await readTodo(remote, 't-remote', ['title'])).entities).toEqual([])
+  }, 120_000)
+
+  it('lists todos by title, then id', async () => {
+    const mutate = async (payload: {
+      readonly requestId: string
+      readonly mutation: string
+      readonly input: unknown
+    }) => {
+      const response = await fetch(`${stack.origin}/remote`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-actor': 'ada' },
+        body: JSON.stringify({ operation: 'mutate', payload }),
+      })
+      const body = (await response.json()) as { error?: string }
+      expect(response.status).toBe(200)
+      expect(body.error).toBeUndefined()
+    }
+    // `order-b` is stored first, so a rowid tie-break would put it ahead of
+    // `order-a`. `same` sorts after `Same` under BINARY and with it under NOCASE.
+    const ids = ['order-b', 'order-a', 'order-c', 'order-0']
+    try {
+      await mutate({
+        requestId: 'm-order-b',
+        mutation: 'CreateTodo',
+        input: { id: 'order-b', title: 'Same' },
+      })
+      await mutate({
+        requestId: 'm-order-a',
+        mutation: 'CreateTodo',
+        input: { id: 'order-a', title: 'Same' },
+      })
+      await mutate({
+        requestId: 'm-order-c',
+        mutation: 'CreateTodo',
+        input: { id: 'order-c', title: 'Later' },
+      })
+      await mutate({
+        requestId: 'm-order-0',
+        mutation: 'CreateTodo',
+        input: { id: 'order-0', title: 'same' },
+      })
+      const remote = remoteClient(`${stack.origin}/remote`, 'ada', fetch)
+      const listed = await queryTodos(remote, { first: 100 })
+      expect(listed.filter(id => id.startsWith('order-'))).toEqual([
+        'order-c',
+        'order-a',
+        'order-b',
+        'order-0',
+      ])
+    } finally {
+      for (const id of ids) {
+        await mutate({
+          requestId: `m-order-del-${id}`,
+          mutation: 'DeleteTodo',
+          input: { id },
+        })
+      }
+    }
+  }, 120_000)
+
+  it('accepts a header-less read and answers a preflight', async () => {
+    const response = await fetch(`${stack.origin}/remote?actor=ada`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'query',
+        payload: { query: 'AllTodos', input: {}, window: { first: 1 } },
+      }),
+    })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('access-control-allow-origin')).toBe('*')
+    const body = (await response.json()) as { result?: { edges: unknown }; error?: string }
+    expect(body.error).toBeUndefined()
+    expect(Array.isArray(body.result?.edges)).toBe(true)
+
+    const preflight = await fetch(`${stack.origin}/remote`, {
+      method: 'OPTIONS',
+      headers: { 'access-control-request-headers': 'content-type, x-actor' },
+    })
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers.get('access-control-allow-headers')).toBe('content-type, x-actor')
+  }, 120_000)
+})

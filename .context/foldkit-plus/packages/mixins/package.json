@@ -1,0 +1,106 @@
+{
+  "name": "foldkit-mixins",
+  "version": "0.9.0",
+  "description": "Typed slot contracts and inside-out Style/Behavior attachments for Foldkit.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "slots",
+    "styling",
+    "behavior",
+    "view-composition"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/mixins"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/mixins#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./layers": {
+      "foldkit-plus:source": "./src/layers.ts",
+      "types": "./dist/layers.d.mts",
+      "import": "./dist/layers.mjs"
+    },
+    "./theme": {
+      "foldkit-plus:source": "./src/theme.ts",
+      "types": "./dist/theme.d.mts",
+      "import": "./dist/theme.mjs"
+    },
+    "./layout": {
+      "foldkit-plus:source": "./src/layout.ts",
+      "types": "./dist/layout.d.mts",
+      "import": "./dist/layout.mjs"
+    },
+    "./defaults": {
+      "foldkit-plus:source": "./src/defaults.ts",
+      "types": "./dist/defaults.d.mts",
+      "import": "./dist/defaults.mjs"
+    },
+    "./prose": {
+      "foldkit-plus:source": "./src/prose.ts",
+      "types": "./dist/prose.d.mts",
+      "import": "./dist/prose.mjs"
+    },
+    "./app": {
+      "foldkit-plus:source": "./src/app.ts",
+      "types": "./dist/app.d.mts",
+      "import": "./dist/app.mjs"
+    },
+    "./utilities": {
+      "foldkit-plus:source": "./src/utilities.ts",
+      "types": "./dist/utilities.d.mts",
+      "import": "./dist/utilities.mjs"
+    },
+    "./testing": {
+      "foldkit-plus:source": "./src/testing.ts",
+      "types": "./dist/testing.d.mts",
+      "import": "./dist/testing.mjs"
+    },
+    "./foundations": {
+      "foldkit-plus:source": "./src/foundations.ts",
+      "types": "./dist/foundations.d.mts",
+      "import": "./dist/foundations.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0",
+    "foldkit": "^0.165.0"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3",
+    "vite": "5.4.21"
+  },
+  "dependencies": {
+    "csstype": "^3.2.3"
+  }
+}

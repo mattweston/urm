@@ -1,0 +1,24 @@
+name: Format
+
+on:
+  push:
+    branches:
+      - main
+
+# Automatically cancel in-progress actions on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  format:
+    if: github.repository_owner == 'withastro'
+    permissions:
+      contents: write
+    uses: withastro/automation/.github/workflows/format.yml@2946ab18ea547e22a48eb7f338caed3b99bcf52f # v1.3.0
+    with:
+      command: "format"
+    secrets:
+      FREDKBOT_GITHUB_TOKEN: ${{ secrets.FREDKBOT_GITHUB_TOKEN }}

@@ -1,0 +1,292 @@
+/**
+ * Delegated dispatch: the page answers an event from its markers, before the
+ * application has booted.
+ *
+ * One capture-phase listener per event type sits at the root, so events that
+ * do not bubble (`focus`, `blur`) are caught, and it runs before anything
+ * Foldkit attaches later. On an event it walks from the target to the root
+ * and, for every marker of that event on the way, collects each binding's
+ * Message in order, the way Foldkit's own handler would dispatch it: a hole is
+ * filled from the event, `OnClick`'s options are honoured, `OnSubmit`
+ * prevents the default. A marker token the page could not name (`*`) means
+ * the live page does something here the page cannot describe, so the walk
+ * ends and the answer names that element.
+ */
+import { Predicate, Result, Schema } from 'effect'
+import type { KeyboardModifiers } from 'foldkit/html'
+import { BINDING_ATTRIBUTE, EVENT_OF, UNNAMED_HANDLER } from './resumable.js'
+
+/**
+ * A binding as the envelope carries it: Foldkit's attribute (`OnSubmit`,
+ * `OnBlur`), whose tag says what its handler does beside dispatching; the
+ * Message, encoded through the application's Message Schema (for a hole, with
+ * the hole filled by a placeholder); the fields the event fills, `depth`
+ * placement wrappers down; and the attribute's options. Its ordinal is its
+ * index.
+ */
+export interface EncodedBinding {
+  readonly attribute: string
+  readonly message: unknown
+  readonly hole?: ReadonlyArray<string>
+  readonly depth?: number
+  readonly options?: unknown
+}
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * The page's list of bindings, read as untrusted input: each entry checked,
+ * and only its known keys kept, or the reason the list is refused. Checked by
+ * hand rather than through a Schema, which at a thousand rows took most of a
+ * frame for a shape this plain; the Message inside each entry is still decoded
+ * through the application's Schema by `decodeBindings`.
+ */
+export const readBindings = (
+  value: unknown,
+): Result.Result<ReadonlyArray<EncodedBinding>, string> => {
+  if (!Array.isArray(value)) return Result.fail('the list is not an array')
+  const out: Array<EncodedBinding> = []
+  for (const [index, entry] of value.entries()) {
+    if (!isRecord(entry)) return Result.fail(`entry ${index} is not an object`)
+    if (typeof entry.attribute !== 'string') {
+      return Result.fail(`entry ${index} has no attribute`)
+    }
+    if (!Object.hasOwn(entry, 'message')) return Result.fail(`entry ${index} has no message`)
+    const { hole, depth } = entry
+    if (
+      hole !== undefined &&
+      !(Array.isArray(hole) && hole.every(field => typeof field === 'string'))
+    ) {
+      return Result.fail(`entry ${index} has a hole that is not a list of fields`)
+    }
+    if (depth !== undefined && !(Number.isInteger(depth) && (depth as number) >= 0)) {
+      return Result.fail(`entry ${index} has a depth that is not a count`)
+    }
+    out.push({
+      attribute: entry.attribute,
+      message: entry.message,
+      ...(hole === undefined ? {} : { hole: hole as ReadonlyArray<string> }),
+      ...(depth === undefined ? {} : { depth: depth as number }),
+      ...(Object.hasOwn(entry, 'options') ? { options: entry.options } : {}),
+    })
+  }
+  return Result.succeed(out)
+}
+
+/** A binding decoded from the page: its Message is one of the application's. */
+export interface DecodedBinding {
+  readonly attribute: string
+  readonly event: string
+  readonly message: unknown
+  readonly hole?: ReadonlyArray<string> | undefined
+  readonly depth?: number | undefined
+  readonly options?: unknown
+}
+
+/**
+ * The page's bindings, decoded through the application's Message Schema, and
+ * every marker in `root` checked against them. A page whose markers name a
+ * binding it does not carry, or whose entry is not one of the application's
+ * Messages, is refused whole, with the reason.
+ */
+export const decodeBindings = (
+  Message: Schema.Top | undefined,
+  encoded: ReadonlyArray<EncodedBinding>,
+  root: ParentNode,
+  allowed: ReadonlySet<string>,
+): Result.Result<ReadonlyArray<DecodedBinding>, string> => {
+  if (encoded.length > 0 && Message === undefined) {
+    return Result.fail(
+      'the page has bindings and the plan has no Message Schema to decode them with',
+    )
+  }
+  const decode =
+    Message === undefined
+      ? undefined
+      : Schema.decodeUnknownResult(Message as Schema.Codec<unknown, unknown>)
+  const bindings: Array<DecodedBinding> = []
+  for (const [index, entry] of encoded.entries()) {
+    const event = EVENT_OF[entry.attribute]
+    if (event === undefined) {
+      return Result.fail(
+        `binding ${index} is for "${entry.attribute}", which is no event attribute`,
+      )
+    }
+    const message = decode!(entry.message)
+    if (Result.isFailure(message)) {
+      return Result.fail(
+        `binding ${index} does not decode as a Message: ${message.failure.message}`,
+      )
+    }
+    const tag = Predicate.hasProperty(message.success, '_tag') ? message.success._tag : undefined
+    if (typeof tag !== 'string' || !allowed.has(tag)) {
+      return Result.fail(
+        `binding ${index} dispatches ${typeof tag === 'string' ? tag : 'an untagged Message'}, which no active Surface lists in its messages`,
+      )
+    }
+    bindings.push({
+      attribute: entry.attribute,
+      event,
+      message: message.success,
+      ...(entry.hole === undefined ? {} : { hole: entry.hole }),
+      ...(entry.depth === undefined ? {} : { depth: entry.depth }),
+      ...(entry.options === undefined ? {} : { options: entry.options }),
+    })
+  }
+  for (const element of Array.from(root.querySelectorAll('*'))) {
+    for (const attribute of element.getAttributeNames()) {
+      if (!attribute.startsWith(BINDING_ATTRIBUTE)) continue
+      for (const token of (element.getAttribute(attribute) ?? '').split(' ')) {
+        if (token === UNNAMED_HANDLER) continue
+        const ordinal = Number(token)
+        if (!Number.isInteger(ordinal) || bindings[ordinal] === undefined) {
+          return Result.fail(`the marker ${attribute}="${token}" names no binding the page carries`)
+        }
+      }
+    }
+  }
+  return Result.succeed(bindings)
+}
+
+/** A string property of the target, if it has one. */
+const stringProperty = (target: EventTarget | null, name: string): string | undefined => {
+  if (target === null || !(name in target)) return undefined
+  const value: unknown = Reflect.get(target, name)
+  return typeof value === 'string' ? value : undefined
+}
+
+/**
+ * Foldkit's reading of an input's value (`inputEventValue`): any target's
+ * string `value`, a custom element's included, else its `innerText`, else its
+ * `textContent`.
+ */
+const inputValue = (target: EventTarget | null): string =>
+  stringProperty(target, 'value') ??
+  stringProperty(target, 'innerText') ??
+  stringProperty(target, 'textContent') ??
+  ''
+
+const modifiersOf = (event: KeyboardEvent): KeyboardModifiers => ({
+  shiftKey: event.shiftKey,
+  ctrlKey: event.ctrlKey,
+  altKey: event.altKey,
+  metaKey: event.metaKey,
+})
+
+/** The Message a binding dispatches for this event: its own, with the hole filled. */
+const messageFor = (binding: DecodedBinding, event: Event): unknown => {
+  if (binding.hole === undefined) return binding.message
+  const fill = (template: Readonly<Record<string, unknown>>): unknown => {
+    if (binding.event === 'input' || binding.event === 'change') {
+      const [field] = binding.hole ?? []
+      return { ...template, [field ?? 'value']: inputValue(event.target) }
+    }
+    if (event instanceof KeyboardEvent) {
+      return { ...template, key: event.key, modifiers: modifiersOf(event) }
+    }
+    return template
+  }
+  // The hole's fields sit inside each placement wrapper's `message`.
+  const inside = (template: Readonly<Record<string, unknown>>, depth: number): unknown =>
+    depth === 0
+      ? fill(template)
+      : {
+          ...template,
+          message: inside(template.message as Readonly<Record<string, unknown>>, depth - 1),
+        }
+  return inside(binding.message as Readonly<Record<string, unknown>>, binding.depth ?? 0)
+}
+
+/** What `OnClick` declares beside its Message. */
+interface ClickOptions {
+  readonly defaultAction?: 'Allow' | 'Prevent'
+  readonly propagation?: 'Bubble' | 'Stop'
+  readonly focusSelector?: string
+}
+
+/**
+ * What the markers make of one event: the Messages its bindings dispatch, in
+ * the order the live page would, and, when the walk met a handler the page
+ * could not name, that element. An answer with `unnamed` is incomplete: the
+ * live page would do more than its Messages say.
+ */
+export interface Answer {
+  readonly event: Event
+  readonly messages: ReadonlyArray<unknown>
+  readonly unnamed?: Element | undefined
+}
+
+export interface ListenOptions {
+  readonly bindings: ReadonlyArray<DecodedBinding>
+  readonly onAnswer: (answer: Answer) => void
+  /**
+   * Every event the page's markers name, as the envelope lists them. Given,
+   * `listen` needs no pass over the page to find the events a marker names
+   * with `*` alone; without it, it reads every element's attributes, which on
+   * a large page is most of its cost.
+   */
+  readonly events?: Iterable<string> | undefined
+}
+
+/**
+ * Listens at `root` for every event the bindings name, and answers each from
+ * the markers. Returns what removes the listeners.
+ */
+export const listen = (root: Element, options: ListenOptions): (() => void) => {
+  // The bindings name most events; a marker whose handlers the page could not
+  // name is `*` alone, so the markers themselves say the rest.
+  const events = new Set(options.bindings.map(binding => binding.event))
+  if (options.events !== undefined) {
+    for (const event of options.events) events.add(event)
+  } else {
+    for (const element of [root, ...Array.from(root.querySelectorAll('*'))]) {
+      for (const { name } of Array.from(element.attributes)) {
+        if (name.startsWith(BINDING_ATTRIBUTE)) events.add(name.slice(BINDING_ATTRIBUTE.length))
+      }
+    }
+  }
+  const handler = (event: Event) => {
+    const type = event.type
+    const attribute = `${BINDING_ATTRIBUTE}${type}`
+    const messages: Array<unknown> = []
+    // An event that does not bubble (`focus`, `blur`, `mouseenter`) reaches only
+    // its target's own handlers on the live page, so only those answer it here.
+    const path = event.bubbles ? event.composedPath() : [event.target]
+    for (const node of path) {
+      if (!(node instanceof Element)) continue
+      const tokens = node.getAttribute(attribute)
+      // Foldkit chains an element's handlers in one listener, so a Stop among
+      // them keeps the event from other elements, not from its siblings.
+      let stopped = false
+      if (tokens !== null) {
+        for (const token of tokens.split(' ')) {
+          if (token === UNNAMED_HANDLER) {
+            options.onAnswer({ event, messages, unnamed: node })
+            return
+          }
+          const binding = options.bindings[Number(token)]
+          if (binding === undefined) continue
+          if (binding.attribute === 'OnSubmit') event.preventDefault()
+          if (binding.attribute === 'OnClick') {
+            const click = (binding.options ?? {}) as ClickOptions
+            if (click.defaultAction === 'Prevent') event.preventDefault()
+            if (click.propagation === 'Stop') event.stopPropagation()
+            if (click.focusSelector !== undefined) {
+              const focusTarget = document.querySelector(click.focusSelector)
+              if (focusTarget instanceof HTMLElement) focusTarget.focus()
+            }
+            if (click.propagation === 'Stop') stopped = true
+          }
+          messages.push(messageFor(binding, event))
+        }
+      }
+      if (stopped || node === root) break
+    }
+    options.onAnswer({ event, messages })
+  }
+  for (const type of events) root.addEventListener(type, handler, true)
+  return () => {
+    for (const type of events) root.removeEventListener(type, handler, true)
+  }
+}

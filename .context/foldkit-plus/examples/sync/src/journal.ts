@@ -1,0 +1,301 @@
+import { Effect, Exit, Fiber, Scope, Stream } from 'effect'
+import {
+  ActorId,
+  Cursor,
+  DocumentId,
+  Journal,
+  OpId,
+  Sequence,
+  type AppendResult as DurableAppendResult,
+  type Committed as DurableCommitted,
+} from 'foldkit-durable'
+import {
+  DocumentId as SyncDocumentId,
+  type CommittedOperation as Committed,
+  type Operation,
+  type TransportClient,
+} from 'foldkit-sync'
+import { decodeMessage, encodeShared, type Message, type Shared } from './app.js'
+import { TodoSync } from './sync.js'
+
+/** Supplied by a trusted transport, never decoded from an operation. */
+export interface Principal {
+  readonly actorId: string
+  readonly documentId: string
+  readonly canWrite: boolean
+}
+
+/** What the application's authorization policy sees before an operation commits. */
+export interface AuthorizationRequest {
+  readonly principal: Principal
+  readonly message: Message
+  readonly model: Shared
+}
+
+/** Decides whether a principal may commit an operation against the current Model. */
+export type Authorize = (request: AuthorizationRequest) => boolean
+
+/** An externally visible effect a committed operation triggers server-side. */
+export interface ServerEffect {
+  readonly name: string
+  readonly run: () => Promise<void>
+}
+
+export interface JournalPolicy {
+  /** Defaults to allowing; an authenticated write still requires `Principal.canWrite`. */
+  readonly authorize?: Authorize
+  /**
+   * Effects a committed operation triggers. Recorded successes are reused;
+   * uncertain outcomes can run again. This example keys effects by array position,
+   * so its policy must not reorder effects for previously committed operations.
+   */
+  readonly effects?: (message: Message) => ReadonlyArray<ServerEffect>
+  /** At most this many committed operations per exchange; a replica far behind asks again. Default 500. */
+  readonly page?: number
+}
+
+export interface ServerJournal {
+  readonly append: (input: unknown, principal: Principal) => Committed
+  readonly appendAsServer: (message: Message, principal: Principal, producer: string) => Committed
+  readonly settle: (committed: Committed) => Promise<void>
+  readonly read: (documentId: string, after: number) => ReadonlyArray<Committed>
+  readonly compact: (documentId: string, through: number) => void
+  readonly snapshot: (documentId: string) => { cursor: number; model: Shared }
+  readonly subscribe: (listener: (key: string) => void) => () => void
+  readonly transport: (principal: Principal) => TransportClient
+  readonly close: () => void
+}
+
+/**
+ * The sync server's journal: the Effect-native durable package configured for
+ * this application, exposed through the synchronous and promise seams the
+ * Foldkit runtime, agent host, and replica still speak.
+ *
+ * `node:sqlite` is synchronous, so the reads and writes run to completion here;
+ * only settling an effect can suspend.
+ */
+export const openJournal = (path: string, policy: JournalPolicy = {}): ServerJournal => {
+  const authorize = policy.authorize
+  const effectsFor = policy.effects
+  const page = policy.page ?? 500
+  const scope = Effect.runSync(Scope.make())
+  const durable: Journal<Operation, Shared, Principal> = (() => {
+    try {
+      return Effect.runSync(
+        Journal.make<Operation, Shared, Principal>({
+          // The replica contract also produces the durable journal's codecs,
+          // initial snapshot, and replay, so they are not written twice.
+          ...TodoSync.journalContract(),
+          file: path,
+          opId: operation => OpId.make(operation.opId),
+          actorId: principal => ActorId.make(principal.actorId),
+          validate: ({ key, operation, cursor }) => {
+            if (String(operation.documentId) !== String(key)) throw new Error('Wrong document')
+            if (operation.baseCursor > cursor)
+              throw new Error('Operation cursor is ahead of the server')
+          },
+          ...(authorize === undefined
+            ? {}
+            : {
+                authorize: ({ principal, operation, snapshot }) =>
+                  authorize({
+                    principal,
+                    message: decodeMessage(operation.message),
+                    model: snapshot,
+                  }),
+              }),
+        }).pipe(Effect.provideService(Scope.Scope, scope)),
+      )
+    } catch (error) {
+      Effect.runSync(Scope.close(scope, Exit.void))
+      throw error
+    }
+  })()
+
+  /** The durable record, flattened into the wire shape the protocol exchanges. */
+  const toCommitted = (committed: DurableCommitted<Operation>, documentId: string): Committed =>
+    TodoSync.codec.committedFrom(
+      { ...committed.operation, serverSequence: committed.sequence, actorId: committed.actorId },
+      SyncDocumentId.make(documentId),
+    )
+
+  const appendResult = (input: unknown, principal: Principal): DurableAppendResult<Operation> => {
+    if (!principal.actorId || !principal.canWrite) throw new Error('Unauthorized operation')
+    return Effect.runSync(durable.append(DocumentId.make(principal.documentId), input, principal))
+  }
+
+  const append = (input: unknown, principal: Principal): Committed => {
+    const result = appendResult(input, principal)
+    if (result._tag === 'AlreadyCommitted')
+      throw new Error(
+        `Operation "${result.opId}" was already committed and its payload was compacted`,
+      )
+    return toCommitted(result.committed, principal.documentId)
+  }
+
+  const snapshot = (documentId: string): { cursor: number; model: Shared } => {
+    const { cursor, snapshot: model } = Effect.runSync(durable.load(DocumentId.make(documentId)))
+    return { cursor, model }
+  }
+
+  /**
+   * Appends a Message a server-side producer authored, sequencing it from the
+   * authoritative cursor.
+   *
+   * A server producer has no local outbox and no persisted sequence, so it
+   * cannot supply a genuine per-replica counter. The cursor only advances, which
+   * keeps the operation identity unique and survives a restart; `producer`
+   * labels who authored it in the log.
+   */
+  const appendAsServer = (message: Message, principal: Principal, producer: string): Committed => {
+    const baseCursor = snapshot(principal.documentId).cursor
+    return append(
+      {
+        protocolVersion: 1,
+        schemaVersion: 1,
+        documentId: principal.documentId,
+        replicaId: producer,
+        localSequence: baseCursor + 1,
+        opId: `${producer}:${baseCursor + 1}`,
+        baseCursor,
+        message,
+      },
+      principal,
+    )
+  }
+
+  const read = (documentId: string, after: number): ReadonlyArray<Committed> =>
+    Effect.runSync(durable.read(DocumentId.make(documentId), Cursor.make(after))).map(committed =>
+      toCommitted(committed, documentId),
+    )
+
+  /**
+   * Runs the effects a committed operation declared, once each.
+   *
+   * The ledger keys each effect to the document and operation, so a resend,
+   * replay, or second call is a no-op.
+   */
+  const settle = async (committed: Committed): Promise<void> => {
+    const effects = effectsFor?.(decodeMessage(committed.message)) ?? []
+    for (const [index, effect] of effects.entries()) {
+      await Effect.runPromise(
+        durable.runEffect(
+          `${committed.documentId}/${committed.opId}/command/${index}`,
+          Effect.tryPromise({ try: () => effect.run(), catch: error => error }),
+        ),
+      )
+    }
+  }
+
+  return {
+    append,
+    appendAsServer,
+    settle,
+    read,
+    compact: (documentId, through) =>
+      Effect.runSync(durable.compact(DocumentId.make(documentId), Sequence.make(through))),
+    snapshot,
+    // The agent host still registers a callback; the journal's subscription is
+    // a Stream, so this is the edge where it is bridged back.
+    subscribe: listener => {
+      const fiber = Effect.runFork(
+        Stream.runForEach(durable.subscribe, key =>
+          Effect.sync(() => listener(key)).pipe(Effect.catchCause(() => Effect.void)),
+        ),
+      )
+      return () => Effect.runSync(Fiber.interrupt(fiber))
+    },
+    transport: (principal: Principal): TransportClient => ({
+      exchange: async (cursor, pending, seen) => {
+        if (!principal.actorId) throw new Error('Unauthenticated reader')
+        // A replica that saw another epoch holds a cursor into history this server lacks
+        // (it was reset): it is answered from the start, and rebuilds from that. Otherwise
+        // a cursor past the server's is refused before anything is appended, or the
+        // operations would commit and their acknowledgements be lost with the failed read.
+        const epoch = Effect.runSync(durable.epoch(DocumentId.make(principal.documentId)))
+        const from = seen !== undefined && seen !== epoch ? 0 : cursor
+        const at = Effect.runSync(durable.cursor(DocumentId.make(principal.documentId)))
+        if (from > at) throw new Error(`Cursor ${cursor} is ahead of the server's ${at}`)
+        const rejected: string[] = []
+        const acknowledged: string[] = []
+        for (const input of pending) {
+          // An operation that does not decode fails the same way on every retry, so it is
+          // rejected, not left to fail the exchange and be resent forever. The socket passes
+          // pending entries through undecoded, so one with no id has nothing to reject by.
+          let operation: ReturnType<typeof TodoSync.codec.normalizeOperation>
+          try {
+            operation = TodoSync.codec.normalizeOperation(input)
+          } catch {
+            const opId: unknown = (input as { readonly opId?: unknown } | null)?.opId
+            if (typeof opId === 'string') rejected.push(opId)
+            continue
+          }
+          if (!principal.canWrite) {
+            rejected.push(operation.opId)
+            continue
+          }
+          const result = Effect.runSync(
+            durable.append(DocumentId.make(principal.documentId), operation, principal).pipe(
+              // A refusal, an operation the journal cannot apply, and an id reused for other
+              // content all fail the same way on every retry; a `JournalError` may not, so it
+              // still fails the exchange and the client tries again.
+              Effect.catch(error =>
+                error._tag === 'OperationRejectedError' ||
+                error._tag === 'InvalidOperationError' ||
+                error._tag === 'IdentityConflictError'
+                  ? Effect.sync(() => {
+                      rejected.push(operation.opId)
+                      return undefined
+                    })
+                  : Effect.fail(error),
+              ),
+            ),
+          )
+          if (result === undefined) continue
+          if (result._tag === 'AlreadyCommitted') {
+            // The commit happened before, and compaction removed its payload.
+            // Acknowledge without settling; its effects were settled then.
+            acknowledged.push(result.opId)
+            continue
+          }
+          // Settled before the ack, so the client's retry cannot repeat it.
+          await settle(toCommitted(result.committed, principal.documentId))
+          acknowledged.push(result.committed.operation.opId)
+        }
+        // A read below the floor means the client must adopt a checkpoint. The
+        // read decides that itself, so a compaction cannot slip between the
+        // floor check and the read and produce a gapped stream.
+        const caught = Effect.runSync(
+          durable
+            .read(DocumentId.make(principal.documentId), Cursor.make(from), { limit: page })
+            .pipe(
+              Effect.map(rows => ({ rows })),
+              Effect.catchTag('CompactedCursorError', () =>
+                Effect.succeed({ checkpoint: true as const }),
+              ),
+            ),
+        )
+        if ('checkpoint' in caught) {
+          const { cursor: at, model } = snapshot(principal.documentId)
+          return {
+            checkpoint: { cursor: at, model: encodeShared(model) },
+            operations: [],
+            rejected,
+            acknowledged,
+            epoch,
+          }
+        }
+        return {
+          operations: caught.rows.map(committed => toCommitted(committed, principal.documentId)),
+          rejected,
+          acknowledged,
+          more: caught.rows.length === page,
+          epoch,
+        }
+      },
+    }),
+    close: () => {
+      Effect.runSync(Scope.close(scope, Exit.void))
+    },
+  }
+}

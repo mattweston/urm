@@ -1,0 +1,117 @@
+import { Context, Effect, Schema } from 'effect'
+import { Entity, Remote, RemoteRpc } from 'foldkit-remote'
+import { RemoteServer } from '../src/index.js'
+import { servePort } from '../src/port.js'
+
+const Project = Entity.make(
+  'Project',
+  Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+    privateNotes: Schema.String,
+  }),
+)
+
+// Your authentication's principal type; without it `principal` is `unknown`.
+type Principal = { readonly isAdmin: boolean }
+
+const rows = new Map([['p1', { id: 'p1', name: 'Apollo', privateNotes: 'Internal' }]])
+
+const ProjectSource = RemoteServer.entity<Principal>(Project, {
+  // Authentication already resolved `principal` before RemoteServer sees it.
+  // Return only fields this caller may read.
+  authorize: (principal, fields) =>
+    fields.filter(field => field !== 'privateNotes' || principal.isAdmin),
+
+  read: ({ ids, fields }) =>
+    Effect.succeed(
+      ids.flatMap(id => {
+        const row = rows.get(id)
+        return row === undefined
+          ? []
+          : [
+              {
+                id,
+                values: Object.fromEntries(
+                  Object.entries(row).filter(([field]) => fields.includes(field)),
+                ),
+              },
+            ]
+      }),
+    ),
+})
+
+const Server = RemoteServer.make({
+  entities: [ProjectSource],
+})
+
+const principal: Principal = { isAdmin: false }
+const handlers = RemoteServer.handlers(Server, principal)
+const layer = RemoteRpc.toLayer(handlers)
+
+void layer
+
+// Over plain JSON.
+// A fetch-style route (Bun, Deno, a Worker; Node through its own adapter).
+const route = async (request: Request): Promise<Response> => {
+  const body: unknown = await request.json().catch(() => null)
+  const answered = await Effect.runPromise(RemoteServer.answer(handlers, body))
+  return Response.json(answered.body, { status: answered.status })
+}
+
+void route
+
+// Over a MessagePort: in the host, for each port a page hands it.
+declare const port: MessagePort
+const served: Effect.Effect<void, unknown> = servePort(handlers, port)
+void served
+
+// A backend held in memory, authorized per principal.
+const Data = Remote.define({ entities: [Project] })
+const guarded = RemoteServer.memory({
+  domain: Data,
+  rows: { Project: [{ id: 'p1', name: 'Apollo', privateNotes: 'Internal' }] },
+  principal: { isAdmin: false },
+  authorize: {
+    Project: (principal: Principal, fields) =>
+      fields.filter(field => field !== 'privateNotes' || principal.isAdmin),
+  },
+})
+const asAdmin = RemoteServer.handlers(guarded.server, { isAdmin: true })
+void asAdmin
+
+// Only an admin reads projects.
+const adminsOnly = RemoteServer.memory({
+  domain: Data,
+  rows: { Project: [{ id: 'p1', name: 'Apollo', privateNotes: 'Internal' }] },
+  principal: { isAdmin: false },
+  readable: (principal: Principal) =>
+    Effect.succeed(entity => principal.isAdmin || entity !== 'Project'),
+})
+void adminsOnly
+
+// Who is asking, read on each call: one handler set answers every request.
+class CurrentUser extends Context.Service<CurrentUser, Principal>()('app/CurrentUser') {}
+const answering = RemoteServer.handlers(Server, CurrentUser)
+const routeAs = async (request: Request, user: Principal): Promise<Response> => {
+  const body: unknown = await request.json().catch(() => null)
+  const answered = await Effect.runPromise(
+    RemoteServer.answer(answering, body).pipe(Effect.provideService(CurrentUser, user)),
+  )
+  return Response.json(answered.body, { status: answered.status })
+}
+void routeAs
+
+// Everyone reads a project's name alike; only an admin reads its private notes.
+const SharedProjectSource = RemoteServer.entity<Principal>(Project, {
+  authorize: ProjectSource.authorize,
+  read: ProjectSource.read,
+  shared: ['name'],
+})
+void SharedProjectSource
+
+// Two requests by one person share a live re-read.
+const byPerson = RemoteServer.liveHub([ProjectSource], {
+  key: (user: Principal) => (user.isAdmin ? 'admin' : 'member'),
+})
+void byPerson

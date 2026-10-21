@@ -1,5 +1,9 @@
 # @urm/auth
 
+- [Auth - Effect](https://github.com/Effect-TS/auth)
+- [Yielded](https://yielded.dev)
+
+
 Account authentication and workspace authorization for the PostgreSQL server.
 The canonical implementation lives in [account/service.ts](src/account/service.ts);
 retained contact-based APIs are exposed separately through the legacy surface.

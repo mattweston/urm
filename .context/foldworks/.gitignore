@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.turbo/
+.alchemy/
+.wrangler/
+.env
+.env.local
+.conductor/settings.local.toml
+coverage/
+test-results/
+playwright-report/
+.DS_Store
+/PLAN.md

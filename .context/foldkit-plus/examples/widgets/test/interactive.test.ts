@@ -1,0 +1,191 @@
+// @vitest-environment jsdom
+/**
+ * The showcase page on the real runtime: every island boots from the same
+ * `entry.ts` the dev server serves (sections included), and one interaction
+ * per widget reaches its Model and redraws. Proves the page is interactive,
+ * not just drawn. (`embed` replaces each container with its rendering, so
+ * the test queries the drawn page, not the staged divs.)
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { islands } from '../src/widgets.js'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  document.body.replaceChildren()
+})
+
+const click = (target: Element): void => {
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+}
+
+const button = (text: string): HTMLButtonElement => {
+  const found = [...document.querySelectorAll('button')].find(each => each.textContent === text)
+  if (found === undefined) throw new Error(`no button reading ${text}`)
+  return found as HTMLButtonElement
+}
+
+describe('showcase islands', () => {
+  it('every widget answers one interaction', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+      setTimeout(() => callback(performance.now()), 0),
+    )
+    vi.stubGlobal('cancelAnimationFrame', clearTimeout)
+    document.body.innerHTML = '<main id="showcase"></main>'
+    await import('../src/entry.js')
+
+    // Every registered island drew a section.
+    expect(document.querySelectorAll('main#showcase > section')).toHaveLength(islands.length)
+
+    // The toolbar drew over its container.
+    expect(document.querySelector('[role="toolbar"]')).not.toBeNull()
+
+    // Toolbar: pressing Bold presses it.
+    const bold = button('Bold')
+    click(bold)
+    await vi.waitFor(() => expect(bold.getAttribute('aria-pressed')).toBe('true'))
+
+    // Toggle: muting says muted.
+    const mute = button('Mute')
+    click(mute)
+    await vi.waitFor(() => expect(mute.textContent).toBe('Muted'))
+
+    // Toggle group: picking center presses it.
+    const center = button('center')
+    click(center)
+    await vi.waitFor(() => expect(center.getAttribute('aria-pressed')).toBe('true'))
+
+    // Accordion: a shut panel stays in the page, and opening Team shows it.
+    const team = button('Team')
+    const teamPanel = () => document.getElementById(team.getAttribute('aria-controls') ?? '')
+    expect(teamPanel()?.hidden).toBe(true)
+    click(team)
+    await vi.waitFor(() => expect(teamPanel()?.hidden).toBe(false))
+    expect(teamPanel()?.textContent).toContain('Invite, remove')
+
+    // Alert dialog: opening and cancelling answers cancelled.
+    click(button('Delete project'))
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).not.toBeNull())
+    click(button('Cancel'))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Last answer: cancelled.'))
+
+    // Autocomplete: typing narrows, picking fills and closes.
+    const fruit = document.querySelector('input[role="combobox"]') as HTMLInputElement
+    fruit.value = 'berry'
+    fruit.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll('[role="listbox"] button').length).toBe(2),
+    )
+    click(button('blueberry'))
+    await vi.waitFor(() => expect(fruit.value).toBe('blueberry'))
+
+    // Number field: stepping up reaches 4.
+    click(button('+'))
+    await vi.waitFor(() =>
+      expect(document.querySelector('[role="spinbutton"]')?.textContent).toBe('4'),
+    )
+
+    // One-time code: typing fills the first cell and advances focus.
+    const digit1 = document.querySelector('input[aria-label="Digit 1"]') as HTMLInputElement
+    digit1.focus()
+    digit1.value = '7'
+    digit1.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.waitFor(() => expect(digit1.value).toBe('7'))
+    await vi.waitFor(() =>
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Digit 2'),
+    )
+
+    // Checkbox group: picking cheese checks its box.
+    const boxes = [
+      ...document.querySelectorAll('input[type="checkbox"]'),
+    ] as Array<HTMLInputElement>
+    const cheese = boxes.find(box => box.getAttribute('aria-label') === 'cheese')
+    if (cheese === undefined) throw new Error('no cheese box')
+    click(cheese.closest('label')!)
+    await vi.waitFor(() => expect(cheese.checked).toBe(true))
+
+    // Meter: using 10 more reaches 72.
+    click(button('Use 10'))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('72 of 100 GB'))
+
+    // Progress: sending 10 more reaches 44, losing the total indeterminates.
+    click(button('Send 10'))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('44 of 100 MB'))
+    click(button('Lose total'))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Sending…'))
+
+    // Command: typing narrows to two options.
+    const search = document.querySelector('input[aria-label="Search commands"]') as HTMLInputElement
+    search.value = 'new'
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.waitFor(() => expect(document.querySelectorAll('[role="option"]').length).toBe(2))
+
+    // Context menu: right-clicking a row opens its menu, choosing acts.
+    const notes = [...document.querySelectorAll('div')].find(
+      each => each.textContent === 'notes.txt' && each.id === 'context-menu/notes.txt',
+    )!
+    notes.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    await vi.waitFor(() =>
+      expect(document.querySelector('[aria-label="Actions for notes.txt"]')).not.toBeNull(),
+    )
+    click(button('Delete'))
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain('Last action: Delete notes.txt.'),
+    )
+
+    // Hover card: hovering the trigger shows Ada.
+    const ada = button('ada')
+    ada.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Ada Lovelace'))
+
+    // Menu bar: opening Edit and choosing Copy records the choice.
+    click(button('Edit'))
+    await vi.waitFor(() => expect(document.querySelector('[aria-label="Edit"]')).not.toBeNull())
+    click(button('Copy'))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Last choice: Edit/Copy.'))
+
+    // Navigation menu: hovering Products and following Pricing records it.
+    const products = button('Products')
+    products.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    await vi.waitFor(() => expect(document.querySelector('[aria-label="Products"]')).not.toBeNull())
+    click(button('Pricing'))
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain('Last followed: Products/Pricing.'),
+    )
+
+    // Native select: choosing phone names it.
+    const reach = document.querySelector('select') as HTMLSelectElement
+    reach.value = 'phone'
+    reach.dispatchEvent(new Event('change', { bubbles: true }))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Chosen: phone.'))
+
+    // Sidebar: collapsing hides Install, expanding brings it back.
+    click(button('Collapse'))
+    await vi.waitFor(() => expect(document.body.textContent).not.toContain('Install'))
+    click(button('Expand'))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Install'))
+
+    // Resizable: stepping right grows the first panel.
+    const grip = document.querySelector('[role="separator"]') as HTMLElement
+    grip.focus()
+    grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('First panel 55%.'))
+
+    // Palette: opening, narrowing, and running report the run.
+    click(button('Commands'))
+    await vi.waitFor(() =>
+      expect(document.querySelector('[aria-label="Command palette"]')).not.toBeNull(),
+    )
+    const panel = document.querySelector('[aria-label="Command palette"]') as HTMLElement
+    const query = panel.querySelector('input[aria-label="Search commands"]') as HTMLInputElement
+    query.value = 'new'
+    query.dispatchEvent(new Event('input', { bubbles: true }))
+    await vi.waitFor(() => expect(panel.querySelectorAll('[role="option"]').length).toBe(2))
+    const pick = [...panel.querySelectorAll('[role="option"]')].find(
+      option => option.textContent === 'New folder',
+    )
+    if (pick === undefined) throw new Error('no New folder pick')
+    pick.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Ran: New folder.'))
+  })
+})

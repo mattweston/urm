@@ -1,0 +1,120 @@
+import {
+  Model as OrchestratorModel,
+  initialModel as initialOrchestrator,
+} from "../orchestrator/model";
+import { Option, Schema as S } from "effect";
+import { Agent } from "@foldworks/agent";
+import { PdfAnnotator } from "@foldworks/pdf-annotator";
+import { ArticleEditor, initialEditor } from "../editor/demo";
+import { Sidebar } from "@foldworks/sidebar";
+
+import { Model as DocsModel, init as initDocs } from "../docs/model";
+import { Model as WorkbenchModel, init as initWorkbench } from "../workbench/model";
+import { Model as CodeEditorModel, init as initCodeEditor } from "../code-editor/model";
+import type { Snapshot } from "../workbench/domain";
+
+import type { PersistedWorkspace } from "../document-storage";
+import {
+  Model as DataGridModel,
+  initialModel as initialDataGrid,
+  setExample as setDataGridExample,
+} from "../data-grid/model";
+import { Model as DataTableModel, init as initDataTable } from "../data-table/model";
+import { Model as DiffViewerModel, initialModel as initialDiffViewer } from "../diff-viewer/model";
+import { Model as FormEditorModel, init as initFormEditor } from "../form-builder/editor-model";
+import { exampleForms } from "../form-builder/model";
+import {
+  Model as QueryBuilderDemoModel,
+  initialModel as initialQueryBuilder,
+} from "../query-builder/model";
+import { Model as OutlinerDemoModel, initialModel as initialOutliner } from "../outliner/model";
+import { ThemeName, ThemePreference, type ThemeState } from "../theme";
+import { Model as PdfViewerDemoModel, initialModel as initialPdfViewer } from "../pdf-viewer/model";
+import {
+  Model as ThemeBuilderModel,
+  initialModel as initialThemeBuilder,
+} from "../theme-builder/model";
+import { Model as UiKitModel, initialModel as initialUiKit } from "../ui-kit/model";
+import { Model as StatechartModel, initialModel as initialStatechart } from "../statechart/model";
+import { Model as WorkflowEditorModel, init as initWorkflowEditor } from "../workflow/model";
+import {
+  AppRoute,
+  dataGridExampleFromRoute,
+  dataTablePersonFromRoute,
+  formStateFromRoute,
+  workflowOrientationFromRoute,
+} from "./route";
+
+export const Model = S.Struct({
+  route: AppRoute,
+  docs: DocsModel,
+  agent: Agent.Model,
+  orchestrator: OrchestratorModel,
+  codeEditor: CodeEditorModel,
+  workbench: WorkbenchModel,
+  workflowEditor: WorkflowEditorModel,
+  statechart: StatechartModel,
+  formEditor: FormEditorModel,
+  dataGridDemo: DataGridModel,
+  dataTableDemo: DataTableModel,
+  diffViewerDemo: DiffViewerModel,
+  queryBuilderDemo: QueryBuilderDemoModel,
+  outlinerDemo: OutlinerDemoModel,
+  pdfAnnotator: PdfAnnotator.Model,
+  pdfViewerDemo: PdfViewerDemoModel,
+  editor: ArticleEditor.Model,
+  sidebar: Sidebar.Model,
+  uiKit: UiKitModel,
+  themeBuilder: ThemeBuilderModel,
+  themeName: ThemeName,
+  themePreference: ThemePreference,
+  systemIsDark: S.Boolean,
+  persistenceStatus: S.Literals(["Saved", "Saving", "Error"]),
+  revision: S.Number,
+  announcement: S.String,
+});
+export type Model = typeof Model.Type;
+
+export const init = (
+  route: AppRoute,
+  theme: ThemeState = { name: "Shadcn", preference: "System", systemIsDark: false },
+  persisted?: PersistedWorkspace,
+  workers?: Readonly<{ snapshot: Snapshot; error: string }>,
+): Model => {
+  const { exampleId, mode } = formStateFromRoute(route);
+  return {
+    route,
+    docs: initDocs(
+      route._tag === "Docs" && Option.getOrElse(route.package, () => "") === "ui"
+        ? "editable-text"
+        : "sidebar",
+    ),
+    orchestrator: initialOrchestrator(),
+    agent: Agent.init({ id: "foldworks-agent", selectedModel: "atlas-balanced" }),
+    codeEditor: initCodeEditor(),
+    workbench: initWorkbench(workers?.snapshot, workers?.error),
+    workflowEditor: initWorkflowEditor(persisted?.workflow, workflowOrientationFromRoute(route)),
+    statechart: initialStatechart,
+    formEditor: initFormEditor(persisted?.forms ?? exampleForms, exampleId, mode),
+    dataGridDemo: setDataGridExample(initialDataGrid, dataGridExampleFromRoute(route)),
+    dataTableDemo: initDataTable(dataTablePersonFromRoute(route)),
+    diffViewerDemo: initialDiffViewer,
+    queryBuilderDemo: initialQueryBuilder,
+    outlinerDemo: initialOutliner(),
+    pdfAnnotator: PdfAnnotator.init({
+      id: "foldworks-pdf-annotator",
+      sampleUrl: "/foldworks-sample.pdf",
+    }),
+    pdfViewerDemo: initialPdfViewer,
+    editor: initialEditor(),
+    sidebar: Sidebar.init({ id: "foldworks-sidebar", defaultCollapsed: route._tag === "Theme" }),
+    uiKit: initialUiKit,
+    themeBuilder: initialThemeBuilder(),
+    themeName: theme.name,
+    themePreference: theme.preference,
+    systemIsDark: theme.systemIsDark,
+    persistenceStatus: "Saved",
+    revision: 0,
+    announcement: "Foldworks ready.",
+  };
+};

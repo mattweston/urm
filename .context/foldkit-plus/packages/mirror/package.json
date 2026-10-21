@@ -1,0 +1,61 @@
+{
+  "name": "foldkit-mirror",
+  "version": "0.5.2",
+  "description": "A Foldkit Model slice kept in the URL or a key-value store: written when the slice changes, read back on navigation or cold load.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "url-state",
+    "query-string",
+    "key-value-store",
+    "persistence"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/mirror"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/mirror#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "foldkit-surface": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0",
+    "foldkit": "^0.165.0"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-bundle": "workspace:*",
+    "jsdom": "26.1.0",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  }
+}

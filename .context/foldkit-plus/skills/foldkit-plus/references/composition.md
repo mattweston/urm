@@ -1,0 +1,386 @@
+# foldkit-composition, foldkit-builder and foldkit-mixins-builder
+
+**Experimental, `0.1.0`, on npm from the 0.16.0 release.** Phases 1 to 7 of the page builder design are
+built: Blocks, Regions, Content, a Catalog, the stored Document, its validation,
+editing Operations, migrations, a Foldkit renderer, the headless Builder, the
+CMS example's pages, and the drawn editor with pointer drag and drop. Rich
+text edited on the canvas is not.
+
+## What it owns
+
+What a page is, as data. A **Catalog** of Blocks (code, deployed) says what may
+exist; a **Document** (data, stored) says what does. It performs no I/O, holds
+no state and draws nothing. The draft being edited is a `foldkit-form` key;
+saving, revisions and publishing are `foldkit-cms`'s.
+
+## Basic use
+
+```ts
+import { Schema } from 'effect'
+import { Block, Catalog, Composition, Content, Region } from 'foldkit-composition'
+
+const Heading = Block.define('Heading', {
+  Props: Schema.Struct({ text: Schema.String, level: Schema.Literals([1, 2, 3]) }),
+  provides: [Content.Flow],
+})
+const Section = Block.define('Section', {
+  Props: Schema.Struct({ tone: Schema.Literals(['plain', 'accent']) }),
+  regions: { body: Region.many({ accepts: [Content.Flow] }) },
+  provides: [Content.Section],
+})
+const Site = Catalog.make({ blocks: [Heading, Section], roots: [Content.Section] })
+
+const page = Schema.decodeUnknownSync(Composition.Document)({
+  format: 1,
+  roots: ['intro'],
+  nodes: {
+    intro: { block: 'Section', props: { tone: 'plain' }, regions: { body: ['title'] } },
+    title: { block: 'Heading', props: { text: 'Hello', level: 1 }, regions: {} },
+  },
+})
+Composition.validate(Site, page) // [] or diagnostics { code, node, path, message }
+```
+
+## Common tasks
+
+- **Store a page:** the Entity's field is `Composition.Document`, the tolerant
+  codec: any Block name, props as JSON, so old rows and revisions always read.
+- **Refuse an invalid publish:** the operation's input uses
+  `Composition.Document.check(Composition.valid(Site))`, which fails with every
+  finding at its path.
+- **Where is a node:** `Composition.index(document).get(id)` gives
+  `{ parent, region, index }`, memoized per Document value.
+- **Show a page as text** (tests, agent context): `Composition.describe(Site, doc)`.
+- **List the vocabulary:** `Catalog.describe(Site)`; attach metadata with
+  `Block.annotate(key.of(value))`.
+- **Typed props:** `Block.decode(Heading, node.props)` and `PropsOf<typeof Heading>`.
+- **Edit:** `Composition.apply(Site, doc, op)` gives `Result<{ document, changed, removed }, { code, message }>`.
+  Ops: `Op.insert({ id, block, props, at })`, `Op.insertTree({ tree, at })`,
+  `Op.remove(id)`, `Op.move(id, to)`, `Op.duplicate({ id, ids, at })`,
+  `Op.setProp(id, prop, value)`, `Op.unsetProp`, `Op.setWhen`, `Op.setAppearance`,
+  `Op.setAction`, `Op.batch(ops)` (all or none). Positions: `Composition.root(i)`,
+  `Composition.region(parent, name, i)`; a move's index counts after the node is
+  taken out. `Composition.Operation` is their Schema.
+- **New ids:** `Composition.newIds(n)` is an Effect: run it in a Command and put
+  the ids in the Operation; `apply` never mints one. Copy and paste:
+  `Composition.rekey(Composition.takeTree(doc, id), ids)`; check a tree from outside first with
+  `Composition.treeRefusal(Site, tree)` (an `Option` of a refusal, by the tree's own ids).
+- **Patterns:** `Catalog.make({ ..., patterns: [{ name, label?, description?, tree: { root,
+  nodes } }] })`, the tree as a Document stores it, checked there (throws on a bad one);
+  insert one with `Op.usePattern({ pattern, ids: { [its id]: newId, ... }, at })`
+  (`composition:unknown-pattern`). `Catalog.pattern(catalog, name)` is an `Option`.
+  `operationSchema` has a `UsePattern` per pattern whose `ids` name exactly its nodes.
+- **Undo** is not here: the Builder keeps the page in `foldkit-primitives/state`'s `history`.
+- **Migrate stored pages:** `Composition.migrate(doc, [Composition.renameBlock(from, to),
+  Composition.renameProp(block, from, to), Composition.promoteUnknown(name, from, ToBlock),
+  Composition.migration(name, block, node => node | undefined)])` gives
+  `{ document, applied, unused }`. Run it on load, before publish or as an
+  upgrade. A migration that breaks the structure throws.
+- **Draw a page:** `import { Renderer } from 'foldkit-composition/foldkit'`;
+  `Renderer.make(Site, { Block: ({ props, regions, h, id, mode }) => Html, ... })`
+  (every Block needs a view), `Renderer.render(renderer, doc, h, { mode })` gives
+  one `Html` per root. `Renderer.forMessages<M>().make` for views that dispatch.
+  Edit mode wraps each node with `data-composition-node`. Draw a text prop with
+  `field('text')` (text props only): the text for a visitor; in edit mode a span marked
+  `data-composition-field` (`fieldOf(value)` gives `{ id, key }`), editable
+  (`plaintext-only`, frozen at `initial`) while `render`'s option `editing` (an `Option` of `{ id, key, initial }`)
+  names it. `Renderer.fields(renderer, doc, id)` lists the props a node draws as fields.
+  A page's host (the Builder's frame, a published page's root) is the container
+  `PAGE_CONTAINER`; responsive looks take `Theme.inContainer(PAGE_CONTAINER, Theme.tokens.breakpoint)`
+  so a narrow preview frame draws them as a phone would.
+- **Serve it:** `SSR.static('page', ih => Renderer.render(SiteRenderer, model.page, ih))`
+  and leave the page out of the resume plan's state: the Document is not sent.
+- **URLs:** use `Url` for any `href` or `src` prop: http, https, mailto, tel and
+  relative only.
+- **Rich text:** `RichTextBlock.define('Text', { kit, provides })` from
+  `foldkit-composition/richtext`; the body is checked against the Kit
+  (`composition:nested`). Any Block may add `check: props => [{ path, message }]`.
+
+## Conditions: `when`
+
+`Catalog.make({ blocks, roots, context: Schema.Struct({ audience: ... }) })`;
+a node's `when` is a list of conditions, all must hold:
+`Op.setWhen(id, [Composition.when.eq('audience', 'member')])` (also `isNull`,
+`isNotNull`, `contains`, with `Expr` semantics: ASCII-folded, absent text
+contains nothing). Checked by `validate`/`setWhen`
+(`composition:invalid-condition`, `composition:unknown-context`).
+`Renderer.render(r, doc, h, { context })` leaves out nodes whose `when` fails;
+no context means a node with conditions is hidden (fails closed); edit mode
+draws it marked `data-composition-hidden`. `Composition.holds(when, context)`.
+The context is a `Schema.Struct`; an `eq` value is its field's decoded side.
+Presentation, not authorization.
+
+## Actions
+
+`Block.define(..., { events: ['press'] })`; `Catalog.make({ ..., actions: [AddToCart] })`
+(a `foldkit-surface` Action); `Op.setAction(id, 'press', { action: 'addToCart',
+input })`; in a `Renderer.forMessages<Message>()` view (which must route every
+Message the Catalog's actions make; `Renderer.make`'s `on` gives none), `on('press')` is an
+`Option` of the Message (input decoded first). Codes:
+`composition:invalid-action`, `composition:unknown-action`. `Catalog.describe`
+lists each Block's `events`. The drawn Builder's inspector picks an action per
+event (`on press`) and edits its input field by field, seeded with empty values.
+
+## Agents
+
+`Composition.operationSchema(Site)`: the Operation Schema with inserts of the
+Catalog's Blocks only (name literal, props' encoded Schema); use it as an
+`Agent.variant`'s `input` whose `toMessage` sends the Builder's
+`Applied({ op })` (through the form: `PageForm.control('document').send(...)`).
+The agent mints ids; context: `Composition.describe(Site, doc)`. Decode it
+with `onExcessProperty: 'error'` (as `foldkit-agent` does) so a misspelled prop
+is refused, not dropped. See
+`examples/cms/src/pageAgent.ts`.
+
+## Surface Blocks: `foldkit-composition/surface`
+
+`SurfaceBlock.define(name, { Props, provides, surface, params: props => params })`;
+`SurfaceBlock.reads(Site, doc)` / `SurfaceBlock.active(name, App.owner, Site,
+m => Option.some(doc))`; values reach the Renderer through `data`
+(`features.data(model)`), read with `Cart.value(data)` (an `Option`).
+`SurfaceBlock.families(Site, { from: Page, document: page => page.doc })` is
+one `Surface.each` family per Block (keyed by Block, instances by node id)
+for `Data.wiring` / `subscriptions` / `satisfy` / SSR `surfaces`, where
+per-node requirements and coverage matter. Not where the Catalog is in the Model (circular types):
+use a Query Block's shape there.
+
+## Stateful Blocks
+
+`Block.define(name, { ..., stateful: true })`; the parent places a Bundle per
+node: `Bundle.declareEach(Bundle, 'field')` + `Page.each(...)`.
+`Stateful.sync(Placed, Site, Block, { before, after }, (model, props) => model)`
+(from `/foldkit`) is the Step that adds, removes and restarts (props changed,
+compared by value); `Renderer.render(..., { data: Stateful.views(Placed, Site,
+Block, doc, model, h) })` and in the Renderer `Stateful.html(data)`. An item's
+view needs a runtime. `Composition.statefulNodes(catalog, doc, block?)`.
+
+## Data: `foldkit-composition/remote`
+
+`QueryBlock.define(name, { Props, provides, query, input: props => queryInput,
+select, first?: props => n })` — a Block that names a registered Remote query;
+the Document stores only its props. `QueryBlock.reads(Data, Site, document)`:
+one Projection (node id → RemoteData<Page<Row>>), an `Option` (none: no Query Blocks);
+`QueryBlock.active(name, App.owner, Data, Site, model => Option.some(document))` is it
+as an active Surface for `Data.wiring` / `subscriptions` / an SSR plan's `surfaces` (with
+`Remote.resume(Data)`); `Renderer.render(r, doc, h, { data: reads.data(model) })`
+(`{}` while inactive), and `reads.answered(model)` once every read has an answer; in the
+view, `LatestPages.rows(data)` (typed; `Initial` without data). Don't close
+over `Data` in a Block: the Catalog is in the Model through the Builder. The
+drawn Builder's canvas has no app data, so it shows the Initial state.
+
+## Appearance: `foldkit-composition/appearance`
+
+A node stores its look as names (`appearance: { tone: 'accent', gap: 'm' }`),
+checked in the core against the Block's axes (`composition:invalid-appearance`,
+`composition:unknown-token`), so `validate` and `Op.setAppearance` need no
+Mixins.
+
+```ts
+import { Appearance } from 'foldkit-composition/appearance'
+
+const HeroLook = Appearance.make(HeroSlots, {
+  recipe: Style.recipeFor(HeroSlots)({
+    base: { root: Style.class('hero') },
+    variants: { tone: { plain: {}, accent: { root: Style.class('accent') } } },
+    defaults: { tone: 'plain' },
+  }),
+  tokens: { gap: Appearance.token(Theme.ref(Theme.tokens).space, { slot: 'root', property: 'gap' }) },
+  layer: Layers.standard.layer('app'), // optional
+})
+const Hero = Block.define('Hero', {
+  Props: Schema.Struct({ title: Schema.String }),
+  provides: [Content.Section],
+}).pipe(Appearance.attach(HeroLook))
+// In the Renderer: Hero: ({ props, appearance, h }) => h.section(HeroLook.draw({ appearance, h }).root.attrs(), [props.title])
+const sheet = Style.stylesheet(...HeroLook.styles)
+```
+
+- Every piece compiles once; a selection attaches base + chosen values
+  (or defaults) + matching compounds + token declarations side by side.
+- The Renderer's `appearance` holds only choices the Block offers.
+- `look.draw({ appearance, h, with: [SomeBehavior.mixin] })` attaches Behaviors
+  after the look; a style property both set is `mixins:style-property-conflict`.
+- `Block.withAppearance({ axis: { kind: 'variant' | 'token', values, breakpoints? } })`
+  sets axes by hand. A token axis made with
+  `Appearance.token(t.space, { slot, property, breakpoints: Theme.tokens.breakpoint })`
+  is responsive: stored `{ gap: { base: 'sm', md: 'lg' } }`, drawn as rules
+  (no inline value), breakpoints after base. Variants are never responsive.
+  A view's `appearance` values are `string | Record<point, string>`.
+- The drawn Builder's inspector draws a `select` per axis, blank for default.
+- A layout Block: the look's base is `Layout.switcher()` (or `sidebar`), and the
+  layout's parameters (`--fk-l-threshold` via `Style.vars`, child `flexGrow`,
+  a `gap` token) are its axes.
+
+## The Builder: `foldkit-builder`
+
+The page editor's state, as a Bundle, designed as one form key's control
+(`Input.bundle`): the Document is the key's value.
+
+```ts
+import { Builder } from 'foldkit-builder'
+
+const PageBuilder = Builder.make('PageBuilder', {
+  catalog: Site,
+  renderer: SiteRenderer,
+  starters: { Section: {}, Heading: { text: 'New heading' } }, // the palette offers exactly these
+})
+const PageForm = Form.make('PageForm', PageInput, { inputs: { document: PageBuilder.input } })
+```
+
+- Model: `page` (an undo history from `foldkit-primitives/state`; `page.present`
+  is the Document; `PageBuilder.document(model)` reads it), `selected`,
+  `hovered`, `refused`, `drag`, `clipboard`, `editing` (each an `Option`, stored as `null`), `panel`,
+  `viewport`. Messages: `Applied({ op })`, `InsertAsked({ block, at })`,
+  `DuplicateAsked({ id, at })`, `PatternAsked({ pattern, at })` (place it with
+  `PageBuilder.patternAt(doc, selected, pattern)`), `CopyAsked({ id })` / `CutAsked({ id })` / `PasteAsked()`
+  (the paste reads the system clipboard, `ClipboardRead({ text })`, decodes it strictly,
+  rekeys it and inserts it whole or refuses), `EditingAsked({ field })` / `FieldTyped` /
+  `EditingCommitted` / `EditingCancelled` (text edited in place on the canvas, a field
+  drawn with `field(key)`; one undo step per session, Escape takes it back), `Minted` (from its own Command),
+  `Selected({ id })` / `Deselected()`, `Hovered({ id })` / `Unhovered()`, `Undid`,
+  `Redid`, `PanelChosen`, `ViewportChosen`, `PreviewChosen` / `PreviewCleared`, and
+  `DragStarted({ source })` (`{ _tag: 'Existing', id }`, or `{ _tag: 'New', block }` from the
+  palette), `DraggedOver({ id, zone })`, `DraggedOverRegion({ id, region })` (over a node's
+  empty Region, which a drop then goes into), `DraggedOff()`, `DraggedOverPage()` (a tile over the
+  page's empty space, which lands where `placeFor` with nothing selected puts it),
+  `DragDropped()`, `DragCancelled()`: `drag.at` is where a drop lands
+  (`dropAt`; inside a node that takes nothing is after it, and `over`'s zone
+  says so; where the node has no place for it, by the nearest holder that does), none where the page refuses or onto the node's own place; a drop
+  is one undoable move, or for a new Block an insert with a minted id, its place worked out
+  again when it happens.
+- Ids are minted in a Command; an edit and its undo step change together;
+  a new node is selected; a refusal is kept in `refused` until the next edit.
+- As a form key: a change of the Document is an edit (autosaved by CMS), a
+  selection is not; fill replaces the page and starts undo over.
+- Helpers, each answering with an `Option`: `PageBuilder.placeFor(doc, selected, block)`
+  (in or after the selection, else last among the roots or in the page's last Region that takes it),
+  `PageBuilder.moveBy(doc, id, delta)`, `PageBuilder.dropAt(doc, source, target, zone)`;
+  and `PageBuilder.replace`, `PageBuilder.settle`.
+- Places `TreeNavigation` (`Layers`, open by default) and `LiveAnnounce`
+  (`Announcer`) in its Model; layers focus selects the node. Shortcuts:
+  `PageBuilder.keyCommand(model, key, modifiers)` (Alt+arrows move, out of and
+  into parents; Mod+D duplicate; Delete remove; Mod+Z / Mod+Shift+Z / Mod+Y) —
+  attach to the layers panel. Structural edits, undo and refusals are announced;
+  a test that runs Commands in turn skips the `LiveAnnounce.*` timers.
+- Its view is plain (palette, layers, text props, undo, the page in edit mode);
+  `foldkit-mixins-form` draws it with the form. One node is selected at a time.
+  `PageBuilder.inputWith(view)` is the same control drawn by another view.
+  Selection in the URL (a recipe, no API): on `UrlChanged` send
+  `form.control('document').send(Message.Selected({ id }))` (or `Deselected()`); a Subscription over
+  `form.control('document').field(model.page).value.selected` calls
+  `Navigation.replaceUrl`. See the Builder README.
+  Canvas data: the form view's `controls: { document: BuilderView.inputs({ data:
+  reads.data(model) }) }` (standalone: `placed.view(model, h,
+  BuilderView.inputs({ data }))`), where `reads` is `QueryBlock.active(...)`.
+
+## The drawn editor: `foldkit-mixins-builder`
+
+```ts
+import { BuilderView } from 'foldkit-mixins-builder'
+
+const PageEditing = BuilderView.define(PageBuilder) // a SlotView over BuilderSlots
+const Drawn = PageBuilder.bundle.pipe(Bundle.withView(BuilderView.submodel(PageEditing)))
+// or, as a form key:
+const PageForm = Form.make('PageForm', PageInput, {
+  inputs: { document: PageBuilder.inputWith(BuilderView.submodel(PageEditing)) },
+})
+```
+
+- A stored value a `select` lacks is shown as `? value`; an unknown Block's
+  props are shown read-only. `fieldsOf(schema)` (from `foldkit-composition`)
+  is a struct Schema's fields.
+- Draws: palette (grouped buttons named `Add <label>`, titled with where they
+  go, `aria-disabled` (so it keeps focus; style `[aria-disabled="true"]`) with no place; the Catalog's patterns last, a "Patterns" group
+  with `data-pattern`), layers as `role="tree"` rows (label, the node's
+  first text in brief, a toggle on a branch; tab stop on the selected row),
+  inspector (the Block's label and actions, then Content, Style, Visibility,
+  Interactions; a look of up to four values is a row of pressed-state buttons;
+  with nothing selected, the shortcuts),
+  (Boolean: checkbox; literals: select; Number, String: input; else JSON
+  shown), undo/redo, viewport frame, refusal as `role="alert"`, live region,
+  and the page via the site's Renderer in edit mode.
+- Behaviors: `TreeNavigation` on `tree`/`row`; `keyCommand` shortcuts on
+  `layers` and the focusable `canvas` (Escape deselects); a `crumbs` breadcrumb; `Targets` on `canvas` (hover marks, press selects, a link does not
+  navigate). No state, no Messages of its own.
+- A Block's words: `Block.words({ label, description, group })` (from `foldkit-composition`, a
+  pipe step, so a Block from another package can be worded); the label defaults to the name
+  spaced. An agent's `operationSchema` carries each description. Look values are named with an
+  axis's `labels`. Palette items and rows carry `data-block`.
+- Inspector labels are the prop Schema's `title`, else the key spaced. A Block asks
+  for a control with
+  `Block.annotate(Builder.controls({ body: Input.multiline(), ref: Input.hidden() }))`
+  (`Builder` from `foldkit-builder`). A Block's props are a `foldkit-form` form over their
+  stored side (`PageBuilder.inspecting(model)`), drawn by `FormView` (style it with
+  `FieldSlots`/`FormSlots`): a change that decodes is one `setProp`, an optional field
+  emptied one `unsetProp`; text that does not (`"abc"` for a number) stays in its field
+  with the error and edits nothing, held in the Model's `inspector` as JSON. A value the
+  Block refuses is said in `refused`, and the field shows the node's value again. Each event's action input is a form too (`inspecting(model).on`,
+  one `setAction` per change). A view sends `Inspected({ id, form: form.key, message })` (the
+  message from `form.settings.encodeMessage`); one for a node or form no longer drawn is
+  ignored. Field ids are `<Block>Settings-<prop>` and `<Block>-<event>-<action>-<key>`; two
+  Builders on one page need different names. An `Input.bundle` control (a color picker) works
+  in the inspector; one with Subscriptions or Resources is refused by `Builder.make`. Style those fields with
+  `BuilderView.define(PageBuilder, { settings: { field: Style.attach(...FieldSlots...),
+  form: Style.attach(...FormSlots...), renderers: Cms.controlRenderers } })` — `renderers` is
+  a function of the Message (`<M>() => Renderers<M>`) drawing the application's own control kinds.
+  A prop holding an id takes `Input.relationOne(Category)` (a `select`) or
+  `Input.relationMany(Tag)` (checkboxes over an id array); its choices come in
+  `BuilderView.inputs({ options: { 'Featured.category': [{ value, label }] } })`,
+  loaded by the application.
+- `PointerDrag` on `tree` (rows carry `data-builder-row`) and `canvas`.
+- Commands: one table, `PageBuilder.commands` (`{ id, label, keys, placement, run }`), from which
+  `keyCommand`, the node's actions, the toolbar (`toolbar`/`toolbarAction` Slots, `data-action`)
+  and the shortcut list are drawn; change it with `Builder.make(..., { commands: built => ... })`.
+  `BuilderView.inputs({ platform: 'mac' })` writes keys as ⌘D. `BuilderView.inputs({ words })`
+  puts the editor in another language: `Partial<BuilderWords>` over `builderWords`, text with
+  blanks (`addBlock: 'Añadir {label}'`), never functions, which a view input may not nest; Block
+  and command labels are the Catalog's and the command table's. The Builder's own words (announcements, command labels, its
+  refusals): `Builder.make(name, { words: Partial<EditWords> })` over `editWords`, text with
+  blanks too (`moved: 'Moved {label}{at}'`); `refusal` words `apply`'s refusals (`{code}`,
+  `{message}`).
+- Canvas overlay: `selectionBox` (with `selectionLabel`, the Block's label) and `hoverBox` Slots
+  are drawn over the selected and hovered nodes, placed from `Measure` (`foldkit-primitives/dom`);
+  style how they look, the Builder places them.
+- Your own layout: `const parts = BuilderView.parts(PageBuilder)`, then
+  `BuilderView.assemble((model, slots, h, draw) => h.div(slots.root.attrs(), [draw(parts.Palette),
+  draw(parts.Canvas)]))`. Parts: `Panels`, `Palette`, `Layers`, `Inspector`, `Toolbar`, `Crumbs`,
+  `Viewports`, `Preview`, `Alert`, `Canvas`, `Live`; each brings its Behaviors and redraws only
+  when the Model fields it reads change.
+- `define`'s layout: `root` (the container `builder`) > `panelTabs`, `regions` > `start` (palette,
+  layers), `bar` (toolbar, crumbs, viewports, preview), `stage` (alert, canvas), `end`
+  (inspector), then `live`. Lay out `regions`, by `@container builder (…)` for the editor's width.
+- Narrow editor: `.pipe(Style.attach(BuilderView.narrow('52rem')))`: below that width of the
+  editor itself (container `builder`), a group of pressed buttons (Add, Layers, Settings) shows one panel
+  at a time, by the Builder's `panel` (`PanelChosen`; selecting a node on the page chooses Settings, a
+  layers row clicked keeps the layers).
+- With a Catalog `context`: a "Preview as" group (`preview` Slot, the Builder's
+  `preview` Model field, `PreviewChosen({ key, value })`, seeded by
+  `Builder.make(..., { preview })`); the canvas draws for it, marking hidden
+  nodes. The inspector's `Shown when <key> is` fields store `eq` conditions.
+- Style the marks on the edit wrappers' child (a wrapper is
+  `display: contents`): `[data-composition-mark='selected'|'hovered'] > *` (selected
+  wins on a node that is both), `[data-composition-drop='before'|'inside'|'after'] > *`;
+  an empty Region is its own element, `[data-composition-region]` (with the node's id, and
+  `data-composition-drop` on it while a drop aims there): give it a box to drop into; rows carry `data-builder-drop` and `data-builder-dragging`.
+
+## Gotchas
+
+- A Region accepts by **Content** (`Content.Flow`), compared by identity:
+  `Content.define('Pricing')` twice gives two capabilities.
+- Props decode strictly: a key the Block's schema does not name is
+  `composition:invalid-props`.
+- An unknown Block is reported (`composition:unknown-block`), kept, and what it
+  holds is still checked; `describe` marks it `?`.
+- A node is in exactly one place; a second parent, a cycle, an orphan and a
+  missing id are each their own diagnostic.
+- Regions are not Mixins Slots, and Content is not a Mixins capability.
+- `apply` refuses only what the Operation causes; it keeps working beside an
+  unknown Block, which can be reordered where it is or removed, but not moved
+  elsewhere or have its props set.
+
+## See also
+
+- [Package README](https://github.com/doeixd/foldkit-plus/blob/main/packages/composition/README.md)
+- [Builder README](https://github.com/doeixd/foldkit-plus/blob/main/packages/builder/README.md)
+- [Drawn Builder README](https://github.com/doeixd/foldkit-plus/blob/main/packages/mixins-builder/README.md)
+- [Page builder design](https://github.com/doeixd/foldkit-plus/blob/main/docs/design/pagebuilder-DESIGN.md)

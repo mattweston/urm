@@ -1,0 +1,480 @@
+import { Effect, Layer, Schema, Stream, Option } from 'effect'
+import { Bundle } from 'foldkit-bundle'
+import { Derived, Entity, Relation } from 'foldkit-entity'
+import { Form, Input } from 'foldkit-form'
+import { defineMessageUnion } from 'foldkit/message'
+import {
+  Mutation,
+  Refusal,
+  Remote,
+  RemoteClient,
+  RemoteMutationError,
+  entityKey,
+  requirementsOf,
+  tombstone,
+} from 'foldkit-remote'
+import { Surface } from 'foldkit-surface'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { Crud } from '../src/index.js'
+
+const Author = Entity.define('Author', Schema.Struct({ id: Schema.String, name: Schema.String }))
+const Post = Entity.define(
+  'Post',
+  Schema.Struct({ id: Schema.String, title: Schema.String.check(Schema.isMinLength(1)) }),
+).pipe(
+  // The members its reader may not set, as a server would answer them.
+  Entity.derived({ fixed: Derived.make(Schema.Array(Schema.String)) }),
+)
+const Blog = Entity.relate({ Author, Post }, { Post: { author: Relation.one(Author) } })
+
+const EditPostInput = Schema.Struct({
+  id: Schema.String,
+  title: Blog.Post.fields.title.schema,
+  authorId: Schema.String,
+})
+const EditPostMutation = Mutation.make('EditPost', {
+  Input: EditPostInput,
+  Output: { id: Schema.String },
+  Refusal: Schema.Union([
+    Refusal.field('title', Schema.String),
+    Refusal.field('slug', Schema.String),
+    Refusal.conflict,
+  ]),
+})
+const EditPostForm = Form.make(
+  'EditPost',
+  Entity.input(Blog.Post, EditPostInput, { authorId: Relation.input(Blog.Post.relations.author) }),
+  {
+    inputs: { id: Input.hidden() },
+    debounce: 0,
+    // A rule the form cannot answer itself.
+    checks: { title: title => Effect.succeed(title === 'Taken' ? 'Already used' : undefined) },
+  },
+)
+
+const Editor = Crud.editor('PostEditor', {
+  form: EditPostForm,
+  mutation: EditPostMutation,
+  locks: {
+    select: { fixed: true },
+    locked: (row, member) => Array.isArray(row.fixed) && row.fixed.includes(member),
+  },
+})
+const Slot = Bundle.declare(Editor.bundle, 'editor')
+
+const Model = Schema.Struct({ remote: Remote.Model, ...Slot.fields })
+type Model = typeof Model.Type
+const Message = defineMessageUnion({
+  ...Remote.messages,
+  ...Slot.cases,
+  OpenedPost: { id: Schema.String },
+})
+type Message = typeof Message.Type
+
+const App = Surface.application({ Model, Message })
+const Data = Remote.make({
+  model: App.model.remote,
+  entities: Object.values(Blog),
+  mutations: [EditPostMutation],
+})
+const PostEditor = Editor.at({ data: Data, model: App.model.editor })
+
+// A save is a Command that needs `RemoteClient`, so the parent names that service.
+const Page = Bundle.parent({ Model, Message }).withServices<RemoteClient>()
+const Placed = Page.at(Slot, { onOut: PostEditor.onOut })
+const placements = Page.assemble(Placed)
+
+const update = PostEditor.after(
+  placements.update((model: Model, message: Message) =>
+    message._tag === 'OpenedPost'
+      ? Placed.helpers.open(message.id)(model)
+      : Remote.reduces(message)
+        ? { model: Data.reduce(model, message) }
+        : { model },
+  ),
+)
+
+// The server's facts, and a switch to make a save fail.
+const server: { posts: Record<string, Record<string, unknown>> } = {
+  posts: { p1: { title: 'Hello', author: 'Author:a1' } },
+}
+let failing = false
+/** A refusal the server answers the next save with, encoded, when set. */
+let refusing: Option.Option<unknown> = Option.none()
+const Client = Layer.succeed(RemoteClient, {
+  read: batch =>
+    Effect.sync(() => ({
+      settled: [],
+      entities: batch.requests.flatMap(request =>
+        server.posts[request.id] === undefined
+          ? []
+          : [
+              {
+                entity: request.entity,
+                id: request.id,
+                // Nothing is fixed unless the row says so.
+                values: { id: request.id, fixed: [], ...server.posts[request.id] },
+              },
+            ],
+      ),
+    })),
+  query: () => Effect.die('no queries'),
+  mutate: request =>
+    Option.isSome(refusing)
+      ? Effect.fail(new RemoteMutationError({ message: 'refused', refusal: refusing.value }))
+      : failing
+        ? Effect.fail({ _tag: 'TransportError', message: 'offline' } as never)
+        : Effect.sync(() => {
+            const input = request.input as typeof EditPostInput.Type
+            server.posts[input.id] = { title: input.title, author: `Author:${input.authorId}` }
+            return {
+              output: { id: input.id },
+              entities: [{ entity: 'Post', id: input.id, values: server.posts[input.id]! }],
+            }
+          }),
+  live: () => Stream.empty,
+})
+
+/** What the runtime does: update, run the Commands, feed their Messages back. */
+const dispatch = async (model: Model, message: Message): Promise<Model> => {
+  const next = update(model, message)
+  let current = next.model
+  for (const command of next.commands ?? []) {
+    const settled = await Effect.runPromise(command.effect.pipe(Effect.provide(Client)))
+    current = await dispatch(current, settled as Message)
+  }
+  return current
+}
+const form = (model: Model, message: typeof EditPostForm.Message.Type) =>
+  dispatch(model, Message.GotEditorMessage({ message }))
+
+/** What Remote's read Subscription does for the active Surface. */
+const load = async (model: Model): Promise<Model> => {
+  const active = PostEditor.active.projectionOf(model)
+  if (Option.isNone(active)) return model
+  const projection = active.value
+  const loaded = await Effect.runPromise(
+    Data.prefetch(model, projection).pipe(Effect.provide(Client)),
+  )
+  // Any Message after the value arrives lets `after` show it; Remote's own do in an application.
+  return dispatch(
+    loaded,
+    Message.GotEditorMessage({ message: EditPostForm.Message.Blurred({ key: 'id' }) }),
+  )
+}
+
+const initial = placements.initial({ remote: Remote.initial }).model
+const drafts = (model: Model) =>
+  Object.fromEntries(
+    EditPostForm.controls.map(({ key }) => [key, EditPostForm.field(model.editor.form, key).value]),
+  )
+
+beforeEach(() => {
+  failing = false
+  refusing = Option.none()
+  server.posts = { p1: { title: 'Hello', author: 'Author:a1' } }
+})
+
+describe('Crud.editor', () => {
+  it('starts closed, requiring and showing nothing', () => {
+    expect(PostEditor.status(initial)).toBe('Closed')
+    expect(Option.isNone(PostEditor.active.projectionOf(initial))).toBe(true)
+  })
+
+  it('loads what the form writes and what its locks read, and is Loading until it arrives', async () => {
+    const opened = await dispatch(initial, Message.OpenedPost({ id: 'p1' }))
+    const projection = Option.getOrThrow(PostEditor.active.projectionOf(opened))
+
+    expect(PostEditor.status(opened)).toBe('Loading')
+    expect(requirementsOf(projection)).toEqual([
+      { entity: 'Post', id: 'p1', fields: ['id', 'title', 'author', 'fixed'] },
+    ])
+    expect(Editor.selection.members).toEqual({ id: true, title: true, author: true, fixed: true })
+  })
+
+  it('fills the form once the value arrives, the relation as the id it holds', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+
+    expect(PostEditor.status(ready)).toBe('Editing')
+    expect(drafts(ready)).toEqual({ id: 'p1', title: 'Hello', authorId: 'a1' })
+  })
+
+  it('locks the form’s keys the row does not let its reader set, a relation by its key', async () => {
+    const opened = await dispatch(initial, Message.OpenedPost({ id: 'p1' }))
+    expect(PostEditor.locked(opened)).toEqual([])
+    server.posts.p1 = { title: 'Hello', author: 'Author:a1', fixed: ['title', 'author'] }
+    expect(PostEditor.locked(await load(opened))).toEqual(['title', 'authorId'])
+    // Something new is the server's to check: nothing is locked.
+    const blank = await dispatch(
+      initial,
+      Message.GotEditorMessage({ message: EditPostForm.Message.Blurred({ key: 'id' }) }),
+    )
+    expect(PostEditor.locked(Placed.helpers.blank()(blank).model)).toEqual([])
+  })
+
+  it('does not overwrite what the user typed when the value is read again', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    const typed = await form(ready, EditPostForm.Message.Changed({ key: 'title', value: 'Mine' }))
+    server.posts.p1 = { title: 'Theirs', author: 'Author:a1' }
+
+    expect(drafts(await load(typed)).title).toBe('Mine')
+  })
+
+  it('starts no mutation for an invalid submit', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    const cleared = await form(ready, EditPostForm.Message.Changed({ key: 'title', value: '' }))
+    const submitted = update(
+      cleared,
+      Message.GotEditorMessage({ message: EditPostForm.Message.Submitted() }),
+    )
+
+    expect(submitted.commands ?? []).toEqual([])
+    expect(PostEditor.status(submitted.model)).toBe('Editing')
+  })
+
+  it('turns a valid submit into the mutation: Saving, then Saved, then Editing again', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    const typed = await form(
+      ready,
+      EditPostForm.Message.Changed({ key: 'title', value: 'Revised' }),
+    )
+    const started = update(
+      typed,
+      Message.GotEditorMessage({ message: EditPostForm.Message.Submitted() }),
+    )
+
+    expect(PostEditor.status(started.model)).toBe('Saving')
+    expect(started.commands).toHaveLength(1)
+
+    const saved = await form(typed, EditPostForm.Message.Submitted())
+    expect(PostEditor.status(saved)).toBe('Saved')
+    expect(server.posts.p1).toEqual({ title: 'Revised', author: 'Author:a1' })
+
+    const again = await form(
+      saved,
+      EditPostForm.Message.Changed({ key: 'title', value: 'Revised!' }),
+    )
+    expect(PostEditor.status(again)).toBe('Editing')
+  })
+
+  it('reports a failed save and keeps the drafts', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    const typed = await form(
+      ready,
+      EditPostForm.Message.Changed({ key: 'title', value: 'Revised' }),
+    )
+    failing = true
+    const failed = await form(typed, EditPostForm.Message.Submitted())
+
+    expect(PostEditor.status(failed)).toBe('SaveFailed')
+    expect(PostEditor.saveError(failed)).toMatchObject({ message: 'offline' })
+    expect(PostEditor.saveError(typed)).toBeUndefined()
+    expect(drafts(failed).title).toBe('Revised')
+    expect(server.posts.p1).toEqual({ title: 'Hello', author: 'Author:a1' })
+  })
+
+  it('shows a refusal of one of its keys on that key, and says the save failed', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    // Valid as far as the form can tell: only the server knows it is used.
+    const typed = await form(
+      ready,
+      EditPostForm.Message.Changed({ key: 'title', value: 'Duplicate' }),
+    )
+    refusing = Option.some({ _tag: 'Field', key: 'title', reason: 'Another post has it' })
+    const refused = await form(typed, EditPostForm.Message.Submitted())
+
+    expect(PostEditor.status(refused)).toBe('SaveFailed')
+    expect(EditPostForm.field(refused.editor.form, 'title')).toMatchObject({
+      _tag: 'Invalid',
+      value: 'Duplicate',
+      errors: ['Another post has it'],
+    })
+    // Shown once: a later Message leaves the form as the refusal left it.
+    const after = await form(refused, EditPostForm.Message.Blurred({ key: 'id' }))
+    expect(after.editor.form.fields.title).toBe(refused.editor.form.fields.title)
+    // Editing the key is a new round: the refusal no longer describes it.
+    const edited = await form(after, EditPostForm.Message.Changed({ key: 'title', value: 'Free' }))
+    expect(PostEditor.status(edited)).toBe('Editing')
+  })
+
+  it('leaves a refusal of a key the form does not have to the status', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    refusing = Option.some({ _tag: 'Field', key: 'slug', reason: 'taken' })
+    const refused = await form(ready, EditPostForm.Message.Submitted())
+
+    expect(PostEditor.status(refused)).toBe('SaveFailed')
+    expect(EditPostForm.field(refused.editor.form, 'title')._tag).toBe('Valid')
+  })
+
+  it('reads a conflict as its own status, not as a failed save', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    refusing = Option.some({ _tag: 'Conflict' })
+    const refused = await form(ready, EditPostForm.Message.Submitted())
+
+    expect(PostEditor.status(refused)).toBe('Conflict')
+  })
+
+  it('opens on the last good value when a refresh of it had failed', async () => {
+    // Something else on the page read p1, then its refresh failed.
+    const held = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    const elsewhere = await dispatch(held, Message.OpenedPost({ id: 'p2' }))
+    const failed = Data.reduce(elsewhere, {
+      _tag: 'ReadFailed',
+      requests: [{ entity: 'Post', id: 'p1', fields: ['id', 'title', 'author', 'fixed'] }],
+      error: { _tag: 'RemoteReadError', message: 'offline' },
+    })
+
+    const reopened = await dispatch(failed, Message.OpenedPost({ id: 'p1' }))
+
+    expect(PostEditor.status(reopened)).toBe('Editing')
+    expect(drafts(reopened)).toEqual({ id: 'p1', title: 'Hello', authorId: 'a1' })
+  })
+
+  it('offers a retry for a value that failed to load, and asks for it again', async () => {
+    const opened = await dispatch(initial, Message.OpenedPost({ id: 'p1' }))
+    const failed = Data.reduce(opened, {
+      _tag: 'ReadFailed',
+      requests: [{ entity: 'Post', id: 'p1', fields: ['id', 'title', 'author', 'fixed'] }],
+      error: { _tag: 'RemoteReadError', message: 'offline' },
+    })
+    const projection = Option.getOrThrow(PostEditor.active.projectionOf(failed))
+    expect(PostEditor.status(failed)).toBe('LoadFailed')
+    expect(Data.plan(failed, projection)).toEqual([])
+
+    const retried = PostEditor.refresh(failed)
+
+    expect(Data.plan(retried, projection)).toEqual([
+      { entity: 'Post', id: 'p1', fields: ['id', 'title', 'author', 'fixed'] },
+    ])
+    expect(PostEditor.status(await load(retried))).toBe('Editing')
+    expect(PostEditor.refresh(initial)).toBe(initial)
+  })
+
+  it('says when the id it was opened on does not exist', async () => {
+    const opened = await dispatch(initial, Message.OpenedPost({ id: 'nope' }))
+    expect(PostEditor.status(opened)).toBe('Loading')
+    // The server answers the read without it, which is how Remote learns it is not there.
+    expect(PostEditor.status(await load(opened))).toBe('NotFound')
+  })
+
+  it('says its post is gone even after a save landed, when it is deleted under it', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    const typed = await form(
+      ready,
+      EditPostForm.Message.Changed({ key: 'title', value: 'Revised' }),
+    )
+    const saved = await form(typed, EditPostForm.Message.Submitted())
+    expect(PostEditor.status(saved)).toBe('Saved')
+
+    // Deleted elsewhere: a mutation's `deleted`, or a live event.
+    const gone: Model = {
+      ...saved,
+      remote: {
+        ...saved.remote,
+        entities: tombstone(saved.remote.entities, entityKey('Post', 'p1')),
+      },
+    }
+    expect(PostEditor.status(gone)).toBe('NotFound')
+  })
+
+  it('runs a check the form starts: the editor passes the Commands of the form on', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    const asking = update(
+      ready,
+      Message.GotEditorMessage({
+        message: EditPostForm.Message.Changed({ key: 'title', value: 'Taken' }),
+      }),
+    )
+    expect(asking.commands).toHaveLength(1)
+    expect(EditPostForm.field(asking.model.editor.form, 'title')._tag).toBe('Validating')
+
+    const answered = await form(
+      ready,
+      EditPostForm.Message.Changed({ key: 'title', value: 'Taken' }),
+    )
+    expect(EditPostForm.field(answered.editor.form, 'title')).toMatchObject({
+      _tag: 'Invalid',
+      errors: ['Already used'],
+    })
+  })
+
+  it('joins the Remote Subscriptions as an active Surface: a read entry follows the open id', () => {
+    const entries = Data.subscriptions({ editor: PostEditor.active })
+    const read = entries['editor.read']
+    const opened = Placed.helpers.open('p1')(initial).model
+
+    expect(Object.keys(entries)).toEqual(['editor.read', 'editor.live', 'retain'])
+    expect(read.modelToDependencies(initial).requirements).toEqual([])
+    expect(read.modelToDependencies(opened).requirements).toEqual([
+      { entity: 'Post', id: 'p1', fields: ['id', 'title', 'author', 'fixed'] },
+    ])
+  })
+
+  it('opens blank for a new one: nothing to load, editing at once', () => {
+    const blank = Placed.helpers.blank()(initial).model
+
+    expect(PostEditor.status(blank)).toBe('Editing')
+    expect(Option.isNone(PostEditor.active.projectionOf(blank))).toBe(true)
+    expect(drafts(blank)).toEqual({ id: '', title: '', authorId: '' })
+    expect(PostEditor.status(Placed.helpers.close()(blank).model)).toBe('Closed')
+  })
+
+  it('empties the form when another id is opened', async () => {
+    const ready = await load(await dispatch(initial, Message.OpenedPost({ id: 'p1' })))
+    const other = await dispatch(ready, Message.OpenedPost({ id: 'p9' }))
+
+    expect(drafts(other)).toEqual({ id: '', title: '', authorId: '' })
+    expect(PostEditor.status(other)).toBe('Loading')
+  })
+})
+
+describe('Crud.editor over nested rows', () => {
+  const Comment = Entity.define(
+    'Comment',
+    Schema.Struct({ id: Schema.String, body: Schema.String }),
+  )
+  const Thread = Entity.define('Thread', Schema.Struct({ id: Schema.String, title: Schema.String }))
+  const Forum = Entity.relate({ Comment, Thread }, { Thread: { comments: Relation.many(Comment) } })
+  const NewComment = Entity.input(Forum.Comment, Schema.Struct({ body: Schema.String }))
+  const EditThreadInput = Schema.Struct({
+    id: Schema.String,
+    title: Schema.String,
+    comments: Schema.Array(NewComment.schema),
+  })
+  const ThreadForm = Form.make(
+    'EditThread',
+    Entity.input(Forum.Thread, EditThreadInput, {
+      comments: Relation.nested(Forum.Thread.relations.comments, NewComment),
+    }),
+    { debounce: 0 },
+  )
+  const ThreadEditor = Crud.editor('ThreadEditor', {
+    form: ThreadForm,
+    mutation: Mutation.make('EditThread', { Input: EditThreadInput, Output: {} }),
+  })
+  const { update } = ThreadEditor.bundle
+  // An editor whose last save is still the request it knows.
+  const saved = {
+    ...ThreadEditor.bundle.init().model,
+    mode: 'edit' as const,
+    requestId: 'EditThread-1',
+  }
+
+  it('starts a new round on an edit that is not a typed field: a row added', () => {
+    const added = update(saved, ThreadForm.Message.RowAdded({ key: 'comments' }), undefined)
+    expect(added.model.edited).toBe(true)
+    // The save it sent is still the one whose answer the form takes.
+    expect(added.model.requestId).toBe('EditThread-1')
+  })
+
+  it('keeps the save for what the author did not write, and the Model for what changed nothing', () => {
+    const blurred = update(saved, ThreadForm.Message.Blurred({ key: 'title' }), undefined)
+    expect(blurred.model.edited).toBe(false)
+    const dropped = update(
+      saved,
+      ThreadForm.Message.Nested({ key: 'comments', row: 'r9', message: { _tag: 'Nope' } }),
+      undefined,
+    )
+    expect(dropped.model).toBe(saved)
+  })
+})

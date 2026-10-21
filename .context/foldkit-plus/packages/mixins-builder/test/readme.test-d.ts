@@ -1,0 +1,137 @@
+// The README's snippets, compiled. Keep the two in step.
+import { Schema } from 'effect'
+import { Builder, type Message, type Model } from 'foldkit-builder'
+import { Bundle } from 'foldkit-bundle'
+import { Block, Composition, Content } from 'foldkit-composition'
+import { Entity } from 'foldkit-entity'
+import { Form, Input } from 'foldkit-form'
+import { Style } from 'foldkit-mixins'
+import { FieldSlots, FormSlots } from 'foldkit-mixins-form'
+import type * as Submodel from 'foldkit/submodel'
+import { expectTypeOf } from 'vitest'
+import { BuilderSlots, BuilderView, type BuilderViewInputs } from '../src/index.js'
+import { PageBuilder, Site } from './fixture.js'
+
+{
+  const PageEditing = BuilderView.define(PageBuilder)
+  const Drawn = PageBuilder.bundle.pipe(Bundle.withView(BuilderView.submodel(PageEditing)))
+  expectTypeOf(Drawn.view).toExtend<Submodel.View<Model, Message, BuilderViewInputs> | undefined>()
+}
+
+const PageEditing = BuilderView.define(PageBuilder).pipe(
+  Style.attach(
+    Style.forSlots(BuilderSlots)({
+      root: Style.class('builder'),
+      row: Style.class('builder-row'),
+      canvas: Style.class('builder-canvas'),
+    }),
+  ),
+)
+
+const Page = Entity.define(
+  'Page',
+  Schema.Struct({ id: Schema.String, title: Schema.String, document: Composition.Document }),
+)
+const PageInput = Entity.input(
+  Page,
+  Schema.Struct({
+    title: Page.fields.title.schema,
+    document: Composition.Document.check(Composition.valid(Site)),
+  }),
+)
+
+const PageForm = Form.make('PageForm', PageInput, {
+  inputs: { document: PageBuilder.inputWith(BuilderView.submodel(PageEditing)) },
+})
+expectTypeOf(PageForm.control('document').field(PageForm.initial).value).toEqualTypeOf<Model>()
+
+const Quote = Block.define('Quote', {
+  Props: Schema.Struct({
+    text: Schema.String.annotate({ title: 'Quotation' }),
+    ref: Schema.String,
+  }),
+  provides: [Content.Flow],
+}).pipe(Block.annotate(Builder.controls({ text: Input.multiline(), ref: Input.hidden() })))
+expectTypeOf(Quote.name).toEqualTypeOf<'Quote'>()
+
+const Described = Quote.pipe(Block.words({ group: 'Text', description: 'Words someone said' }))
+expectTypeOf(Described.name).toEqualTypeOf<'Quote'>()
+// @ts-expect-error: a Block's words are only its label, description and group.
+Block.words({ icon: 'quote' })
+
+// What the page's parent gives the drawn Builder: each node's read, and a
+// relation prop's choices.
+{
+  const Category = Entity.define(
+    'Category',
+    Schema.Struct({ id: Schema.String, name: Schema.String }),
+  )
+  const Featured = Block.define('Featured', {
+    Props: Schema.Struct({ category: Schema.NullOr(Schema.String) }),
+    provides: [Content.Flow],
+  }).pipe(Block.annotate(Builder.controls({ category: Input.relationOne(Category) })))
+  expectTypeOf(Featured.name).toEqualTypeOf<'Featured'>()
+
+  const categories: ReadonlyArray<{ readonly id: string; readonly name: string }> = []
+  expectTypeOf(
+    BuilderView.inputs({
+      data: { n1: ['three posts'] },
+      options: { 'Featured.category': categories.map(c => ({ value: c.id, label: c.name })) },
+    }),
+  ).toEqualTypeOf<BuilderViewInputs>()
+}
+
+// "Your own layout".
+{
+  const parts = BuilderView.parts(PageBuilder)
+  const Compact = BuilderView.assemble((_model, slots, h, draw) =>
+    h.div(slots.root.attrs(), [
+      h.h1([], ['Home page']),
+      draw(parts.Palette),
+      draw(parts.Canvas),
+      draw(parts.Inspector),
+    ]),
+  )
+  expectTypeOf(Compact).toEqualTypeOf<ReturnType<typeof BuilderView.define>>()
+}
+
+// "Styling": the settings forms' look.
+{
+  const PageEditing = BuilderView.define(PageBuilder, {
+    settings: {
+      field: Style.attach(Style.forSlots(FieldSlots)({ label: Style.class('setting-label') })),
+      form: Style.attach(Style.forSlots(FormSlots)({ root: Style.class('settings') })),
+    },
+  })
+  expectTypeOf(PageEditing).toEqualTypeOf<ReturnType<typeof BuilderView.define>>()
+}
+
+// "Styling": how the boxes over the page look.
+{
+  const Boxes = Style.forSlots(BuilderSlots)({
+    selectionBox: Style.self({ outline: '2px solid Highlight', outlineOffset: '3px' }),
+    selectionLabel: Style.self({
+      background: 'Highlight',
+      color: 'HighlightText',
+      fontSize: '0.75rem',
+    }),
+    hoverBox: Style.self({ outline: '1px dashed GrayText', outlineOffset: '3px' }),
+  })
+  void BuilderView.define(PageBuilder).pipe(Style.attach(Boxes))
+}
+
+// A narrow editor
+{
+  const PageEditing = BuilderView.define(PageBuilder).pipe(
+    Style.attach(BuilderView.narrow('52rem')),
+  )
+  void PageEditing
+}
+
+// The editor's words
+{
+  const inputs = BuilderView.inputs({
+    words: { palette: 'Bloque nuevo', addBlock: 'Añadir {label}' },
+  })
+  void inputs
+}

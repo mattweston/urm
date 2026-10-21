@@ -1,0 +1,465 @@
+// @vitest-environment jsdom
+/**
+ * PointerDrag: a press becomes a drag only past the threshold; the place under
+ * the pointer is reported once per change, by thirds of its box, and never as
+ * the dragged element itself; a release drops and swallows the click it ends
+ * with; Escape cancels; the Behavior attaches the Mount to a container slot.
+ */
+import { Effect, Fiber } from 'effect'
+import * as Mount from 'foldkit/mount'
+import { Attributes, Capability, Slot, Slots, SlotView } from 'foldkit-mixins'
+import { describe, expect, it } from 'vitest'
+import {
+  DragCancelled,
+  DragDropped,
+  type DragPlace,
+  DragStarted,
+  DraggedOver,
+  PointerDrag,
+  boxOf,
+  zoneOf,
+} from '../src/dom/index.js'
+import { PointerDrag as Interaction } from '../src/interaction/index.js'
+import { takeMessages } from './support.js'
+
+const fire = (target: EventTarget, type: string, init: Record<string, unknown> = {}) => {
+  const event = new window.Event(type, { bubbles: true, cancelable: true })
+  Object.assign(event, init)
+  target.dispatchEvent(event)
+  return event
+}
+
+/** A marked element whose box is `top` to `top + 30`. */
+const row = (id: string, top: number) => {
+  const element = document.createElement('li')
+  element.setAttribute('data-row', id)
+  element.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: top, width: 100, height: 30 })
+  return element
+}
+
+/** A list of three rows, a, b and c, 30px tall each from the top, and an element outside it. */
+const withList = <A>(
+  run: (parts: {
+    readonly list: HTMLElement
+    readonly a: HTMLElement
+    readonly b: HTMLElement
+    readonly c: HTMLElement
+    readonly outside: HTMLElement
+  }) => Promise<A>,
+) => {
+  const list = document.createElement('ul')
+  const a = row('a', 0)
+  const b = row('b', 30)
+  const c = row('c', 60)
+  const outside = document.createElement('div')
+  list.append(a, b, c)
+  document.body.append(list, outside)
+  return run({ list, a, b, c, outside }).finally(() => {
+    list.remove()
+    outside.remove()
+  })
+}
+
+const run = (list: HTMLElement, count: number, act: () => void) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(
+        takeMessages(
+          PointerDrag({ attribute: 'data-row' }).f(list, Mount.liveViewStateChanges),
+          count,
+        ),
+      )
+      for (let i = 0; i < 50; i++) yield* Effect.yieldNow
+      act()
+      return yield* Fiber.join(fiber)
+    }),
+  )
+
+describe('zoneOf and boxOf', () => {
+  it('splits a box in thirds', () => {
+    const box = { top: 30, height: 30 }
+    expect([31, 45, 59].map(y => zoneOf(box, y))).toEqual(['before', 'inside', 'after'])
+    expect(zoneOf({ top: 0, height: 0 }, 0)).toBe('inside')
+  })
+
+  it('measures an element with no box of its own by its first child', () => {
+    const wrapper = document.createElement('div')
+    const child = row('x', 90)
+    wrapper.append(child)
+    wrapper.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: 0, width: 0, height: 0 })
+    expect(boxOf(wrapper).top).toBe(90)
+  })
+})
+
+describe('PointerDrag', () => {
+  it('starts only past the threshold, and reports each new place under the pointer', () =>
+    withList(async ({ list, a, b, c, outside }) => {
+      const facts = await run(list, 4, () => {
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        // Not yet past the threshold, though the pointer is over b.
+        fire(b, 'pointermove', { clientX: 12, clientY: 11 })
+        fire(a, 'pointermove', { clientX: 10, clientY: 20 })
+        fire(b, 'pointermove', { clientX: 10, clientY: 32 })
+        fire(b, 'pointermove', { clientX: 10, clientY: 33 })
+        fire(c, 'pointermove', { clientX: 10, clientY: 75 })
+        fire(outside, 'pointermove', { clientX: 10, clientY: 200 })
+      })
+      expect(facts).toEqual([
+        // Over the dragged row itself is over nothing, which it already was.
+        DragStarted.make({ id: 'a' }),
+        DraggedOver.make({ over: { id: 'b', zone: 'before' } }),
+        DraggedOver.make({ over: { id: 'c', zone: 'inside' } }),
+        DraggedOver.make({ over: null }),
+      ])
+    }))
+
+  it('drops where the pointer is, and swallows the click the release makes', () =>
+    withList(async ({ list, a, c }) => {
+      let clicked: Event | undefined
+      const facts = await run(list, 3, () => {
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        fire(c, 'pointermove', { clientX: 10, clientY: 85 })
+        fire(c, 'pointerup')
+        clicked = fire(c, 'click')
+      })
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'a' }),
+        DraggedOver.make({ over: { id: 'c', zone: 'after' } }),
+        DragDropped.make({ id: 'a', over: { id: 'c', zone: 'after' } }),
+      ])
+      expect(clicked?.defaultPrevented).toBe(true)
+      // The next click is a click.
+      expect(fire(c, 'click').defaultPrevented).toBe(false)
+    }))
+
+  it('drops what is under the release, not what the last move saw', () =>
+    withList(async ({ list, a, b, c }) => {
+      const facts = await run(list, 3, () => {
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        fire(c, 'pointermove', { clientX: 10, clientY: 75 })
+        // The layout moved under the pointer between the last move and the
+        // release: the drop names where it was let go.
+        fire(b, 'pointerup', { clientX: 10, clientY: 45 })
+      })
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'a' }),
+        DraggedOver.make({ over: { id: 'c', zone: 'inside' } }),
+        DragDropped.make({ id: 'a', over: { id: 'b', zone: 'inside' } }),
+      ])
+    }))
+
+  it('leaves a press that does not move a click, and a release outside does not eat one later', () =>
+    withList(async ({ list, a, b, outside }) => {
+      let later: Event | undefined
+      const facts = await run(list, 2, () => {
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        fire(a, 'pointerup')
+        expect(fire(a, 'click').defaultPrevented).toBe(false)
+        fire(b, 'pointerdown', { button: 0, clientX: 10, clientY: 40 })
+        fire(outside, 'pointermove', { clientX: 10, clientY: 200 })
+        fire(outside, 'pointerup')
+        later = fire(a, 'click')
+      })
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'b' }),
+        DragDropped.make({ id: 'b', over: null }),
+      ])
+      expect(later?.defaultPrevented).toBe(false)
+    }))
+
+  it('starts no drag from a press in text being edited', () =>
+    withList(async ({ list, a, b }) => {
+      const text = document.createElement('span')
+      text.setAttribute('contenteditable', 'plaintext-only')
+      const word = document.createElement('b')
+      text.append(word)
+      b.append(text)
+      const facts = await run(list, 1, () => {
+        // Selecting text inside the field, past the threshold.
+        fire(word, 'pointerdown', { button: 0, clientX: 10, clientY: 40 })
+        fire(word, 'pointermove', { clientX: 60, clientY: 40 })
+        fire(word, 'pointerup')
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        fire(a, 'pointermove', { clientX: 10, clientY: 20 })
+      })
+      expect(facts).toEqual([DragStarted.make({ id: 'a' })])
+    }))
+
+  it('ends with nothing dropped on Escape, not on another key, and ignores a secondary button', () =>
+    withList(async ({ list, a, b, c }) => {
+      const facts = await run(list, 6, () => {
+        fire(c, 'pointerdown', { button: 2, clientX: 10, clientY: 70 })
+        fire(b, 'pointermove', { clientX: 10, clientY: 45 })
+        fire(c, 'pointerup')
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        fire(b, 'pointermove', { clientX: 10, clientY: 45 })
+        fire(document, 'keydown', { key: 'a' })
+        fire(b, 'pointerup')
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        fire(c, 'pointermove', { clientX: 10, clientY: 75 })
+        fire(document, 'keydown', { key: 'Escape' })
+        fire(c, 'pointerup')
+      })
+      const overB: DragPlace = { id: 'b', zone: 'inside' }
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'a' }),
+        DraggedOver.make({ over: overB }),
+        DragDropped.make({ id: 'a', over: overB }),
+        DragStarted.make({ id: 'a' }),
+        DraggedOver.make({ over: { id: 'c', zone: 'inside' } }),
+        DragCancelled.make({ id: 'a' }),
+      ])
+    }))
+})
+
+describe('PointerDrag onto a part', () => {
+  it('reports a part of what it is over as inside it, and a move between parts of one id', () =>
+    withList(async ({ list, a, b, c }) => {
+      // c's empty Region, and below it c's own element again with no part.
+      c.setAttribute('data-part', 'right')
+      const whole = row('c', 90)
+      list.append(whole)
+      const facts = await Effect.runPromise(
+        Effect.gen(function* () {
+          const fiber = yield* Effect.forkChild(
+            takeMessages(
+              PointerDrag({ attribute: 'data-row', part: 'data-part' }).f(
+                list,
+                Mount.liveViewStateChanges,
+              ),
+              5,
+            ),
+          )
+          for (let i = 0; i < 50; i++) yield* Effect.yieldNow
+          fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+          fire(b, 'pointermove', { clientX: 10, clientY: 31 })
+          // The top third of the part, which by thirds alone would be `before`.
+          fire(c, 'pointermove', { clientX: 10, clientY: 61 })
+          fire(c, 'pointermove', { clientX: 10, clientY: 85 })
+          fire(whole, 'pointermove', { clientX: 10, clientY: 105 })
+          fire(whole, 'pointerup')
+          return yield* Fiber.join(fiber)
+        }),
+      )
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'a' }),
+        DraggedOver.make({ over: { id: 'b', zone: 'before' } }),
+        DraggedOver.make({ over: { id: 'c', zone: 'inside', part: 'right' } }),
+        DraggedOver.make({ over: { id: 'c', zone: 'inside' } }),
+        DragDropped.make({ id: 'a', over: { id: 'c', zone: 'inside' } }),
+      ])
+    }))
+})
+
+describe('PointerDrag and the keys of the element with focus', () => {
+  it('keeps an Escape that ends a drag from the element it was pressed on', () =>
+    withList(async ({ list, a, c }) => {
+      const heard: Array<string> = []
+      list.addEventListener('keydown', event => heard.push(event.key))
+      const facts = await run(list, 3, () => {
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        fire(c, 'pointermove', { clientX: 10, clientY: 75 })
+        fire(list, 'keydown', { key: 'Escape' })
+        // With no drag under way, Escape is the element's again.
+        fire(list, 'keydown', { key: 'Escape' })
+      })
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'a' }),
+        DraggedOver.make({ over: { id: 'c', zone: 'inside' } }),
+        DragCancelled.make({ id: 'a' }),
+      ])
+      expect(heard).toEqual(['Escape'])
+    }))
+})
+
+describe('PointerDrag onto another region', () => {
+  it('drags one of its own onto what another region marks, and nothing else', async () => {
+    // A palette of tiles, a page of nodes, and a node marked the same way outside the page.
+    const palette = document.createElement('ul')
+    const tile = row('Heading', 0)
+    palette.append(tile)
+    const page = document.createElement('div')
+    page.id = 'page'
+    const node = (id: string, top: number) => {
+      const element = document.createElement('div')
+      element.setAttribute('data-node', id)
+      element.getBoundingClientRect = () =>
+        DOMRect.fromRect({ x: 0, y: top, width: 100, height: 30 })
+      return element
+    }
+    const first = node('n1', 100)
+    const second = node('n2', 130)
+    page.append(first, second)
+    const stray = node('elsewhere', 200)
+    document.body.append(palette, page, stray)
+    try {
+      const facts = await Effect.runPromise(
+        Effect.gen(function* () {
+          const fiber = yield* Effect.forkChild(
+            takeMessages(
+              PointerDrag({
+                attribute: 'data-row',
+                targets: { attribute: 'data-node', within: '#page' },
+              }).f(palette, Mount.liveViewStateChanges),
+              6,
+            ),
+          )
+          for (let i = 0; i < 50; i++) yield* Effect.yieldNow
+          fire(tile, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+          // Its own tiles are not where it lands, nor is a node outside the page.
+          fire(tile, 'pointermove', { clientX: 10, clientY: 20 })
+          fire(first, 'pointermove', { clientX: 10, clientY: 125 })
+          fire(stray, 'pointermove', { clientX: 10, clientY: 210 })
+          fire(second, 'pointermove', { clientX: 10, clientY: 135 })
+          // The page's own space, over none of its nodes: an empty page, the space below.
+          fire(page, 'pointermove', { clientX: 10, clientY: 170 })
+          fire(page, 'pointerup')
+          return yield* Fiber.join(fiber)
+        }),
+      )
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'Heading' }),
+        DraggedOver.make({ over: { id: 'n1', zone: 'after' }, region: true }),
+        DraggedOver.make({ over: null, region: false }),
+        DraggedOver.make({ over: { id: 'n2', zone: 'before' }, region: true }),
+        DraggedOver.make({ over: null, region: true }),
+        DragDropped.make({ id: 'Heading', over: null, region: true }),
+      ])
+    } finally {
+      palette.remove()
+      page.remove()
+      stray.remove()
+    }
+  })
+})
+
+describe('PointerDrag onto another region, in the second of two editors', () => {
+  it('lands on the region nearest its own element, not the first on the page', async () => {
+    /** An editor: a palette with one tile, and a page with one node. */
+    const editor = (node: string, top: number) => {
+      const root = document.createElement('section')
+      const palette = document.createElement('ul')
+      const tile = row('Heading', 0)
+      palette.append(tile)
+      const page = document.createElement('div')
+      page.className = 'page'
+      const marked = document.createElement('div')
+      marked.setAttribute('data-node', node)
+      marked.getBoundingClientRect = () =>
+        DOMRect.fromRect({ x: 0, y: top, width: 100, height: 30 })
+      page.append(marked)
+      root.append(palette, page)
+      document.body.append(root)
+      return { root, palette, tile, marked }
+    }
+    const first = editor('n1', 100)
+    const second = editor('n2', 200)
+    try {
+      const facts = await Effect.runPromise(
+        Effect.gen(function* () {
+          const fiber = yield* Effect.forkChild(
+            takeMessages(
+              PointerDrag({
+                attribute: 'data-row',
+                targets: { attribute: 'data-node', within: '.page' },
+              }).f(second.palette, Mount.liveViewStateChanges),
+              3,
+            ),
+          )
+          for (let i = 0; i < 50; i++) yield* Effect.yieldNow
+          fire(second.tile, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+          // The first editor's page is not where this palette's tiles land.
+          fire(first.marked, 'pointermove', { clientX: 10, clientY: 110 })
+          fire(second.marked, 'pointermove', { clientX: 10, clientY: 210 })
+          fire(second.marked, 'pointerup')
+          return yield* Fiber.join(fiber)
+        }),
+      )
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'Heading' }),
+        DraggedOver.make({ over: { id: 'n2', zone: 'inside' }, region: true }),
+        DragDropped.make({ id: 'Heading', over: { id: 'n2', zone: 'inside' }, region: true }),
+      ])
+    } finally {
+      first.root.remove()
+      second.root.remove()
+    }
+  })
+})
+
+describe('PointerDrag, one pointer at a time', () => {
+  it('follows the pointer that pressed, not a second one, and ends when its button is up', () =>
+    withList(async ({ list, a, b, c }) => {
+      const facts = await run(list, 3, () => {
+        fire(a, 'pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+        // A second finger neither starts a drag nor moves this one.
+        fire(b, 'pointerdown', { button: 0, pointerId: 2, clientX: 10, clientY: 40 })
+        fire(c, 'pointermove', { pointerId: 2, buttons: 1, clientX: 10, clientY: 75 })
+        fire(b, 'pointermove', { pointerId: 1, buttons: 1, clientX: 10, clientY: 45 })
+        // Released where no pointerup reached the page: the next move says so.
+        fire(c, 'pointermove', { pointerId: 1, buttons: 0, clientX: 10, clientY: 75 })
+      })
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'a' }),
+        DraggedOver.make({ over: { id: 'b', zone: 'inside' } }),
+        DragCancelled.make({ id: 'a' }),
+      ])
+    }))
+
+  it('drops Escape’s press before it is a drag, and clears a waiting swallow on any press', () =>
+    withList(async ({ list, a, b, c }) => {
+      let later: Event | undefined
+      const facts = await run(list, 3, () => {
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        fire(document, 'keydown', { key: 'Escape' })
+        fire(b, 'pointermove', { clientX: 10, clientY: 45 })
+        // A drop inside waits to swallow its click; a press on nothing marked comes first.
+        fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+        fire(c, 'pointermove', { clientX: 10, clientY: 75 })
+        fire(c, 'pointerup')
+        fire(list, 'pointerdown', { button: 0, clientX: 200, clientY: 200 })
+        later = fire(b, 'click')
+      })
+      expect(facts).toEqual([
+        DragStarted.make({ id: 'a' }),
+        DraggedOver.make({ over: { id: 'c', zone: 'inside' } }),
+        DragDropped.make({ id: 'a', over: { id: 'c', zone: 'inside' } }),
+      ])
+      expect(later?.defaultPrevented).toBe(false)
+    }))
+
+  it('finds what is under a touch by its position, not its captured target', () =>
+    withList(async ({ list, a, c }) => {
+      const touchedAt = document.elementFromPoint
+      document.elementFromPoint = () => c
+      try {
+        const facts = await run(list, 2, () => {
+          fire(a, 'pointerdown', { button: 0, clientX: 10, clientY: 10 })
+          // Captured, the move targets the pressed row, though it is over c.
+          fire(a, 'pointermove', { clientX: 10, clientY: 85 })
+        })
+        expect(facts).toEqual([
+          DragStarted.make({ id: 'a' }),
+          DraggedOver.make({ over: { id: 'c', zone: 'after' } }),
+        ])
+      } finally {
+        document.elementFromPoint = touchedAt
+      }
+    }))
+})
+
+describe('PointerDrag behavior', () => {
+  it('attaches the Mount to the container slot', () => {
+    const ListSlots = Slots.define({ list: Slot.make({ capability: Capability.Container }) })
+    const wired = Interaction.behavior(ListSlots)<unknown, string>({
+      container: 'list',
+      attribute: 'data-row',
+      toMessage: fact => fact._tag,
+    })
+    const b = SlotView.buildersFor(ListSlots, [wired.mixin], {
+      input: undefined,
+      h: SlotView.inertBuilder<string>(),
+    })
+    expect(Attributes.find(b.list.attrs(), 'OnMount')).toBeDefined()
+  })
+})

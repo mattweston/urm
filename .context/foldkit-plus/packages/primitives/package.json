@@ -1,0 +1,119 @@
+{
+  "name": "foldkit-primitives",
+  "version": "0.8.0",
+  "description": "Ready-made primitives for the Elm architecture, packaged with foldkit-bundle: media queries, presence, timers, pagination, history, sockets, observers, clipboard, and interaction Bundles with their Behaviors.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "submodel",
+    "primitives",
+    "elm-architecture"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/primitives"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/primitives#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./dom": {
+      "foldkit-plus:source": "./src/dom/index.ts",
+      "types": "./dist/dom/index.d.mts",
+      "import": "./dist/dom/index.mjs"
+    },
+    "./device": {
+      "foldkit-plus:source": "./src/device/index.ts",
+      "types": "./dist/device/index.d.mts",
+      "import": "./dist/device/index.mjs"
+    },
+    "./events": {
+      "foldkit-plus:source": "./src/events/index.ts",
+      "types": "./dist/events/index.d.mts",
+      "import": "./dist/events/index.mjs"
+    },
+    "./interaction": {
+      "foldkit-plus:source": "./src/interaction/index.ts",
+      "types": "./dist/interaction/index.d.mts",
+      "import": "./dist/interaction/index.mjs"
+    },
+    "./media": {
+      "foldkit-plus:source": "./src/media/index.ts",
+      "types": "./dist/media/index.d.mts",
+      "import": "./dist/media/index.mjs"
+    },
+    "./motion": {
+      "foldkit-plus:source": "./src/motion/index.ts",
+      "types": "./dist/motion/index.d.mts",
+      "import": "./dist/motion/index.mjs"
+    },
+    "./net": {
+      "foldkit-plus:source": "./src/net/index.ts",
+      "types": "./dist/net/index.d.mts",
+      "import": "./dist/net/index.mjs"
+    },
+    "./observers": {
+      "foldkit-plus:source": "./src/observers/index.ts",
+      "types": "./dist/observers/index.d.mts",
+      "import": "./dist/observers/index.mjs"
+    },
+    "./state": {
+      "foldkit-plus:source": "./src/state/index.ts",
+      "types": "./dist/state/index.d.mts",
+      "import": "./dist/state/index.mjs"
+    },
+    "./time": {
+      "foldkit-plus:source": "./src/time/index.ts",
+      "types": "./dist/time/index.d.mts",
+      "import": "./dist/time/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "foldkit-bundle": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0",
+    "foldkit": "^0.165.0",
+    "foldkit-mixins": "workspace:^"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.0.0",
+    "@types/ws": "^8.5.12",
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-mixins": "workspace:*",
+    "jsdom": "26.1.0",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3",
+    "ws": "^8.18.0"
+  },
+  "peerDependenciesMeta": {
+    "foldkit-mixins": {
+      "optional": true
+    }
+  }
+}

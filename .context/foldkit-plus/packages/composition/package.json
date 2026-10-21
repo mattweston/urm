@@ -1,0 +1,117 @@
+{
+  "name": "foldkit-composition",
+  "version": "0.2.0",
+  "description": "Composition for Foldkit Plus: a page as a stored Document of Blocks in Regions, checked against a Catalog, with no view and no runtime.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "composition",
+    "page-builder",
+    "cms",
+    "typescript"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/composition"
+  },
+  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/composition#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./foldkit": {
+      "foldkit-plus:source": "./src/foldkit/index.ts",
+      "types": "./dist/foldkit.d.mts",
+      "import": "./dist/foldkit.mjs"
+    },
+    "./richtext": {
+      "foldkit-plus:source": "./src/richtext/index.ts",
+      "types": "./dist/richtext.d.mts",
+      "import": "./dist/richtext.mjs"
+    },
+    "./appearance": {
+      "foldkit-plus:source": "./src/appearance/index.ts",
+      "types": "./dist/appearance.d.mts",
+      "import": "./dist/appearance.mjs"
+    },
+    "./remote": {
+      "foldkit-plus:source": "./src/remote/index.ts",
+      "types": "./dist/remote.d.mts",
+      "import": "./dist/remote.mjs"
+    },
+    "./surface": {
+      "foldkit-plus:source": "./src/surface/index.ts",
+      "types": "./dist/surface.d.mts",
+      "import": "./dist/surface.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0",
+    "foldkit": "^0.165.0",
+    "foldkit-mixins": "workspace:^",
+    "foldkit-remote": "workspace:^",
+    "foldkit-richtext": "workspace:^",
+    "foldkit-surface": "workspace:^"
+  },
+  "dependencies": {
+    "foldkit-metadata": "workspace:*"
+  },
+  "devDependencies": {
+    "effect": "4.0.0",
+    "foldkit": "0.165.0",
+    "foldkit-bundle": "workspace:*",
+    "foldkit-entity": "workspace:*",
+    "foldkit-mixins": "workspace:*",
+    "foldkit-react": "workspace:*",
+    "foldkit-remote": "workspace:*",
+    "foldkit-richtext": "workspace:*",
+    "foldkit-richtext-dom": "workspace:*",
+    "foldkit-ssr": "workspace:*",
+    "foldkit-surface": "workspace:*",
+    "@types/react": "^19.3.0",
+    "jsdom": "26.1.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "tsdown": "^0.23.0",
+    "typescript": "5.9.3"
+  },
+  "peerDependenciesMeta": {
+    "foldkit": {
+      "optional": true
+    },
+    "foldkit-mixins": {
+      "optional": true
+    },
+    "foldkit-remote": {
+      "optional": true
+    },
+    "foldkit-surface": {
+      "optional": true
+    },
+    "foldkit-richtext": {
+      "optional": true
+    }
+  }
+}

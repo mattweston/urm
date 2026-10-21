@@ -1,0 +1,54 @@
+/**
+ * `foldkit-durable` — a durable, ordered operation log with snapshots.
+ *
+ * Storage and ordering only; application semantics live in the `reduce` the
+ * caller supplies. Append is atomic and idempotent by operation identity,
+ * committed order is stable, and compaction never changes the logical state a
+ * replay would produce.
+ */
+export { Codec, type CodecInput } from './codec.js'
+export {
+  ActorId,
+  Cursor,
+  DocumentId,
+  OpId,
+  Sequence,
+  actorId,
+  cursor,
+  documentId,
+  opId,
+  sequence,
+} from './ids.js'
+export {
+  CompactedCursorError,
+  EffectFailedError,
+  IdentityConflictError,
+  InvalidCompactionError,
+  InvalidCursorError,
+  InvalidOperationError,
+  JournalError,
+  OperationRejectedError,
+  UnsupportedJournalVersionError,
+} from './errors.js'
+export {
+  Journal,
+  JournalService,
+  makeJournal,
+  makeJournalLayer,
+  type JournalDefinition,
+} from './node.js'
+export {
+  journalMetrics,
+  type AppendError,
+  type AppendResult,
+  type AuthorizationDecision,
+  type AuthorizationRequest,
+  type Committed,
+  type EffectRecord,
+  type EffectStatus,
+  type JournalOptions,
+  type JournalStoreOptions,
+  type RecoveryIntent,
+  type RecoveryOptions,
+  type ValidationRequest,
+} from './journal.js'

@@ -1,0 +1,132 @@
+/**
+ * Relation values on the wire and in the store: a ref key (`"Entity:id"`), a
+ * nullable ref key, an array of ref keys, or a page of ref keys. The planner
+ * follows them into the store; the server follows them into the next read.
+ */
+import { SchemaAST, type Schema } from 'effect'
+import { SchemaShape } from 'foldkit-entity'
+import type { RelationRequirement } from './requirement.js'
+
+export interface RefParts {
+  readonly entity: string
+  readonly id: string
+}
+
+/** A page of refs as the wire and the store hold it. */
+export interface RefPageValue {
+  readonly refs: ReadonlyArray<string>
+  readonly hasNext: boolean
+  readonly hasPrevious: boolean
+}
+
+/** Marks the codec `Entity.ref`/`Entity.refPage` produce, so a Selection can tell the field's shape. */
+export const RelationAnnotation = 'foldkitRemoteRelation'
+/** The target entity's name on the same codec, so a nested selection of another entity is refused. */
+export const RelationEntityAnnotation = 'foldkitRemoteRelationEntity'
+
+export type RelationKind = 'one' | 'many' | 'page'
+
+export interface RelationShape {
+  readonly kind: RelationKind
+  readonly nullable: boolean
+  readonly entity: string
+}
+
+/**
+ * A page of a relation that is a whole list is read under a name of its own, the
+ * field's name and the page's size: `comments@first=10`. It is a field like any
+ * other to the store, the planner, and the wire, so the whole list and a page of
+ * it are held side by side, merged, marked stale, and persisted each on its own.
+ * The server reads the name apart, reads the relation with the window, and
+ * answers under the alias. A cursor is not part of the name: a page read from a
+ * cursor merges onto the page it continues.
+ */
+export const RELATION_ALIAS = '@'
+
+/** The alias a relation field is read under, for a window of this size. */
+export const relationAlias = (
+  field: string,
+  window: {
+    readonly first?: number | undefined
+    readonly last?: number | undefined
+    // A cursor is no part of the name: a page read from one merges onto the page it continues.
+    readonly after?: string | undefined
+    readonly before?: string | undefined
+  },
+): string =>
+  `${field}${RELATION_ALIAS}${window.last !== undefined ? `last=${window.last}` : `first=${window.first ?? ''}`}`
+
+/** The field an alias reads; a name that is no alias is its own field. */
+export const aliasedField = (name: string): string => {
+  const at = name.indexOf(RELATION_ALIAS)
+  return at === -1 ? name : name.slice(0, at)
+}
+
+/** Splits a ref key (`"Entity:id"`, the store key too) back into its parts. */
+export const refParts = (encoded: string): RefParts => {
+  const separator = encoded.indexOf(':')
+  return separator === -1
+    ? { entity: encoded, id: '' }
+    : { entity: encoded.slice(0, separator), id: encoded.slice(separator + 1) }
+}
+
+/**
+ * The refs a relation value carries, in order. Anything that is not a ref key,
+ * an array of them, or a page of them contributes nothing.
+ */
+export const refsIn = (value: unknown): ReadonlyArray<RefParts> => {
+  if (typeof value === 'string') return [refParts(value)]
+  if (Array.isArray(value)) return value.filter(item => typeof item === 'string').map(refParts)
+  if (value !== null && typeof value === 'object') {
+    const refs = (value as { readonly refs?: unknown }).refs
+    if (Array.isArray(refs)) return refs.filter(item => typeof item === 'string').map(refParts)
+  }
+  return []
+}
+
+/** The refs in a relation value that name the relation's target entity, and no other. */
+export const targetsOf = (value: unknown, relation: RelationRequirement): ReadonlyArray<RefParts> =>
+  refsIn(value).filter(ref => ref.entity === relation.entity)
+
+export const isRefPage = (value: unknown): value is RefPageValue => {
+  if (value === null || typeof value !== 'object') return false
+  const page = value as Record<string, unknown>
+  return (
+    Array.isArray(page.refs) &&
+    page.refs.every(ref => typeof ref === 'string') &&
+    typeof page.hasNext === 'boolean' &&
+    typeof page.hasPrevious === 'boolean'
+  )
+}
+
+/**
+ * The relation shape an entity field schema declares: a ref (`one`), a nullable
+ * ref, an array of refs (`many`), or a page of refs (`page`). `undefined` for a
+ * scalar field, which cannot take a nested selection.
+ */
+export const relationShape = (schema: Schema.Top): RelationShape | undefined =>
+  shapeOf(schema.ast, false)
+
+const shapeOf = (ast: SchemaAST.AST, nullable: boolean): RelationShape | undefined => {
+  const annotated = ast.annotations?.[RelationAnnotation]
+  if (annotated === 'one' || annotated === 'page') {
+    return {
+      kind: annotated,
+      nullable,
+      entity: String(ast.annotations?.[RelationEntityAnnotation]),
+    }
+  }
+  if (SchemaAST.isArrays(ast)) {
+    const item = ast.rest[0]
+    const inner = item === undefined ? undefined : shapeOf(item, false)
+    return inner?.kind === 'one' ? { kind: 'many', nullable, entity: inner.entity } : undefined
+  }
+  if (SchemaAST.isUnion(ast)) {
+    const optional = ast.types.some(SchemaShape.isNullish)
+    for (const member of ast.types) {
+      const shape = shapeOf(member, optional)
+      if (shape !== undefined) return shape
+    }
+  }
+  return undefined
+}

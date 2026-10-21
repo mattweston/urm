@@ -1,0 +1,1370 @@
+# `foldkit-ssr`: implementation plan
+
+**Status:** Phases 0 to 6, U, R, and A to G done, G6 included: its time is within a frame, and its size risk is closed with the numbers. [Phase S](#phase-s-static-sites-from-what-the-cms-example-needed) (proposed 2026-09-27) is what a static site built on it needed: a browser entry, preparing Remote data, a head from the Model, a sitemap, deciding whether to take a page over, deterministic renders, a Vite build step, themes and locales. Written 2026-09-22 against
+`foldkit` 0.158.2 and this repository at 0.10.0, revised the same day after an
+independent review (see [What review changed](#what-review-changed)), and
+revised on 2026-09-23 for [what Foldkit 0.159 to 0.163
+changed](#what-changed-upstream-foldkit-0159-to-0163) and for
+[resumable-DESIGN.md](./resumable-DESIGN.md), whose effect on the phases already
+built is [its own section](#what-the-resumable-design-changes-here).
+
+**Source:** [SSR-DESIGN.txt](./SSR-DESIGN.txt), the 3,000-line design. This plan
+does not restate it. It records what checking the design against the code found,
+decides what the design left open, and orders the work into phases that each end
+in a test that can fail. Where it departs from the design, it says so.
+
+## What checking the design found
+
+Every claim below was checked against `node_modules/foldkit` and this
+repository, with file and line, and the central one was run.
+
+**Foldkit already has the base the design assumes.** `foldkit/experimental/server`
+exports `renderToString`, `injectIntoTemplate` and `toResponse`, with Flags
+encoding that checks its round trip and root validation. `Runtime.hydrate`
+adopts the server's DOM. So Phase 0 is a port with a known target.
+
+**It does not have any of the three upstream changes the design proposes.**
+
+- An "externally owned children" primitive: missing. Trusted `InnerHTML` keeps
+  equivalent children during hydration, which is enough to prototype static
+  regions, but there is no general marker.
+- Rendering an already-created Model on the server: missing. `init` runs inline
+  in `renderToString`.
+- `Runtime.adopt`, starting a client from an existing Model: missing.
+  `Runtime.hydrate` always calls `init`.
+
+**The workaround the design relies on works.** A client program built with
+`makeApplication` from a config whose `init` returns the server's Model, with no
+`Flags` key, hydrates the server's DOM without calling the application's own
+`init`. This was run: the server's button was the same node afterwards, the
+application's `init` was called zero times on the client, and a click moved the
+count from 41 to 42. Two traps come with it:
+
+- `Runtime.hydrate` takes a program built by `makeApplication`, not a config,
+  and the runtime id comes from the root's stamp, not an option. The design's
+  snippet passes a config and a `runtimeId`.
+- A config without Flags must **delete** the `Flags` key. The server tests
+  `config.Flags !== undefined`, but the client tests `'Flags' in config`, so
+  `{ ...config, Flags: undefined }` renders on the server and is then refused
+  on the client.
+
+**Five of the design's assumptions about this repository are now wrong.**
+
+- `Projection.pick` merged two fields with the same last key. `post.id` and
+  `viewer.id` became one `id`, silently, and `set` wrote one into the other. A
+  resume plan picked that way would corrupt state. Fixed in `caa4a8f`: `pick`
+  and `compose` now refuse the collision.
+- The design's Surface coverage check (§15) compares dependency paths. Remote
+  projections have none; their requirements live in metadata. A check on paths
+  alone passes every Remote read, so it must also read `RemoteRequirements` and
+  `RemoteConnections`, as `Data.why` does.
+- `RemotePersistence.snapshotOf` takes the whole entity store, with no filter by
+  what active Surfaces require.
+- A `Snapshot` restores a connection stale, with `Unknown` boundaries and no
+  cursor, on purpose: a persisted cursor may name server state that is gone. That
+  is right for a cache that survived a reload and wrong for a page rendered a
+  moment ago, which would refetch every list.
+- `RemotePersistence.dehydrate` emits JSON with no escaping for a `<script>`,
+  and `hydrate` returns `undefined` on a mismatch.
+
+The design's API names are also a little out of date: `App.fields` is
+deprecated for `App.model`, `Surface.at` needs its params argument, and
+`Surface.when` now gives a plan an activation it can read without running a
+callback.
+
+## What changed upstream (Foldkit 0.159 to 0.163)
+
+Foldkit 0.163.0 was published on 2026-09-20; this repository still pins
+0.158.2. [foldkit-0.158-to-0.163.md](../foldkit-0.158-to-0.163.md) lists every
+change and an upgrade guide. What matters to this plan, with the server API
+claims checked against the published 0.163.0 declarations:
+
+- **Foldkit's server is a Web `fetch` handler** (0.159). `handleRequest(request,
+  { renderPage, template, containerId? })` classifies the request and calls
+  `renderPage(request): Promise<EntryResult>`, where `EntryResult` is
+  `Rendered` (a `RenderedApplication` to put in the template) or `Responded` (a
+  whole `Response`). `vite build` emits `dist/server/fetch.js`, which a
+  Cloudflare Worker can export directly. None of the phases below had a
+  delivery step; Phase 6 adds it.
+- **A `Rendered` result cannot carry the envelope.** It holds only the
+  `RenderedApplication`, and `handleRequest` injects it into one fixed
+  template, where `injectIntoTemplate` accepts only the root and Foldkit's own
+  payload (Phase 2's finding). `SSR.page` puts the envelope in the template per
+  request, which that path has no place for. Phase 6 decides between answering
+  with `Responded` and asking upstream for a slot.
+- **`canonical` has no default** (0.163). Neither the client nor
+  `renderToString` derives it from the URL any more. An application derives it
+  from the route in its Model, as it does `title`, or the page has none.
+  Decision 9.
+- **Hot reloading is now "model preservation"** (0.159): a full reload with the
+  Model restored, which skips adoption. Same behaviour, new name; the risk
+  below uses it.
+- **Messages buffered during boot now reach Subscriptions and Managed
+  Resources** (0.163). Phase C found `EagerStartRequired` is about boot
+  order, not buffering: a Subscription that ticks from its start, or a
+  resource that opens at boot, does so late on a deferred page whatever the
+  runtime buffers, so the rule stands as decision 10 has it.
+- **The hydrate-without-`init` workaround is unchanged.** The runtime only
+  renamed `hmrModel` to `preservedModel`. `flagsTrap.test.ts` pins the Flags
+  half and must stay green through the upgrade.
+- **`FOLDKIT_APP_ATTRIBUTE` and `FOLDKIT_FLAGS_ATTRIBUTE` are exported** from
+  the server module; `data-foldkit-build` still is not. Decision 5.
+- **New event attributes** (`OnBeforeInput`, `OnKeyDownSelf`, and others), and
+  `OnInput`/`OnChange` now read a contenteditable host's text. The resumable
+  builder's projection table (resumable-DESIGN) accounts for both.
+- **`Runtime.adopt` did not ship**, nor did any other change this plan or the
+  design asks for. See [Beyond this plan](#beyond-this-plan) for how the ask is
+  reframed.
+
+## What the resumable design changes here
+
+[resumable-DESIGN.md](./resumable-DESIGN.md) adds a second thing to the page:
+beside the state that crosses, which Message each element causes, so the view
+need not run until the first one. It is written as an extension, but it
+reaches back into what Phases 1 to 5 built, and checking it against them found
+four things it needs that it does not say, and one place it contradicts
+itself. Each is decided here or in the phase it lands in.
+
+- **The view check must cover bindings, or rule 6 fails silently.** The
+  server's second render, from the browser's Model (Phase 2), would produce
+  the same markers, since ordinals only count, but a Message built from a
+  field the plan does not send, `OnClick(Liked({ id: model.post.id }))` with
+  `post.id` unsent, would differ between the two manifests. A click before
+  boot would then dispatch the server's Message and the same click after boot
+  the browser's, which is exactly what the design's rule 6 forbids. So the
+  second render's manifest must equal the first's, and a binding that differs
+  is `ViewDependsOnUnsentState`, naming the element. Phase A.
+- **A page is validated whole, at load.** The design's rule 5 refuses the page
+  for a marker without a manifest entry; its §2 refuses only the event and
+  logs it. The page wins: `SSR.resume` decodes the whole manifest and checks
+  every marker in the root against it when the page loads, before any event,
+  and a page that fails is refused and contained as any other (decision 3).
+  After load no marker can appear, so there is no per-event refusal left to
+  define. Phase B.
+- **A resumable page must declare its Surfaces.** The manifest is decoded
+  through the Message union restricted to the tags active Surfaces may send
+  (rule 3). That set comes from the plan's `surfaces` (Phase 3), so a plan
+  whose page has bindings and no `surfaces` is refused at render rather than
+  decoded against every tag. Phase D.
+- **"Active" is the wrong test for deferring boot.** `EagerStartRequired`
+  refuses deferral while any Subscription or Managed Resource is active for the
+  sent Model. Remote's entries show why that is too blunt, read from
+  `packages/remote/src/index.ts`: under the default cache-first policy the read entry plans nothing once
+  resumed data is present, so it starts, emits nothing and ends (a refreshing
+  policy only refreshes later); the live entry
+  subscribes from the cursor in the Model, so a late start misses nothing once
+  Phase R sends the cursor; and the retention entry always emits, but
+  collecting late is harmless. Asked "is it active?", all three say yes, and
+  no page using Remote could ever defer. Asked "does starting late change what
+  happens?", all three say no. That cannot be inferred from an entry, so it is
+  declared (decision 10), and Phase R declares Remote's.
+- **The envelope stays one carrier, and its version stays 1.** Since Phase V
+  that carrier is the stamped root's attribute, not a script. The manifest is
+  one more optional field. A page from another build is refused on its build
+  id before the envelope is read, so a server and a browser that disagree on
+  the envelope's fields cannot meet; the version moves when a field changes
+  meaning, not when one is added.
+
+Two things it confirms rather than changes: Phase 4's render context is where
+the manifest is collected, as the design says, one context holding regions and
+bindings together, and the inert builder already keeps bindings out of static
+regions; and Phase 5's generated pages can be resumable like any other,
+  but cannot use Phase E's server fallback, since a static host has nothing to
+  post to.
+
+## Decisions
+
+The design leaves these open, or the review found the first answer wrong. Each
+is decided here, and a phase can revisit one only with a reason recorded beside
+it.
+
+1. **Startup Commands are declared, never dropped silently.** On the server
+   Foldkit already drops `init`'s Commands. On the client the adapted `init`
+   returns the resumed Model and the Commands of `boot(model)`.
+   - If the server's `init` returned Commands and the plan names no `boot`,
+     rendering is refused, naming the Commands. A startup Command nobody
+     declared is not quietly skipped.
+   - An application assembled with `foldkit-bundle` names its assembly's
+     startup Commands: `boot: model => assembly.init(model).commands ?? []`.
+     That is where `Mirror.kv` restores what a user saved.
+     *Revised in Phase 2.* This first said `boot` defaults to the wirings'
+     startup Commands for a bundle application. `SSR.plan` takes the Surface
+     application, which knows nothing of an assembly, so a default would need a
+     second way to make a plan. The refusal above already stops a bundle
+     application that forgets, naming `Mirror.restore(...)`, so the default
+     would save one line and cost an entry point.
+   - Subscriptions and managed resources need nothing: the runtime starts them
+     from the Model.
+2. **Flags never cross.** A handoff config has no `Flags` key at all: it is
+   deleted, never set to `undefined`. One helper builds that config, so the
+   trap exists in one place.
+3. **A page that cannot resume is refused, not re-rendered.** This follows the
+   design's §31 and Foldkit's own order. The client:
+   - compares the root's build id with its own **before** reading the payload,
+     as Foldkit does;
+   - decodes the payload through the plan's Schema, refusing a wrong protocol
+     version, a wrong plan id, a value that does not decode, or a missing or
+     duplicated payload;
+   - on any refusal, logs the real reason and contains the page with Foldkit's
+     own refusal, by calling `Runtime.hydrate(program, { buildId: '' })`, which
+     Foldkit rejects and contains. No containment code is copied.
+
+   A page with no stamped root at all is not a server page: it gets
+   `Runtime.run`, a client render. A server page is never re-rendered on the
+   client, which for an application with Flags would be impossible anyway, since
+   no Flags are sent.
+4. **The payload is escaped as Foldkit escapes Flags.** Escaping `<` is what
+   keeps `</script`, `<!--` and `<script` out of a
+   `<script type="application/json">`, and it was checked. `serializeJsonScript`
+   also escapes U+2028 and U+2029, which only matter if the text is ever read
+   as JavaScript rather than JSON; it costs nothing.
+5. **Attributes use their own namespace.** `data-foldkit-plus-resume` and
+   `data-foldkit-plus-static`, and the resumable track's
+   `data-foldkit-plus-on-*`. Foldkit reserves a fixed set of `data-foldkit-*`
+   names (unchanged through 0.163), and nothing strips others, but a later
+   release may reserve more. Foldkit's own names are read from its exported
+   constants where it exports them, so a rename upstream is a type error here;
+   `data-foldkit-build` is not exported and stays pinned by a test.
+6. **Rendering stays synchronous.** `init` is synchronous on the server, so
+   data is loaded before rendering, with `Data.prefetch` for Remote. SSR adds no
+   async render path.
+7. **Tests use a fresh jsdom per file.** `Runtime.hydrate` returns no handle to
+   stop it, so a hydrated program lives until its document goes.
+8. **The URL is checked, not trusted.** The runtime never dispatches
+   `onUrlChange` at boot, so the route the client starts on is whatever the
+   server parsed. The client parses its own URL and refuses (decision 3) if the
+   route differs from the one resumed. Static generation has the same check
+   against the URL it was built for. (Phase 5 revised it for generated pages,
+   which compare the path alone.)
+9. **Head fields come from the Model.** Since 0.163 nothing derives `canonical`
+   from the URL, so a resumed page states it in its view, from the route in its
+   Model, like `title`. Phase 2's view check compares only the body, so a head
+   field read from a field the plan leaves out would change in the browser
+   unnoticed. Phase U extends the check to the head.
+10. **Whether an entry may start late is declared, not inferred.** Deferring
+    boot (the resumable track's `start: 'idle' | 'on-interaction'`) is refused
+    while a Subscription or Managed Resource that is active for the sent Model
+    has not been declared deferrable. A plan declares entries by key, and a
+    resume part declares its own package's; nothing is deferrable by default,
+    because a late WebSocket or timer is a behaviour change.
+13. **A binding inside a placement is the parent's Message.** The page
+    dispatches what Foldkit's runtime would, which for a handler inside
+    `h.submodel` is the child's Message lifted through the placement's
+    wrapper. The server records it lifted, the Surface lists the wrapper
+    variant, and a hole is filled `depth` wrappers down. A child-typed
+    binding would have been a Message the application's `update` never sees.
+12. **A fallback form posts to its own URL, and the page answers directly.**
+    The design's `action="/__foldkit/message"` would leave the browser at that
+    URL, where the answered page could not resume (decision 8). With no
+    `action` the form posts where it is, `SSR.entry` tells a post by its
+    method and the plan's `fallback`, and the response is the page, not a
+    redirect to it: a redirect would rerun `init` and lose what `update` did.
+    Posted fields named as the Message's own override it, since a Message
+    encoded at render time carries the draft as it was then, not as typed.
+11. **What the page says an element does is checked like what it shows.** The
+    bindings manifest is compared between the server's two renders exactly as
+    the body and head are (decision 9), and decoded at load exactly as the
+    state is (decision 3). A binding is never trusted from the page further
+    than its ordinal.
+
+## Phases
+
+Each phase ends when its tests pass and each has been shown to fail with the
+behaviour it pins removed.
+
+### Phase 0: a package that renders and hydrates as Foldkit does
+
+- `packages/ssr`, published as `foldkit-ssr`. The first version re-exported
+  Foldkit's server and runtime entry points unchanged, as the design proposed.
+  Review refused it as a module that only forwards, and it was right: the
+  package exports only what it adds, and an application imports Foldkit's own
+  rendering and hydration directly.
+- Foldkit ships no tests to port, so parity is proven by the design's
+  compatibility list (§32), each item a test through the package: a stamped
+  root, a build id and its mismatch, a routing application, Flags, head
+  content, a keyed list, a controlled input, a custom element, and trusted
+  `InnerHTML`. Each hydrates with the server's nodes kept and the page working,
+  or is refused where Foldkit refuses it.
+- Gate: nothing. This phase only proves the ground is where the design says.
+
+**Done.** `packages/ssr`, private, with the compatibility list as eight test
+files, one per item, run against Foldkit directly. Every hydration test was shown to fail when the server's
+root is swapped for a copy before hydrating. Two things learned:
+
+- The container passed to `makeApplication` must be the stamped root itself;
+  Foldkit refuses one beside it.
+- A view renders a custom element through `CustomElement.define`
+  (`foldkit/customElement`) bound with `.withMessage(h)`. The builder has no
+  generic element in its public API.
+
+### Phase 1: a resume plan and its envelope
+
+- `SSR.plan(App, { id, state, baseline, boot? })`. `App` must be a runnable
+  application, with `init` and `update`. `state` is a writable projection
+  (`Projection.pick` or `compose`) of the client-owned Model. `baseline` is the
+  Model the client starts from before `state` is set onto it. It is never
+  written, since a writable projection's `set` returns a new Model, so a
+  baseline Foldkit freezes in development is safe.
+- `ResumeEnvelope { v: 1, plan, state }` in a
+  `<script type="application/json" data-foldkit-plus-resume>`. The runtime id is
+  not in it: it comes from the root's stamp, as the design keeps it.
+- Tests: encode and decode round-trip; each refusal in decision 3 is a test,
+  including a payload read under the wrong build; each escape in decision 4 is
+  a test with a Model string that would otherwise break out of the script.
+- Gate: Phase 0.
+
+**Done.** `SSR.plan`, `SSR.envelope`, `SSR.resume` and `serializeJsonScript`,
+with a test for the round trip, for nothing outside the slice crossing, for
+each refusal and for each escape. Six of seven mutations turned a test red. The
+seventh removed a copy of the baseline, which turned out to be redundant: `set`
+never writes the Model it is given. The copy came out. The build-id check in
+decision 3 belongs with hydration, and is in Phase 2.
+
+### Phase 2: hand the Model over instead of rerunning `init`
+
+- Server: run the application's `init` once, round-trip the plan's slice
+  through its Schema, render the view from baseline plus that slice (as
+  Foldkit renders from decoded Flags), and write the envelope into the
+  **template**, not into `rendered.html`, which `injectIntoTemplate` requires to
+  hold only the root and Foldkit's own payload. (Revisited in Phase V: the
+  envelope rides the stamped root as an attribute, which `injectIntoTemplate`
+  accepts as part of the root, so `rendered.html` carries it after all.)
+- Client: decision 3's checks, then set the slice onto the baseline and hydrate
+  a program whose `init` returns that Model plus `boot`'s Commands.
+- Tests:
+  - the application's `init` is never called on the client; the DOM is adopted,
+    not rebuilt; the page works;
+  - **nothing outside the slice crosses**: a Model field holding a large value
+    left out of the plan does not appear anywhere in the HTML (the design's
+    central test);
+  - **the view does not depend on what was left out**: the server compares the
+    view rendered from baseline plus the round-tripped slice with the one it
+    serves, and refuses a plan that makes them differ. In production Foldkit
+    silently rebuilds a mismatched subtree, so this is the only place it shows;
+  - `injectIntoTemplate` accepts the output;
+  - a `Mirror.kv` application restores what was saved, through `boot`;
+  - a routing application resumes on its route, and a client URL for another
+    route is refused;
+  - a config with `Flags: undefined` is refused, pinning the trap in decision 2.
+- Gate: Phase 1.
+
+**Done.** `SSR.render`, `SSR.page` and `SSR.hydrate`, with a test file for each
+case: the handover (init runs once, on the server; the nodes are adopted; the
+page works), Flags that never reach the page, the `Flags: undefined` trap,
+`boot`, `Mirror.kv` restoring through `boot`, each `ResumeUnsafe` refusal, a
+tampered envelope, a page from another build, a route resumed and a route or
+query refused, and a page with no server render. Nine of twelve mutations
+turned a test red at first. Two survivors needed tests: a route check that
+compared only the path, and the client render of an unstamped page. The third
+removed a copy of the options without `flags`, which was redundant, since a
+config with no `Flags` key makes Foldkit write no Flags script. The copy came
+out. Learned:
+
+- The route the page was rendered for travels in the envelope, and the browser
+  compares it with its own path and query (decision 8). The client parses no
+  route of its own, which keeps the check free of the application's router.
+- Foldkit logs nothing through `console.error` when it refuses a page from
+  another build, so the tests check containment, not a log.
+- A `Mirror.kv` restore arrives after the storage layer is built, later than
+  one tick, so its test waits for the value rather than for a fixed delay.
+
+### Phase 3: check that the plan covers what the client reads
+
+- `SSR.plan(App, { …, local, surfaces })`: `local` names the fields allowed to
+  start from the baseline, such as an open menu. The check fails unless every
+  field a client Surface reads, and every field that decides which Surfaces are
+  active, is in the slice or in `local`. A Remote read counts by its
+  requirements and connections, not by dependency paths.
+- Activation matters as much as reading: if the client works out a different
+  set of active Surfaces from the resumed Model, retention collects the data
+  they would have shown.
+- `SSR.inspect(plan)`: which Model paths cross the boundary, which are local,
+  and which Surface needs each.
+- Tests: a Surface reading a field in neither list is reported, naming the
+  Surface and the path. A field that decides activation, left out, is reported.
+  A Remote read is reported through its metadata.
+- Gate: Phase 2.
+
+**Done.** `SSR.plan` takes `local` and `surfaces`, `SSR.inspect(plan, model)`
+reports coverage, and `SSR.render` refuses a plan that falls short with
+`ResumeUnsafe` `Uncovered`, one line per gap. Eleven mutations each turned a
+test red once two tests were added for survivors: a pathless `local` place had
+covered everything, and a Surface whose Remote id follows an unsent field was
+compared by its paths alone. Decided on the way:
+
+- **The check runs for a Model, at render time.** A Surface's reads follow its
+  params, which follow the Model, so the plan alone cannot say what a Surface
+  reads. `SSR.inspect` takes the Model for the same reason.
+- **Activation is checked twice.** The place a `Surface.when` reads must be sent
+  or local. A `Surface.at` callback records no place, so every Surface is also
+  worked out from the browser's Model and compared, reads and metadata both.
+  That catches an opaque activation that reads an unsent field.
+- **Remote reads are reported, not interpreted.** `foldkit-ssr` reads no
+  package's metadata key; it reports whatever a projection carries by
+  `Metadata.summarize`. Until Phase R gives Remote a resume part, a Surface
+  that reads Remote is refused, which is the honest answer: its data would not
+  be in the browser.
+- **A Surface from another application is refused** when the plan is made, by
+  the owner token Surface already carries.
+
+### Phase 4: server-owned static regions
+
+- `SSR.static(id, view)`: rendered on the server with `inertHtml`, without
+  Foldkit's hydration markers, which its server refuses inside trusted
+  `InnerHTML`. On the client, the markup is read from the DOM before hydration
+  (design §21) and handed back as trusted `InnerHTML`, so the region is adopted
+  and never rendered on the client.
+- Tests: the static view runs once on the server and never on the client; its
+  DOM nodes are the same after hydration; a client-only render still works; two
+  regions with the same id, and a region the server did not render, are each
+  reported (design §30, §31).
+- Gate: Phase 2.
+
+**Done.** `SSR.static(id, render)`, with a test for each case above and for a
+render leaving no context behind. Eight mutations each turned a test red once
+that last test was added; one mutation had broken the syntax, so it was run
+again as a real one. What was built differs from the first bullet, for the
+better:
+
+- **The server renders a region as ordinary children**, inside an element
+  carrying `data-foldkit-plus-static`, not as a serialized string. Foldkit's
+  serializer is not exported, and a region rendered inside the render needs
+  none. The markers the first bullet worried about are attributes Foldkit puts
+  only on keyed elements; a keyed element inside a region keeps them, which is
+  harmless because nothing reads them there.
+- **A render context says what a region does**, set around one synchronous
+  call of the view (design §12): the server's render collects each region, its
+  second render (the view check) replays them, so a region's render runs once
+  and never reads the browser's Model, and the browser's render adopts the
+  snapshots `SSR.hydrate` read before hydrating.
+- **A region missing from the page is reported and rendered**, not refused. A
+  Message can show a region after the page is live, and refusing would freeze a
+  working page. Duplicate ids are refused on the server, where they are made.
+
+### Phase 5: static generation
+
+- The same render at build time for a known URL, written as a file. The
+  envelope and decision 8's URL check apply unchanged.
+- Test: a page generated for one route resumes on it, and is refused when served
+  at another.
+- Gate: Phase 2.
+
+**Done.** `SSR.generate(config, plan, { buildId, template, origin, paths,
+flags? })` returns each page with the file it is served from. Twelve mutations
+each turned a test red. One thing did not apply unchanged:
+
+- **Decision 8 is revised for generated pages.** A static host serves one file
+  whatever the query, and for `/about` and `/about/` alike, so checking the
+  query would refuse, and freeze, a generated page for every link with a
+  tracking parameter. A generated page's envelope records its path and
+  `match: "path"`, and the browser compares paths only, ignoring a trailing
+  slash and `index.html`. The path is still checked. A page rendered per
+  request keeps the full check, since its server saw the query.
+- Paths with a query or fragment, and two paths that would be one file, are
+  refused before anything renders. `SSR.generate` writes nothing itself: the
+  package runs in the browser too, so it returns the files for a build script
+  to write.
+
+### Phase R: resume Remote's state
+
+The design's resume parts (§19) are how a package contributes to the envelope:
+each part captures a value on the server, restores it on the client, and
+describes itself for `SSR.inspect`. Remote is the first part.
+
+`Snapshot` is not what Remote sends. It is built for a cache that survived a
+reload, and deliberately keeps no cursors. A page rendered a moment ago should
+send the connections whole, boundaries included, and the live cursors, so the
+lists show their "load more" correctly and a live subscription resumes where the
+server left off. So Remote gains, first, each in its own commit with its own
+test:
+
+1. A capture of what given projections require: their entities' fields, and
+   their connections with segments and boundaries.
+2. A restore of that capture through `updateRemote`, leaving the rest of
+   `RemoteModel` (loading, failures, the mutation ledger) at its initial value.
+3. Output safe inside a `<script>`, through `serializeJsonScript`.
+
+Then `Remote.resume(Data, { surfaces })` as a part.
+
+- The part also declares Remote's Subscription entries deferrable (decision
+  10): a read with its data resumed plans nothing, a live subscription resumes
+  from the cursor the envelope carries, and retention running late collects
+  late. That is what lets a Remote page use the resumable track's deferred
+  boot at all.
+- Tests: a page rendered with Remote data hydrates with the data present and
+  makes no request for it; a list's "load more" works on the client; data no
+  Surface needs is not in the payload; retention on the client does not collect
+  what was resumed; a live subscription started after a delay receives what
+  was published in between.
+- Gate: Phase 3 and Phase U.
+
+**Done.** `ResumePart` and `SSR.plan({ parts })` in `foldkit-ssr`, and
+`Remote.resume(Data)` in `foldkit-remote`, which returns an object of that
+shape without importing `foldkit-ssr`, so neither package depends on the other.
+Remote's side has fourteen tests and `foldkit-ssr`'s eight; eighteen of
+nineteen mutations turned a test red once five tests were added for
+survivors, and the last was equivalent (capturing a projection twice captures
+the same thing).
+Decided and found on the way:
+
+- **The capture is per field, not per entity.** Retention's `reachable` and the
+  store's `gc` work on whole entities, and a whole entity carries fields no
+  view selects, a user's email say, into the page's HTML. The capture walks
+  requirements the way the read planner's `reachedMarks` does and copies only
+  the fields named, through relations, and each connection's items by its
+  selection.
+- **Restore is a function, not a Remote Message.** The plan said "through
+  `updateRemote`". It runs on the baseline before the runtime starts, where no
+  Message is dispatched, and a new case in Remote's Message union would widen
+  every application's. `restoreRemote` sets the captured entries, connections
+  and live states and touches nothing else of the store.
+- **One path for what the page carries.** `payloadOf` builds the envelope's
+  body, `modelFrom` rebuilds the Model from one, and `SSR.envelope`,
+  `SSR.resume`, and the server's model of the browser (for the view and
+  coverage checks) all use them. The server's copy goes through the same JSON
+  text the page carries, so the view check sees what the browser will.
+- **A live stream's key is what the whole Surface group asks, merged per
+  entity.** A page reading `Project:p1` in a detail and live has one stream
+  keyed `Project:p1:name,owner`, not one per projection. The capture keeps a
+  live state when every entity in its key was captured with the fields the key
+  names, which holds whatever the grouping, and its test takes the key from
+  the live entry itself.
+- **Deferrability is not declared yet.** The bullet above has the part declare
+  Remote's entries deferrable (decision 10). Nothing reads such a declaration
+  until Phase C builds deferred boot, so the declaration and its first reader
+  land together there, with the reasons already recorded here.
+- The plan's "load more works" test is pinned at the store: after a restore the
+  page reads `hasNext` and plans no request. Clicking it in a hydrated page
+  waits for an application that pages, which Phase 6's delivery tests will
+  have.
+
+### Phase U: move to Foldkit 0.163
+
+Before the phases below, because each would otherwise be built on 0.158
+internals and checked again. The repository-wide upgrade is the guide's steps
+1 to 3; this phase is its part for `packages/ssr`:
+
+- Read `FOLDKIT_APP_ATTRIBUTE` and `FOLDKIT_FLAGS_ATTRIBUTE` from Foldkit, in
+  the source and the tests that spell them (decision 5).
+- Every existing test stays green unchanged, the Flags trap and the build-id
+  refusal above all; a test that needs changing is a finding for this plan.
+- Extend Phase 2's view check to the head: `renderToString` returns `title`,
+  `canonical`, `ogUrl`, `lang` and `dir` beside the body, and each must be the
+  same from the browser's Model as from the server's, or `SSR.render` refuses
+  with `ViewDependsOnUnsentState` (decision 9). Test: a title read from an
+  unsent field is refused.
+- Say in the README that `canonical` comes from the Model, and word the
+  development risk in model-preservation terms.
+- Gate: Phase 5, and the repository's own upgrade commits.
+
+**Done.** The repository moved to 0.163.0 in `c5dd8f1`, which changed only
+`packages/ssr`'s pins: all 55 tests passed on 0.163 unchanged, the Flags trap
+and the build-id refusal included, so the hydrate-without-`init` workaround
+holds. Then the source and tests read Foldkit's two exported attribute names,
+and the view check compares the head. Seven mutations each turned a test red
+once `lang` and `dir` had a test of their own. Found on the way:
+
+- **`ogUrl` follows `canonical`.** A view that sets only `canonical` gets an
+  `ogUrl` from it, so an unsent field in `canonical` changes both, and the
+  refusal names both.
+- **The view's `dir` is `'Ltr' | 'Rtl' | 'Auto'`**, which Foldkit lowers to the
+  attribute's value; the rendered result reports the lowered one. A test typed
+  its head loosely and passed a lowered value the view ignores, and only the
+  mutation run showed the test was not testing `dir`. Its head is typed now.
+- The development risk already uses model-preservation terms (revised with
+  this phase's plan); the README says nothing about development, so it needed
+  no change there.
+
+### Phase 6: deliver a page through Foldkit's fetch handler
+
+- `SSR.entry(config, plan, { buildId, template, flags? })` returns the
+  `renderPage` a Foldkit server entry exports, so `handleRequest` and the
+  emitted `fetch.js` serve a resumed page on Node and on Workers alike.
+- The envelope is the question (see [what changed
+  upstream](#what-changed-upstream-foldkit-0159-to-0163)). The first cut
+  answers with `Responded`: the page `SSR.page` builds, as an HTML `Response`,
+  keeping `handleRequest`'s request classification and giving up only its
+  template injection. The upstream ask is a way for a `Rendered` result to
+  carry one more trusted payload script, which would let the envelope go back
+  to `Rendered`.
+- The design's sketched `foldkit-ssr/vite` plugin, if it is built, extends
+  `@foldkit/vite-plugin@0.24`'s `ssr.serverEntry` rather than owning a build
+  entry.
+- `handleRequest` hands every method but `CONNECT`, `TRACE` and `TRACK` to
+  `renderPage`, `POST` included. Until Phase E, `SSR.entry` renders `GET` and
+  `HEAD` and answers any other method `405`; Phase E then routes a `POST` to
+  the fallback path to `SSR.handle`, with no second route table.
+- Tests: `handleRequest` with a page `Request` returns a `Response` that
+  resumes; a hashed-asset miss is not answered with the page; a `RenderError`
+  or `ResumeUnsafe` becomes an error response, not a page that cannot resume;
+  a `POST` is answered `405`.
+- Gate: Phase U.
+
+**Done.** `SSR.entry(config, plan, { buildId, template, containerId?, flags? })`
+returns Foldkit's `EntryModule`, `{ renderPage }`, tested through the real
+`handleRequest` and resumed in a browser from its response. Eight mutations
+each turned a test red. The first cut stands: the page is answered
+`Responded`, and Foldkit's `toResponse` builds it from a template that already
+holds the envelope, so the headers and the injection stay Foldkit's.
+Learned:
+
+- `handleRequest` answers `HEAD` by dropping the body of whatever
+  `renderPage` returns, and answers a static miss `404` before calling it, so
+  the entry needs no handling of either. It passes `POST` through, which is
+  where Phase E's fallback will attach.
+- A render failure is logged with the request URL and answered with a generic
+  body, since a `ResumeUnsafe` message names the application's fields. The
+  first cut caught failures with `Effect.result`, which misses defects: a view
+  that threw, or `flags` that rejected, would have rejected `renderPage`
+  instead of answering it. Review found it against the trap already listed in
+  AGENTS.md; the entry now runs `flags` and the render as one Effect and
+  answers any failed exit `500`.
+- `flags(request)` may be async, so an application can load what its `init`
+  needs before the synchronous render (decision 6). A Remote application still
+  has to get its prefetched data into `init`'s Model; `SSR.entry` does not do
+  that for it, and the README says nothing it cannot back up about it yet.
+- The "load more" click in a hydrated Remote page, which Phase R deferred to
+  here, needs an application that pages through a real client. The entry test
+  serves a counter and a routing application; the paging test moves to Phase A,
+  whose resumable builder needs the same application.
+
+### Phases A to F: resumable pages
+
+Binding-level resumability was parked as research. [resumable-DESIGN.md](./resumable-DESIGN.md)
+argues it is not, for Foldkit: a handler is a Message, a value that already
+round-trips through the Message Schema, so the page can say which Message each
+element causes, and the view need not run until the first one. Its phases are
+this plan's next track, in its order, and it is the source for their detail:
+
+- **A. The resumable builder.** `Resume.builder(h)` marks each binding with an
+  ordinal and writes the encoded Message, or a member with a hole, into a
+  manifest inside the envelope. Built on Phase 4's render context, which gains
+  the manifest as a fourth concern. The builder reaches views through
+  `Surface.rootView` (`foldkit-surface`) and `SurfaceView.define`
+  (`foldkit-mixins-surface`), so both gain the hook, and their skill references
+  change in the same commit. Phase 2's view
+  check compares the two renders' manifests (decision 11); test that a
+  Message built from an unsent field is refused.
+
+  **Done.** `Resume.builder(h)`, `Resume.view(render)`, the bindings in the
+  envelope, and their comparison between the two renders, with thirteen
+  mutations each turning a test red once a keyed element had a binding, and
+  each of the three hole checks in the types shown to fail `tsc` when
+  removed. Decided and found on the way:
+
+  - **No hook in the Surface packages.** The bullet above had
+    `Surface.rootView` and `SurfaceView.define` install the builder. Neither
+    may depend on `foldkit-ssr`, so a hook would need a seam of its own, for
+    one line of saving. Instead `Resume.view(render)` adapts a renderer that
+    takes the resumable builder into one that takes the builder it is given,
+    and goes wherever a renderer goes: `Surface.rootView`,
+    `SurfaceView.define`, `Surface.embed`, or an application's own view.
+    Neither Surface package changed.
+  - **A Surface renderer's builder is not an `HtmlBuilder`.** It is
+    `ViewBuilder`, which leaves out Foldkit's phantom Message key, so the
+    first `Resume.builder(h: HtmlBuilder<M>)` did not accept it without a
+    cast. `Resume.builder` is now generic over the builder it is given, reads
+    the Message from its `OnClick`, and returns that builder's own shape with
+    the hole forms added, so in a Surface renderer `rh` takes only the
+    Surface's Messages and a member outside them fails to compile.
+
+  - **Foldkit's attributes are tagged data** (`{ _tag: 'OnClick', message,
+    options }`), so a Message-valued binding is read off the attribute and
+    needs no record of its own. Only the four value events (`OnInput`,
+    `OnChange`, `OnKeyDown`, `OnKeyUp`) hold a closure; for those the builder
+    records, per attribute, the member and its hole.
+  - **The render context moved to its own module** (`src/context.ts`) and
+    gained the binding list in its two server modes, so `SSR.static` and the
+    builder read one context.
+  - **Ordinals are indices.** The envelope's `bindings` is an array, and a
+    marker's value is its index; the design's `e12` was a name for the same
+    thing. Ordinals follow the order the view builds elements, so a child's
+    bindings come before its parent's.
+  - **Every handler of an event, in order.** The first cut kept one binding
+    per event per element, the last, on the belief that Foldkit keeps the last
+    handler. It chains them all, in attribute order (`addDataOn`), so a click
+    before boot would have dispatched fewer Messages than the live page. A
+    marker now lists every ordinal of its event, and a handler the page cannot
+    describe (a closure, or `OnKeyDownPreventDefault` and its kin) is listed as
+    `*`, so Phase B knows the live page does something there the page cannot
+    name and must boot instead. The tag-to-event table is Foldkit's own,
+    read from its source rather than written from memory.
+  - **The envelope records the Foldkit attribute**, not only the DOM event:
+    `OnSubmit`, `OnContextMenu` and `OnCancel` prevent the default action,
+    `OnBlur` ignores Foldkit's devtools, and `OnFocusEnter` listens to
+    `focusin` with a containment check. Phase B reproduces each by its tag.
+  - **A hole's Message is encoded whole**, with the hole filled by a
+    placeholder (`''`, and no modifiers), so the envelope needs no second
+    Schema for partial Messages and Phase B decodes one Message and fills the
+    hole in its encoded form.
+  - **No casts in code an application writes, tests included.** A cast in a
+    test is a gap in an API, so the tests use the API as an application does.
+    It found one real gap: `SSR.generate` returned a plain array, so
+    destructuring a page needed an assertion. Its result is now typed as a
+    tuple of `paths`. A deliberately wrong call, such as a member that leaves
+    two fields, is written with `@ts-expect-error` saying why.
+  - The "load more" click that Phase 6 moved here needs a paging application
+    and a real client, which Phase B's dispatch tests will build; it is
+    still open.
+- **B. Delegated dispatch.** `Resume.listen`, one capture-phase listener per
+  event type at the root, honouring each binding's propagation and default
+  action as the eager page does. The manifest is decoded once, at load, through
+  the application's Message union restricted to what the plan allows, and
+  every marker in the root is checked against it then; a page that fails is
+  refused whole (decision 3), which settles the design's rule 5 against its
+  §2.
+
+  **Done.** `Resume.bindings` and `Resume.listen` in `src/listen.ts`, eleven
+  tests, ten mutations each turning one red. Found on the way:
+
+  - **`Stop` stops other elements, not siblings.** Foldkit chains an
+    element's handlers in one listener, so a `propagation: 'Stop'` among them
+    still runs the rest of that element's handlers and only keeps the event
+    from the elements above. The first cut returned at the `Stop`; a test with
+    two `OnClick`s on one button caught it.
+  - **`*` ends the walk.** A parent's named binding must not be answered
+    while a child's unnamed handler is skipped, or the page does less than the
+    live one; the listener reports the element and stops. Deciding what then
+    happens, boot and replay, is Phase C's.
+  - **Decoding is through the whole Message union for now.** Restricting it
+    to the tags active Surfaces list (rule 3) is Phase D, as planned, and
+    `Resume.bindings` is where it will attach.
+  - `OnBlur`'s devtools check is not reproduced: before boot there is no
+    devtools host to have focus. `OnFocusEnter`/`OnFocusLeave` are not
+    markable, so their containment check is not needed.
+- **C. Deferred boot.** `SSR.hydrate`'s `start: 'now' | 'idle' |
+  'on-interaction'`, default `'now'`, with Messages queued before boot and
+  replayed after Foldkit's first committed patch. `EagerStartRequired` refuses
+  deferral while an entry active for the sent Model is not declared
+  deferrable (decision 10), naming it. The 0.163 boot-buffer fix does not
+  narrow the rule; see [what changed upstream](#what-changed-upstream-foldkit-0159-to-0163).
+  The plan's `boot` Commands run at
+  boot, so with deferral a `Mirror.kv` restore waits for the first
+  interaction; that is the application's choice to make with `start`.
+
+  **Done.** `start` and `deferrable` on `SSR.plan`, not on `SSR.hydrate`: the
+  server's refusal reads them, and a page is served for one start. `deferBoot`
+  in `src/index.ts`, `EagerStartRequired` in `SSR.render`, six test files (one
+  document each) and twelve mutations each turning one red. Found on the way:
+  - **Foldkit's hydrate commits within the booting event's dispatch.** It
+    runs the first render before returning, adopting the page and attaching
+    its listeners, so the event still in flight reaches the live page. The
+    first cut waited for the first patch with a `MutationObserver` and
+    dispatched an unanswered event again; both were unobservable, and the
+    probe showed why. Now a completed answer is queued and the event stopped,
+    so the live page does not count it twice, and an answer that met a `*`
+    queues nothing and lets the event through. A test with a bubbling button
+    fails if either half goes. This leans on the render being synchronous,
+    which `deferredUnnamedOnly.test.ts` pins. *Since G5 it does not:* the
+    page keeps listening until the first render commits.
+  - **Every Subscription entry counts as active.** Foldkit starts each
+    entry's stream at boot whatever its dependencies, so no Model can make one
+    inactive; only a Managed Resource has a Model-dependent activation
+    (`modelToMaybeRequirements`).
+  - **Replay is a Subscription entry**, `foldkit-ssr.replay`, added to the
+    program at boot, so the queued Messages go through Foldkit's own queue in
+    order after its first render, with no second dispatch path. *Replaced in
+    G2:* an event dispatched in the task that boots the page reached the
+    queue before the replay, so the runtime's `update` is wrapped to run the
+    queued Messages ahead of the first Message it processes.
+  - **Remote marks its entries deferrable itself**, with a symbol on each
+    entry `Data.subscriptions` and the fold produce, and its part's
+    `deferrable(key, entry)` reads it: the declaration travels with the
+    package that knows its entries are safe to start late.
+  - **`Resume.listen` answers per event, not per binding**: `onAnswer({ event,
+    messages, unnamed? })`. A boot decision needs the whole answer, and a
+    parent's Messages must not be queued when a child's `*` sends the event to
+    the live page. It also listens for events only a `*` names, which the
+    bindings cannot tell it; the markers do.
+  - A control typed into before boot needs no reset: hydration patches its
+    value to the Model's and the replay brings the text back, and the test
+    that types first pins that the input is adopted, not rebuilt.
+- **D. Coverage and static refusal.** Phase 3's check gains the Message side: a
+  binding whose Message no active Surface lists in `messages` is `Uncovered`,
+  a page with bindings and no `surfaces` is refused, and a binding inside
+  `SSR.static` is refused.
+
+  **Done.** `ActiveSurface` in `foldkit-surface` now carries `messages`, the
+  tags its Surface lists, from `Surface.at` and `Surface.when` alike, so the
+  plan's `surfaces` are the allow list on both sides. On the server
+  `unlistedBindings` joins the coverage shortfalls under `Uncovered`,
+  `UndeclaredSurfaces` refuses bindings with no `surfaces`, and
+  `BindingInStaticRegion` refuses a handler met while a static region
+  renders, which the collect context tracks (`region`, `inStatic`). In the
+  browser `Resume.bindings` takes the resumed Model and refuses an entry no
+  active Surface lists. Two test files, nine mutations each turning one red.
+  Found on the way:
+  - **A Surface without params is active whatever its callback returns.**
+    `Surface.at(S, () => undefined)` activates a paramless Surface, by
+    `Surface.at`'s own rule; a test that wants an inactive Surface gives it
+    params. Worth remembering when a plan's Surface seems always active.
+  - **The order of refusals moved two tests.** `UndeclaredSurfaces` and
+    `Uncovered` come before the second render, so a test that expected
+    `ViewDependsOnUnsentState` or `UnencodableBinding` from a plan with no
+    `surfaces`, or one whose Surface read the unsent field, now names a
+    Surface that covers everything but the binding under test.
+- **E. Server fallback.** `fallback: 'server'` on forms, and `SSR.handle`,
+  called from Phase 6's `renderPage` for a posted Message: the server runs
+  `init`, `boot`, `update` and its Commands, and renders the result.
+
+  **Done.** `fallback: 'server'` on the plan (decision 12), the form written
+  by the builder through the render context's encoder, `SSR.handle` and
+  `SSR.entry`'s `POST` path, `FallbackRefused`, and `resources` on the
+  config. One test file through Foldkit's real `handleRequest`, with a
+  Command that needs a service; thirteen mutations, twelve turning one red.
+  The survivor narrows the posted field to a string for the types (`get`
+  returns a `File` too), and a `File` there is refused as not JSON a line
+  later, so its removal changes nothing observable. Found on the way:
+  - **A Command's failure is a defect here.** Foldkit's runtime crashes on
+    one; the server answers `500` as it does for a failed render, since the
+    config declares the Command's requirements and `resources` meets them.
+    `SSR.handle`'s error type stays the three refusals.
+  - **The Model is rebuilt by rendering.** Foldkit's server decides `init`'s
+    arguments from the config's `Flags` and `routing`; rather than restate
+    that, `startOf` renders once with a capturing `init`, as `SSR.render`
+    does, and takes the Model. One render more per post, for one rule.
+- **F. Bundle boundaries**, then `Bundle.lazy`.
+
+  **Done**, without the gate: the user asked for `Bundle.lazy` at once rather
+  than after a measured application. `Bundle.lazy` in `foldkit-bundle`
+  (`src/lazy.ts`): the declaration stays, `update` and `view` load through a
+  `Bundle.Body`, a Message before the load returns a `Load<Name>` Command that
+  yields it again, `while` renders meanwhile. In `foldkit-ssr`: `lazy` on the
+  config, loaded by `SSR.render` before rendering and by `SSR.hydrate` before
+  booting through `deferBoot`, which now takes every `start` and re-dispatches
+  an unanswered event after an asynchronous boot; the resumable builder wraps
+  `h.submodel` to stamp the placement root (`data-foldkit-plus-slot`) and to
+  lift every binding inside through the placement's `toParentMessage`, with
+  `depth` saying how many wrappers a hole sits under. Three test files, one
+  in each package on the real runtime; sixteen mutations, fifteen turning one
+  red and the last a guard that turned out dead, removed. Found on the way:
+  - **A binding inside a placement was recorded as the child's Message.** The
+    child's builder makes child Messages, and Foldkit lifts them at dispatch.
+    Recording them unlifted made every such binding `Uncovered` and its
+    encoding fail. The render context carries `wrap` and `depth` now, and
+    `h.submodel` composes them; decision 13.
+  - **Bodies load at boot, not on the first Message inside the bundle.** A
+    page whose lazy view has no handlers before its bodies arrive cannot
+    receive a first Message, and rendering `while` over the server's markup
+    would lose it. So the browser loads every listed bundle before booting,
+    and answers from the markers meanwhile; the first Message inside the
+    bundle remains the trigger for a page without `foldkit-ssr`.
+  - **`Placed.view` takes any builder with `submodel` and `OnClick`.** Its
+    bound was Foldkit's whole builder, which a resumable builder is not once
+    its hole forms differ; `BuilderLike` in `foldkit-bundle` names what a
+    placement's view uses, and the Message is read from `OnClick`.
+  - The slot is the bundle's own id, `Name@key`, which names both; the
+    design's two attributes became one.
+
+Gates: A to D on Phase U, since three of their claims rest on Foldkit internals
+(`seedAdoptedState`, a control's value mismatch, and when the root's app
+attribute is removed), checked against 0.158.2 and 0.163.0 alike, which tests
+pin. E on Phase 6. F on E and a real application that shows the boot chunk is
+dominated by Bundle bodies.
+
+The order puts Phase R before this track. A Surface that reads Remote is
+refused today (Phase 3), a resumable page still needs its data in the browser
+before its first Message arrives, and Phase R's deferrable declarations are
+what let a Remote page defer its boot at all.
+
+### Phase G: close what the resumable design asks and Phases A to F left out
+
+A check of [resumable-DESIGN.md](./resumable-DESIGN.md) against what was built
+found four gaps. Its six phases are this plan's A to F, but two of its rules,
+its Phase E test, and one of its risks ask for more than those phases did.
+Phase F's gate stays waived, as recorded there. Each step below ends in a test
+that can fail, or, for G4, a recorded measurement.
+
+- **G1. Name the handler that makes a page wait for the live runtime.** Rule 1
+  says a closure handler still works "with a diagnostic naming the element".
+  Today the server marks it `*` and says nothing, so nobody learns which
+  element keeps a page from answering before boot.
+
+  - `SSR.render`'s result gains `unnamed`, one entry per element and event
+    marked `*`: `{ element: 'button#point', event: 'pointerdown' }`. The
+    collect render already knows each one; it records them beside the
+    bindings.
+  - `SSR.entry` and `SSR.generate` warn about each entry once per process,
+    naming the element, the event, and the fix: give the handler a Message,
+    or one of the hole forms. Once per process, because a server renders the
+    same page for every request.
+  - No refusal and no option. The rule says the handler still works, and an
+    option to refuse would be one nobody has asked for.
+  - The design says a closure "makes the page eager". Phase C chose instead
+    to keep answering and boot on that handler's event, so the rest of the
+    page still answers before boot. Record that choice in the design's rule 1,
+    so the two documents agree.
+  - Tests: the result names the closure input and the pointer button of the
+    bindings fixture and nothing else; the entry warns once across two
+    requests. Mutations: drop the record; warn on every request.
+  - **Done** (`test/unnamed.test.ts`). One departure: the warning is given only
+    for a page that waits to boot, one planned `'idle'` or `'on-interaction'`,
+    or with a lazy bundle. A page started `'now'` with nothing to load boots
+    before any event, so its closures hold nothing up, and a warning there
+    would fire for every application with a closure. The result lists them
+    either way. An element chaining two closures for one event is one entry,
+    and a mutation test pins that too.
+
+- **G2. Test rule 6 directly: the resumed page reaches the eager page's
+  Model.** Rule 6 is the invariant the other rules serve, and the design says
+  to test it by running both pages through one recorded event sequence and
+  comparing Models. Today each test checks one outcome at a time.
+
+  - A harness, `test/equivalence.ts`: given a config, a plan and a sequence
+    of DOM actions (click an id, type into an id, press a key on an id,
+    submit a form, focus and blur), it runs the sequence twice in one
+    document and returns both final Models.
+  - The eager run: `Runtime.embed` of the application started from the Model
+    the browser resumes, so both runs begin from the same place, with the
+    actions dispatched after boot. `embed` returns a handle, so the run is
+    disposed and the container cleared before the resumed run. `hydrate`
+    cannot be disposed, so the resumed run always goes second.
+  - The resumed run: the served page, `SSR.hydrate` with `start:
+    'on-interaction'`, the same actions dispatched before and across the
+    boot.
+  - Both runs record the Model by wrapping `update`, which leaves the
+    application untouched.
+  - Sequences, one test file each, because each needs its own document:
+    typing then a click; a click that bubbles through a parent with `Stop`
+    on the child; a submit; a key press with modifiers; a closure's event in
+    the middle of named ones; a placement's input and click under a lazy
+    bundle. The first event of each sequence is what boots the page, so the
+    boot window is inside every run.
+  - Checked on 0.163: after `dispose` the container is empty and a click on
+    a node the eager run rendered reaches no `update`, and a resumed page
+    then hydrates in the same document, waits for its first event and counts
+    each click once. Foldkit documents `dispose` as idempotent and the
+    container as reusable, so the harness needs nothing upstream.
+  - Mutations: drop the `stopPropagation` after a queued answer; replay the
+    queue in reverse; skip the re-dispatch of an unanswered event. Each must
+    make a sequence's Models differ.
+  - **Done** (`test/equivalence.ts`, `equivalenceFixture.ts`, and one
+    `equivalence*.test.ts` per sequence). Every Message the fixture handles
+    appends to a log in its Model, so a Message answered twice, lost or
+    reordered makes the Models differ. The harness can pace the actions like
+    a person or send them in one task (`burst`), and the typing, closure and
+    lazy sequences use one task, so their later events land while the page
+    boots.
+  - **What it found.** The first run failed: text typed in one task ended
+    on its first character. The markers answered the first `input` and
+    booted the page, the later ones reached the live page in the same task,
+    and the replay Subscription delivered the queued `Typed` after them. Any
+    event in the booting task could be reordered this way, for example a
+    `focus` that the browser fires in the same task as the `mousedown` that
+    boots. The Subscription entry is gone. The runtime still starts from the
+    resumed Model, and the `update` handed to it is wrapped: the first
+    Message it processes, whatever it is, runs the answered Messages
+    through `update` ahead of itself, their Commands with its own. A first
+    version instead folded the answered Messages into the Model the runtime
+    starts from; its first render then no longer matched the served markup,
+    and Foldkit rebuilt the children of any element whose text had changed,
+    an input beside the text included. `equivalenceAdoption.test.ts` pins
+    that the input survives. With the old replay the typing and closure
+    sequences fail, and each of the three planned mutations fails at least
+    one sequence.
+
+- **G3. Test Phase E the way the design states it.** The design's test is
+  that a form posted without JavaScript "returns the page a browser click
+  would have produced". Today's test checks the page's contents.
+
+  - With G2's harness: type into the todo form and submit it in the browser,
+    and post the same form to `SSR.handle`. Decode the response's envelope
+    with `SSR.resume` and compare it, through the plan's `state`, with the
+    browser's final Model through the same projection.
+  - The same comparison for a form inside a placement, which covers the
+    depth field the review added.
+  - Mutations: drop the field override; skip the plan's `boot` in the fold.
+  - **Done** (`fallbackEquivalence.test.ts`, `fallbackEquivalencePlaced.test.ts`,
+    and the harness's `posted`). The placed form is compared by typing into
+    the placement's text input, which the form's field mirrors, since the
+    form's own input has no handler for the browser to answer. Dropping the
+    override fails both tests; skipping `boot` fails the root one, since only
+    its plan boots.
+
+- **G4. Measure the manifest before optimising it.** The design's risk section
+  asks for a measurement at a thousand rows before anything is done about
+  manifest size, and names the fix if one is needed: one entry per
+  placement, plus the key.
+
+  - A script, `bench/manifest.ts`, run with `tsx` as
+    `packages/durable/bench/storage.ts` is: a keyed list of 10, 100 and 1,000
+    rows with three bindings each. It prints, per size, the page's bytes, the
+    envelope's bytes, both gzipped, and the time `Resume.bindings` and
+    `Resume.listen` take on the page under jsdom.
+  - Record the table in this plan.
+  - Act only if, at a thousand rows, the gzipped bindings are more than a
+    tenth of the gzipped page, or decoding and listening take more than one
+    frame, 16 ms. Acting then means the design's fix, planned as its own
+    step. Otherwise the risk is closed with the numbers.
+  - **Done** (`bench/manifest.ts`, `pnpm bench:manifest`). Each row is a
+    keyed `li` with a click, an input whose hole the event fills, and a
+    focus. Measured 2026-09-27 with Node 22 and jsdom 26; times are medians of
+    ten runs after two warm-ups:
+
+    | rows | bindings | page (gz) | envelope (gz) | bindings (gz) | bindings / page, gz | decode | listen |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 10 | 30 | 4.5 KB (0.8 KB) | 2.8 KB (0.4 KB) | 2.2 KB (0.2 KB) | 28.9% | 0.7 ms | 0.4 ms |
+    | 100 | 300 | 43.5 KB (4.5 KB) | 26.9 KB (1.7 KB) | 22.3 KB (1.0 KB) | 22.5% | 3.1 ms | 2.3 ms |
+    | 1000 | 3000 | 441.6 KB (40.4 KB) | 272.7 KB (15.2 KB) | 226.2 KB (8.5 KB) | 21.0% | 20.2 ms | 18.1 ms |
+
+    **Both thresholds are crossed** at a thousand rows: the gzipped bindings
+    are a fifth of the gzipped page, and decoding and listening together take
+    about 38 ms. Two things flatter the problem: each row here holds almost
+    no markup of its own, so a real page's ratio would be lower, and jsdom's
+    DOM is slower than a browser's. Neither closes the risk: even at 100
+    rows the ratio is over a tenth, and both costs grow linearly. So the fix
+    is planned as its own step, G6, below.
+
+- **G6. One manifest entry per keyed placement, not per row** (planned, not
+  started). The design's fix: when the rows are one view placed per key,
+  the manifest carries one entry per binding of that view with the key's
+  place left open, and each row's markers carry the key, so a thousand rows
+  cost one entry per binding rather than three thousand. Before building it,
+  split G4's times: how much of `decode` is the Schema decode of each entry
+  and how much the marker scan over every element, and how much of `listen`
+  is that scan again. If the scans dominate, one pass that reads each
+  marker once, shared by `Resume.bindings` and `Resume.listen`, may be the
+  cheaper first change. Its acceptance is G4's table rerun under the
+  thresholds at a thousand rows, with G2's sequences still green.
+  - **Time: done.** Split at a thousand rows (jsdom, medians):
+    `Resume.bindings` was 19 ms, of which the marker scan was 9, parsing the
+    envelope 2.5, the Schema decode of the list 2, and of the 3,000 Messages
+    3; `Resume.listen` was 17 ms, nearly all its own scan for the events
+    `*` markers name. So the scans dominated, as suspected. Measured in
+    Chromium (`pnpm bench:manifest:browser`, added for this, since jsdom's
+    DOM is several times slower) the picture differed: 16 ms decoding and 6
+    listening, with the list's Schema decode alone taking 6 ms there. Two
+    changes:
+    - The envelope lists every event the markers name, `*`-only ones
+      included, and `SSR.hydrate` passes it to `Resume.listen` as `events`,
+      which then scans nothing. A page whose envelope has no list, one
+      from before it, is scanned as before.
+    - The list is checked by hand (`readBindings`), refusing the same
+      malformed shapes, rather than through a Schema; each Message inside
+      is still decoded through the application's.
+
+    At a thousand rows, decoding and listening now take **12.0 ms in
+    Chromium** (from 21.9) and about 16.5 ms in jsdom (from 36), whose own
+    marker scan is 9 of it. Chromium's is the number a page lives with, so
+    the time threshold is met. The marker scan in `Resume.bindings` stays:
+    it is what refuses a page whose markers name no binding. Tests:
+    `envelopeEvents.test.ts`, `deferredEvents.test.ts`, the events case in
+    `listen.test.ts`, and a malformed case per check `readBindings` makes;
+    each has a mutation that fails it.
+  - **Size: closed with the numbers** (decided 2026-09-27), since it is not
+    met by an encoding alone. The gzipped bindings
+    are 21% of the gzipped page. The 3,000 ids alone gzip to 1.6 KB, so the
+    entries' 8.5 KB is mostly structure, but the encodings measured without
+    knowing which bindings share a value do not reach a tenth: a template
+    per shape with its values in rows is 7.4 KB, in columns per template
+    4.8 KB (12%), and with the values interned 8.0 to 9.2 KB. Only one that
+    knows each row's three bindings share its id reaches 2.1 KB (5%): that
+    is the design's fix, which needs the rows to be a keyed placement, and
+    this bench's are not. The page is also unusually bare, three bindings on
+    a row with almost no markup, which inflates the ratio. What to do next
+    was a choice: build the design's fix for keyed placements, which leaves
+    a list like this bench's where it is; adopt the per-template columns,
+    a protocol change for a partial gain; or close the size risk with these
+    numbers. It is closed: about 2.9 bytes gzipped per binding, the ratio
+    inflated by a bare page, and no change to the envelope's format. The
+    keyed-placement fix stays the answer if a real page shows the cost.
+
+- **G5. Stop depending on when `hydrate` commits.** Deferred boot assumes the
+  first render, listeners included, lands inside the event that boots the
+  page. Foldkit tests that timing but does not promise it. Its public
+  `Render.afterCommit` waits for the outstanding patch and nothing else, so
+  the replay Subscription entry yields it before replaying, and re-dispatches
+  an unanswered event then if the boot did not commit in time. Test: a boot
+  whose first render is held past the event still counts a queued click once
+  and still reaches the live page with a closure's event.
+  - **Done** (`lateCommitClick.test.ts`, `lateCommitUnnamed.test.ts`, which
+    mock `foldkit/runtime` so `hydrate` starts in a later task). G2 had
+    already removed the replay Subscription, so this step keeps the page
+    listening until the first render has committed, instead of stopping as
+    soon as the runtime starts. When `hydrate` returns with the root's stamp
+    gone, the first patch has run and the page stops at once, as before.
+    Otherwise a `foldkit-ssr.handover` Subscription entry, which Foldkit
+    starts after its first render, yields `Render.afterCommit` while the root
+    is still stamped. It then stops the page, sends the kept events to the
+    live page, and emits one internal Message, so the runtime takes the
+    answered Messages even if nothing else asks it to. Both tests fail on the
+    code before this step: the click before the first render is lost, and so
+    is the closure's event. Dropping the re-dispatch fails the closure test;
+    stopping as soon as the runtime starts fails both; not stopping when
+    `hydrate` returns fails a Phase C test, because the kept booting event
+    would reach the live page twice; and dropping the internal Message fails
+    both late tests and most G2 sequences.
+
+Order: G1, then G2, then G3, which reuses G2's harness. G4 and G5 can run at
+any point; G5 comes before any upstream proposal, per
+[the upstream plan](../upstream-foldkit-ssr.md). Each step updates the README's test list, and G1 also the README's
+bindings section and the skill reference, since `SSR.render`'s result and the
+server's logging change.
+
+### Phase S: static sites, from what the CMS example needed
+
+**Status: proposed.** The CMS example (`examples/cms`) renders its public site
+at build time with `SSR.generate` and takes each page over in the browser
+(`prerender.ts`, `sitePlan.ts`, `client.ts`). The phases above made that
+possible. Everything else a static site needs, the example wrote by hand. Each
+item below is something it had to write, or a mistake it made first, and each
+ends in a test that can fail. Items S1 to S4 block a second site from doing
+the same; S5 to S9 are what a site with readers in more than one place needs.
+
+**S1. A browser entry.** `foldkit-ssr` has one module, and it imports
+`foldkit/experimental/server`. A page that only takes a render over loads
+Foldkit's renderer and HTML parser too: 210 KB (63 KB gzipped) in the example.
+The example loads the plan lazily to keep it off the studio's pages, and wrote
+Foldkit's root attribute out by hand, because importing
+`FOLDKIT_APP_ATTRIBUTE` alone put the renderer in every page's bundle.
+Split the package: `foldkit-ssr` for what both sides use (`plan`, `envelope`,
+`resume`, `hydrate`, `Resume.*`), and `foldkit-ssr/server` for `render`,
+`page`, `generate`, `entry` and `handle`. Export the root attribute from the
+browser side.
+- Test: the browser entry's module graph reaches no `foldkit/experimental/server`
+  (a static import walk, not a bundle size).
+
+**S2. Preparing a Model for a render.** A render draws the Model `init`
+returns and fetches nothing. The example prefetches each active Surface's
+projection in turn, each over the Model the last one left, so the home page's
+Blocks are read once its document is. That loop is router-DESIGN §20's
+`Data.satisfy`, and it belongs in Remote, which the plan's parts already name.
+The example also found that a bundle assembly's `init` must return
+`placements.initial(...)`, so the prepared Model goes through it.
+- `Data.satisfy(model, sources)` repeats until a pass plans nothing, bounded,
+  failing with the Surface still reading after the bound.
+- Test: a source that is active only once another's read has arrived is read;
+  a cycle fails at the bound.
+
+**S3. A head from the Model.** Foldkit's `Document` carries `title`, `lang`,
+`dir`, `canonical` and `ogUrl`. A page a search engine or a link preview reads
+also needs a description, Open Graph and Twitter tags, an image, a post's
+article facts and JSON-LD, and sometimes `robots`. The example builds these in
+`generate`'s `head` callback, which gets the render but not the Model, so it
+renders one path at a time to reach each page's Model. It also found that
+Foldkit fills `canonical` and `og:url` only into tags the template already
+has.
+- `SSR.plan({ head: model => Head })`, a typed value (`description`, `image`,
+  `type`, `article`, `jsonLd`, `robots`, `alternates`), rendered escaped with
+  the page, and checked like the view: what it reads must cross or be static.
+- The same `Head` applied in the browser on navigation, so a client-side move
+  to another post updates its description too. That needs the fields in
+  Foldkit's `Document`; until then, a Subscription on the Model's head.
+- The template gets the tags Foldkit fills, or `generate` refuses it, naming
+  the missing one.
+- Test: a generated post's description and JSON-LD come from its Model, with
+  quotes and `</script>` escaped; a missing canonical tag is refused.
+
+**S4. A sitemap and `robots.txt` from what was generated.** Every static site
+writes both from its paths. `generate` knows each page's address; the plan's
+head knows when it last changed (`article.modified`).
+- `SSR.sitemap(pages, { origin })` and a `robots` helper naming it.
+- Test: every generated path appears once, with its `lastmod`.
+
+**S5. Deciding whether to take a page over.** A generated page shows the data
+it was built from. Where the browser's data can differ, taking it over would
+show stale facts as live ones: the example's per-visitor sandbox after an
+edit, a signed-in reader, a CDN copy older than a publish. The example decides
+before calling `hydrate` (`takesOver`) and otherwise draws afresh in place of
+the page, which keeps it on screen until the fresh draw replaces it.
+- `SSR.hydrate(config, plan, { when, otherwise: 'render' })`: `when` is asked
+  before anything is adopted; `otherwise: 'render'` runs the application
+  afresh on the rendered root instead of containing the page.
+- Freshness: a plan may carry a data version (Remote's cursor), and the browser
+  asks once whether the page is still current, redrawing when it is not.
+- Test: a page the browser declines is drawn afresh with no empty frame; a
+  page older than the data is redrawn.
+
+**S6. A render must not depend on where it runs.** Two mistakes the example
+made that no test caught until one was written:
+- The seed dated posts from the build's clock, so the build and a visitor's
+  sandbox showed different dates. A render's inputs must be fixed or cross in
+  the envelope.
+- A post's date was formatted in the runtime's time zone, so a page rendered
+  in UTC and redrawn in the reader's browser could name different days.
+  Formatting that depends on the runtime (time zone, locale default, `Math.random`,
+  `Date.now`) differs between server and browser.
+- Check it: render each page twice, under two time zones and two default
+  locales, and fail when the HTML differs. A cheap guard that catches the whole
+  class.
+
+**S7. A build step, and a Vite plugin for it.** The example runs `tsx
+src/generate.ts dist` after `vite build`. That script reads the built
+`index.html`, makes a template from it (an empty container, the studio's
+`noindex` removed, the head tags S3 fills), takes the build id from the entry
+script's address (which the browser reads as `import.meta.url`), and writes
+`x.html` for the host's clean addresses. Every site repeats it.
+- `foldkit-ssr/vite`: a `closeBundle` step with `paths` (or a function of the
+  prepared data), `origin`, a `template` transform, and the file layout
+  (`x.html` or `x/index.html`, per host). It extends `@foldkit/vite-plugin`'s
+  `ssr.serverEntry` rather than owning a build (Phase 6).
+- The page's styles in its first paint: `Style.usedIn(rendered.html)` in the
+  head, and the foundations stylesheet (reset, tokens, theme) written into the
+  template. The example's `foundations` Vite plugin does the second; it belongs
+  in `foldkit-mixins`.
+- Test: a fixture site built with the plugin serves each path with its text,
+  styles and envelope, and resumes.
+
+**S8. Themes.** A theme that follows the reader's system setting is CSS
+alone and renders the same everywhere, which is what the example does. A theme
+the reader chooses is stored in the browser (a `Mirror.kv`), which a static
+page cannot know, so the page paints the default and then flips.
+- The choice is `local` in the plan (the browser's own, not the server's), and
+  a small script in the head, written by `foldkit-mixins`' `Theme`, sets
+  `data-theme` on `<html>` from storage before the first paint.
+- A server-rendered page can read it from a cookie instead, as Flags.
+- Test: a page with a stored dark choice paints dark in its first frame.
+
+**S9. Localization.** Nothing in the example is localized; a site that is
+would need the following. Who owns each part is decided in
+[i18n-DESIGN.md](./i18n-DESIGN.md).
+- The locale in the route (`/fr/blog/...`), so each locale is its own
+  generated page and its own address, and `lang` in the `Document` from the
+  Model.
+- `alternates` in S3's head (`hreflang`), and in S4's sitemap.
+- Words (`FormMessages`, `ViewWords`, a site's own) chosen by locale in the
+  Model, not by the runtime's default, and dates and numbers formatted with an
+  explicit locale and time zone (S6).
+- The CMS's one draft and one revision log per locale (cms-DESIGN §14) is
+  what feeds it.
+- Test: a page generated for two locales carries each language's text, `lang`
+  and alternates, and resumes under each.
+
+### Phase V: serve through Foldkit's pipeline
+
+Phase 6's first cut answered `Responded`, with the entry owning the template,
+because a `Rendered` result had no room for the envelope; S7 took the build id
+from the entry script's address. Both were partial duplications of Foldkit's
+pipeline, and both are now gone:
+
+- The envelope rides the stamped root as `data-foldkit-plus-resume`, beside
+  Foldkit's own app and build stamps. `injectIntoTemplate` accepts it there
+  and refuses it beside the root, so `SSR.render` returns a rendered
+  application any host injects into its own template, and hydration adopts the
+  nodes and drops the attribute on its first patch. The JSON escapes `<` and
+  the line separators, the attribute `&` and `"` besides; a void root, which
+  can carry no child script, carries it the same way.
+- `SSR.entry` answers `Rendered` and takes no `template`, `containerId` or
+  `head`: the template is the host's, through `handleRequest`, the `foldkit`
+  Vite plugin's dev server, or the fetch handler a build emits. `headers` ride
+  on the result; a bare `Rendered` with no custom headers stays generatable.
+  A plan with `meta` is refused at construction, since `meta` is written into
+  a head the host owns; `SSR.generate` keeps the template, `head` and `meta`
+  for static pages.
+- The build id is the `FOLDKIT_BUILD_ID` deployment both bundles are compiled
+  with: the plugin's define in entries that Vite transforms, `process.env` in
+  scripts outside Vite. The entry-script-address derivation and its Windows
+  path normalization are deleted from every example.
+- Tests: the envelope on the root as JSON (placement, hostile round trip
+  through a hosted page, each escape mutation-caught); the entry as
+  `Rendered` with no headers key; a `meta` plan refused at construction; both
+  examples rendering through the dev server and resuming.
+- Per-page styles ride the same way (`styles` on `render`, `entry` and
+  `handle`, as the root's last child), since a served page has no template
+  head to write to; styles for a void root are refused with
+  `VoidRootWithStyles`. `head` and `meta` stay with `SSR.generate`.
+
+**Done.** `SSR.entry(config, plan, { buildId, flags?, headers? })` returns
+Foldkit's `EntryModule` with no template of its own; the `foldkit-ssg` and
+`foldkit-ssr` examples serve development through `foldkit({ ssr })` and take
+their build ids from the deployment. What stays duplicated is the file writer:
+built-in `prerender` records the full route and takes no per-path flags or
+head, while the envelope records the path alone, so `SSR.generate` keeps
+writing static files; [the upstream
+tracker](../upstream-foldkit-ssr.md) carries the per-request head channel as
+proposal 2.
+
+### Beyond this plan
+
+These wait on something outside this repository, and are not scheduled.
+[upstream-foldkit-ssr.md](../upstream-foldkit-ssr.md) turns them into
+proposals for Foldkit, checked against its `main`, and says which are dropped:
+
+- **Opaque boundaries** (design Phase 4) wait on Foldkit's "externally owned
+  children" primitive, still unshipped in 0.163.
+- **`Runtime.adopt`** would replace the adapted-`init` workaround and let the
+  runtime handle startup Commands. It is an upstream change, and since 0.159 it
+  can be asked for in Foldkit's own words: model preservation already starts a
+  runtime from a Model, but takes no Commands. `adopt` is the missing third
+  boot mode beside `run` (fresh), `hydrate` (Flags into `init`, then adopt)
+  and preservation (a Model, then a fresh patch): a Model and its Commands,
+  then adopt. With it, Subscriptions could start eagerly while the view waits,
+  which is what the resumable track's `EagerStartRequired` works around.
+- **Rendering a Model on the server** (`renderModelToString`) is a smaller ask
+  than when the design proposed it: since 0.163 a server render depends only on
+  config, URL and build id, with no request-derived `canonical` to thread
+  through.
+- **A payload slot in a `Rendered` result** is no longer asked for the
+  envelope: since Phase V it rides the stamped root and Phase 6 returns
+  `Rendered`. What still wants an upstream slot is per-request head markup
+  (proposal 2 in the upstream tracker).
+- **Removing static code from the client bundle** (design Phase 5) needs a Vite
+  plugin on `@foldkit/vite-plugin`'s `ssr.serverEntry`, and is worth building
+  only once static regions are used.
+- **Surfaces as the unit of hydration** (design Phase 6) needs a renderer per
+  subtree, an upstream change. Binding-level resumability, the design's Phase
+  7, is no longer here: it is Phases A to F above.
+
+## Risks
+
+- **The workaround is not an API.** Skipping `init` through a config whose
+  `init` returns a Model relies on Foldkit's current hydration. If Foldkit
+  changes how `hydrate` treats `init`, Phase 2 breaks. Its tests will say so the
+  day it happens.
+- **Refusal relies on an empty build id being refused.** Decision 3 contains a
+  page by asking Foldkit to hydrate with a build id it rejects. That is
+  Foldkit's documented behaviour for a mismatch, and Phase 2's refusal tests
+  pin it.
+- **Development is not production.** Under Vite's dev server, Foldkit's model
+  preservation restores the previous Model after a reload and skips adoption,
+  giving the stamped root a fresh patch, so a resumed page behaves differently
+  in development. Phase 2's tests run the production path.
+- **The resumable track leans on three Foldkit internals**: that the first
+  patch removes attributes the browser's view does not assert, that a
+  control's value differing from the vnode is patched to the Model's, and that
+  `Runtime.hydrate` commits its first render, listeners included, before it
+  returns. None is an API. Each gets a test that fails the day it changes.
+- **The pre-boot window.** The event that boots the page is still in dispatch
+  when the live page's listeners attach. A double dispatch or a lost event
+  there is the resumable track's likeliest bug, and effect-atom-jsx's first
+  audit found exactly that. Phase C's tests fire that event and count what
+  the Model saw.
+- **Foldkit's server module is experimental**, and `handleRequest`,
+  `EntryResult` and `toResponse` say so. Phase 6 wraps as little of them as it
+  can.
+- **Clocks.** Remote's `updatedAt` is the server's clock. A `maxAge` policy on
+  the client can refetch data the server just sent if the clocks disagree.
+
+## What review changed
+
+An independent review of the first version found these, each checked against
+Foldkit's code or by running it:
+
+- The envelope cannot be appended to `rendered.html`; `injectIntoTemplate`
+  refuses it. It goes in the template.
+- The first version decoded the payload before Foldkit's build check and, on
+  failure, re-rendered the page on the client. That contradicted design §31,
+  and is impossible for an application with Flags. Decision 3 now refuses, in
+  Foldkit's order, with Foldkit's containment.
+- Dropping `init`'s Commands by default would have lost `Mirror.kv`'s restore.
+  Decision 1 now defaults `boot` to the wirings' startup Commands, and refuses
+  undeclared ones otherwise. (Phase 2 kept the refusal and dropped the default;
+  see decision 1.)
+- Routing and static generation, both in the design's first release, were
+  missing. Decision 8, Phase 2's routing test and Phase 5 add them.
+- The coverage check could never fail, since the baseline is a whole Model. It
+  now needs `local` declared, and covers the fields that decide activation.
+- Nothing caught a view that depends on a field left out of the slice. Phase 2
+  now compares the two renders on the server.
+- `Hydrated { fresh: true }` would restore lists with a "load more" that does
+  nothing, having no cursor. Phase R sends connections whole instead of a
+  `Snapshot`.
+- The first version said Foldkit's markers would survive inside a static region.
+  Foldkit's server refuses them there, so regions are rendered without them.
+  (Phase 4 found a simpler way: a region is rendered as ordinary children, and
+  the markers, which Foldkit puts only on keyed elements, are harmless there.)
+- Decision 4's escape reasoning was wrong: `<` alone is sufficient, and was
+  tested.
+- `baseline`, the design's central "nothing else crosses" test, the resume
+  parts API, and the Phase 0 compatibility list had been dropped silently. Each
+  is back.

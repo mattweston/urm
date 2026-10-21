@@ -1,0 +1,288 @@
+import { Effect, Fiber, Layer, Schema, Stream } from 'effect'
+import { TestClock } from 'effect/testing'
+import { defineMessageUnion } from 'foldkit/message'
+import { Surface } from 'foldkit-surface'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  Entity,
+  Remote,
+  RemoteClient,
+  RemotePolicy,
+  deadlineOf,
+  emptyStore,
+  entityKey,
+  markStale,
+  plan,
+  setUnavailable,
+  tombstone,
+  visibleStore,
+  writeEntity,
+  type RemoteMessage,
+} from '../src/index.js'
+
+const User = Entity.make('User', Schema.Struct({ id: Schema.String, name: Schema.String }))
+const Project = Entity.make(
+  'Project',
+  Schema.Struct({ id: Schema.String, name: Schema.String, owner: Entity.ref(User) }),
+)
+
+const Model = Schema.Struct({ route: Schema.String, remote: Remote.Model })
+type Model = typeof Model.Type
+const Message = defineMessageUnion({ ...Remote.messages, Ping: {} })
+const App = Surface.application({ Model, Message })
+const Data = Remote.make({ model: App.model.remote, entities: [User, Project] })
+const initial: Model = { route: '/', remote: Remote.initial }
+
+const project = Data.get(Project.select({ name: true }), 'p1')
+const Page = App.surface('FreshPage', { model: () => ({ project }) })
+const request = { entity: 'Project', id: 'p1', fields: ['name'] }
+const p1 = entityKey('Project', 'p1')
+
+const knownAt = (updatedAt: number): Model => ({
+  ...initial,
+  remote: {
+    ...initial.remote,
+    entities: writeEntity(emptyStore, p1, { name: 'Apollo' }, updatedAt),
+  },
+})
+
+const Client = Layer.succeed(RemoteClient, {
+  read: batch =>
+    Effect.succeed({
+      settled: [],
+      entities: batch.requests.map(request => ({
+        entity: request.entity,
+        id: request.id,
+        values: { name: 'Apollo' },
+      })),
+    }),
+  query: () => Effect.die('unused'),
+  mutate: () => Effect.die('unused'),
+  live: () => Stream.empty,
+})
+
+describe('deadlineOf', () => {
+  const freshness = { now: 200, freshness: 1_000 }
+
+  it('is when the earliest fresh value ages out, with what is due then', () => {
+    const store = writeEntity(
+      writeEntity(emptyStore, p1, { name: 'Apollo' }, 500),
+      entityKey('Project', 'p2'),
+      { name: 'Borealis' },
+      100,
+    )
+    const p2 = { ...request, id: 'p2' }
+    expect(deadlineOf(store, [request, p2], freshness)).toEqual({ at: 1_100, due: [p2] })
+  })
+
+  it('is nothing for what is missing, stale, tombstoned or already expired: those are planned', () => {
+    expect(deadlineOf(emptyStore, [request], freshness)).toBeUndefined()
+    expect(
+      deadlineOf(markStale(knownAt(500).remote.entities, p1, ['name']), [request], freshness),
+    ).toBeUndefined()
+    expect(deadlineOf(tombstone(emptyStore, p1), [request], freshness)).toBeUndefined()
+    expect(
+      deadlineOf(knownAt(0).remote.entities, [request], { now: 5_000, freshness: 1_000 }),
+    ).toBeUndefined()
+  })
+
+  it('follows a held relation into its target', () => {
+    const store = writeEntity(
+      writeEntity(emptyStore, p1, { name: 'Apollo', owner: 'User:u1' }, 900),
+      entityKey('User', 'u1'),
+      { name: 'Ada' },
+      300,
+    )
+    const withOwner = {
+      ...request,
+      fields: ['name', 'owner'],
+      relations: { owner: { entity: 'User', fields: ['name'] } },
+    }
+    expect(deadlineOf(store, [withOwner], freshness)).toEqual({
+      at: 1_300,
+      due: [{ entity: 'User', id: 'u1', fields: ['name'] }],
+    })
+  })
+})
+
+describe('a value ageing out under staleWhileRevalidate', () => {
+  let clock = 200
+  const entry = Data.subscriptions(
+    { page: Page },
+    { policy: RemotePolicy.staleWhileRevalidate({ maxAge: 1_000 }), now: () => clock },
+  )['page.read']
+
+  it('is a dependency of the read entry, and none under cacheFirst', () => {
+    expect(entry.modelToDependencies(knownAt(0)).expires).toEqual({ at: 1_000, due: [request] })
+    const cacheFirst = Data.subscriptions({ page: Page })['page.read']
+    expect(cacheFirst.modelToDependencies(knownAt(0)).expires).toBeNull()
+  })
+
+  it('emits RefreshStarted when the clock reaches it, and nothing before', async () => {
+    clock = 200
+    const collected: RemoteMessage[] = []
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(
+          Stream.runForEach(
+            entry.dependenciesToStream(entry.modelToDependencies(knownAt(0))),
+            message => Effect.sync(() => void collected.push(message)),
+          ).pipe(Effect.provide(Client)),
+        )
+        yield* TestClock.adjust(799)
+        expect(collected).toEqual([])
+        yield* TestClock.adjust(1)
+        yield* Fiber.join(fiber)
+      }).pipe(Effect.provide(TestClock.layer())),
+    )
+    expect(collected).toEqual([{ _tag: 'RefreshStarted', requests: [request] }])
+
+    // Reduced, the field is stale: the next plan fetches it, and the deadline
+    // is gone until the read lands and dates the value anew.
+    clock = 1_000
+    const stale = collected.reduce(Data.reduce, knownAt(0))
+    expect(project.read(stale)).toEqual({ _tag: 'Refreshing', value: { name: 'Apollo' } })
+    const next = entry.modelToDependencies(stale)
+    expect(next.requirements).toEqual([request])
+    expect(next.expires).toBeNull()
+    const landed = Data.reduce(stale, {
+      _tag: 'ReadReceived',
+      requests: [request],
+      result: {
+        settled: [],
+        entities: [{ entity: 'Project', id: 'p1', values: { name: 'Apollo' } }],
+      },
+      now: 1_000,
+    })
+    expect(entry.modelToDependencies(landed)).toEqual({
+      requirements: [],
+      queries: [],
+      refresh: 0,
+      expires: { at: 2_000, due: [request] },
+    })
+  })
+
+  it('is still awaited at the very moment it ages out, when the plan does not yet fetch it', () => {
+    clock = 1_000
+    expect(entry.modelToDependencies(knownAt(0))).toMatchObject({
+      requirements: [],
+      expires: { at: 1_000, due: [request] },
+    })
+  })
+
+  it('moves when a write dates the value anew, so the wait restarts', () => {
+    clock = 200
+    const before = entry.modelToDependencies(knownAt(0))
+    const after = entry.modelToDependencies(knownAt(150))
+    expect(before.requirements).toEqual(after.requirements)
+    expect(before).not.toEqual(after)
+    expect(after.expires).toEqual({ at: 1_150, due: [request] })
+  })
+})
+
+describe('the default clock', () => {
+  it('is read at each use, so fake timers installed after the entry was made move it', () => {
+    const entry = Data.subscriptions(
+      { page: Page },
+      { policy: RemotePolicy.staleWhileRevalidate({ maxAge: 1_000 }) },
+    )['page.read']
+    vi.useFakeTimers({ now: 500 })
+    try {
+      expect(entry.modelToDependencies(knownAt(0)).requirements).toEqual([])
+      vi.setSystemTime(1_001)
+      expect(entry.modelToDependencies(knownAt(0)).requirements).toEqual([request])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('a value a mutation answered', () => {
+  it('is as fresh as the answer, so the read entry does not ask for it again', () => {
+    let clock = 1_200
+    const read = Data.subscriptions(
+      { page: Page },
+      { policy: RemotePolicy.staleWhileRevalidate({ maxAge: 1_000 }), now: () => clock },
+    )['page.read']
+    // Read at 0, so aged out by 1,200: the plan asks for it.
+    const aged = knownAt(0)
+    expect(read.modelToDependencies(aged).requirements).toEqual([request])
+
+    const answered = Data.reduce(Data.reduce(aged, { _tag: 'MutationStarted', requestId: 'm1' }), {
+      _tag: 'MutationSucceeded',
+      requestId: 'm1',
+      entities: [{ entity: 'Project', id: 'p1', values: { name: 'Renamed' } }],
+      now: 1_100,
+    })
+    expect(read.modelToDependencies(answered)).toMatchObject({
+      requirements: [],
+      expires: { at: 2_100, due: [request] },
+    })
+    clock = 2_101
+    expect(read.modelToDependencies(answered).requirements).toEqual([request])
+  })
+})
+
+describe('a field the server settled without a value', () => {
+  // Present fields are not what is asked; the one asked for was withheld.
+  const withheld: Model = {
+    ...initial,
+    remote: {
+      ...initial.remote,
+      entities: setUnavailable(
+        writeEntity(emptyStore, p1, { id: 'p1' }, 0),
+        [[p1, ['name']]],
+        true,
+      ),
+    },
+  }
+
+  it('ages out with its entity, so a timer asks for it again', () => {
+    expect(deadlineOf(withheld.remote.entities, [request], { now: 500, freshness: 1_000 })).toEqual(
+      {
+        at: 1_000,
+        due: [request],
+      },
+    )
+  })
+
+  it('is asked for again once its entity ages out, though nothing else changed', () => {
+    let clock = 500
+    const read = Data.subscriptions(
+      { page: Page },
+      { policy: RemotePolicy.staleWhileRevalidate({ maxAge: 1_000 }), now: () => clock },
+    )['page.read']
+    expect(read.modelToDependencies(withheld).requirements).toEqual([])
+    clock = 2_000
+    expect(read.modelToDependencies({ ...withheld }).requirements).toEqual([request])
+  })
+})
+
+describe('a value a pending request patches', () => {
+  const freshness = { now: 1_500, freshness: 1_000 }
+  const layered = {
+    layers: [
+      {
+        id: 'm1',
+        patches: [
+          { entity: 'Project', id: 'p1', values: { name: 'Pending' } },
+          { entity: 'Project', id: 'm1.tmp', values: { name: 'Created' } },
+        ],
+      },
+    ],
+    overlays: [],
+  }
+
+  it('is as fresh as the value under it', () => {
+    const visible = visibleStore(knownAt(1_000).remote.entities, layered)
+    expect(plan(visible, [request], { freshness })).toEqual([])
+    expect(deadlineOf(visible, [request], freshness)).toEqual({ at: 2_000, due: [request] })
+  })
+
+  it('is not the server’s to age when only the request holds it', () => {
+    const created = { ...request, id: 'm1.tmp' }
+    const visible = visibleStore(knownAt(1_000).remote.entities, layered)
+    expect(plan(visible, [created], { freshness })).toEqual([])
+    expect(deadlineOf(visible, [created], freshness)).toBeUndefined()
+  })
+})

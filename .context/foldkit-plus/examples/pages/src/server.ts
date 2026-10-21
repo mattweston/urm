@@ -1,0 +1,80 @@
+/**
+ * The sync server: the journal behind a WebSocket. It runs apart from the page's server, so
+ * stopping it shows what a replica does offline: edits go on, and are kept, until it is back.
+ */
+import { Option } from 'effect'
+import { Sync, type SocketLike } from 'foldkit-sync'
+import { WebSocketServer, type WebSocket } from 'ws'
+import type { openJournal } from './journal.js'
+import { tabOf } from './serving.js'
+
+const socketLike = (socket: WebSocket): SocketLike => ({
+  send: data => socket.send(data),
+  close: () => socket.close(),
+  onMessage: listener => {
+    const handler = (data: unknown): void => listener(String(data))
+    socket.on('message', handler)
+    return () => socket.off('message', handler)
+  },
+  onClose: listener => {
+    socket.on('close', listener)
+    return () => socket.off('close', listener)
+  },
+})
+
+export const startPagesServer = async (options: {
+  readonly journal: ReturnType<typeof openJournal>
+  readonly port?: number
+}): Promise<{ readonly url: string; readonly close: () => Promise<void> }> => {
+  const { journal } = options
+  // Presence fans out to every tab; each tab validates what it receives.
+  const presence = Sync.presence.hub<unknown>()
+  const sockets = new WebSocketServer({ host: '127.0.0.1', port: options.port ?? 0 })
+  await new Promise<void>((resolve, reject) => {
+    sockets.once('listening', () => resolve())
+    sockets.once('error', reject)
+  })
+  sockets.on('connection', (socket, request) => {
+    // A real deployment authenticates here; this one trusts the tab's name.
+    const tab = tabOf(new URL(request.url ?? '', 'ws://localhost').searchParams.get('tab'))
+    if (Option.isNone(tab)) {
+      socket.close()
+      return
+    }
+    // Each commit is announced to every tab, so a tab that is only reading sees others' typing.
+    const stops = [
+      journal.serve(socketLike(socket), tab.value),
+      // On the same socket: the connection's tab is the identity its presence goes out under.
+      Sync.presence.serve(socketLike(socket), presence, { peerId: tab.value }),
+    ]
+    socket.on('close', () => {
+      for (const stop of stops) stop()
+    })
+  })
+
+  // Deleted text is collected once an hour; a tab offline across two collections finds text
+  // it anchored on gone, and its typing there lands at the end of the block.
+  const collecting = setInterval(
+    () => {
+      try {
+        journal.collect()
+      } catch (error) {
+        // A collection that fails is tried again next hour; the server stays up.
+        console.error('Could not collect deleted text', error)
+      }
+    },
+    60 * 60 * 1000,
+  )
+
+  const address = sockets.address()
+  const port = typeof address === 'object' && address !== null ? address.port : 0
+  return {
+    url: `ws://127.0.0.1:${port}`,
+    close: () =>
+      new Promise<void>(resolve => {
+        clearInterval(collecting)
+        for (const client of sockets.clients) client.terminate()
+        sockets.close(() => resolve())
+      }),
+  }
+}

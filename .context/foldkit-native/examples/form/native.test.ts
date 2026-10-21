@@ -1,0 +1,390 @@
+// Form in FoldKit Native: the real app and its CSS on FoldKit on gpuix (its
+// `meta.renderer`; FOLDKIT_NATIVE_RENDERER=mirror runs them on the mirror, as
+// CI does too), driven by GPUI's input. FoldKit's own tests (story.test.ts,
+// scene.test.ts) cover the app's logic and view; these cover it running
+// natively. Both async Commands are real: the email check and the submit each
+// wait 500 ms, then the submit flips a coin with Effect's Random, which reads
+// Math.random, so the tests stub Math.random to pick the outcome.
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+
+import { loadExample } from '../support/example.ts'
+import { METAL, type Headless, type Metal, openHeadless, openMetal } from '../support/harness.ts'
+import { type Headless as GpuixHeadless, mountHeadless as mountGpuixHeadless, openMetal as openGpuixMetal } from '../../packages/foldkit-gpuix/test/support.ts'
+
+/** Tailwind's colours, as styles.native.css lowers them. */
+const GRAY_300 = '#d1d5dc' // border-gray-300: not validated yet
+const BLUE_300 = '#90c5ff' // border-blue-300: checking
+const GREEN_500 = '#00c758' // border-green-500: valid
+const RED_500 = '#fb2c36' // border-red-500: invalid
+const RED_600 = '#e40014' // text-red-600: the error under a field
+const BLUE_500 = '#3080ff' // bg-blue-500: the button, once it can submit
+
+const NAME_ERROR = 'Name must be at least 2 characters'
+const EMAIL_ERROR = 'Please enter a valid email address'
+const WELCOME = "Welcome to the waitlist, Alice! We'll be in touch soon."
+
+const realRandom = Math.random
+const coin = (heads: boolean) => {
+  Math.random = () => (heads ? 0.9 : 0.1)
+}
+beforeEach(() => coin(true))
+afterEach(() => {
+  Math.random = realRandom
+})
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+/** Waits for FoldKit's Commands (500 ms each) to come back. */
+const until = async (app: { settle: () => Promise<void> }, done: () => boolean, ms = 3000) => {
+  const end = Date.now() + ms
+  while (!done() && Date.now() < end) {
+    await sleep(10)
+    await app.settle()
+  }
+}
+
+describe('headless', () => {
+  let app: Headless
+  afterEach(() => app?.close())
+
+  /** The field by id. FoldKit labels fields with `<label for>`, which the
+   *  harness's text lookup doesn't follow, so the tests name them by id. */
+  const field = (id: string) => app.document.getElementById(id)!
+  const nativeField = (id: string) => app.nativeOf(field(id) as unknown as Node)
+  /** Typing, as gpuix's input reports it: the field's whole new value. */
+  const type = async (id: string, value: string) => {
+    expect(app.send(field(id) as unknown as Node, { eventType: 'change', value } as never)).toBe(true)
+    await app.settle()
+  }
+  /** A text's colour in GPUI: it's on the native text node. */
+  const textColour = (text: string) => {
+    const find = (node: Node): Node | undefined => node.nodeType === 3 && node.textContent === text
+      ? node : Array.from(node.childNodes).map(find).find(found => found !== undefined)
+    const found = find(app.document.body)
+    if (found === undefined) throw new Error(`no text "${text}"`)
+    return app.nativeOf(found).style['color']
+  }
+
+  test('draws the form, with Tailwind styles reaching GPUI', async () => {
+    app = await openHeadless('form')
+    expect(app.texts()).toEqual([
+      'Join Our Waitlist', 'Name', 'Email', "Anything you'd like to share with us?", 'Join Waitlist',
+    ])
+    expect(app.inSync()).toBe(true)
+    // Two native text inputs and a native textarea, drawn with the field's
+    // border, padding, radius and font (w-full px-3 py-2 border rounded-md).
+    for (const id of ['name', 'email']) expect(nativeField(id).type).toBe('input')
+    expect(nativeField('message').type).toBe('textarea')
+    expect(nativeField('name').style).toMatchObject({
+      borderColor: GRAY_300, borderTopWidth: 1, borderTopLeftRadius: 6,
+      paddingLeft: 12, paddingTop: 8, width: '100%', fontSize: 16,
+    })
+    // The card: white, rounded-xl, shadow-lg, max-w-md.
+    const card = app.nativeOf(app.document.querySelector('.max-w-md') as unknown as Node)
+    expect(card.style).toMatchObject({ backgroundColor: '#fff', borderTopLeftRadius: 12, maxWidth: 448 })
+    expect(card.style['boxShadow']).toMatchObject({ offsetY: 10, blurRadius: 15, spreadRadius: -3 })
+    // The button can't submit yet: grey, and FoldKit marks it aria-disabled.
+    expect(app.native('Join Waitlist').style).toMatchObject({ backgroundColor: GRAY_300 })
+  })
+
+  test('typing invalid values shows each error in GPUI, under a red border', async () => {
+    app = await openHeadless('form')
+    await type('name', 'A')
+    expect(field('name').getAttribute('aria-invalid')).toBe('true')
+    expect(app.texts()).toContain(NAME_ERROR)
+    expect(textColour(NAME_ERROR)).toBe(RED_600)
+    expect(nativeField('name').style).toMatchObject({ borderColor: RED_500 })
+
+    await type('email', 'not-an-email')
+    expect(app.texts()).toContain(EMAIL_ERROR)
+    expect(nativeField('email').style).toMatchObject({ borderColor: RED_500 })
+    expect(app.inSync()).toBe(true)
+
+    // Submitting now (Enter in a field) is refused by update: nothing changes.
+    app.send(field('email') as unknown as Node, { eventType: 'submit' } as never)
+    await app.settle()
+    expect(app.texts()).toContain('Join Waitlist')
+    expect(app.texts()).not.toContain('Joining...')
+  })
+
+  test('fixing the fields clears the errors; the email is checked, then the form submits', async () => {
+    app = await openHeadless('form')
+    await type('name', 'A')
+    await type('email', 'nope')
+    expect(app.texts()).toEqual(expect.arrayContaining([NAME_ERROR, EMAIL_ERROR]))
+
+    await type('name', 'Alice')
+    expect(app.texts()).not.toContain(NAME_ERROR)
+    expect(app.texts()).toContain('✓')
+    expect(nativeField('name').style).toMatchObject({ borderColor: GREEN_500 })
+
+    // A well-formed email: "Checking..." while FoldKit's ValidateEmail runs.
+    await type('email', 'alice@example.com')
+    expect(app.texts()).not.toContain(EMAIL_ERROR)
+    expect(app.texts()).toContain('Checking...')
+    expect(nativeField('email').style).toMatchObject({ borderColor: BLUE_300 })
+    await until(app, () => !app.texts().includes('Checking...'))
+    expect(nativeField('email').style).toMatchObject({ borderColor: GREEN_500 })
+    expect(app.native('Join Waitlist').style).toMatchObject({ backgroundColor: BLUE_500 })
+
+    await type('message', 'Hello from GPUI.')
+    expect(field('message') as HTMLTextAreaElement).toMatchObject({ value: 'Hello from GPUI.' })
+
+    // Click: "Joining..." while SubmitForm runs, then the welcome banner.
+    await app.click('Join Waitlist')
+    expect(app.texts()).toContain('Joining...')
+    await until(app, () => app.texts().includes(WELCOME))
+    expect(app.texts()).toContain(WELCOME)
+    expect(app.native(WELCOME).style).toMatchObject({ backgroundColor: '#dcfce7', borderColor: '#05df72' })
+    expect(app.inSync()).toBe(true)
+  })
+
+  test('a taken email is flagged after the check; a failed submit shows the error banner', async () => {
+    coin(false)
+    app = await openHeadless('form')
+    await type('name', 'Alice')
+    await type('email', 'test@example.com')
+    await until(app, () => !app.texts().includes('Checking...'))
+    expect(app.texts()).toContain('This email is already on our waitlist')
+
+    await type('email', 'alice@example.com')
+    await until(app, () => !app.texts().includes('Checking...'))
+    // Enter in the email field submits, as a browser's implicit submission.
+    app.send(field('email') as unknown as Node, { eventType: 'submit' } as never)
+    await app.settle()
+    expect(app.texts()).toContain('Joining...')
+    await until(app, () => app.texts().some(text => text.startsWith('Sorry')))
+    expect(app.texts()).toContain('Sorry, there was an error adding you to the waitlist. Please try again.')
+    expect(app.inSync()).toBe(true)
+  })
+})
+
+// The mirror never learned which field GPUI focused (it replays focus as a
+// synthetic FocusEvent, which doesn't move document.activeElement), and it
+// won't: it's the regression comparator now. Focus is the adapter's, FoldKit
+// on gpuix, where GPUI's focus is the truth and the DOM follows it. These are
+// the Form's focus tests, there.
+describe('focus, FoldKit on gpuix (headless)', () => {
+  let app: GpuixHeadless | undefined
+  afterEach(() => {
+    app?.close()
+    app = undefined
+  })
+  const open = async () => {
+    const example = await loadExample('form')
+    app = mountGpuixHeadless({ css: example.css, viewport: { width: example.meta.width, height: example.meta.height } })
+    example.start(app.container as unknown as HTMLElement)
+    await app.settle()
+    return app
+  }
+  const byId = (id: string) => app!.document.getElementById(id)!
+
+  test('GPUI focus reaches the DOM: a focused field is document.activeElement, with focus:ring-2 drawn', async () => {
+    await open()
+    app!.host.dispatch({ eventType: 'focus', elementId: byId('name').nativeId } as never)
+    await app!.settle()
+    expect(app!.document.activeElement).toBe(byId('name'))
+    // Tailwind's focus:ring-2 focus:ring-blue-500, lowered to GPUI's box-shadow.
+    // GPUI paints a box-shadow under the whole field: it gets the card's white
+    // to paint over it, as the card shows through it in a browser.
+    expect(app!.gpui.node(byId('name').nativeId).style).toMatchObject({ boxShadow: { spreadRadius: 2, color: BLUE_500 }, backgroundColor: '#fff' })
+  })
+
+  test('Tab moves focus from field to field, GPUI\'s and the DOM\'s', async () => {
+    await open()
+    const seen: Array<string | null | undefined> = []
+    for (const _ of [1, 2, 3]) {
+      await app!.press('tab')
+      seen.push(app!.document.activeElement?.getAttribute('id'))
+      expect(app!.gpuiFocus()).toBe(app!.document.activeElement as never)
+    }
+    expect(seen).toEqual(['name', 'email', 'message'])
+  })
+})
+
+describe('typing, measured', () => {
+  let app: Headless
+  afterEach(() => app?.close())
+
+  test('a keystroke in GPUI → FoldKit update → the document → GPUI sync', async () => {
+    const syncs: Array<{ at: number; syncMs: number; mutations: number }> = []
+    app = await openHeadless('form', { onSynced: timings => syncs.push({ at: performance.now(), ...timings }) })
+    const name = app.document.getElementById('name')!
+
+    const samples: Array<{ toSyncMs: number; syncMs: number }> = []
+    let value = ''
+    for (const char of 'Alice Liddell') {
+      value += char
+      syncs.length = 0
+      const sent = performance.now()
+      app.send(name, { eventType: 'change', value })
+      while (syncs.length === 0) await sleep(0)
+      samples.push({ toSyncMs: syncs[0]!.at - sent, syncMs: syncs[0]!.syncMs })
+      await app.settle()
+    }
+    const median = (values: Array<number>) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)]!
+    const report = {
+      keystrokes: samples.length,
+      keystrokeToSyncMs: { median: +median(samples.map(s => s.toSyncMs)).toFixed(2), max: +Math.max(...samples.map(s => s.toSyncMs)).toFixed(2) },
+      syncMs: { median: +median(samples.map(s => s.syncMs)).toFixed(2), max: +Math.max(...samples.map(s => s.syncMs)).toFixed(2) },
+    }
+    console.log('form typing (headless):', JSON.stringify(report))
+    expect((app.document.getElementById('name') as HTMLInputElement).value).toBe('Alice Liddell')
+    // Loose, to catch "broken" on noisy CI machines: a frame is 16 ms.
+    expect(report.keystrokeToSyncMs.median).toBeLessThan(50)
+  })
+})
+
+describe.skipIf(!METAL)('Metal, offscreen', () => {
+  let app: Metal
+  afterEach(() => app?.close())
+
+  /** The native fields in tree order: name, email, then the message. */
+  const fields = () => {
+    const [name, email] = app.renderer.findByType('input').map(element => element.id)
+    const [message] = app.renderer.findByType('textarea').map(element => element.id)
+    return { name: name!, email: email!, message: message! }
+  }
+  const clickField = async (id: number) => {
+    const box = app.renderer.getElementBounds(id)!
+    app.renderer.nativeSimulateClick(box.x + box.width / 2, box.y + box.height / 2)
+    await app.settle()
+  }
+  const value = (id: string) => (app.document.getElementById(id) as HTMLInputElement).value
+
+  test('GPUI lays out the form; real keystrokes show errors, fix them and submit', async () => {
+    app = await openMetal('form')
+    expect(app.painted()).toEqual(expect.arrayContaining(['Join Our Waitlist', 'Name', 'Email', 'Join Waitlist']))
+    app.screenshot('empty')
+    const { name, email, message } = fields()
+    // Each field takes the card's whole width, however long its label.
+    const widths = [name, email, message].map(id => app.renderer.getElementBounds(id)!.width)
+    expect(widths[1]).toBe(widths[0]!)
+    expect(widths[2]).toBe(widths[0]!)
+
+    // Click into each field and type, through GPUI's own input pipeline.
+    await clickField(name)
+    expect(app.renderer.getFocusedElementId()).toBe(name)
+    await app.keys('A')
+    expect(value('name')).toBe('A')
+    await clickField(email)
+    await app.keys('n o p e')
+    expect(value('email')).toBe('nope')
+    expect(app.painted()).toEqual(expect.arrayContaining([NAME_ERROR, EMAIL_ERROR]))
+    app.screenshot('errors')
+
+    await clickField(name)
+    await app.keys('l i c e')
+    expect(value('name')).toBe('Alice')
+    await clickField(email)
+    await app.keys('backspace backspace backspace backspace')
+    await app.keys('a l i c e @ e x a m p l e . c o m')
+    expect(value('email')).toBe('alice@example.com')
+    await until(app, () => !app.painted().includes('Checking...'))
+    expect(app.painted()).not.toEqual(expect.arrayContaining([NAME_ERROR]))
+    expect(app.painted()).not.toEqual(expect.arrayContaining([EMAIL_ERROR]))
+    app.screenshot('valid')
+
+    await app.click('Join Waitlist')
+    await until(app, () => app.painted().includes(WELCOME))
+    expect(app.painted()).toContain(WELCOME)
+    app.screenshot('submitted')
+  })
+})
+
+describe.skipIf(!METAL)('focus, FoldKit on gpuix (Metal, offscreen)', () => {
+  let app: Awaited<ReturnType<typeof openGpuixMetal>> | undefined
+  afterEach(() => {
+    app?.close()
+    app = undefined
+  })
+  const byId = (id: string) => app!.document.getElementById(id)!
+
+  test('a click focuses a field; Tab moves GPUI focus from field to field and the DOM follows; focus:ring-2 paints', async () => {
+    const example = await loadExample('form')
+    const size = { width: example.meta.width, height: example.meta.height }
+    app = await openGpuixMetal('form-focus', size, { css: example.css })
+    example.start(app.container as unknown as HTMLElement)
+    await app.settle()
+    /** Just left of a field's border box, where its focus:ring-2 paints. (Its
+     *  left edge: a padded editor's reported top is off by its top padding.) */
+    const beside = (shot: ReturnType<NonNullable<typeof app>['pixels']>, id: string) => {
+      const box = byId(id).getBoundingClientRect()
+      return shot.at(box.x - 1, box.y + box.height / 2)
+    }
+    const blue = (pixel: readonly [number, number, number]) => pixel[2] > 200 && pixel[0] < 120
+
+    const before = app.pixels('before')
+    expect(blue(beside(before, 'name'))).toBe(false)
+    await app.click(byId('name'))
+    const gpui = [app.gpuiFocus()?.getAttribute('id') ?? null]
+    const dom = [app.document.activeElement?.getAttribute('id') ?? null]
+    expect(blue(beside(app.pixels('clicked'), 'name'))).toBe(true)
+    for (const _ of [1, 2]) {
+      await app.keys('tab')
+      gpui.push(app.gpuiFocus()?.getAttribute('id') ?? null)
+      dom.push(app.document.activeElement?.getAttribute('id') ?? null)
+    }
+    console.log('form focus on gpuix:', JSON.stringify({ gpui, dom }))
+    expect(gpui).toEqual(['name', 'email', 'message'])
+    expect(dom).toEqual(gpui)
+    const tabbed = app.pixels('tabbed')
+    expect(blue(beside(tabbed, 'message'))).toBe(true)
+    expect(blue(beside(tabbed, 'name'))).toBe(false)
+  })
+
+  test('Tabs GPUI queues together move focus and type nothing in the fields they leave', async () => {
+    const example = await loadExample('form')
+    app = await openGpuixMetal('form-tabs', { width: example.meta.width, height: example.meta.height }, { css: example.css })
+    example.start(app.container as unknown as HTMLElement)
+    await app.settle()
+    await app.click(byId('name'))
+    await app.keys('tab tab')
+    expect(app.document.activeElement?.getAttribute('id')).toBe('message')
+    const values = ['name', 'email', 'message'].map(id => (byId(id) as unknown as { value: string }).value)
+    console.log('form values after queued Tabs:', JSON.stringify(values))
+    expect(values).toEqual(['', '', ''])
+  })
+})
+
+describe.skipIf(!METAL)('typing on Metal, measured', () => {
+  let app: Metal
+  afterEach(() => app?.close())
+
+  test('a real keystroke → the document → GPUI sync → painted frame', async () => {
+    const syncs: Array<{ at: number; syncMs: number }> = []
+    app = await openMetal('form', undefined, { onSynced: timings => syncs.push({ at: performance.now(), ...timings }) })
+    await app.click(app.document.getElementById('name')!)
+
+    const samples: Array<{ toSyncMs: number; syncMs: number; frameMs: number }> = []
+    for (const key of 'alice liddell'.split('').map(char => (char === ' ' ? 'space' : char))) {
+      syncs.length = 0
+      const pressed = performance.now()
+      app.renderer.simulateKeystrokes(key)
+      // GPUI's input reaches the renderer as its queued native events.
+      while (syncs.length === 0 && performance.now() - pressed < 1000) {
+        app.renderer.dispatchNativeEvents()
+        await sleep(0)
+      }
+      const synced = syncs[0]
+      if (synced === undefined) break
+      app.renderer.flush()
+      samples.push({ toSyncMs: synced.at - pressed, syncMs: synced.syncMs, frameMs: performance.now() - synced.at })
+      await app.settle()
+    }
+    const input = app.document.getElementById('name') as unknown as HTMLInputElement
+    const median = (values: Array<number>) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)]!
+    const stat = (pick: (s: (typeof samples)[number]) => number) =>
+      ({ median: +median(samples.map(pick)).toFixed(2), max: +Math.max(...samples.map(pick)).toFixed(2) })
+    const report = {
+      keystrokes: samples.length,
+      keystrokeToSyncMs: stat(s => s.toSyncMs),
+      syncMs: stat(s => s.syncMs),
+      syncToFrameMs: stat(s => s.frameMs),
+      value: input.value,
+    }
+    console.log('form typing (Metal):', JSON.stringify(report))
+    expect(input.value).toBe('alice liddell')
+    expect(report.keystrokeToSyncMs.median).toBeLessThan(50)
+  })
+})

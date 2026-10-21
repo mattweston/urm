@@ -1,0 +1,280 @@
+# foldkit-form
+
+A form as a Submodel: built from the input an operation accepts, holding what
+the user is typing, and handing the parent a decoded value once it is valid.
+Field state is Foldkit core's `foldkit/fieldValidation`; the form is a
+`foldkit-bundle` Bundle. **Headless**: it describes each control and draws
+nothing; `foldkit-mixins-form` draws it (see [Drawing it](#drawing-it)).
+
+## Ownership
+
+| Fact | Owner |
+| --- | --- |
+| What may be submitted, and when it is valid | the input `Schema.Struct` |
+| What each input key means | `Entity.input` (see [entity.md](entity.md)) |
+| The draft in each control and its validation state | `foldkit-form`, in the parent's Model |
+| What a submitted value does (Remote mutation, Sync op, `update`) | the parent, in `onOut` |
+| Whether a submit is in flight, and its failure | whoever performs it; not the form |
+| A relation picker's options | the application; the form names the target Entity |
+
+## Mental model
+
+```text
+Schema.Struct + Entity.input ──► Form.make ──► controls (draw these)
+                                          └──► bundle
+   Changed / Blurred ──► validate the draft against the key's own input schema
+   Submitted ──► every key valid, whole input decoded ──► out Message { value }
+```
+
+A draft is what the control holds: a number being typed is text, an unchosen
+relation is `""`. It becomes a value only when checked.
+
+## Minimal example
+
+```ts
+import { Schema } from 'effect'
+import { Bundle } from 'foldkit-bundle'
+import { Entity } from 'foldkit-entity'
+import { Form } from 'foldkit-form'
+import { defineMessageUnion } from 'foldkit/message'
+
+const Post = Entity.define(
+  'Post',
+  Schema.Struct({
+    id: Schema.String,
+    title: Schema.String.check(Schema.isMinLength(1)).annotate({ title: 'Title' }),
+  }),
+)
+
+// The operation's input, declared once. Give the same value to the operation.
+const RenameInput = Schema.Struct({ id: Schema.String, title: Post.fields.title.schema })
+
+const Rename = Form.make('Rename', Entity.input(Post, RenameInput))
+
+const Slot = Bundle.declare(Rename.bundle, 'rename')
+const Model = Schema.Struct({ ...Slot.fields, saved: Schema.Array(RenameInput) })
+const Message = defineMessageUnion({ ...Slot.cases })
+
+const Page = Bundle.parent({ Model, Message })
+const RenameForm = Page.at(Slot, {
+  onOut: submitted => model => ({
+    model: { ...model, saved: [...model.saved, submitted.value] },
+  }),
+})
+```
+
+## Common tasks
+
+- **Dispatch from a view:** `Rename.Message.Changed({ key, value })`,
+  `Blurred({ key })`, `Submitted()`, `Reset()`, `ValidatedAll()`, wrapped in the placement's
+  Message (`Message.GotRenameMessage({ message })`).
+- **Posting without scripts:** `foldkit-mixins-form` names every control by
+  its key (`name=<key>`; a relation picker's checkboxes also carry `value`), so
+  a plain form post carries the drafts.
+- **Draw it:** `Rename.controls` is the keys in order, each with `control`
+  (`Text`, `Multiline`, `Hidden`, `Number`, `Toggle`, `Select` with `options` (string or number
+  literals; the value is the option itself),
+  `RelationOne` / `RelationMany` with `target`), `label`, `description`,
+  `required`, and the Entity `member`. Read a key's state from
+  `model.rename.fields[key]` with `foldkit/fieldValidation` (`match`,
+  `isInvalid`); cross-key failures are in `model.rename.errors`.
+- **Choose a control:** `Form.make(name, input, { inputs: { body: Input.multiline() } })`
+  for this form; `Entity.annotateMembers({ body: Input.of(Input.multiline()) })`
+  for the member everywhere. Otherwise: the relation the key writes, then the
+  schema's shape. No match throws at `Form.make`, naming the key.
+  A key holding ids that is not a relation: `Input.relationOne(Author)`,
+  `Input.relationMany(Tag)`.
+- **Label:** `Schema.String.annotate({ title, description })` on the input key or
+  the Entity field. A relation takes `Form.label('Author')` as Entity metadata.
+- **Ask something outside the form** (is this slug taken?): `checks: { slug: (slug, { values }) => Effect }`
+  answering an error message or `undefined`. It runs after the key's schema passes
+  and gets the decoded value; the key reads `Validating` meanwhile; a stale answer
+  is dropped; `debounce` (default 300ms) rests a key before asking. A submit during
+  a check sets `submitPending` and goes out when the last check passes. The check's
+  requirements become the Bundle's — but a check that needs something must be added
+  with the `Form.checks` step (`form.pipe(Form.checks({ slug: ask }))`), not in
+  `Form.make`'s options, where `R` infers as `never` and the check is refused.
+  `{ values }` is what else decodes; `{ subject }`
+  is what the form edits but its values do not carry (a post's row id), set once with
+  `Message.About({ subject: { id } })` and read with `form.subject(model)` — `{}` while
+  the form creates. It survives `fill` and `Reset`.
+- **A relation with too many targets to list:** `inputs: { authorId: Input.search() }`.
+  The form holds the typed text (`Message.Searched({ key, text })`,
+  `form.search(model, key)`); read it as the input of the query that lists the
+  choices. `foldkit-mixins-form` draws the search box.
+- **A control of your own** (date, rich text, money): controls are one primitive,
+  `{ kind, draft, shown, searches, data, parse? }`, and the shipped kinds are made
+  the way yours is: `const Cents = Input.kind<{ currency: string }>('Cents', { draft: 'text', parse, unparsed })`,
+  then `inputs: { cents: Cents.of({ currency: 'USD' }) }` and `Cents.is(control)`.
+  Draw it with `FormView.define(form, { renderers: { Cents: ctx => ... } })`; the
+  same table replaces a shipped renderer.
+- **A control with a Model of its own** (a color picker with a popover, a page
+  builder, a rich-text editor): `Input.bundle('ColorPicker', { bundle, value, fill, settled? })`
+  over an ordinary Bundle. The key's draft is the Bundle's Model
+  (`model.fields.color.value`, typed); `form.control('color').send(message)`
+  wraps one of its Messages as the form's `Control`; its Commands,
+  Subscriptions and Resources become the form's. A Message is an edit (validated,
+  autosaved by CMS) only when it changes `value(model)`. `FormView` draws it with
+  the Bundle's view unless a renderer names its kind; a renderer gets
+  `bundle: { model, send }`.
+- **Finish a form made elsewhere:** every option is a pipe step giving a new form:
+  `AuthorForm.pipe(Form.inputs({ bio: Input.multiline() }), Form.checks({...}), Form.messages({...}))`;
+  also `Form.nested` and `Form.debounce`. Keys are checked against the piped form.
+- **One bag of words:** a form's `messages`, the drawn form's `words`, and the
+  drawn list's `words` are text with blanks (`'{label} is required'`,
+  `'Add {label}'`) and share no key, so `const words = {...} satisfies FormMessages & FormViewWords & ViewWords`
+  serves all three. Never put a function in a placed view's inputs below the top
+  level: Foldkit throws.
+- **A key written from another until the author writes it** (a slug from a title):
+  `inputs: { slug: Input.following('title', slugify) }`. Emptying it hands it back;
+  a form filled with a value for it does not follow; `form.isFollowing(model, key)`.
+- **Word or translate it:** put a rule's words on the rule
+  (`Schema.isMinLength(3, { message: '…' })`); give `Form.make` a `messages`
+  option for the form's own (`required`, `unparsed`), a rewrite of Schema's
+  (`invalid(field, message)`), and cross-key failures (`form(message)`).
+- **Carry a key without showing it** (the id being edited):
+  `inputs: { id: Input.hidden() }`, then set it with `fill`.
+- **Read any key's state while walking `controls`:** `Rename.field(model.rename, key)`
+  gives `Field<Draft>`; `model.rename.fields.title` is the same value typed to its key.
+- **Edit existing values:** `RenameForm.helpers.fill({ id, title })` is an
+  `Update.Step` of the parent; keys not passed keep their draft. With Remote:
+  load `Data.get(Entity.selectFor(Rename.input), id)`, then
+  `fill(Entity.valuesFor(Rename.input, loaded))`.
+- **Enable the button:** `Rename.canSubmit(model.rename)` (true while a check
+  runs; the submit waits). **Valid right now:** `Rename.isValid(model.rename)`.
+  **Read what a submit would send:** `Rename.value(model.rename)` is the decoded
+  input as `Some` when every key and row is valid as it stands, `None` otherwise
+  — what a parent that submits several forms reads per form.
+  **Show every error without submitting** (a page that submits several forms
+  itself): `Message.ValidatedAll()`.
+- **Optional keys:** `Schema.optionalKey` / `Schema.optional` left empty are
+  valid and absent from the value; a key typed `Option` (`OptionFromNullOr`) is
+  edited as the value it holds and submits `Option.some` / `Option.none()`.
+- **Put a server's error on a key** (a unique index, a rule only a server knows):
+  `Message.Refused({ key, error })`. The key reads invalid with that reason, keeps
+  what was typed, and clears on the next edit. `Checked` will not do: it only
+  answers a check the form itself started.
+- **Show a stored Model again:** `form.settled(model)`; a check that was running
+  when it was stored never answers, so its key reads `NotValidated`.
+- **Save unfinished work:** `form.partial(model)` is the value less every key that
+  is not valid yet; `engine.value` is all or nothing.
+
+## Drawing it
+
+`foldkit-mixins-form` draws the form as plain, accessible HTML with every element
+a `foldkit-mixins` Slot. It holds no state and dispatches only the form's own
+Messages. `Rename` is the form from the minimal example.
+
+```ts
+import { Bundle } from 'foldkit-bundle'
+import { Style } from 'foldkit-mixins'
+import { FieldSlots, FormSlots, FormView, type FieldInput } from 'foldkit-mixins-form'
+
+const Field = FormView.field(Rename).pipe(
+  Style.attach(
+    Style.forSlots(FieldSlots)({
+      root: Style.class('field'),
+      text: Style.whenInput<FieldInput>(input => input.invalid, Style.class('is-invalid')),
+    }),
+  ),
+)
+const View = FormView.define(Rename, { field: Field }).pipe(
+  Style.attach(Style.forSlots(FormSlots)({ root: Style.class('form') })),
+)
+
+// Place this Bundle instead of `Rename.bundle`.
+const Drawn = Rename.bundle.pipe(Bundle.withView(FormView.submodel(Rename, View)))
+```
+
+Render the placement with `placed.view(model, h, { options, words: { submit: 'Save' } })`.
+`options` is keyed by the form's keys and supplies each relation picker's
+choices (`{ value, label }`); loading them is the application's query.
+`locked: ['ownerId']` draws those keys `disabled` (a key the person may not set; a hint,
+the server still checks). `FormView.define(Rename)` alone is a complete unstyled form. `words.none` words the
+blank choice of a picker; a chosen value the choices lack is shown as `? value`. `FieldSlots`: `root`,
+`label`, `description`, `error`, `checking`, and one per control kind (`text`, `multiline`,
+`number`, `toggle`, `select` with its `option`s, `choices`, `choiceLabel`, `choice`), plus `control`, `search`, and
+`group`/`affix` for a renderer's control with text beside it. `FormSlots`: `root`, `errors`,
+`submit`. The view owns `id`, `label for`, `aria-invalid`, `aria-required`,
+`aria-describedby`, and `role="alert"` on errors; a Behavior that supplies one of
+those throws a two-owners conflict at render.
+
+While a key's check runs, its field draws a `checking` line (`role="status"`,
+words `words.checking`) and its `root` carries `data-validation` with the
+field's state. Pass `submitting: <your in-flight flag>` in the view inputs; the
+form also counts a submit waiting on a check. While submitting, the `form` is
+`aria-busy` with `data-submitting`, and the button is disabled and reads
+`words.submitting`.
+
+For UI-backed Text/Multiline fields, the optional `foldkit-mixins-form/ui`
+entry exports `field({ toMessage, inputStyle, textareaStyle?, draw? })`, a
+`FormView.fields` override. Install `foldkit-mixins-ui` and `@foldkit/ui`;
+styles target their Input/Textarea Slots and read the field's state. It preserves
+Changed/Blurred dispatch, name, required state, hints, checking and errors.
+`draw` receives label/control/description nodes and `field` for a custom layout;
+other control kinds need the default renderer or a separate override. Custom
+submit buttons use `Button.view`; this integration does not replace the generated
+view's native button. Real adopters:
+https://github.com/doeixd/foldkit-plus/blob/main/examples/foldkit/form/src/main.ts
+and https://github.com/doeixd/foldkit-plus/blob/main/examples/foldkit/auth/src/page/loggedOut/page/login.ts.
+
+## Nested input
+
+A key mapped with `Relation.nested(relation, input)` holds rows of a form built
+from the nested input: exactly one (a required `one`), none or one (a `one`
+admitting `null`/`undefined`), or any number (a `many`).
+
+```ts
+const NewComment = Entity.input(Blog.Comment, Schema.Struct({ body: Schema.String }))
+const CreatePost = Entity.input(
+  Blog.Post,
+  Schema.Struct({ title: Schema.String, comments: Schema.Array(NewComment.schema) }),
+  { comments: Relation.nested(Blog.Post.relations.comments, NewComment) },
+)
+
+// The form that edits a comment alone is the form a post's form nests.
+const CommentForm = Form.make('Comment', NewComment, { inputs: { body: Input.multiline() } })
+const PostForm = Form.make('PostForm', CreatePost, { nested: { comments: CommentForm } })
+
+PostForm.row('comments', 'r0').Changed({ key: 'body', value: 'First' }) // a Message of PostForm
+PostForm.nested.comments // CommentForm
+
+PostForm.Message.RowAdded({ key: 'comments' })
+PostForm.Message.RowRemoved({ key: 'comments', row: 'r0' })
+PostForm.rows(PostForm.initial, 'comments') // [{ id, model }], each a Model of the nested form
+```
+
+- The nested form is a form you make from the nested input and pass under
+  `nested`; it is reused as is. Rows live in `model.rows[key]`, not `model.fields`.
+  Address one with `form.row(key, rowId).Changed({ key, value })` (the nested form's
+  constructors, giving the parent's Message); `form.nested[key]` is the form.
+- Submit validates and waits for checks in every row; the value carries the
+  nested values. `fill` fills rows. `foldkit-mixins-form` draws rows with add and
+  remove buttons; pickers inside rows take `nestedOptions: { 'key.childKey': [...] }`.
+- A Bundle control's view that takes inputs gets them from the form view's
+  `controls`, by key (a row key by its path):
+  `placed.view(model, h, { controls: { document: BuilderView.inputs({ data }) } })`.
+
+## Gotchas
+
+- A key is validated against **the input's schema for that key**, not the
+  Entity's. The operation may be stricter.
+- `required` is derived: a key is required exactly when its schema admits
+  nothing for an empty draft (tried: key left out, `null`, the empty value). A
+  plain `Schema.String` admits `""`; add `Schema.isMinLength(1)`.
+- The form has no "submitting" state. Track the operation where it runs.
+- `onOut` is required when placing; omitting it is a type error.
+- A `Changed` with a draft of the wrong kind for the key (a string for a toggle)
+  is ignored, not stored.
+- A struct-valued key is editable as a nested input (`Relation.nested`) or
+  through `Input.bundle`.
+- `Input.bundle`'s Bundle has no OutMessage and needs no services; its key takes
+  no `check`; `form.field` refuses its key (use `form.control(key).field`); a
+  nested form whose control has Subscriptions or Resources is refused.
+
+## See also
+
+- https://github.com/doeixd/foldkit-plus/blob/main/packages/form/README.md
+- https://github.com/doeixd/foldkit-plus/blob/main/packages/mixins-form/README.md
+- https://github.com/doeixd/foldkit-plus/blob/main/packages/entity/README.md
+- https://github.com/doeixd/foldkit-plus/blob/main/packages/bundle/README.md

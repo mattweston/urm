@@ -1,0 +1,32 @@
+{
+  "name": "foldcn",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A shadcn-style registry of styled components for Foldkit, built on @foldkit/ui.",
+  "type": "module",
+  "scripts": {
+    "build": "turbo run build",
+    "check": "vp check",
+    "dev": "turbo run dev",
+    "fmt": "vp fmt",
+    "lint": "vp lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "validate": "turbo run validate",
+    "infra:deploy": "alchemy deploy --stage prod --yes",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "4.0.0-rc.116",
+    "@foldkit/oxlint-plugin": "0.15.0",
+    "@oxlint/plugins": "1.77.0",
+    "alchemy": "2.0.0-beta.79",
+    "effect": "4.0.0-rc.116",
+    "lefthook": "^2.1.12",
+    "oxlint": "1.77.0",
+    "turbo": "^2.10.12",
+    "typescript": "^7.0.2",
+    "vite-plus": "^0.3.0"
+  },
+  "packageManager": "pnpm@11.22.0"
+}

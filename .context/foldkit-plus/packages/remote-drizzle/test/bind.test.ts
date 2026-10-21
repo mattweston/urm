@@ -1,0 +1,557 @@
+import { DatabaseSync } from 'node:sqlite'
+import { drizzle } from 'drizzle-orm/node-sqlite'
+import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { Effect, Schema } from 'effect'
+import { Derived, Entity, Relation } from 'foldkit-entity'
+import {
+  REMOTE_PROTOCOL_VERSION,
+  Remote,
+  Selection,
+  emptyStore,
+  initialRemoteModel,
+  requirementsOf,
+  type BoundRemote,
+  type RemoteModel,
+  plan,
+} from 'foldkit-remote'
+import { RemoteServer } from 'foldkit-remote-server'
+import { describe, expect, it } from 'vitest'
+import { bind, databaseLayer, source, type AnyEntityBinding } from '../src/index.js'
+
+const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+})
+const projects = sqliteTable('projects', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  ownerId: text('owner_id'),
+  leadId: text('lead_id').notNull(),
+})
+const comments = sqliteTable('comments', {
+  id: text('id').primaryKey(),
+  body: text('body').notNull(),
+  projectId: text('project_id').notNull(),
+  createdAt: text('created_at').notNull(),
+})
+const tags = sqliteTable('tags', { id: text('id').primaryKey(), name: text('name').notNull() })
+const projectTags = sqliteTable('project_tags', {
+  projectId: text('project_id').notNull(),
+  tagId: text('tag_id').notNull(),
+})
+
+const Id = Schema.String
+const User = Entity.define('User', Schema.Struct({ id: Id, name: Schema.String }))
+// `name` is the Entity's word for the `title` column.
+const Project = Entity.define('Project', Schema.Struct({ id: Id, name: Schema.String })).pipe(
+  Entity.derived({ commentCount: Derived.make(Schema.Number) }),
+)
+const Comment = Entity.define('Comment', Schema.Struct({ id: Id, body: Schema.String }))
+const Tag = Entity.define('Tag', Schema.Struct({ id: Id, name: Schema.String }))
+
+const Domain = Entity.relate(
+  { User, Project, Comment, Tag },
+  {
+    Project: {
+      owner: Relation.one(User, { optional: true }),
+      lead: Relation.one(User),
+      comments: Relation.many(Comment),
+      tags: Relation.many(Tag),
+    },
+    // Back to Project: a cycle, which `entity(…, { relations })` cannot declare.
+    Comment: { project: Relation.one(Project) },
+  },
+)
+
+const Db = bind(Domain, {
+  User: { table: users },
+  Project: {
+    table: projects,
+    fields: { name: projects.title },
+    relations: {
+      owner: { field: projects.ownerId },
+      lead: { field: projects.leadId },
+      comments: {
+        foreignKey: comments.projectId,
+        orderBy: [{ column: comments.createdAt, direction: 'desc' }],
+      },
+      tags: {
+        through: projectTags,
+        localColumn: projectTags.projectId,
+        foreignColumn: projectTags.tagId,
+      },
+    },
+    derived: { commentCount: { relation: 'comments' } },
+  },
+  Comment: { table: comments, relations: { project: { field: comments.projectId } } },
+  Tag: { table: tags },
+})
+
+const setup = () => {
+  const sqlite = new DatabaseSync(':memory:')
+  sqlite.exec(`
+    create table users (id text primary key, name text not null);
+    create table projects (id text primary key, title text not null, owner_id text, lead_id text not null);
+    create table comments (id text primary key, body text not null, project_id text not null, created_at text not null);
+    create table tags (id text primary key, name text not null);
+    create table project_tags (project_id text not null, tag_id text not null);
+    insert into users values ('u1', 'Ada'), ('u2', 'Grace');
+    insert into projects values ('p1', 'Alpha', 'u1', 'u2'), ('p2', 'Beta', null, 'u1');
+    insert into comments values ('c1', 'a', 'p1', '2020-01-01'), ('c2', 'b', 'p1', '2020-01-02');
+    insert into tags values ('t1', 'TypeScript'), ('t2', 'Databases');
+    insert into project_tags values ('p1', 't1'), ('p1', 't2');
+  `)
+  return { sqlite, database: drizzle({ client: sqlite }) }
+}
+
+const read = async (binding: AnyEntityBinding, ids: string[], fields: string[]) => {
+  const { sqlite, database } = setup()
+  try {
+    return await Effect.runPromise(
+      source(binding)
+        .read({ ids, fields, principal: null })
+        .pipe(Effect.provide(databaseLayer(database))),
+    )
+  } finally {
+    sqlite.close()
+  }
+}
+
+describe('bind against in-process SQLite', () => {
+  it('reads fields, every kind of relation, and a derived count from real SQL', async () => {
+    const records = await read(
+      Db.Project,
+      ['p1'],
+      ['id', 'name', 'owner', 'lead', 'comments', 'tags', 'commentCount'],
+    )
+
+    expect(records).toEqual([
+      {
+        id: 'p1',
+        values: {
+          id: 'p1',
+          name: 'Alpha',
+          owner: 'User:u1',
+          lead: 'User:u2',
+          comments: ['Comment:c2', 'Comment:c1'],
+          tags: ['Tag:t1', 'Tag:t2'],
+          commentCount: 2,
+        },
+      },
+    ])
+  })
+
+  it('emits null for an optional one with a null foreign key', async () => {
+    const records = await read(Db.Project, ['p2'], ['owner', 'comments', 'commentCount'])
+    expect(records[0]?.values).toEqual({ id: 'p2', owner: null, comments: [], commentCount: 0 })
+  })
+
+  it('follows a cycle back to a binding declared earlier', async () => {
+    expect(Db.Comment.relations.project.entity).toBe(Db.Project)
+    expect(Db.Project.relations.comments.entity).toBe(Db.Comment)
+
+    const records = await read(Db.Comment, ['c1'], ['body', 'project'])
+    expect(records[0]?.values).toEqual({ id: 'c1', body: 'a', project: 'Project:p1' })
+  })
+
+  it('is the descriptor Remote registers for the same Entity', () => {
+    expect(Db.Project.name).toBe('Project')
+    expect(Object.keys(Db.Project.fields)).toEqual([
+      'id',
+      'name',
+      'owner',
+      'lead',
+      'comments',
+      'tags',
+      'commentCount',
+    ])
+    expect(Db.Project.columns.name).toBe(projects.title)
+    expect(Db.Project.relations.comments).toMatchObject({ kind: 'many', localKey: projects.id })
+  })
+})
+
+describe('one Entity declaration, client to database', () => {
+  const Card = Entity.select(Domain.Project, {
+    name: true,
+    commentCount: true,
+    owner: Entity.select(Domain.User, { name: true }),
+    lead: Entity.select(Domain.User, { name: true }),
+    comments: Entity.select(Domain.Comment, { body: true, project: true }),
+    tags: true,
+  })
+
+  /** What the client reads of `p1` after one round trip through RemoteServer and SQL. */
+  const through = async (selection: Parameters<typeof Selection.from>[0]) => {
+    const definition = Remote.define({ entities: Object.values(Db) })
+    const store = { current: emptyStore }
+    const bound = {
+      definition,
+      contract: { name: 'test' },
+      store: { get: () => ({ ...initialRemoteModel, entities: store.current }) },
+    } as unknown as BoundRemote<unknown, RemoteModel>
+    const projection = Remote.select(bound, Selection.from(selection))('p1')
+    const requests = requirementsOf(projection)
+
+    const server = RemoteServer.make({
+      entities: Object.values(Db).map(binding => source(binding)),
+    })
+    const { sqlite, database } = setup()
+    try {
+      const result = await Effect.runPromise(
+        RemoteServer.handlers(server, null)
+          .FoldkitRemoteRead({ version: REMOTE_PROTOCOL_VERSION, requests })
+          .pipe(Effect.provide(databaseLayer(database))),
+      )
+      store.current = Remote.writeRead(emptyStore, requests, result)
+    } finally {
+      sqlite.close()
+    }
+    return projection.read(undefined)
+  }
+
+  it('reads an Entity Selection through RemoteServer and SQL into the value it describes', async () => {
+    const read = await through(Card)
+    const value = {
+      name: 'Alpha',
+      commentCount: 2,
+      owner: { name: 'Ada' },
+      lead: { name: 'Grace' },
+      comments: [
+        { body: 'b', project: { entity: 'Project', id: 'p1' } },
+        { body: 'a', project: { entity: 'Project', id: 'p1' } },
+      ],
+      tags: [
+        { entity: 'Tag', id: 't1' },
+        { entity: 'Tag', id: 't2' },
+      ],
+    }
+    expect(read).toEqual({ _tag: 'Ready', value })
+    expect(Schema.is(Card.schema)(value)).toBe(true)
+  })
+
+  it('reads the whole list and a page of it in one batch, and holds them side by side', async () => {
+    const Body = Entity.select(Domain.Comment, { body: true })
+    // One screen shows every comment and its latest, of the same project.
+    const Both = {
+      whole: Entity.select(Domain.Project, { comments: Body }),
+      latest: Entity.select(Domain.Project, { comments: Entity.page(Body, { first: 1 }) }),
+    }
+    const definition = Remote.define({ entities: Object.values(Db) })
+    const store = { current: emptyStore }
+    const bound = {
+      definition,
+      contract: { name: 'test' },
+      store: { get: () => ({ ...initialRemoteModel, entities: store.current }) },
+    } as unknown as BoundRemote<unknown, RemoteModel>
+    const whole = Remote.select(bound, Selection.from(Both.whole))('p1')
+    const latest = Remote.select(bound, Selection.from(Both.latest))('p1')
+    // What one Surface showing both would require: the two, planned together.
+    const requests = plan(emptyStore, [...requirementsOf(whole), ...requirementsOf(latest)])
+    expect(requests.map(request => request.fields)).toEqual([['comments', 'comments@first=1']])
+
+    const server = RemoteServer.make({
+      entities: Object.values(Db).map(binding => source(binding)),
+    })
+    const { sqlite, database } = setup()
+    try {
+      const result = await Effect.runPromise(
+        RemoteServer.handlers(server, null)
+          .FoldkitRemoteRead({ version: REMOTE_PROTOCOL_VERSION, requests })
+          .pipe(Effect.provide(databaseLayer(database))),
+      )
+      store.current = Remote.writeRead(emptyStore, requests, result)
+    } finally {
+      sqlite.close()
+    }
+    expect(whole.read(undefined)).toEqual({
+      _tag: 'Ready',
+      value: { comments: [{ body: 'b' }, { body: 'a' }] },
+    })
+    expect(latest.read(undefined)).toEqual({
+      _tag: 'Ready',
+      value: { comments: { items: [{ body: 'b' }], hasNext: true, hasPrevious: false } },
+    })
+  })
+
+  it('reads a page of a many relation as SQL windows it', async () => {
+    const Body = Entity.select(Domain.Comment, { body: true })
+    const Paged = Entity.select(Domain.Project, {
+      name: true,
+      comments: Entity.page(Body, { first: 1 }),
+    })
+    const value = {
+      name: 'Alpha',
+      comments: { items: [{ body: 'b' }], hasNext: true, hasPrevious: false },
+    }
+    expect(await through(Paged)).toEqual({ _tag: 'Ready', value })
+    expect(Schema.is(Paged.schema)(value)).toBe(true)
+  })
+})
+
+describe('bind definition errors', () => {
+  const bindUntyped = bind as (entities: unknown, storage: unknown) => unknown
+  const project = {
+    table: projects,
+    fields: { name: projects.title },
+    relations: {
+      owner: { field: projects.ownerId },
+      lead: { field: projects.leadId },
+      comments: { foreignKey: comments.projectId },
+      tags: {
+        through: projectTags,
+        localColumn: projectTags.projectId,
+        foreignColumn: projectTags.tagId,
+      },
+    },
+    derived: { commentCount: { relation: 'comments' } },
+  }
+  const rest = {
+    User: { table: users },
+    Comment: { table: comments, relations: { project: { field: comments.projectId } } },
+    Tag: { table: tags },
+  }
+
+  it.each([
+    [
+      'a field with no column',
+      { ...project, fields: {} },
+      'field "name" on entity "Project" has no column',
+    ],
+    [
+      'a relation with no storage',
+      { ...project, relations: { ...project.relations, tags: undefined } },
+      'relation "tags" on entity "Project" has no storage',
+    ],
+    [
+      'a one stored as a many',
+      { ...project, relations: { ...project.relations, lead: { foreignKey: comments.projectId } } },
+      'relation "lead" on entity "Project" is one: give its "field"',
+    ],
+    [
+      'a many stored as a one',
+      { ...project, relations: { ...project.relations, comments: { field: projects.leadId } } },
+      'relation "comments" on entity "Project" is many: give "foreignKey" or "through"',
+    ],
+    [
+      'a required one over a nullable column',
+      { ...project, relations: { ...project.relations, lead: { field: projects.ownerId } } },
+      'relation "lead" on entity "Project" points at a nullable column',
+    ],
+    [
+      'a through table with a column missing',
+      { ...project, relations: { ...project.relations, tags: { through: projectTags } } },
+      'relation "tags" on entity "Project" goes through a table: give "localColumn"',
+    ],
+    [
+      'a derived member with no storage',
+      { ...project, derived: {} },
+      'derived "commentCount" on entity "Project" has no storage',
+    ],
+    [
+      'a count over a one relation',
+      { ...project, derived: { commentCount: { relation: 'lead' } } },
+      'derived "commentCount" on entity "Project" needs a many relation, not "lead"',
+    ],
+  ])('rejects %s', (_, storage, message) => {
+    expect(() => bindUntyped(Domain, { ...rest, Project: storage })).toThrow(message)
+  })
+
+  it('rejects an Entity with no table, and a target that is not being bound', () => {
+    expect(() => bindUntyped(Domain, { ...rest, Project: project, Tag: undefined })).toThrow(
+      'entity "Tag" has no table',
+    )
+    const { Tag: _, ...withoutTag } = Domain
+    expect(() => bindUntyped(withoutTag, { ...rest, Project: project })).toThrow(
+      'relation "tags" on entity "Project" targets an Entity that is not being bound',
+    )
+  })
+
+  it('binds a derived member the application supplies, and compiles nothing for it', () => {
+    const Stated = Entity.relate(
+      {
+        Thing: Entity.define('Thing', Schema.Struct({ id: Id })).pipe(
+          // Not a number, and not a count: something only the application can work out.
+          Entity.derived({ state: Derived.make(Schema.Struct({ _tag: Schema.String })) }),
+        ),
+      },
+      {},
+    )
+    const things = sqliteTable('things', { id: text('id').primaryKey() })
+    const bound = bind(Stated, { Thing: { table: things, derived: { state: { supplied: true } } } })
+    expect(Object.keys(bound.Thing.fields)).toContain('state')
+    expect(bound.Thing.computed).toEqual({})
+  })
+
+  it('rejects count storage for a derived member that is not a number', () => {
+    const Labelled = Entity.relate(
+      {
+        User,
+        Thing: Entity.define('Thing', Schema.Struct({ id: Id })).pipe(
+          Entity.derived({ summary: Derived.make(Schema.String) }),
+        ),
+      },
+      { Thing: { owners: Relation.many(User) } },
+    )
+    expect(() =>
+      bindUntyped(Labelled, {
+        User: { table: users },
+        Thing: {
+          table: tags,
+          relations: { owners: { foreignKey: users.id } },
+          derived: { summary: { relation: 'owners' } },
+        },
+      }),
+    ).toThrow(
+      'derived "summary" on entity "Thing" is stored as a count, but its schema is not a number',
+    )
+  })
+})
+
+describe('bind column checks', () => {
+  const things = sqliteTable('things', {
+    id: text('id').primaryKey(),
+    size: integer('size').notNull(),
+    done: integer('done', { mode: 'boolean' }).notNull(),
+    note: text('note'),
+    stamp: text('stamp').notNull(),
+  })
+  const bindThing = (fields: Schema.Struct.Fields) =>
+    bind(
+      { Thing: Entity.define('Thing', Schema.Struct({ id: Id, ...fields })) } as never,
+      {
+        Thing: { table: things },
+      } as never,
+    )
+
+  it('accepts columns that hold what the fields do', () => {
+    expect(() =>
+      bindThing({
+        size: Schema.Number.check(Schema.isGreaterThan(0)),
+        done: Schema.Boolean,
+        note: Schema.NullOr(Schema.String),
+        stamp: Schema.Literals(['a', 'b']),
+      }),
+    ).not.toThrow()
+  })
+
+  it('refuses a column of another kind than the field', () => {
+    expect(() => bindThing({ size: Schema.String })).toThrow(
+      'field "size" on entity "Thing" is a string, but column "size" holds a number',
+    )
+    expect(() => bindThing({ stamp: Schema.Boolean })).toThrow(
+      'field "stamp" on entity "Thing" is a boolean, but column "stamp" holds a string',
+    )
+  })
+
+  it('refuses a nullable column under a field that admits nothing', () => {
+    expect(() => bindThing({ note: Schema.String })).toThrow(
+      'field "note" on entity "Thing" sits on nullable column "note"',
+    )
+    expect(() => bindThing({ note: Schema.optional(Schema.String) })).not.toThrow()
+  })
+
+  it('leaves alone what it cannot state plainly: a transformation, a mixed union', () => {
+    expect(() =>
+      bindThing({
+        stamp: Schema.NumberFromString,
+        size: Schema.Union([Schema.Number, Schema.String]),
+      }),
+    ).not.toThrow()
+  })
+})
+
+describe('a one read from the target’s table', () => {
+  const members = sqliteTable('members', { id: text('id').primaryKey() })
+  const profiles = sqliteTable('profiles', {
+    id: text('id').primaryKey(),
+    memberId: text('member_id').notNull().unique(),
+    bio: text('bio').notNull(),
+  })
+  const Member = Entity.define('Member', Schema.Struct({ id: Id }))
+  const Profile = Entity.define('Profile', Schema.Struct({ id: Id, bio: Schema.String }))
+  const Club = Entity.relate(
+    { Member, Profile },
+    { Member: { profile: Relation.one(Profile, { optional: true }) } },
+  )
+  const ClubDb = bind(Club, {
+    Member: { table: members, relations: { profile: { foreignKey: profiles.memberId } } },
+    Profile: { table: profiles },
+  })
+
+  it('reads the one row that points back as a ref, and none as null', async () => {
+    const sqlite = new DatabaseSync(':memory:')
+    sqlite.exec(`
+      create table members (id text primary key);
+      create table profiles (id text primary key, member_id text not null unique, bio text not null);
+      insert into members values ('m1'), ('m2');
+      insert into profiles values ('f1', 'm1', 'Hello');
+    `)
+    try {
+      const records = await Effect.runPromise(
+        source(ClubDb.Member)
+          .read({ ids: ['m1', 'm2'], fields: ['profile'], principal: null })
+          .pipe(Effect.provide(databaseLayer(drizzle({ client: sqlite })))),
+      )
+      expect(records.map(record => [record.id, record.values.profile])).toEqual([
+        ['m1', 'Profile:f1'],
+        ['m2', null],
+      ])
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('refuses a column that is not unique, since many rows could point back', () => {
+    const loose = sqliteTable('loose_profiles', {
+      id: text('id').primaryKey(),
+      memberId: text('member_id').notNull(),
+      bio: text('bio').notNull(),
+    })
+    const storage = (profile: object) =>
+      ({ Member: { table: members, relations: { profile } }, Profile: { table: loose } }) as never
+    expect(() => bind(Club, storage({ foreignKey: loose.memberId }))).toThrow(
+      'relation "profile" on entity "Member" is one, but column "member_id" is not unique',
+    )
+    // A unique index on the table is not on the column: the application vouches for it.
+    const indexed = sqliteTable(
+      'indexed_profiles',
+      {
+        id: text('id').primaryKey(),
+        memberId: text('member_id').notNull(),
+        bio: text('bio').notNull(),
+      },
+      table => [uniqueIndex('one_per_member').on(table.memberId)],
+    )
+    expect(() =>
+      bind(Club, {
+        Member: {
+          table: members,
+          relations: { profile: { foreignKey: indexed.memberId, assumeUnique: true } },
+        },
+        Profile: { table: indexed },
+      } as never),
+    ).not.toThrow()
+  })
+
+  it('cannot be counted, because it is not a list', () => {
+    const Counted = Entity.relate(
+      {
+        Member: Entity.define('Member', Schema.Struct({ id: Id })).pipe(
+          Entity.derived({ profileCount: Derived.make(Schema.Number) }),
+        ),
+        Profile,
+      },
+      { Member: { profile: Relation.one(Profile, { optional: true }) } },
+    )
+    expect(() =>
+      bind(Counted, {
+        Member: {
+          table: members,
+          relations: { profile: { foreignKey: profiles.memberId } },
+          derived: { profileCount: { relation: 'profile' } },
+        },
+        Profile: { table: profiles },
+      } as never),
+    ).toThrow('derived "profileCount" on entity "Member" needs a many relation, not "profile"')
+  })
+})

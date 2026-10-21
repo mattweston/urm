@@ -1,0 +1,84 @@
+import type { Projection } from 'foldkit-surface'
+import type { AnyCapabilitiesByName, AnyCapabilitiesByTag, ExposedMessages } from './expose.js'
+import type { Resource } from './resource.js'
+
+/**
+ * The protocol-neutral agent contract for an application.
+ *
+ * A definition contains no model-provider and no MCP/WebMCP configuration. It
+ * describes what an agent may see and what an agent may do; every protocol is
+ * an adapter over this value.
+ */
+export interface Definition<
+  Model = unknown,
+  Context_ = unknown,
+  Principal = unknown,
+  ByName = AnyCapabilitiesByName,
+  ByTag = AnyCapabilitiesByTag,
+> {
+  readonly context?: Projection<Model, Context_> | undefined
+  readonly messages: ExposedMessages<Model, Principal, ByName, ByTag>
+  readonly resources: ReadonlyArray<Resource<Model, unknown>>
+}
+
+/**
+ * A `Definition` whose `context` is present once one was supplied, so reading it
+ * needs no check. Without a context `Context_` is inferred as `unknown`.
+ */
+export type DefinitionOf<Model, Context_, Principal, ByName, ByTag> = Definition<
+  Model,
+  Context_,
+  Principal,
+  ByName,
+  ByTag
+> &
+  (unknown extends Context_ ? unknown : { readonly context: Projection<Model, Context_> })
+
+/**
+ * Combines a context projection, exposed Messages, and optional resources into
+ * one agent contract.
+ *
+ * @example
+ * ```ts
+ * const AppAgent = Agent.make({ context, messages })
+ * ```
+ */
+export interface MakeOptions<
+  Model,
+  Context_,
+  Principal,
+  ByName = AnyCapabilitiesByName,
+  ByTag = AnyCapabilitiesByTag,
+> {
+  readonly context?: Projection<Model, Context_> | undefined
+  readonly messages: ExposedMessages<Model, Principal, ByName, ByTag>
+  readonly resources?: ReadonlyArray<Resource<Model, any>> | undefined
+}
+
+export const make = <
+  Model = unknown,
+  Context_ = unknown,
+  Principal = unknown,
+  ByName = AnyCapabilitiesByName,
+  ByTag = AnyCapabilitiesByTag,
+>(
+  options: MakeOptions<Model, Context_, Principal, ByName, ByTag>,
+): DefinitionOf<Model, Context_, Principal, ByName, ByTag> => {
+  // Copied so a later mutation of the caller's array cannot change the contract.
+  const resources = [...(options.resources ?? [])]
+
+  const names = new Set<string>()
+  for (const resource of resources) {
+    if (names.has(resource.name)) {
+      throw new Error(`Duplicate agent resource name "${resource.name}"`)
+    }
+    names.add(resource.name)
+  }
+
+  // `context` is the caller's own value, so it is present exactly when supplied.
+  return {
+    context: options.context,
+    messages: options.messages,
+    resources: resources as ReadonlyArray<Resource<Model, unknown>>,
+  } as DefinitionOf<Model, Context_, Principal, ByName, ByTag>
+}

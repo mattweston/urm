@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Discussions
+    url: https://github.com/elianiva/foldcn/discussions
+    about: Ask questions, share ideas, or get help
+  - name: Documentation
+    url: https://foldcn.elianiva.com
+    about: Browse components and usage docs

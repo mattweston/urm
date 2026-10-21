@@ -1,0 +1,3 @@
+# ADR-011: Styled view factories
+
+Stateful submodels (Dialog, Popover, Tooltip, Tabs, RadioGroup, Slider, Calendar, DatePicker, FileDrop) ship their `@foldkit/ui` `view` re-exported plus a `styledViewInputs` factory: `X.styledViewInputs({...}, h)` returns the styled `ViewInputs`. The caller passes their own `h` so content callbacks can dispatch parent messages (the `toView` callbacks of these components receive no `h`). List-style submodels (Menu, Listbox, Combobox, Tabs, RadioGroup) use the `create<Value>()` bundle pattern from `@foldkit/ui` and a `viewInputs` factory that fills in the styled class names.

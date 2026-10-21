@@ -1,0 +1,1333 @@
+# Agent working agreements
+
+## Commit cadence
+
+- **Commit often.** Prefer small, coherent commits over one large one. Commit as
+  soon as a unit of work stands on its own (a module, a config, a test file).
+- **After every commit, double check the code.** Re-read the diff that was just
+  committed, re-run the relevant checks (`pnpm typecheck`, `pnpm test`,
+  `pnpm build`), and fix what the check surfaces in a follow-up commit rather
+  than letting it accumulate.
+
+## Reviewing a commit
+
+When re-reading a commit, check each of these deliberately:
+
+- **Logic and correctness.** Does it do what the message claims? Trace the real
+  control flow, not the intended one.
+- **Edge cases.** Empty, missing, duplicate, already-aborted, out-of-order,
+  called-twice, called-after-dispose.
+- **Synergy with existing features.** Does it compose with what is already here,
+  or does it bolt on a second way to do the same thing?
+- **Types and TypeScript DX.** No accidental `any` (especially from
+  `Parameters<>` on intersections or circular conditionals). Errors should land
+  at the mistake and read clearly. Inference should work at the call site
+  without annotation ceremony.
+- **Comments.** Explain why, not what. Delete any comment that restates the code.
+  Doc comments on public API, none on the obvious.
+- **Tests.** See below -- they must be able to fail.
+- **Security hardening.** Untrusted input crosses a validation boundary before
+  anything else; capability and authorization checks cannot be skipped; failures
+  do not leak internals.
+- **Performance.** Work done once at definition time rather than per call;
+  no accidental O(n) lookups or repeated derivation in a hot path.
+
+Fix what the review finds in a follow-up commit rather than letting it sit.
+
+AFTER EVERTY BOUT OF WORK/COMMIT, DOUBLE CHECK AND REVIEW!!!
+
+## Jev preference review
+
+After a substantial bout of implementation work, run:
+
+```bash
+npx jev-pref review --hunks
+```
+
+Treat the result as an independent semantic review of the current diff. Jev
+accepts at most 30k input tokens, so review while the change is still small and
+use `--include` or `--exclude` for broad changes.
+
+- Fix blocking findings and rerun the review.
+- Consider every advisory finding; address it or explain why it does not apply.
+- Continue normally after approval.
+- Treat exit code 2 as a setup or infrastructure error, never as approval.
+- Stop after three review/fix iterations and ask the user how to proceed.
+
+Shared preferences live in `jev-pref.json`. Authentication uses the existing
+`TYPESAFE_API_KEY`; never persist its value.
+
+### Keep Jev preferences synchronized
+
+When project guidance or architecture policy changes meaningfully, run:
+
+```bash
+npx jev-pref sync
+```
+
+Follow its reconciliation instructions. Update Jev preferences when changed
+guidance adds, removes, weakens, or strengthens a semantic rule that can be
+judged from the review diff. Keep procedural rules here and deterministic rules
+in formatters, compilers, tests, linters, or scanners.
+
+Only encode externally defined yes/no conditions or fixed taxonomies whose
+answer is visible in Jev's review input. Subjective checks such as whether code
+is broadly good, clean, simple, idiomatic, safe, or well-designed need concrete
+observable criteria or removal. Ask the user when the criteria or intended
+outcome are ambiguous.
+
+Likewise, when changing `jev-pref.json`, check whether the corresponding
+human-readable guidance needs to change.
+
+## De-slop
+
+Review for AI slop and remove it. Concretely:
+
+- **Dead abstraction.** Wrappers that only forward to something else, indirection
+  files that re-export one module, options nobody passes, type parameters that
+  appear once, `_tag` discriminants never discriminated on.
+- **Unused exports.** If nothing imports it and it is not deliberate public API,
+  delete it. Do not export "just in case".
+- **Comments that restate the code.** `// build the map` above a map build.
+  Keep the ones that explain a non-obvious why -- a workaround, a subtle
+  ordering, a rejected alternative.
+- **Doc-comment padding.** A one-line summary beats three sentences of throat
+  clearing. No `@param` that restates the parameter name.
+- **Ceremonial defensiveness.** Guards for conditions the types already rule
+  out, `?? undefined` on an optional call, try/catch that rethrows unchanged.
+- **Copy-paste tests.** Near-identical cases that differ by one literal belong
+  in a table, and repeated setup belongs in a helper.
+- **Inflated prose.** In docs and commit messages, say the thing once. Cut
+  "powerful", "seamless", "robust", "simply", and restated section headers.
+
+Slop is also code that looks finished and is wrong. Look for these too:
+
+- **Misunderstood tools.** Code written from a plausible model of a library
+  instead of its source. Examples found here:
+  - Assuming a Schema can refuse excess keys (only the decode call can).
+  - Styling an outline on a `display: contents` element, which draws nothing.
+  - Indexing a plain object with a stored or client-chosen name, which reads
+    `constructor` from `Object`.
+  - Trusting `event.target` for a touch that the browser captured to where it
+    went down.
+
+  Probe the behaviour before building on it.
+- **Claims the code does not keep.** The README promises "nothing stored makes
+  it throw", but one path throws. A doc comment names a parameter that no
+  longer exists. A commit message says "refused" when the value is silently
+  dropped. A type check compares payload shapes, not tags, so the wrong
+  Message passes. Check every sentence against the code, as you would a test.
+- **Pseudo-code in docs.** A snippet with bare names such as `base`, `Props`
+  or `defaults` that no fixture defines is not an example. Compile it or
+  delete it.
+- **Tests that pass for the wrong reason.**
+  - A fixture where key order and position agree, so an order test cannot
+    fail.
+  - A scenario where the old code path is already invalid, so the mutation
+    it should catch is behavior-equivalent.
+  - `toBeDefined()` on a value that is always defined, or an assertion that
+    only proves the import is used.
+- **Quiet fallbacks.** A default that turns a missing input into a wrong one
+  (`owner ?? {}`, which SSR then refuses), a `catch` that hides a
+  programming error, or a no-op that still records an undo step and
+  announces itself. Fail loudly at definition time, or do nothing visibly.
+- **Bad design.**
+  - Two ways to do the same thing.
+  - Sibling APIs whose signatures disagree (one `active` takes an owner, the
+    other invents one).
+  - A parameter typed wider than what works (`Schema.Top` where only a
+    struct is read).
+  - A value decided at one moment and applied later, after the state it was
+    derived from may have changed (a drop place worked out when the pointer
+    moved and applied on release).
+  - A positional parameter list that callers must count.
+  - A cast that makes a type promise nothing enforces.
+  - Markup a package draws outside a Slot. A stylist reaches only Slots, so a
+    bare `span` leaves a data-attribute selector into the package as the only
+    handle (the CMS slug's prefix did). A structural fact a stylist needs, such
+    as depth, state or position, goes on a Slot, as a custom property
+    (`--fk-tree-level`) or a data attribute.
+- **Bad performance.**
+  - Work repeated for every row that depends only on the whole (every row
+    recomputing the tree).
+  - A lookup inside a loop (`indexOf`, `includes`, `some`, or an array
+    spread per item) turning linear into quadratic.
+  - Derivation on every render or every Model change of what changes only
+    with one input: memoize by that input's identity.
+  - Listeners attached for a component's whole life that are needed only
+    during an interaction.
+- **Bad code.**
+  - Helpers copied instead of shared.
+  - A predicate spelled out twice.
+  - A function whose name no longer says what it does.
+  - Comments separated from the thing they document.
+  - State threaded through closures where a value would do.
+  - Tag branching the checker cannot see. `x._tag === 'Ready'` on a precisely
+    typed union is checked (a misspelling is `TS2367`), but on a value typed
+    `{ _tag: string }`, or read through a cast, any string compiles; and an
+    `if` run or a `switch` with a catch-all `default` compiles silently when a
+    variant is added. Branch on every variant through the union's own `match`
+    (`defineMessageUnion`, `defineTaggedUnion` from `foldkit/schema`, the
+    `RemoteData` helpers) or Effect `Match.valueTags` / `Match.tagsExhaustive`;
+    on a few with `matchOrElse` or `Match.tags`; narrow one with a single
+    `===` on a typed union. A ternary over a tagged union (`x._tag === 'A' ?
+    … : …`) is a two-arm match the checker cannot see: use the union's match
+    even for two variants. Construct through the union's constructors and
+    factories (`Message.Variant(...)`, `Schema.TaggedStruct`), never an
+    object literal with `_tag` outside a test fixture. Type a Schema AST as
+    `SchemaAST.AST` and test it with its guards (`SchemaAST.isUnion`,
+    `isNull`, `isLiteral`), never a hand-written `{ _tag: string }`. Where
+    the tag is open by design (another application's Message at a boundary),
+    compare against a typed set, and mark the line above with
+    `// tag-check: open` and why. `pnpm tags:check` finds the rest — in
+    `packages/*/src` only; examples and tests need review eyes for the same
+    shapes.
+  - Ternaries that select values are fine; ternaries that branch are match.
+    `cond ? a : b` over plain values stays. A ternary (or `if`/`else`) whose
+    condition reads a tag, or a nested ternary, becomes the union's `match`
+    or a restructured branch. Do not reach for Effect `Match` on booleans:
+    it trades one line for five with no check gained.
+  - Spreading builds; it does not write. `{ ...model, field }` and
+    `{ ...link, update }` are ordinary immutable construction. Model writes
+    go through `modifyFields` in `update`, a no-op returns the Model it was
+    given, and no spread may smuggle a transition past either rule.
+  - `null` or `undefined` standing for "nothing here". A value that may be
+    absent is an Effect `Option`: `Option.none()`, `Option.some(x)`,
+    `Option.match`, and `Schema.Option` in a Model that is never stored.
+    `T | null` and
+    `T | undefined` make every reader remember to check, and a forgotten check
+    type-checks as long as the value is only passed along. Keep `null` only at
+    a boundary that speaks it (JSON, a database column, the DOM, a foreign
+    API), and convert there: `Schema.OptionFromNullOr` for stored data. An
+    optional config field (`?:`) is not a value that may be absent; it is
+    fine.
+
+Prefer deleting code to adding it. The smallest version that a reader
+understands on one pass wins.
+
+## Documentation and README standard
+
+A README is an **onboarding document first and a reference second**. The reader
+should understand the package's idea, ownership boundary, and normal path before
+meeting the full API surface. Do not make a newcomer reverse-engineer the mental
+model from a feature tour.
+
+### Required reading order
+
+Prefer this progression for package READMEs and conceptual guides:
+
+1. **What it is.** One short thesis: the problem the package solves and the core
+   mechanism it uses.
+2. **When it owns the problem.** Say what kind of state/work belongs here, what
+   does not, and which neighboring package owns the adjacent cases.
+3. **The mental model.** Show the smallest useful lifecycle, equation, or diagram
+   before presenting APIs. For stateful systems, name the authoritative owner and
+   how information moves.
+4. **A sixty-second path.** One minimal, real example that proves the core idea.
+   It should teach one mechanism at a time, not demonstrate every feature.
+5. **Interpret the example.** Explain what each important call means, including
+   what it deliberately does *not* do. Readers should not have to infer whether
+   a call performs I/O, owns state, mutates data, or merely describes a contract.
+6. **Build outward.** Introduce common workflows and integrations only after the
+   basic loop is clear.
+7. **Advanced/reference material.** Kernel APIs, transports, adapters, protocol
+   details, compatibility aliases, limits, and unusual extension points belong
+   after the application-facing story.
+
+A useful default outline is:
+
+```text
+What this package is
+When to use it / ownership boundaries
+Mental model
+Install
+60-second example
+Core concepts
+Common workflows
+Integration with neighboring packages
+Failure / recovery semantics
+Advanced / lower-level API
+Limits / when not to use it
+Reference / compatibility
+```
+
+Do not follow the outline mechanically when a package is simpler, but preserve
+its direction: **why and model before machinery**.
+
+### Teach ownership before features
+
+Foldkit Plus packages deliberately avoid duplicate state owners. Documentation
+must make that visible.
+
+- Say **who owns the authoritative fact or transition**.
+- Distinguish observation, capability, caching, mirroring, replication, and
+  persistence from ownership.
+- When two packages are easy to confuse, compare them near the top, not in an
+  appendix. A short contrast such as `Remote = server-owned disposable facts`
+  versus `Sync = client-authored durable operations` prevents pages of later
+  confusion.
+- Explain the seam between companion packages. For example, if one package
+  derives a contract consumed by another, show that handoff as architecture,
+  not as two unrelated API snippets.
+- State what the package **does not own** when that boundary is important.
+- Ordinary application Model changes happen in `update`, normally using
+  `modifyFields`; `ModelRef.set`/`modify` and `WritableProjection.set` are
+  infrastructure seams for installing already-derived values (checkpoints,
+  restoration, reconciliation) — never a shortcut around a Message. See
+  `docs/state-model.md`.
+
+A Surface may span several owners precisely because it observes rather than
+claims ownership. Apply the same reasoning throughout the docs: structural
+access, a setter, a cache, or an adapter is not automatically a transition
+owner.
+
+### Teach the invariant or lifecycle explicitly
+
+If the implementation revolves around one equation or loop, put it in the
+README. Examples:
+
+```text
+optimistic shared state = committed snapshot + pending local operations
+```
+
+```text
+Projection -> requirements -> subscription -> I/O -> Message -> reducer -> Model
+```
+
+```text
+client operation -> authoritative order -> snapshot + cursor
+```
+
+The implementation may make that relationship obvious to its author; it is not
+obvious to a newcomer. Prefer one diagram that exposes the invariant over five
+paragraphs listing methods.
+
+For asynchronous or state-machine APIs, show the important states and
+transitions. Explain distinctions that affect UI or recovery (`Initial` versus
+`Loading`, pending versus committed, acknowledged versus rejected) rather than
+only listing union members.
+
+### Keep the first example small
+
+The first example should answer "how does the core idea work?", not "how many
+features does this package have?"
+
+- Use one entity before nested relations, one replica before mounting, one
+  capability before completions, one document before fragments.
+- Do not introduce pagination, optimistic mutation, live updates, persistence,
+  authorization, transport configuration, and SSR in the same first example
+  unless they are genuinely inseparable from the core mechanism.
+- Add features in later sections so each new concept has a reason to exist.
+- Prefer the public application API. Put kernel primitives and package-author
+  seams under an explicit advanced section.
+- If a fuller end-to-end demo already exists under `examples/`, link to it
+  instead of turning the README's first example into the demo.
+
+### Examples are executable claims
+
+Code in a README is part of the public API contract. Treat it with the same
+skepticism as tests.
+
+- **Read the implementation and the real examples before documenting the API.**
+  Do not write from memory or from an intended design.
+- Use exact current names, signatures, return shapes, Message variants, service
+  requirements, and ownership paths.
+- Prefer snippets copied or reduced from typechecked examples/tests. When the
+  repository has README fixtures or doctests, update them with the prose.
+- If a snippet is intentionally schematic, label it as pseudocode or a mental
+  model; do not make pseudo-API look copyable.
+- Check that snippets compose with each other. Do not introduce `principal.id`
+  in one section when the guide defined `{ actorId }`, or read a Model field that
+  the example never declared.
+- Verify important negative claims too: if the README says "this does not fetch",
+  "this cannot emit Commands", or "this rejects another application's Surface",
+  confirm that against the implementation/tests.
+- A docs-only change still requires a diff review against source. Documentation
+  can be wrong while every runtime test stays green.
+
+### Progressive disclosure, not duplication
+
+Avoid explaining the same mechanism in an opening feature list, a "what it
+owns" list, three workflow sections, and an API reference. Explain it once at the
+right level, then deepen it where needed.
+
+- Early sections explain concepts and the normal path.
+- Middle sections explain behavior, failure, and composition.
+- Late sections explain low-level primitives and exhaustive details.
+- A compact "owns / does not own" summary is useful; a second exhaustive feature
+  catalog usually is not.
+- Link to a dedicated conceptual guide when it provides depth, but the package
+  README must still stand alone well enough to choose and begin using the
+  package.
+
+### Explain failure and recovery in the model
+
+Do not hide the hard semantics in a late caveat dump. Once the reader knows the
+happy path, explain the failures that change how they should design the app:
+rejections, retries, stale data, checkpoints, crash gaps, retention, unsupported
+versions, external-effect uncertainty, or whatever is fundamental to the
+package.
+
+State guarantees narrowly. If SQLite plus an external provider cannot provide
+exactly-once effects, say so. If a cache is disposable, say refetch is recovery.
+If offline edits are authoritative user intent, explain why deleting the outbox
+is data loss rather than cache eviction.
+
+### README review checklist
+
+Before calling a README done, read it once as a newcomer and ask:
+
+- Can I say what problem this package solves after the first two paragraphs?
+- Do I know **who owns the state/fact/transition** and what neighboring packages
+  own instead?
+- Is there one memorable mental model before the API gets large?
+- Does the first code example prove the central idea with minimal machinery?
+- Is it explicit which calls are pure declarations/reads and which cause I/O or
+  transitions?
+- Are advanced features introduced only after the need for them is clear?
+- Are failure and recovery semantics visible before I could make a bad
+  architectural choice?
+- Did I verify every copyable API claim against current source or a real example?
+- Are conceptual diagrams consistent with the implementation rather than an
+  aspirational architecture?
+- Did I remove repeated feature catalogs and inflated prose?
+- Could a reader stop after the core sections and successfully choose whether to
+  use the package?
+
+If several answers are "no", reorganize the document before adding more detail.
+The usual failure mode is **too much correct information in the wrong order**.
+
+## The `foldkit-plus` agent skill
+
+[`skills/foldkit-plus/`](./skills/foldkit-plus/SKILL.md) is an
+[Agent Skill](https://agentskills.io) that teaches coding agents what each
+package owns, when to use it, and basic examples. Users install it with
+`npx skills add doeixd/foldkit-plus --skill foldkit-plus`
+([skills.sh](https://skills.sh)), which looks for `skills/<name>/SKILL.md`.
+It is published documentation: treat it like a README.
+
+Use it yourself, too: for what each package is for and a basic example of
+each, read `SKILL.md` and the `references/` file for the package at hand
+before changing it.
+
+- **Layout.** `SKILL.md` is the map: what Foldkit Plus is, which package owns
+  which state, how they connect, one small example. It stays under ~150 lines,
+  because an agent loads all of it once the skill triggers. Depth lives in
+  `references/<family>.md` (`surface`, `remote`, `sync`, `mirror`, `agent`,
+  `mixins`), one level deep, read only when needed.
+- **Keep it in step with the API.** A change that renames, removes, or
+  re-shapes a public API, or changes what a package owns, updates the matching
+  reference file in the same change. A new package gets a row in the `SKILL.md`
+  table and a place in a reference file. Bump `metadata.version` on release.
+- **Examples are executable claims here too.** Every snippet must compile
+  against the current code: copy it with minimal fixtures into a temporary
+  `*.test-d.ts` in a project whose tsconfig maps the imported package names
+  (`examples/kitchen-sink` maps all of them), run `pnpm exec tsc -b <project>`,
+  prove the file is checked with a deliberate error, then delete it. Import from
+  published names (`foldkit-remote`), never `../src`.
+- **Links are absolute.** The skill is installed without this repository, so
+  "See also" links are `https://github.com/doeixd/foldkit-plus/blob/main/...`
+  URLs; only links between files inside the skill are relative.
+- **Frontmatter limits.** `name` matches the folder, lowercase and hyphens, at
+  most 64 characters, no "claude" or "anthropic". `description` is at most 1,024
+  characters, in the third person, naming the packages and the words a user
+  would say, because it is all an agent sees when deciding to load the skill.
+
+## Tests
+
+- **Verify every test can actually fail.** After writing tests, mutate the code
+  under test (invert a condition, drop a guard, return a constant) and confirm
+  the relevant test goes red, then revert. A test that passes against broken
+  code is worse than no test. Declare the mutations beside the tests
+  (`test/<area>.mutations.ts`: `{ name, edits: [{ file, find, replace }],
+  tests }`) and run `pnpm mutate <spec>`: it refuses an anchor that is
+  missing or ambiguous, requires the tests green first, applies each edit
+  in memory (never to the file), and reports killed, survived, invalid or
+  not applied. A mutation that cannot be killed says why (`survives`).
+- Assert on real behaviour, not on restatements of the implementation. No
+  assertions that hold vacuously (`expect(x).toBeDefined()` on a value that is
+  always defined), no tests that only exercise a mock, and never weaken an
+  assertion to make a test pass.
+- If a test cannot be made to fail, delete it or replace it with one that can.
+- **A claim about focus, layout or the pointer is a browser test**
+  (`*.browser.test.ts`) in the view packages: jsdom lays nothing out and moves
+  no focus. An example with a server has an end-to-end test
+  (`examples/*/e2e/*.e2e.ts`, run with `pnpm e2e`) that starts it and drives
+  Chromium, for what only the running page shows.
+
+## Styling, themes, and tokens
+
+The styling system is one pipeline; learn it in order before styling anything:
+
+```text
+tokens -> ref -> pieces -> slots -> sheet
+```
+
+**Tokens are the only values.** `Theme.tokens` (`packages/mixins/src/theme/tokens.ts`)
+is the shipped scales (space, radius, size, leading, weight, motion, border,
+shadow, breakpoint); `Theme.oklch` derives a whole palette from a few knobs;
+`Theme.compose` joins them. Read every value through `Theme.ref` — a group or
+name the theme lacks is a type error, and it reads names, never values, so a
+test or probe sees `var(--fk-…)` rather than a color. Never copy a literal out
+of a theme into a style; add or override a token instead.
+
+**Knobs are tokens too.** `density`, `radius-factor`, `motion`,
+`shadow-strength` (and the palette's `accent-h`, `surface-contrast`, …) live
+in the `knob` group, and the scales derive from them: space multiplies by
+density, radius by radius-factor, durations by motion (`motion: '0'` stills
+every recipe transition). A still/compact/rounder theme is one override, via
+`Theme.scoped` (a selector the Model selects) or an inline variable — never a
+second set of sizes. There is no `knob` helper to look for.
+
+**Install order is the cascade.** `Layers.standard` is
+`reset, tokens, theme, defaults, components, layouts, variants, utilities, app`
+(`packages/mixins/src/layers.ts`). The canonical sheet (`examples/todo-app/src/sheet.ts`):
+
+```ts
+Style.stylesheet(
+  L.declare,
+  L.in('reset', Defaults.reset),
+  L.in('tokens', Theme.root(Theme.tokens)),
+  L.in('theme', Theme.root(theme, { omit: Theme.tokens })),
+  L.in('defaults', Defaults.body),
+  ...slotStyles,
+)
+```
+
+`Theme.root` is unlayered, so place it with `L.in`; `omit` ships shared scales
+once. `Style.stylesheet` refuses an unlayered rule — it would beat `app`. A
+page without `Theme.root` has no tokens: pieces that must stand alone (see
+`prose.ts`) read `var(--fk-x, <fallback>)`, and the `missingTokens` gate
+(`packages/mixins/src/testing.ts`) treats every `var(--fk-…)` read, fallback
+or not, as needing a definition in the sheet.
+
+**Pieces: `self` is normal, `inline` is the escape hatch.**
+`Style.self` emits a rule on a generated class, so `Layers.in` can place it and
+a later layer can override it. `Style.inline` sits outside every layer and
+beats everything including `app` — use it only for values no theme may touch
+(a measured pixel offset, a `display` the behavior requires). `Style.compose`
+concatenates classes; later inline declarations win per property, while rules
+cascade by layer. `component(...)`/`variant(...)` (`packages/mixins-ui/src/recipes/design.ts`)
+are just `compose` placed in `components`/`variants`: bases in components,
+selections in variants, so a selection beats its base and the application's
+`app` layer beats both. `Style.class('name')` is a named class for targeted
+overrides; `Style.global` is raw CSS (keyframes, `@layer` declarations).
+
+**Recipes select, applications extend.** `Style.recipeFor(Slots)` rejects an
+unknown slot at definition time, like `forSlots` does. A selection picks per
+axis with `defaults` filling the rest; `null` unsets a defaulted axis. Adjust a
+shipped recipe with `.extend`, never by forking it. `Style.forCapability` is
+one piece for every slot a capability fits. State the DOM already knows is
+`Style.states(map, attribute)` (`&[aria-pressed="true"]`); state only the view
+knows is `Style.whenInput(predicate, piece)`. Do not use one for the other's job.
+
+**Subpaths are unlayered on purpose.** `utilities`, `layout`, `prose`, `touch`,
+and `icons` pieces (`U.gap('sm')`, `Layout.frame()`, `Prose.style()`) take the
+layer of whatever they are composed into, and a plain declaration beside them
+wins per property. That is what makes them composable — do not wrap them in
+`component`/`variant` at their definition.
+
+**`Defaults.reset` zeroes margins.** Any dialog/panel relying on the user
+agent's `margin: auto` centering must restore it (`margin: 'auto'`), or it
+lands in the top corner.
+
+## Traps already hit here
+
+Every item below cost real time here. Check for them by name, and **add to this
+list whenever you learn a durable lesson** -- one that would have saved the work
+you just redid. Keep each to a couple of lines, with the concrete failure.
+
+**External APIs**
+
+- **Compile adapters against the real peer types.** The Agent Native README
+  registration did not type-check: its tool requires an object schema, while
+  our local descriptor only promised `Record<string, unknown>`.
+
+- **Read the spec before writing the client, and again before writing its fake.**
+  The WebMCP adapter passed the registration signal on the tool descriptor
+  instead of in `registerTool`'s second argument, so unregistering did nothing.
+  The test fake took one argument and asserted on `descriptor.signal`, so it
+  confirmed the mistake instead of catching it. A fake authored from the same
+  assumption as the code tests nothing. Make it reject what the real thing
+  rejects.
+
+- **Make the wire carry every field the client sends, with the same types.**
+  `RemoteClient.live` sends `{ requirements, after }`, but the `LiveRequirement`
+  payload omitted `after` and `LivePatch.cursor` was a `string` while the client
+  cursor is numeric, so a real server could never answer the client's own call.
+  The adapter is cast, so only diffing the client's request/response types against
+  the payload/success schemas catches it.
+
+- **Upstream's anchor portals by default and burns without layout.**
+  `anchorSetup` relocates the node into a portal root (`portal ?? true`), so
+  the runtime that drew it patches a stranger and crashes; and under jsdom's
+  zero geometry it burns ~35s (portal or locked) where the same open takes
+  milliseconds without it. Pass `portal: false` to keep the node, drive the
+  config in tests instead of the clock, and prefer a placing Behavior that
+  never relocates for popups placed once.
+
+**Library behaviour**
+
+- **An embedded runtime draws in place of its container.** A test that kept
+  the container element and read `container.querySelector(...)` saw an empty
+  page for good, and it looked like the view never ran. Read the page from
+  `document`, as the other runtime tests do.
+- **`embed` replaces its container with the rendering.** `getElementById` of
+  the staged div is null right after boot; the content is there, the div is
+  not. Query the drawn page (a role, a label), never the staged containers.
+- **Foldkit's lazy slots throw outside a runtime render.** `createLazy` and
+  `createKeyedLazy` read the current frame and throw when there is none (an
+  inert test, a server's first pass), and Foldkit offers no way to ask first.
+  The Renderer tries the slot and draws uncached when it throws. A memoized
+  drawing is also reused at one position only: key it, or a move patches it
+  into its neighbour.
+- **`inertHtml` is every view's `h`.** It is Foldkit's one builder, inert only
+  when no runtime frame exists. A check `h === inertHtml` meant as "drawn
+  inert" was true in a running app too, so the inspector drew its form without
+  `h.submodel` and every form Message went unwrapped to the Builder, which
+  ignored it. Ask a lazy slot, which throws only for a missing frame: a catch
+  around `h.submodel` also caught its duplicate-slot error and drew a dead form.
+- **A form checks a draft against its key's type side.** `planOf` decodes
+  with `Schema.toType(schema)` (an `Option` key is unwrapped to what it holds
+  first). `Schema.toEncoded` keeps inner checks but drops one made
+  after a transformation: `NumberFromString.check(isGreaterThan(0))` accepted
+  `'-1'`. Re-check against the whole Schema.
+- **A Mount's acquire that throws halfway fails silently and leaks.** `Measure`
+  attached a MutationObserver, then `new ResizeObserver` threw in jsdom; the
+  Mount's stream neither ended nor reported, and the observer it left called
+  `measure` later ("Cannot access 'sizes' before initialization"). Make every
+  observer before any observes, and test with the constructor stubbed away.
+- **Mount args are captured at insert, never refreshed.** A Mount that should
+  follow the Model (focus the next OTP cell after a fill) ran once with the
+  initial args and never again: `OnMount` binds `insert` and `destroy` only,
+  there is no update hook. Drive Model-caused DOM effects from the Message
+  that updated the Model, as a Command — the platform's own prescribed path.
+- **A view input may hold no nested function.** `h.submodel` throws on a
+  function below the top level of `viewInputs`. The plan's sketch made each
+  word that takes a value a function, and the Builder's words, a nested
+  object, would have crashed it drawn through `BuilderView.submodel`, as the
+  CMS draws it; a test drawing it directly passed. `fillWords`' doc comment
+  already said why words are text with blanks. Read the convention in the
+  code before a plan's sketch, and test a view input through a submodel.
+- **A constant from `foldkit/experimental/server` brings the server along.**
+  `client.ts` imported `FOLDKIT_APP_ATTRIBUTE` from it, and the browser bundle
+  grew by the server renderer and its HTML parser (700 KB to 880 KB); so does
+  anything imported from `foldkit-ssr`; import `foldkit-ssr/client` in the
+  browser. Check the bundle's size after adding an import from a package that
+  also runs on a server.
+- **Some Foldkit attribute builders are client-only properties.** `h.Name`
+  writes the `name` property and marks it client-only, so a server-rendered
+  form has no `name` until it hydrates; a WebMCP form tool's fields, read from
+  the markup, would be nameless. Write an attribute that must be in the markup
+  with `h.Attribute('name', …)`, and check a builder's vnode (`data.props`
+  versus `data.attrs`) before relying on it in server output.
+- **Foldkit fills head tags into the template; it adds none.** A view's
+  `canonical` reached no generated page until the template had an empty
+  `<link rel="canonical">` (and `og:url` a `<meta property="og:url">`) to fill.
+- **A URL a Command writes comes back as a `UrlChanged`.** Foldkit's
+  `pushUrl`/`replaceUrl` dispatch `foldkit:urlchange`, which the runtime
+  answers with `onUrlChange`; `makeApplication` itself sends nothing for the
+  starting URL (0.163: `navigation/index.js`, `runtime/browserListeners.js`).
+  So a Command that rewrites the URL at start, or a URL mirror's write, hands
+  `update` the address the Model already shows. A new-entry reload in the CMS
+  cleared its pending state on that repeat and showed "That entry does not
+  exist." while every test passed, since `makeElement` wires no navigation. A
+  `UrlChanged` for the shown address must not undo anything, pending work
+  included: make it a no-op unless the app deliberately treats re-navigation
+  as an event (Route Transitions logs "Stayed within route").
+- **An exchange that throws on one operation blocks the outbox.** The
+  journal decoded each pending operation outside any handling, so one a
+  client tampered with failed the whole exchange; the replica would send it
+  again on every exchange, and the edits behind it never went. Refuse such
+  an operation by its id (`rejected`), so the replica drops it, and fail the
+  exchange only for what is not an operation at all. `foldkit-sync/journal`'s
+  `journalExchange` and `serveJournal` keep this; prefer them to a new
+  hand-written exchange.
+- **A replayed durable Message may write the shared slice and nothing else.**
+  Sync replays it through `update` over the app's `initial` Model and refuses
+  any other field it changes. Reconciling Remote's overlays at the end of
+  `update` failed every replica ("changed Model fields outside the shared
+  projection: remote"); the registry's old `settledOf` did the same and passed
+  only because it changed nothing while `retired` was empty, as it always is
+  in a replay. Derive such state in `Sync.mount`'s `afterUpdate`.
+- **A Port decodes what it is sent.** `Port.inbound(schema).send` takes the
+  schema's encoded form; `Sync.mount`'s `dispatch`, typed to take a Message,
+  passed it a decoded one, so a Message with an `Option` field failed with a
+  `SchemaError` and was dropped, and every test of it used plain strings.
+  Encode before `send`, and test a dispatch with a transforming field.
+- **A Mount reads its args once.** `OnMount` acquires on snabbdom's `insert` and releases on
+  `destroy`; its `postpatch` only hands a replayed Mount to the live runtime. A render that
+  passes new args to the same element changes nothing, so a block handle's anchor stayed beside
+  the first block the caret visited. Key the element by what the args depend on (`h.Key(node)`).
+  A counter the component keeps in its Model is not such a key: CMS fills from the form's fixed
+  `initial`, so the count repeated. Key by the value itself (see "Scene does not model keys").
+
+- **`Effect.provide(layer)` closes the layer when that effect ends.** The
+  sandbox opened its journal with `makeJournalOn(…).pipe(Effect.provide(
+  WasmClient.layerMemory({})))`, so the database closed as soon as the
+  journal was open, and every exchange failed with "Could not read the epoch".
+  Offer a service that needs a connection as a Layer that requires it, and
+  wire the two with `Layer.provide`, so they live and close together (the
+  core `Journal.layer` now does); outside Effect, keep the layer in a
+  `ManagedRuntime`. `Layer.buildWithScope` is the escape hatch, not the API.
+- **Two runtimes in one document share its ids.** Two registry panes on one
+  page each drew a grid with the id `products`, and the grid finds its cells
+  by id, so one pane's keys would reach the other's. Give each device a page of
+  its own (a frame), or ids of its own.
+- **A view that returns a `Document` owns the whole body.** The todo-app
+  sandbox put its note beside the app's container with `container.before`; the
+  first draw of the `Document` view removed it in the deployed build, while the
+  e2e test against the dev server found it. Draw such chrome in the view, in a
+  Slot, and check a deploy at a phone's width, where layout faults show.
+- **A worker's dependencies resolve with the page's conditions.** The pages
+  sandbox's SharedWorker loaded micromark's `decode-named-character-reference`
+  in its `browser` build, which makes a DOM element on load, and died with
+  "document is not defined" before answering anything; the tabs showed no
+  error, only edits that never arrived. Playwright shows no SharedWorker
+  console: construct the worker in a probe page and read its `error` event's
+  `filename`. A package with a `worker` export is fixed by adding `worker` to
+  `resolve.conditions`.
+- **An adapter's library is a peer, not a dependency.** `foldkit-remote-drizzle`
+  depended on `drizzle-orm`, so an application whose Drizzle resolved with
+  other optional peers (it had `@effect/sql-sqlite-wasm`) got a second copy,
+  and its tables did not type-check against the adapter. A library the
+  application also uses is a `peerDependency`.
+
+- **A replica id names a store, not a person.** Sync operation ids are
+  `replicaId:localSequence`. todo-app named its replica by the sign-in token,
+  so a second browser for one person counted from 0 again and the journal
+  rejected every new operation as a reused id, with nothing shown. Mint the id
+  per tab (`sessionStorage`) and name the storage after it.
+
+- **A no-op must return the Model it was given.** Foldkit renders only when the root Model
+  changes identity, and `Update.foldChild` writes the child back unconditionally, so a
+  `{ ...model }` equal copy (or a placement that re-wrote an unchanged child) rendered the
+  whole page: every `pointerdown` did so through DismissLayer. Test with `toBe(model)`.
+
+- **Give embedded Foldkit containers an id.** The runtime fails asynchronously
+  before rendering when its container has no id; a DOM test otherwise sees only
+  an empty element and hides the actual initialization failure. The CMS studio
+  drew into a `div` its entry made in place of `#app`, with no id, and
+  `pnpm dev` showed a blank page for a week: every test mounts its own
+  container. Only an e2e test runs the real entry.
+
+- **Probe, do not assume, what a library type means.** `Schema.Struct({})` is
+  not an empty-object schema: it accepts `{foo:1}`, `[]` and `"str"` even with
+  `onExcessProperty: 'error'`. Use `Schema.Record(Schema.String, Schema.Never)`.
+  Run a scratch probe against the installed version before relying on semantics
+  inferred from a name.
+- **`Schema.Record` drops a key its key schema refuses.** Decoding `{ constructor: … }`
+  against `Schema.Record(Id, Entry)` returned `{}`, with no error, unless the call passes
+  `onExcessProperty: 'error'`. That keeps a bad key out, and also loses its value silently.
+- **Run the probe from the package, not the repo root.** A scratch probe run
+  from the root resolves a different, v3-era `effect` than the pinned rc the
+  package actually compiles against, so it answers a question about the wrong
+  library and looks authoritative doing it. `cd packages/<name>` first.
+- **Check the output, not just that the call returned.** `defineAction` accepts
+  four different schema forms without complaint; three of them advertise a tool
+  with no parameters at all. An API that takes your input and quietly produces an
+  empty result is worse than one that throws.
+- **Enforce what you advertise.** Deriving a JSON Schema that says
+  `additionalProperties: false` is not validation; the decoder has to agree.
+- **`Optic.at` cannot insert.** It is a prism, not a lens: `replace` is a no-op on
+  an absent key, so writing a new key (or clearing one) needs a container-aware
+  setter, not `optic.replace`. Silent no-op otherwise.
+- **Untrusted field names are prototype keys.** `field in values` walks the
+  prototype chain; filter with `Object.hasOwn` and accumulate with no prototype.
+  The Drizzle adapter's relation/computed/column maps are `Object.create(null)`,
+  and app-supplied policy/window lookups use `Object.hasOwn`, because
+  `RemoteServer` passes client-chosen `fields` straight to `source.read`; a
+  crafted `fields: ['__proto__']` otherwise misread `Object.prototype` as a
+  relation and crashed the read.
+- **Effect 4 `Rpc.make` streams via `stream: true`,** not `success:
+  RpcSchema.Stream(...)`. Handlers come from `RpcGroup.toLayer`; the in-process
+  test client is `RpcTest.makeClient(group)`.
+- **Keep intermediate validators strict too.** Agent Native's Standard Schema
+  stripped excess fields before dispatch, bypassing its strict decoder. Pass
+  `parseOptions: { onExcessProperty: 'error' }` to `toStandardSchemaV1`.
+- **Type a boundary from the side the runtime consumes.** Dispatch decodes, so
+  its input type is the schema's *encoded* side. Typing it from the decoded side
+  accepted `{value: 42}` and rejected the `{value: '42'}` that works.
+- **One worker request cannot wake another's stream, in any form.** An open
+  SSE response in a worker (a live subscribe, a fetch that never answers) is
+  owned by its request's `ioContext`. A second request that offers to a Queue,
+  succeeds a Deferred, or even calls `enqueue` directly on the first's captured
+  `ReadableStreamDefaultController` does wake its fiber — and immediately tears
+  the stream down: `workerd/io/io-context.h: Promise will never complete` or,
+  if the stream has a pending timer, `The Workers runtime canceled this
+  request because it detected that your Worker's code had hung`. Proven
+  minimal, with no library involved: a worker that stores a controller at
+  module scope and enqueues to it from `/offer` while `/open` streams heartbeats
+  reproduces it. Same request only: an offer scheduled by that same request
+  (its own `setTimeout`) is delivered fine. It is not an Effect bug, not a
+  miniflare artifact, and not fixed by a heartbeat — `dispatchFetch` and a real
+  HTTP server both do it. So an in-memory hub fanning `changed` out to live
+  subscribers is undeployable on Workers: what crosses requests is the durable
+  store they share (D1), and each live stream re-reads it from inside its own
+  request. `examples/cloudflare`'s polling `LiveSource` is the shape; a
+  `LiveHub` push reaches nobody.
+
+- **Drizzle's SQLite transaction is synchronous.** `db.transaction(async tx
+  => …)` over `node-sqlite` commits before the callback's awaits run, so a
+  failure after an await rolls nothing back; a probe left the row of a
+  "failed" transaction in the table. Write the callback synchronously, with
+  `.run()` and `.all()`; Postgres takes an async one, and D1 only `batch`.
+
+- **Drizzle's Effect driver does not load under the pinned Effect.**
+  `drizzle-orm@1.0.0-rc.4`'s `effect-postgres` driver imports
+  `cache/core/cache-effect.ts`, which calls `Schema.TaggedErrorClass` — a name
+  no Effect 4 release exports (rc.112 did not, and 4.0.0 still does not). A static import throws
+  `Schema$1.TaggedErrorClass is not a function` and fails every test file that
+  reaches it, not just the query. Require a Context tag and let the application
+  provide the database; do not import the driver in library code until the two
+  versions agree.
+
+**Effect 4, not 3**
+
+foldkit pins `effect@4.0.0`, the first stable release. Since 4.0.0 there is no
+`effect/unstable/*`: import `effect/http`, `effect/persistence`, `effect/rpc`,
+`effect/sql` (and `effect/http-api` for the old `httpapi`). Since 4.0.0
+`Array`, `Chunk`, `Effect` and `Record` `partition` and `Option.partitionMap`
+return successes first, so a call site written for the rc type-checks and
+swaps its results. Names that moved, each found the slow way:
+`Effect.either` -> `Effect.result`, `Effect.async` -> `Effect.callback`,
+`Effect.timeoutFail` -> `Effect.timeoutOrElse`, `Duration.decodeUnknown` ->
+`Duration.fromInputUnsafe`, `Schema.OptionFromSelf` -> `Schema.Option`,
+`Stream.mapBoth`'s callbacks -> `onElement`/`onError`. Since rc.116 `Stream.scan`
+and `Stream.mapAccum` take their seed as a thunk; a plain value type-checks
+against `LazyArg<unknown>` and fails at runtime with "initial is not a
+function". `Schema.Union` and `Schema.Literals` take an array
+(`Union([a, b])`, `Literals(['x', 'y'])`), not variadics; the variadic call
+fails at the type level, not silently. Check the installed `.d.ts` before reaching for a remembered API.
+
+A checked schema resolves to its **last check's** annotations, which carry
+what the check expects and no `title`: `Schema.String.annotate({ title })
+.check(…)` resolved directly has lost its title, and a check that set `title`
+of its own named a form field "fits the Catalog". Read words with
+`Words.of(schema)` from `foldkit-entity`, never `resolveAnnotations(…)?.title`.
+
+**Types**
+
+- **An `Option` compared with `undefined` or `null` type-checks and is always
+  unequal.** Moving `projectionOf` to `Option` left `projection === undefined`
+  in a test helper; it compiled, never matched, and failed 27 cms-drizzle
+  tests far from the change. Interpolating one in a template string compiles
+  too, and made a picker id of `[object Object]`. After changing a return to
+  `Option`, grep its callers for `=== undefined`, `=== null`, `?.` and `${`.
+- **`Schema.Option`'s encoded side is an Option, not JSON.** A Builder Model
+  with `Schema.Option` fields failed to round-trip through a saved CMS draft
+  ("Expected Option"). A Model that is stored or sent uses
+  `Schema.OptionFromNullOr`: `Option` in code, `null` on the wire.
+- **`tsc -p` in a project with references reads the stale `.d.ts`.** It checks
+  one project against whatever the referenced packages last emitted, so it
+  passes code that the change it depends on broke. Use `tsc -b`.
+
+- **Capability names can be object prototype keys.** `__proto__` passes name
+  validation but assigning it to `{}` loses the registry entry. Use a `Map` or
+  a record with no prototype for capability lookups.
+
+- **A message-free dynamic value does not widen by `never`.** `Mixin<never>` is
+  not assignable to `Mixin<Message>`: `HtmlBuilder` is invariant in `Message`, so
+  a function taking `ContributionContext<never>` rejects one taking
+  `ContributionContext<Message>`. Name the message-free case in the accepted
+  union (`Mixin<Message> | StaticMixin<Message> | Mixin<never>`) rather than
+  expecting `never` to widen. A function that never mentions the Message universe
+  does widen.
+
+- **An `any` inside a generic silently disables checking.** `Parameters<>` of an
+  intersection resolves to the last signature and widened every payload to
+  `any`. A conditional inside a reverse mapped type is circular and quietly
+  picks one branch, which let `input` without `toMessage` compile.
+- **A function-typed property makes a generic invariant.** `EntityDescriptor.ref:
+  (id: Type<F['id']>) => …` made `F` invariant, so a concrete `EntityBinding` was
+  not assignable to `EntityDescriptor<any, any>` and `Remote.make({ entities:
+  [binding] })` failed while `Selection.make(binding, …)` (which infers `F`)
+  passed. Declaring `ref(id): …` as a method restores bivariance. Write the
+  assignability case, not just the call that happens to infer.
+- **A cast in a test marks an API gap.** Tests and examples are end-user code:
+  an audit found about a fifth of their casts came from our types, such as
+  `subscriptions['page.read']!` on keys the runtime always emits, `dehydrate(x)!`
+  where no size limit was given, and `inertHtml as unknown as HtmlBuilder<M>`.
+  Fix the type instead. Acceptable casts: deliberately invalid input, written as
+  `@ts-expect-error` so the rejection is also asserted; an upstream brand we
+  cannot construct; and a lookup `!` under `noUncheckedIndexedAccess`.
+- **Prove a type rejects, not just that it accepts.** Every constraint needs a
+  `@ts-expect-error` negative case in `types.test-d.ts`. Both bugs above passed
+  a suite full of positive cases.
+- **A type check intersected onto a parameter can fail open.** `Invalid<…>`
+  works when it compares something already resolved, like `Q['name']`. When the
+  check is a conditional over the type still being inferred, inference falls
+  back to the constraint — and `Expr<any>` in that constraint made
+  `Expr.contains`'s text check vacuously true, so every operand passed,
+  including the number the check existed for. Constrain the type parameter
+  instead; a constraint cannot be defeated by inference falling back to it.
+- **An intersection on a declared handle breaks `Parent.at`'s `B` inference.**
+  Storing placement args on the object (an added member or an intersected one)
+  made every `Parent.at` resolve its config args to `never` — including with
+  an explicit literal, so the value was never the problem. Probing narrowed
+  it: any extra member poisons it, even `{ readonly bound: true }`. Keep
+  handles exactly their declared shape; share values through imports, and
+  suspect inference (not the value) whenever a whole call family reports
+  `never`.
+- **An unused `@ts-expect-error` is how a fails-open check announces itself.**
+  It is the only signal, and it looks like tidiness. Mutation-test types the way
+  you mutation-test code: widen the constraint and confirm the negative cases go
+  red. Four did, so the check was load-bearing; before the fix, none would have.
+- **An excess property shadows a missing one: one defect per negative case.**
+  A negative case with both an unknown prop and a missing required one reports
+  only the excess, so the missing check looks vacuous (its directive reads as
+  unused) while the API is correct. Probe each rejection alone.
+- **Tie generics to the definition they belong to.** A host's Message type
+  inferred independently of the contract let an incompatible host bind.
+- **To type a callback from a sibling property, map over the inferred type, not
+  over the keys you already know.** `expose`'s variants map was mapped over the
+  Message tags, so `authorize`'s input could only be pinned to one type for
+  every variant, and `any` was what kept `principal`/`model` inferable. Mapping
+  over `keyof Ext` instead makes it a *reverse mapped type*: TypeScript infers
+  one `Ext[Tag]` per variant from that variant's own `input` codec, then
+  contextually types the callbacks beside it. A conditional is fine in the
+  template (`Tag extends keyof C ? ... : never`) and in a callback parameter
+  (`unknown extends Ext ? Payload : Ext`); it is only circular when the mapped
+  type is F-bounded on the object being checked. The parameter must be
+  `V & Mapped<...>` to keep `V` for the return type -- and an intersection is
+  not excess-property-checked, so the unknown-key rejection has to move into the
+  template.
+
+- **A curried generic's return type is an inference site for the outer call.**
+  `Columns.define<Row>()({...})` written inline in `DataGrid.make({ columns })`
+  typed every `row` as `unknown`: the outer call's still-uninferred `Columns`
+  became the inner call's contextual return type, and won over `Row`. A
+  separate `const columns = ...` passed. `NoInfer` on the inner return type
+  stops it; test the inline form, not only the hoisted one.
+
+- **Thread `Encoded`, not only `Type`, through a generic reference.**
+  `ModelRef<Root, Value>` typed `Schema.Codec<Value, unknown>`, so a transforming
+  field (`NumberFromString`) lost its encoded `string` through `Projection.pick`, and
+  an assignability test could not see it (`unknown` accepts anything). Carry an
+  `Encoded` parameter and pin it with a type-equality assertion.
+
+- **An unused parameter or config field is a promise the runtime does not keep.**
+  `RemoteServer.make(Data, …)` never read `Data`, and `Remote.make` accepted
+  `queries`/`mutations` it dropped, so the API advertised a relationship that did
+  not exist. Type it and use it, or delete it.
+
+- **Do not make a caller reconstruct a key the library owns.** `Remote.live` took
+  a `cursor` callback, but the stream key was internal, so the application could
+  not compute it; the fix was for the library to read its own state. If a caller
+  would need library internals to satisfy an argument, the library should read
+  them itself.
+
+- **Bundle authoring needs explicit types in three places; inference drops
+  precision in each.** A service-requiring bundle helper pins the whole spec's
+  `R` to `never` (annotate `make`'s generics explicitly); literal Model fields
+  widen to `string` through inference — and an empty `{}`/`[]` in `init`
+  widens the whole inferred Model (Virtual's `heights` became `{}`), so
+  prefer explicit `make` generics whenever `init` holds an empty container;
+  and `Message.match` unifies diverse arm shapes to the first arm: pin each
+  arm's output, since pinning the whole call does not reach the match's own
+  inference (two `Link.child` folds each speak their own wrapper commands, so
+  each arm is annotated `Update.Return<Model, Message, unknown>`).
+
+**Async**
+
+- **Re-check invariants after every `await`.** A `disposed` flag read once
+  before two awaits still registered tools after disposal.
+- **Ask what else can run while you are suspended.** Moving bookkeeping after
+  an await fixed a false-success bug and introduced double registration;
+  overlapping passes had to be serialized.
+- **Foldkit draws the next screen before a Navigate Command runs.** A scroll
+  offset recorded on `navigate` or `popstate` was already clamped to the new,
+  shorter page, and a restore made when the entry changed was undone by the
+  loading state drawn after it. Record at the reader's action, and hold a
+  restore until the screen settles (`examples/cms/src/scroll.ts`).
+- **Subscribe before the action that can produce the event.** `update` can emit a
+  completing Message synchronously, so a listener attached after the dispatch
+  misses it and then waits for its timeout.
+- **A Message that reopens a gate must land before what can trip it.** A
+  restarted live stream emitted `GapCleared` beside its resubscribe
+  (`Stream.merge`). A resubscribe that failed first hit the still-open gap,
+  which ignores further breaks, and the late `GapCleared` then closed it:
+  the stream stopped for good, and a test failed every run once it made the
+  resubscribe fail. Sequence them (`Stream.concat`).
+- **Guard fire-and-forget work.** An un-awaited reconcile turned a failure into
+  an unhandled rejection.
+- **`Effect.result` captures failures, not defects.** At an edge that must not
+  throw, catch as well.
+- **Settle subscriptions before advancing TestClock.** A forked stream fiber
+  registers window listeners on the real scheduler; `TestClock.adjust` moves
+  virtual time without yielding to it, so events dispatched right after the
+  fork hit nothing and a debounce test silently observes the un-reset timer.
+  Yield (a hundred `yieldNow`) after fork before the first adjust.
+
+**Tests**
+
+- **A mutation killed by a red test proves nothing.** A test added between
+  two mutation runs was already failing, so the second run "killed" its
+  mutation for free. Confirm the suite is green before each run; `pnpm
+  mutate` refuses a red baseline.
+- **Mutation specs do not run in CI, so their anchors rot.** Moving the
+  registry's sort into `ProductsQuery`'s body renamed
+  `Registry.Product.fields.description` to `fields.description`, and
+  `registry.mutations.ts` refused to run until a later change happened to
+  run it. After editing a file, run every spec that anchors into it
+  (`grep -l <file> **/*.mutations.ts`), not only the one you are writing.
+- **Read a library's handler table before describing its semantics.** A
+  comment said Foldkit keeps the last of two `OnClick`s on an element; its
+  `addDataOn` chains them all, so the resumable builder dropped bindings. Cite
+  the source line, or test it.
+- **A surviving mutation usually means redundancy, not missing coverage.** This
+  has now happened three times: overlapping disposal guards, then a `release()`
+  duplicating an `Effect.ensuring`. The fix is to delete the redundant guard, not
+  to write a test for a window that does not exist. One guard per window, one
+  test per guard.
+- **Test a serializer by reading its output back, not by its string.** The Markdown
+  printer's test asserted `\1. not a list` as the escape for an ordered marker; a
+  backslash before a digit is no escape, so the parser kept it as text, and the test
+  locked the bug in. A round trip through the real parser is what catches it.
+- **Server markup has to be what a parser builds from it.** The standard rendering put a table's
+  rows straight in `<table>`; a parser inserts a `tbody`, and Foldkit refuses to serialize a view
+  whose parse differs, so no server-rendered page with a table worked. Tests that built DOM with
+  `createElement` could not see it. Test markup by rendering it to a string (`renderToString`)
+  and parsing it back.
+- **Scene does not model keys.** A handle keyed by its block still showed its old Mount as
+  mounted after the block changed, with or without `h.Key`, so a Scene test of keying passes
+  or fails for reasons unrelated to the key. Test remounting on the real runtime
+  (`Runtime.makeElement` + `embed`, as `packages/bundle/test/runtime.test.ts` does).
+- **A check against a reference is only as good as the reference.** `print` accepts a styled
+  text when it parses like the canonical text, and the canonical text merged two adjacent lists
+  into one, so the check trusted a wrong answer. Read the reference itself back too.
+- **A constant `mint` makes a refusal test pass for any reason.** A test that an
+  `InsertText` with bad link props is refused used `mint: () => 'x'`; the insert
+  split a run twice, `apply` refused the duplicate id, and the case stayed green
+  with the props check deleted. Mint distinct ids in every test that expects a
+  refusal, so the refusal can only come from the check under test.
+- **Verifying by hand is not coverage.** `Agent.pick`'s snapshot bug was
+  confirmed in a scratch script and shipped without a test.
+- **A fixture too small cannot tell right from wrong.** An ordering test with
+  one row passed while ids were parsed by splitting on every colon; two ids
+  agreeing up to the first colon caught it. A filter test where every row
+  matches passes when the predicate is dropped entirely.
+- **Do not assert that a pure function left its input alone.** `filtered`
+  returns a value and takes the Model by value, so "no connection was created"
+  was structurally guaranteed and could not go red. I noticed the test was weak,
+  rewrote it, and it was still vacuous for the same reason. Assert the
+  signature — what it returns has no Model in it — or delete the test.
+- **Cleaning up the DOM can hide a leaked runtime.** Removing the embed
+  container on unmount made a `FoldkitComponent` that never called `dispose`
+  look identical to one that did. Assert on something only a live runtime does,
+  such as a Subscription finalizer running.
+- **A memo test needs a second change.** A per-item memo learns which Slots an
+  item used on its first draw, so the first change after mounting always
+  misses. A nested-item test passed with the guard deleted until a second
+  move was added. Assert after two transitions, not one.
+- **A lazy slot compares its function too.** Passing an arrow made inline to
+  `createLazy` never hits, since the function is new every render; so does an
+  array rebuilt per render (`flatMap`) among its arguments. Pass a function
+  defined once, and values that keep their identity.
+- **One layout decision written twice drifts apart.** The page builder
+  stacked its panels below 64rem of its own width but showed the tabs that
+  choose one only below 52rem, so between the two (a 1280px window) every
+  panel stood above the page and New page looked broken. Name the width once
+  and pass it to every query that decides the same thing, and test at a width
+  between the old values.
+- **A layout test that checks what shows passes a broken layout.** The
+  narrow editor's test asserted which panels were visible at 600px; the
+  example's grid still had three columns, collapsing only by the window, and
+  the panel it showed was squeezed to 50px. Assert geometry (a width, a
+  position) when the claim is about layout, and take a screenshot once.
+- **A session that spans Messages meets every other Message in between.**
+  Editing in place was tested begun, typed, committed; a review put an undo,
+  a redo, an agent's edit and a second double-click between, and Escape no
+  longer restored the text, a commit made an empty undo step, and a second
+  ask restarted the session. For state held across transitions, test each
+  transition that can land in the middle.
+- **Keys faster than a frame meet the last frame's view.** Typing on the grid
+  opened an editor, but keys sent before it was drawn and focused reached
+  the grid, whose drawn state still said "not editing", so each restarted the
+  edit: "Dowel" became "l". A browser test caught it only some runs. When a
+  key opens something that takes the keys after it, make the Message carry
+  enough for `update` to continue what is open (`EditTyped` adds to an open
+  draft), since the view's own state may be a frame old.
+- **A synthetic event moves no focus.** `dispatchEvent(new MouseEvent('click'))`
+  and a `keydown` sent to an element leave focus where it was, so a jsdom test
+  of the Builder kept focus in the layers through a crumb click and a key on
+  the canvas, and a focus-following Mount "broke" it. Focus what a user would
+  press, and test a focus claim in a browser with `userEvent`: four focus
+  bugs (Enter, Delete, a disabled button, a narrow panel) passed every test.
+- **A routing test that checks who may claim proves nothing about delivery.**
+  `Bundle.assemble` allowed a shared tag and its tests stopped there; routing
+  took the first claimant, so a second URL mirror never read the URL and the
+  application never saw its own `UrlChanged`. Assert what each claimant and
+  the parent receive.
+- **A transition's end value is not its end.** A `Measure` test waited until a
+  row's height read its final value, then asserted a stylesheet was not yet
+  seen; the transition still had a frame to run, `Measure` measures every
+  frame of one, and CI saw the margin early. Wait for `getAnimations()` to be
+  empty before asserting what a later step alone causes.
+- **A negative assertion needs a settle, not a sleep.** Registry tests
+  asserted "no edit" after a 30-50ms sleep, and one absorbed-edit test failed
+  only under full-suite load, when the sleep ran out before the reinstall
+  and its frame. `await frames.settle(mounted)` (`Frames.track` from
+  `foldkit-mixins/testing`, `Mounted.settled`) waits for what was asked; for
+  I/O a Command started, wait for evidence it finished (a read counter),
+  then settle. A runtime still starting has asked for no frame: wait for its
+  first drawing before the first settle.
+- **A wait is only tested where something re-evaluates it.** The Agent + Sync
+  test asserted "still pending before the exchange" and passed with the
+  committed view reading the optimistic value: nothing notified between persist
+  and exchange, so the wrong read was never evaluated. Force a transition
+  between the two states the test tells apart.
+
+**Claims about the repository**
+
+- **A search that proves an absence must cover the space the claim names.** I
+  wrote "there is no benchmark anywhere in this repository" after listing
+  `packages/remote/test`; there is a `pnpm bench` script, a CI workflow,
+  `docs/benchmarks.md` and three `packages/*/bench` directories. The same week I
+  wrote "evo item 2 is done" after grepping `examples/`, when the item's scope
+  says "examples, package READMEs, and conceptual docs" — and the root README's
+  own snippet was the violation. Both claims were then used to justify further
+  decisions. Scope the search to the claim, or narrow the claim to the search.
+
+- **Search a library for a name by its own spelling.** A grep for
+  `AriaRowCount` found nothing, so the grid wrote `aria-rowcount` with
+  `h.Attribute` and its design said Foldkit had no such builder; Foldkit spells
+  it `AriaRowcount`. Before calling something absent, search case-insensitively
+  and read the builder list itself.
+
+- **Update the summary in the same change as the section.** Per-phase notes
+  landed while `§0`'s findings table and `§13`'s status banner still described
+  the old state — the banner said "3 onwards are not started" directly above
+  three sections headed *done*. A stale claim is worse than no claim because it
+  reads as current, and this recurred four sections after I committed that
+  sentence.
+
+- **The changelog is a document the commit list does not remind you of.**
+  About fifty commits of the page builder updated each README and the skill
+  but not `CHANGELOG.md`, which the plan requires in every change, and its
+  unreleased entries went on naming APIs since removed. Before committing a
+  public change, add its entry under Unreleased, and fix an unreleased entry
+  the change makes wrong rather than logging a removal of it. When Unreleased
+  has no heading for the kind of change (`### Changed`), add it: two entries
+  were appended to the last release's `Changed` that way, and read as shipped.
+
+- **A declared option nothing reads is worse evidence of demand than no
+  option.** `LivePolicy` was typed, documented, carried on the descriptor and
+  present in the Message schema, and nothing in the production path ever set it,
+  so every live insert took the default. I had cited it in a design document as
+  "the caller that already shipped" — the strongest evidence that work had
+  demand. Grep for the field being *written*, not declared. (See also: an unused
+  parameter is a promise the runtime does not keep.)
+
+- **Do not delete scratch work that has a home in the repo.** A throwaway
+  benchmark was deleted with "there is no bench infrastructure here to fit it
+  into", which left published numbers nobody could reproduce. Check for the
+  convention before concluding there is none.
+
+**Tooling**
+
+- **Vite will not bundle `node:sqlite` for a jsdom test.** Vite 5 rewrote the
+  static import to a bare `sqlite`; Vite 8 refuses it outright in the client
+  environment that jsdom tests run in. `vitest.config.ts` aliases `node:sqlite`
+  to `test-support/sqlite.ts`, so a normal static import works in Vitest and
+  tsx. Do not reinstate per-file `createRequire`, and do not drop the alias
+  because the Node-environment tests pass without it.
+
+- **Writing a file can turn `\u0000` into a raw NUL.** Moving Remote's
+  requirement code by rewriting it whole emitted literal NUL bytes for the
+  escapes, so git showed `requirement.ts` as `Bin` and editors rendered
+  the escape as an invisible character in `replace('\u0000', ' ')`. After
+  writing code that contains control-character escapes, check
+  `git diff --stat` for `Bin` and grep for the escape.
+- **A `\u` escape written into source by a script can become the character.**
+  Writing `.replaceAll('<', '\\u003c')` through a heredoc left one backslash in
+  the file, and `'<'` in TypeScript is `<` itself: the escape replaced `<`
+  with `<`, silently. The same route turned a `` regex into a literal line
+  separator, which ends the regex. Build such characters with
+  `String.fromCharCode`, and check the bytes with `repr` before trusting the
+  file. (The commit that met this, `9d395e1`, says a test caught it; reading the
+  bytes did, and the test was shown to catch it afterwards by mutation.)
+- **Python's text mode writes CRLF on Windows.** Scripted edits with
+  `open(p, 'w')` turned `tsconfig.json` and `vitest.config.ts` into CRLF files
+  that failed `format:check`. Pass `newline=''` when reading and writing.
+- **Python's default encoding here is cp1252, and `open(p, 'w')` truncates
+  before it fails.** A scripted insert into `guard-DESIGN.md` hit a `→` in the
+  text, raised `UnicodeEncodeError` after the file was already emptied, and the
+  `git commit && git push` on the next line shipped a zero-byte document. Pass
+  `encoding='utf-8'` on both reads and writes, write to the file only after the
+  new content is fully built, and never chain a commit after a script in one
+  command: check `wc -c` or `git diff --stat` first.
+- **Format with `pnpm format`, never bare `prettier`.** The config matches the
+  style already in the tree; without it prettier rewrites files to its own
+  defaults. Markdown is deliberately ignored, because prettier pads table
+  columns and reformats code inside fenced blocks, rewriting the documents'
+  illustrative snippets.
+- **A re-exported type and a same-named const collide.** `export { type Sync }
+  from './sync.js'` beside `export const Sync = {…}` is `TS2323 Cannot redeclare
+  exported variable`, even though a type and a value may share a name. Both
+  names have to originate in the same module: import the type under an alias
+  (`type Sync as SyncContract`) and re-declare it (`export type Sync<…> =
+  SyncContract<…>`). Namespacing a package whose main type shares the
+  namespace's name hits this immediately.
+- **`@ts-expect-error` is anchored to the next line.** Reformatting wrapped a
+  long call and left two directives pointing at a line that no longer errors, so
+  the assertions silently stopped asserting. Put the directive immediately above
+  the offending expression, not above a call that contains it, and re-run
+  `pnpm typecheck` after formatting.
+- **Bulk edits replace every occurrence, and a missing anchor fails silently.** A
+  scripted insert landed in two functions and broke an unrelated one; a later one
+  matched nothing and quietly did not apply, so a field was simply absent. Assert
+  the anchor, then re-read the diff -- not just the check.
+- **Anchoring an insert on `export const X` lands it under X's doc comment.** Three
+  scripted inserts here (`holdsItem`, `isBlank`, `drawPlaceholder`) went in between a
+  declaration and its comment, leaving each comment documenting the wrong thing; the
+  typecheck and the tests cannot see it. Anchor on the comment's opening `/**`, or read the
+  lines above the insert before committing.
+- **A pipe hides the exit status of what it pipes.** `prettier --check $F | tail -1 &&
+  git commit` committed a file prettier had just flagged, because `tail` succeeded.
+  Redirect instead (`>/dev/null &&`) when a check gates the next command.
+- **A prepend that matches only the anchor line deletes it.** Matching the first
+  line of a block (a changelog entry, a doc section) and replacing it with new
+  text drops that line; the file stays valid and every check stays green, so
+  only re-reading the region catches it. End `oldString` on a line the new
+  text keeps, and re-read the region after editing.
+- **Run the CI sequence before committing, not after.** `format:check`,
+  `typecheck`, `test`, `demo`. A commit shipped that would have failed
+  `format:check` because only the last three were run.
+- **A `package.json` change without `pnpm install` reds every job.** CI
+  installs with `--frozen-lockfile`, so a new dependency without a
+  regenerated lockfile fails all jobs in 30s. Regenerate in the same change
+  and prove it with `pnpm install --frozen-lockfile` before pushing.
+- **A fast red hides slower reds.** Fixing the 30s install failure above
+  revealed a `tags:check` failure the red main had masked for days. After
+  any CI repair, watch a full run to green — a green gate is not a green
+  build.
+- **Nothing reports an unused import here.** `tsconfig.base.json` leaves
+  `noUnusedLocals` off, so moving `propsFailure` out of `kit.ts` left `Schema` and
+  `RunMark` imported for nothing, and seven more dead imports had built up in the
+  richtext packages. After moving or deleting code, run
+  `npx tsc -p packages/<name> --noEmit --noUnusedLocals` over the packages touched.
+- **Run a test from the repo root, not from its package.** The root
+  `vitest.config.ts` aliases every workspace package to its `src`; run from
+  `examples/remote`, Vitest resolved `foldkit-remote` to a stale local build,
+  and a demo line that passed under `tsx` failed its test for no reason in the
+  change. `npx vitest run examples/remote` from the root tests the source.
+- **Read `Test Files`, not only `Tests`.** A file that fails to load, from a
+  module-level `window` read in a node test or the machine running out of
+  memory under a wide run ("22 failed" with every test passing), counts no
+  failed test. A grep for `Tests` showed all green twice here. Grep both lines,
+  and run wide sets with `--maxWorkers=2` on this machine.
+- **Vitest does not typecheck.** A demo line mapped over the dependencies of a
+  `Data.subscriptions` entry (typed `any`) passed its test and failed
+  `pnpm typecheck` with an implicit `any`, after it was pushed. After editing an
+  example, run the root typecheck, not only its test.
+- **`pnpm ci` is a pnpm builtin, not your script.** A root script named `ci`
+  never runs (`ERR_PNPM_CI_NOT_IMPLEMENTED`). The full-check script is `check`:
+  run `pnpm check`. `server` is one too: two example READMEs said
+  `pnpm server`, which fails with `Unknown option: 'recursive'`; write
+  `pnpm run server`.
+- **The index is shared: stage and commit in one command.** Two sessions in
+  one worktree share `git add`'s staging area, so files one session stages
+  and leaves for a review step are swept into the other's next `git commit`.
+  A whole phase of `foldkit-ssr` shipped under a Remote docs commit that way.
+  Stage only in the command that commits, and commit with explicit paths
+  (`git commit -- <paths>`) so nothing staged by someone else rides along.
+  The worktree is shared too: another session's checkout or revert can move
+  files under you, so re-check `git status` at the start of a bout of work
+  and after anything surprising — an edit whose old text matches twice, or a
+  file that already contains the change, means the tree moved, not that the
+  tool misbehaved.
+- **A pathspec commit takes the working tree, not the index.** `git commit --
+  <paths>` snapshots those paths as they are on disk: unstaging a foreign
+  hunk (`git apply --reverse --cached`) does not keep it out, and it rode a
+  Dialog test into an unrelated commit that way. Extract the foreign hunk
+  from the file first (or wait), then commit.
+- **But a pathspec that names only the new half of a rename ships both files.**
+  `git mv old new` stages a rename; `git commit -- new` then commits the addition
+  while the deletion of `old` stays in the index, so HEAD holds two copies and a
+  later `git status` shows the bare deletion. Vitest reads the worktree (which has
+  only `new`), so the suite stays green and proves nothing. Name both sides, or
+  check `git show --stat -M HEAD` for the rename before committing; the same trap
+  bit the `richtext-dom` move, and the fix was to amend so the commit matched the
+  staged rename that was actually reviewed.
+- **`pnpm typecheck` goes quiet downstream of a red project.** `tsc -b` skips
+  every project that depends on one that failed, so while another package is
+  red (someone else's work in progress, say) a break your change causes in
+  `crud` or `cms` never prints. A field added to `ActiveSurface` shipped that
+  way and failed CI, which runs `typecheck:force`. When any project is red,
+  run `pnpm typecheck:force` and read past the errors that are not yours.
+- **Package and root typechecks can use different TypeScript versions.**
+  `packages/bundles` resolves TS 5.7.2 while the root resolves 5.9.3, whose
+  tighter match-arm inference failed `Idle`/`Interval` updates the package
+  check passed. The root check is what CI runs: verify with it (or plain
+  `npx tsc -b <project>`) before committing, not just the package script.
+- **Gate the commit on the review's verdict, not on the command finishing.**
+  `jev-pref review … ; git commit …` commits whatever the review says. One
+  change here went in on a `fix_now` for a skill reference it had not updated,
+  and needed a follow-up. Commit only on `approve`: branch on the verdict, or
+  stop and read it first.
+- **"It retries" is a claim about what restarts it.** A Remote read entry
+  restarts only when its dependencies change. A failed query or read that
+  changed nothing in the Model changed nothing in the plan, so nothing
+  retried, and a list sat at `Initial` for good. The docs said "the
+  subscription retries" in three places. Before writing that something
+  happens again, find the condition that makes it happen and check the
+  failure path meets it.
+- **`new URL` keeps Windows backslashes and eats the drive.** Parsing a
+  `path.join`ed file path as a URL yields `\Users\…` (and `C:/…` parses as
+  scheme `c:`, dropping the drive), while the browser reads the same file as
+  `/C:/…` from `import.meta.url` — so a build id compared the two ways never
+  matched on Windows and hydration refused every page, which passed on Linux
+  for good. Normalize separators and read a drive path as a `file:` URL
+  before comparing (`examples/foldkit/ssg/src/entry.server.ts:buildIdOf`).
+- **Workspace packages resolve to source; `paths` are generated.** Every
+  export has a `foldkit-plus:source` condition, which Vite, Vitest and the
+  examples resolve through, so nothing reads a stale `dist`. TypeScript keeps
+  `paths`, derived by `pnpm paths` from the packages a project references;
+  never edit them by hand. `pnpm paths:check` refuses an import of a package
+  the project does not reference, which otherwise compiles against that
+  package's last build (`mixins-richtext` did, for `foldkit-primitives`). A
+  `tsconfig.build.json` does not inherit `references` from the config it
+  extends: `richtext-code` and `richtext-markdown` had none.
+- **Vitest's resolve conditions are its own, not Vite's.** Adding the source
+  condition to Vite's defaults brought in `module`, which loaded
+  `@opentelemetry/api`'s extensionless ESM build, and `browser`, which gave
+  `ws` its stub. `vitest.shared.ts` starts from Vitest's server defaults.
+- **A tab left open across a dev-server restart hangs.** The page waits on the
+  old server, and every browser tool times out against it ("page is busy").
+  Close it and open a fresh tab rather than retrying.
+- **A hidden browser tab shows its first frame for good.** Foldkit renders on
+  `requestAnimationFrame`, which a hidden tab never runs, so a page driven by
+  the browser tools sat on "Loading…" while its Model had long filled, and an
+  hour went to a bug that was not there. Before calling a screen stuck, check
+  `document.visibilityState` and read the Model, not the DOM.
+- **The root Vitest config runs its own projects.** `vitest.config.ts` defines
+  `projects` with workspace-wide globs, so a per-example `vitest.config.ts`
+  never loads on a root run: `setupFiles` in one silently never ran and every
+  test that needed its env failed. Scope env and setup to what the test file
+  itself imports (a factory with an explicit argument, `vi.stubEnv` before a
+  dynamic import), which works from any working directory.
+- **`import.meta.env` is undefined under tsx.** A bare
+  `import.meta.env.FOLDKIT_BUILD_ID` throws there, so a module that both Vite
+  and tsx load cannot read it at the top level. Keep the bare read in entries
+  only Vite transforms, and read `process.env` in scripts tsx runs; a server
+  entry shared by both is a factory taking the id, with one thin Vite-only
+  module applying the define.
+- **`git checkout -- <file>` drops every uncommitted change in it.** Used to
+  take a debug line back out of a test, it also took the session's new tests
+  in that file, which had to be written again. Copy the file aside (`cp`)
+  before a temporary edit, and copy it back.
+- **Flags go before `--`, and new files need `git add`.** `git commit --
+  <paths> -m` parses `-m` as a pathspec and fails, and a pathspec commit skips
+  untracked files, so a new module rode an `--amend` into the wrong commit.
+  Put `-m` before `--`, add new files first, and check `git show --stat HEAD`
+  for strays.
+
+## Repository
+
+- Workspace: pnpm, `packages/*` and `examples/*`.
+- Build: `tsdown`. Tests: `vitest`. Types: `tsc -b`. Format: `prettier`.
+- CI runs `format:check`, `typecheck`, `test`, `e2e`, and `demo` on push and
+  PR. Run them locally before committing; `pnpm e2e` starts servers and a
+  browser, so run it when a change reaches an example with a server.
+- `PLAN.md` is git-ignored and tracks in-progress work.

@@ -1,0 +1,618 @@
+import { Schema } from 'effect'
+import { Bundle } from 'foldkit-bundle'
+import { Entity, Relation } from 'foldkit-entity'
+import { Form, Input } from 'foldkit-form'
+import { Attr, Behavior, Capability, SlotView, Style } from 'foldkit-mixins'
+import { defineMessageUnion } from 'foldkit/message'
+import * as Submodel from 'foldkit/submodel'
+import { describe, expect, it } from 'vitest'
+import { FieldSlots, FormSlots, FormView, type FieldInput } from '../src/index.js'
+import { Edit, options } from './fixture.js'
+import { Inert, type Node } from 'foldkit-mixins/testing'
+import type { Html, HtmlBuilder } from 'foldkit/html'
+
+const byId = (root: Html, id: string): Node | undefined =>
+  Inert.all(root).find(node => node.data?.props?.id === id)
+
+const initial = Edit.bundle.init(undefined).model
+const send = (...messages: ReadonlyArray<typeof Edit.Message.Type>) =>
+  messages.reduce((model, message) => Edit.bundle.update(model, message, undefined).model, initial)
+const render = (model = initial, view = FormView.define(Edit)): Html =>
+  view(
+    { model, errors: model.errors, canSubmit: Edit.canSubmit(model), options },
+    SlotView.inertBuilder(),
+  )
+
+describe('FormView markup', () => {
+  it('draws each control as the element its kind calls for, and leaves a hidden key out', () => {
+    const root = render()
+    const drawn = (id: string) => {
+      const node = byId(root, id)
+      return [node?.sel, node?.data?.props?.type]
+    }
+
+    expect(root?.sel).toBe('form')
+    expect(byId(root, 'Edit-id')).toBeUndefined()
+    expect(drawn('Edit-title')).toEqual(['input', 'text'])
+    expect(drawn('Edit-body')).toEqual(['textarea', undefined])
+    expect(drawn('Edit-status')).toEqual(['select', undefined])
+    expect(drawn('Edit-rating')).toEqual(['input', 'text'])
+    expect(drawn('Edit-featured')).toEqual(['input', 'checkbox'])
+    expect(drawn('Edit-editorId')).toEqual(['select', undefined])
+    expect(drawn('Edit-tagIds')).toEqual(['div', undefined])
+  })
+
+  it('offers a select its own literals, and a picker the options from the view inputs', () => {
+    const root = render()
+    const offered = (id: string) =>
+      Inert.children(byId(root, id)).map(option => [option.data?.props?.value, Inert.text(option)])
+
+    // Nothing is chosen yet, so even the required `status` offers a blank: without
+    // one the browser would show "draft" as chosen while the draft is empty.
+    expect(offered('Edit-status')).toEqual([
+      ['', ''],
+      ['draft', 'draft'],
+      ['live', 'live'],
+    ])
+    const chosen = render(send(Edit.Message.Changed({ key: 'status', value: 'live' })))
+    expect(
+      Inert.children(byId(chosen, 'Edit-status')).map(option => option.data?.props?.value),
+    ).toEqual(['draft', 'live'])
+    expect(offered('Edit-editorId')).toEqual([
+      ['', ''],
+      ['a1', 'Ada'],
+      ['a2', 'Grace'],
+    ])
+    expect(Inert.text(byId(root, 'Edit-tagIds'))).toBe('TypeScriptDatabases')
+  })
+
+  it('shows a chosen value its choices lack, chosen, so it can be let go', () => {
+    const root = render(
+      send(
+        Edit.Message.Changed({ key: 'editorId', value: 'gone' }),
+        Edit.Message.Changed({ key: 'tagIds', value: ['t2', 'lost'] }),
+      ),
+    )
+    expect(
+      Inert.children(byId(root, 'Edit-editorId')).map(option => [
+        option.data?.props?.value,
+        Inert.text(option),
+        option.data?.props?.selected,
+      ]),
+    ).toEqual([
+      ['', '', false],
+      ['a1', 'Ada', false],
+      ['a2', 'Grace', false],
+      ['gone', '? gone', true],
+    ])
+    const boxes = Inert.byTag(byId(root, 'Edit-tagIds'), 'input')
+    expect(boxes.map(box => [box.data?.props?.value, box.data?.props?.checked])).toEqual([
+      ['t1', false],
+      ['t2', true],
+      ['lost', true],
+    ])
+  })
+
+  it('words the choice of nothing as the view is told to', () => {
+    const worded = FormView.define(Edit)(
+      {
+        model: initial,
+        errors: [],
+        canSubmit: false,
+        options,
+        words: { none: 'none' },
+      },
+      SlotView.inertBuilder(),
+    )
+    const blank = Inert.children(byId(worded, 'Edit-editorId'))[0]
+    expect([blank?.data?.props?.value, Inert.text(blank)]).toEqual(['', 'none'])
+  })
+
+  it('shows the draft: a value, a checked box, a selected option, the chosen ids', () => {
+    const root = render(
+      send(
+        Edit.Message.Changed({ key: 'title', value: 'Hello' }),
+        Edit.Message.Changed({ key: 'featured', value: true }),
+        Edit.Message.Changed({ key: 'editorId', value: 'a2' }),
+        Edit.Message.Changed({ key: 'tagIds', value: ['t2'] }),
+      ),
+    )
+    const selected = Inert.children(byId(root, 'Edit-editorId')).flatMap(option =>
+      option.data?.props?.selected === true ? [option.data.props.value] : [],
+    )
+    const checked = Inert.all(byId(root, 'Edit-tagIds')).flatMap(node =>
+      node.sel === 'input' ? [node.data?.props?.checked] : [],
+    )
+
+    expect(byId(root, 'Edit-title')?.data?.props?.value).toBe('Hello')
+    expect(byId(root, 'Edit-featured')?.data?.props?.checked).toBe(true)
+    expect(selected).toEqual(['a2'])
+    expect(checked).toEqual([false, true])
+  })
+
+  it('labels each control, and ties its description and error to it for a screen reader', () => {
+    const calm = render()
+    const label = Inert.all(calm).find(node => node.data?.props?.htmlFor === 'Edit-title')
+    expect(Inert.text(label)).toBe('Title')
+    expect(Inert.text(byId(calm, 'Edit-title-description'))).toBe('Shown in the feed')
+    expect(byId(calm, 'Edit-title')?.data?.attrs).toMatchObject({
+      'aria-invalid': 'false',
+      'aria-required': 'true',
+      'aria-describedby': 'Edit-title-description',
+    })
+    expect(byId(calm, 'Edit-title-error')).toBeUndefined()
+    expect(byId(calm, 'Edit-tagIds')?.data?.attrs).toMatchObject({
+      role: 'group',
+      'aria-label': 'Tags',
+    })
+
+    const failed = render(send(Edit.Message.Blurred({ key: 'title' })))
+    expect(byId(failed, 'Edit-title')?.data?.attrs).toMatchObject({
+      'aria-invalid': 'true',
+      'aria-describedby': 'Edit-title-description Edit-title-error',
+    })
+    expect(Inert.text(byId(failed, 'Edit-title-error'))).toBe('Required')
+    expect(byId(failed, 'Edit-title-error')?.data?.attrs).toMatchObject({ role: 'alert' })
+  })
+
+  it('says a check is running, to a screen reader and to a stylesheet, only while it runs', () => {
+    const checking = {
+      ...initial,
+      fields: { ...initial.fields, title: { _tag: 'Validating' as const, value: 'Hello' } },
+    }
+    const root = render(checking)
+    expect(byId(root, 'Edit-title')?.data?.attrs).toMatchObject({
+      'aria-busy': 'true',
+      'aria-describedby': 'Edit-title-description Edit-title-checking',
+    })
+    expect(Inert.text(byId(root, 'Edit-title-checking'))).toBe('Checking…')
+    expect(byId(root, 'Edit-title-checking')?.data?.attrs).toMatchObject({ role: 'status' })
+    const field = (drawn: Html) =>
+      Inert.all(drawn).find(node =>
+        Inert.children(node).some(child => child.data?.props?.htmlFor === 'Edit-title'),
+      )
+    expect(field(root)?.data?.attrs).toMatchObject({ 'data-validation': 'Validating' })
+
+    const worded = FormView.define(Edit)(
+      { model: checking, errors: [], canSubmit: true, words: { checking: 'Asking…' } },
+      SlotView.inertBuilder(),
+    )
+    expect(Inert.text(byId(worded, 'Edit-title-checking'))).toBe('Asking…')
+
+    const calm = render()
+    expect(byId(calm, 'Edit-title')?.data?.attrs?.['aria-busy']).toBeUndefined()
+    expect(byId(calm, 'Edit-title-checking')).toBeUndefined()
+    expect(field(calm)?.data?.attrs).toMatchObject({ 'data-validation': 'NotValidated' })
+    expect(field(render(send(Edit.Message.Blurred({ key: 'title' }))))?.data?.attrs).toMatchObject({
+      'data-validation': 'Invalid',
+    })
+  })
+
+  it('disables the submit until the form would submit, and takes its label', () => {
+    const button = (root: Html) => Inert.all(root).find(node => node.sel === 'button')
+    expect(button(render())?.data?.props?.disabled).toBe(true)
+    expect(Inert.text(button(render()))).toBe('Submit')
+
+    const ready = send(
+      Edit.Message.Changed({ key: 'title', value: 'Hello' }),
+      Edit.Message.Changed({ key: 'status', value: 'draft' }),
+    )
+    const saved = FormView.define(Edit)(
+      { model: ready, errors: [], canSubmit: Edit.canSubmit(ready), words: { submit: 'Save' } },
+      SlotView.inertBuilder(),
+    )
+    expect(button(saved)?.data?.props?.disabled).toBe(false)
+    expect(Inert.text(button(saved))).toBe('Save')
+  })
+
+  it('shows the form submitting: busy, marked, its button disabled and worded for it', () => {
+    const ready = send(
+      Edit.Message.Changed({ key: 'title', value: 'Hello' }),
+      Edit.Message.Changed({ key: 'status', value: 'draft' }),
+    )
+    const draw = (submitting: boolean, words?: { readonly submitting: string }) =>
+      FormView.define(Edit)(
+        { model: ready, errors: [], canSubmit: true, submitting, words },
+        SlotView.inertBuilder(),
+      )
+    const button = (root: Html) => Inert.all(root).find(node => node.sel === 'button')
+
+    const sending = draw(true)
+    expect(sending?.data?.attrs).toMatchObject({ 'aria-busy': 'true' })
+    expect(sending?.data?.attrs).toMatchObject({ 'data-submitting': '' })
+    expect(button(sending)?.data?.props?.disabled).toBe(true)
+    expect(Inert.text(button(sending))).toBe('Submitting…')
+    expect(Inert.text(button(draw(true, { submitting: 'Saving…' })))).toBe('Saving…')
+
+    const idle = draw(false)
+    expect(idle?.data?.attrs?.['aria-busy']).toBeUndefined()
+    expect(idle?.data?.attrs?.['data-submitting']).toBeUndefined()
+    expect(button(idle)?.data?.props?.disabled).toBe(false)
+    expect(Inert.text(button(idle))).toBe('Submit')
+  })
+
+  it('reads submitting from a submit waiting for a check, or from the application', () => {
+    const view = FormView.submodel(Edit, FormView.define(Edit))
+    const submitting = (model: typeof initial, inputs: { readonly submitting?: boolean }) =>
+      view(model, inputs, SlotView.inertBuilder())?.data?.attrs?.['aria-busy']
+    expect(submitting(initial, {})).toBeUndefined()
+    expect(submitting({ ...initial, submitPending: true }, {})).toBe('true')
+    expect(submitting(initial, { submitting: true })).toBe('true')
+  })
+
+  it('draws no submit for someone who may not submit it', () => {
+    const withheld = FormView.define(Edit)(
+      { model: initial, errors: [], canSubmit: true, submits: false },
+      SlotView.inertBuilder(),
+    )
+    expect(Inert.all(withheld).some(node => node.sel === 'button')).toBe(false)
+    // The fields are drawn as ever.
+    expect(byId(withheld, 'Edit-title')).toBeDefined()
+  })
+})
+
+describe('locked keys', () => {
+  it('draws a locked key disabled, whatever its kind, and leaves the rest editable', () => {
+    const root = FormView.define(Edit)(
+      {
+        model: initial,
+        errors: [],
+        canSubmit: true,
+        options,
+        locked: ['title', 'status', 'featured', 'tagIds'],
+      },
+      SlotView.inertBuilder(),
+    )
+    const disabled = (node: Node | undefined) =>
+      node?.data?.props?.disabled ?? node?.data?.attrs?.disabled ?? false
+    expect(['title', 'status', 'featured'].map(key => disabled(byId(root, `Edit-${key}`)))).toEqual(
+      [true, true, true],
+    )
+    // A many picker is a group of checkboxes: each is locked.
+    const choices = Inert.all(byId(root, 'Edit-tagIds')).filter(node => node.sel === 'input')
+    expect(choices.length).toBeGreaterThan(0)
+    expect(choices.every(disabled)).toBe(true)
+    expect(['body', 'rating', 'editorId'].map(key => disabled(byId(root, `Edit-${key}`)))).toEqual([
+      false,
+      false,
+      false,
+    ])
+  })
+
+  it('posts a locked key as a hidden input, since a disabled control is not posted', () => {
+    const root = FormView.define(Edit)(
+      {
+        model: Edit.fill(initial, { title: 'Kept' }).model,
+        errors: [],
+        canSubmit: true,
+        options,
+        locked: ['title'],
+      },
+      SlotView.inertBuilder(),
+    )
+    const hidden = Inert.all(root)
+      .filter(node => node.sel === 'input' && node.data?.attrs?.type === 'hidden')
+      .map(node => [node.data?.attrs?.name, node.data?.attrs?.value])
+    // As attributes, so a server's markup holds them; an editable key needs none.
+    expect(hidden).toEqual([['title', 'Kept']])
+  })
+
+  it('locks the form’s own key, not a row’s key of the same name', () => {
+    const Tag = Entity.define('Tag', Schema.Struct({ id: Schema.String, name: Schema.String }))
+    const Item = Entity.define('Item', Schema.Struct({ id: Schema.String, name: Schema.String }))
+    const Shop = Entity.relate({ Tag, Item }, { Item: { tags: Relation.many(Tag) } })
+    const NewTag = Entity.input(Shop.Tag, Schema.Struct({ name: Schema.String }))
+    const ItemForm = Form.make(
+      'Item',
+      Entity.input(
+        Shop.Item,
+        Schema.Struct({ name: Schema.String, tags: Schema.Array(NewTag.schema) }),
+        { tags: Relation.nested(Shop.Item.relations.tags, NewTag) },
+      ),
+    )
+    const model = ItemForm.bundle.update(
+      ItemForm.bundle.init(undefined).model,
+      ItemForm.Message.RowAdded({ key: 'tags' }),
+      undefined,
+    ).model
+    const root = FormView.define(ItemForm)(
+      { model, errors: [], canSubmit: true, locked: ['name'] },
+      SlotView.inertBuilder(),
+    )
+    const names = Inert.all(root).filter(
+      node => node.sel === 'input' && String(node.data?.props?.id).endsWith('-name'),
+    )
+    expect(names.map(node => [node.data?.props?.id, node.data?.props?.disabled ?? false])).toEqual([
+      ['Item-name', true],
+      [expect.stringMatching(/^Item-tags-.+-name$/), false],
+    ])
+  })
+})
+
+describe('its customization contract', () => {
+  it.each([
+    ['a first render, every picker with its choices', initial, []],
+    ['a form with a failure of its own', initial, ['The title and the slug disagree.']],
+    [
+      'a key being checked, and a submit waiting for it',
+      {
+        ...initial,
+        fields: { ...initial.fields, title: { _tag: 'Validating' as const, value: 'Hello' } },
+        submitPending: true,
+      },
+      [],
+    ],
+  ] as const)(
+    'draws everything through its Slots, with no fixed inline style: %s',
+    (_, model, errors) => {
+      const root = Inert.draw(FormView.define(Edit), {
+        model,
+        errors,
+        canSubmit: Edit.canSubmit(model),
+        submitting: model.submitPending,
+        options,
+      })
+      // A control backed by a Bundle draws the Bundle's own view, which is not the form's.
+      expect(Inert.unslotted(root, { inside: ['control'] })).toEqual([])
+      expect(Inert.fixedInline(root, { inside: ['control'] })).toEqual([])
+    },
+  )
+})
+
+describe('FormView styling', () => {
+  it('takes Style on the slots of the form and of a field, by input', () => {
+    const Field = FormView.field(Edit).pipe(
+      Style.attach(
+        Style.forSlots(FieldSlots)({
+          root: Style.class('field'),
+          text: Style.whenInput<FieldInput>(input => input.invalid, Style.class('is-invalid')),
+        }),
+      ),
+    )
+    const View = FormView.define(Edit, { field: Field }).pipe(
+      Style.attach(Style.forSlots(FormSlots)({ root: Style.class('form') })),
+    )
+
+    const root = render(send(Edit.Message.Blurred({ key: 'title' })), View)
+    expect(Inert.classes(root)).toEqual(['form'])
+    expect(Inert.classes(byId(root, 'Edit-title'))).toEqual(['is-invalid'])
+    expect(Inert.classes(byId(root, 'Edit-rating'))).toEqual([])
+    expect(Inert.all(root).filter(node => Inert.classes(node).includes('field'))).toHaveLength(7)
+  })
+
+  it('takes a Behavior that adds to a control, and refuses one that takes over its wiring', () => {
+    type Message = typeof Edit.Message.Type
+    type Key = (typeof Edit.controls)[number]['key']
+    const behaviors = Behavior.forSlots(FieldSlots)<FieldInput<Key>, Message>
+    const Tracked = behaviors({
+      text: Behavior.slot({
+        requires: { capability: Capability.TextInput },
+        attributes: ({ input, h }) => [h.DataAttribute('field', input.control.key)],
+      }),
+    })
+    const Overriding = behaviors({
+      text: Behavior.slot({
+        requires: { attributes: [Attr.AriaInvalid] },
+        attributes: ({ h }) => [h.AriaInvalid(false)],
+      }),
+    })
+    const withField = (behavior: typeof Tracked) =>
+      FormView.define(Edit, { field: FormView.field(Edit).pipe(Behavior.attach(behavior)) })
+
+    const tracked = byId(render(initial, withField(Tracked)), 'Edit-title')
+    expect(tracked?.data?.attrs).toMatchObject({ 'data-field': 'title' })
+    expect(() => render(initial, withField(Overriding))).toThrow('two owners for "AriaInvalid"')
+  })
+})
+
+describe('renderers', () => {
+  const Stars = Input.kind<{ readonly max: number }>('Stars', {
+    draft: 'text',
+    parse: draft => (/^[0-9]+$/.test(draft) ? Number(draft) : undefined),
+  })
+  const Rated = Form.make(
+    'Rated',
+    Entity.input(
+      Entity.define('Film', Schema.Struct({ id: Schema.String, stars: Schema.Number })),
+      Schema.Struct({ stars: Schema.Number, title: Schema.String }),
+      { title: Entity.unmapped },
+    ),
+    { inputs: { stars: Stars.of({ max: 5 }) } },
+  )
+  const draw = (view: ReturnType<typeof FormView.define<'stars' | 'title', any, any>>) =>
+    view({ model: Rated.initial, errors: [], canSubmit: true }, SlotView.inertBuilder())
+
+  it('draws a kind the application made, with the renderer it gives', () => {
+    const root = draw(
+      FormView.define(Rated, {
+        renderers: {
+          Stars: ({ control, state, h }) =>
+            h.div(state, [`up to ${Stars.is(control) ? control.data.max : 0}`]),
+        },
+      }),
+    )
+    // The renderer puts the field's id and accessibility state where the value is.
+    expect(byId(root, 'Rated-stars')?.sel).toBe('div')
+    expect(Inert.text(byId(root, 'Rated-stars'))).toBe('up to 5')
+    expect(byId(root, 'Rated-stars')?.data?.attrs?.['aria-invalid']).toBe('false')
+    // The shipped renderers still draw the rest.
+    expect(byId(root, 'Rated-title')?.sel).toBe('input')
+  })
+
+  it('lets a shipped kind be drawn another way, by the same means', () => {
+    const root = draw(
+      FormView.define(Rated, {
+        renderers: {
+          Stars: ({ state, h }) => h.div(state, []),
+          Text: ({ state, h }) => h.div(state, ['custom text']),
+        },
+      }),
+    )
+    expect(byId(root, 'Rated-title')?.sel).toBe('div')
+  })
+
+  it('tells a renderer whether its key still follows another, so it can offer to regenerate', () => {
+    const Addressed = Form.make(
+      'Addressed',
+      Entity.input(
+        Entity.define('Page', Schema.Struct({ id: Schema.String, title: Schema.String })),
+        Schema.Struct({ title: Schema.String, slug: Schema.String }),
+        { slug: Entity.unmapped },
+      ),
+      { inputs: { slug: Input.following('title', text => text.toLowerCase()) } },
+    )
+    const View = FormView.define(Addressed, {
+      renderers: {
+        Text: ({ input, state, h }) => h.div(state, [input.following ? 'following' : 'own']),
+      },
+    })
+    const says = (model: typeof Addressed.initial) =>
+      Inert.text(
+        byId(
+          View({ model, errors: [], canSubmit: true }, SlotView.inertBuilder()),
+          'Addressed-slug',
+        ),
+      )
+    const written = Addressed.bundle.update(
+      Addressed.initial,
+      Addressed.Message.Changed({ key: 'slug', value: 'mine' }),
+      undefined,
+    ).model
+    expect([says(Addressed.initial), says(written)]).toEqual(['following', 'own'])
+  })
+
+  it('says which kind has no renderer, and where to give one', () => {
+    expect(() => draw(FormView.define(Rated))).toThrow(
+      'FormView: no renderer for a "Stars" control ("stars"); pass one under "renderers"',
+    )
+  })
+})
+
+describe('a control backed by a Bundle', () => {
+  const SwatchMessage = defineMessageUnion({ Chose: { hex: Schema.String } })
+  const Swatch = Bundle.make({
+    name: 'Swatch',
+    Model: Schema.Struct({ hex: Schema.String }),
+    Message: SwatchMessage,
+    init: () => ({ model: { hex: '#000000' } }),
+    update: (model: { readonly hex: string }, message: typeof SwatchMessage.Type) => ({
+      model: { ...model, hex: message.hex },
+    }),
+    view: Submodel.defineView<{ readonly hex: string }, typeof SwatchMessage.Type>((model, h) =>
+      h.button([h.OnClick(SwatchMessage.Chose({ hex: '#ffffff' }))], [model.hex]),
+    ),
+  })
+  const Painted = Form.make(
+    'Painted',
+    Entity.input(
+      Entity.define('Wall', Schema.Struct({ id: Schema.String, color: Schema.String })),
+      Schema.Struct({ color: Schema.String }),
+    ),
+    {
+      inputs: {
+        color: Input.bundle('Swatch', {
+          bundle: Swatch,
+          value: model => model.hex,
+          fill: (model, hex) => ({ ...model, hex }),
+        }),
+      },
+    },
+  )
+  const draw = (view: ReturnType<typeof FormView.define<never, any, any>>) =>
+    view({ model: Painted.initial, errors: [], canSubmit: true }, SlotView.inertBuilder())
+
+  it('gives a renderer the Bundle’s Model and the Message for one of its own', () => {
+    const sent: Array<unknown> = []
+    draw(
+      FormView.define(Painted, {
+        renderers: {
+          Swatch: ({ bundle, draft, state, h }) => {
+            sent.push(bundle?.send(SwatchMessage.Chose({ hex: '#ff0000' })))
+            return h.div(state, [String(bundle?.model === undefined), String(draft)])
+          },
+        },
+      }),
+    )
+    expect(sent).toEqual([
+      Painted.Message.Control({ key: 'color', message: SwatchMessage.Chose({ hex: '#ff0000' }) }),
+    ])
+  })
+
+  it('wraps the Message for its row when the control is inside a nested form', () => {
+    const Wall = Entity.define('Wall', Schema.Struct({ id: Schema.String, color: Schema.String }))
+    const Room = Entity.define('Room', Schema.Struct({ id: Schema.String, name: Schema.String }))
+    const House = Entity.relate({ Wall, Room }, { Room: { walls: Relation.many(Wall) } })
+    const WallInput = Entity.input(House.Wall, Schema.Struct({ color: Schema.String }))
+    const WallForm = Form.make('WallForm', WallInput, {
+      inputs: {
+        color: Input.bundle('Swatch', {
+          bundle: Swatch,
+          value: model => model.hex,
+          fill: (model, hex) => ({ ...model, hex }),
+        }),
+      },
+    })
+    const RoomForm = Form.make(
+      'RoomForm',
+      Entity.input(
+        House.Room,
+        Schema.Struct({ name: Schema.String, walls: Schema.Array(WallInput.schema) }),
+        { walls: Relation.nested(House.Room.relations.walls, WallInput) },
+      ),
+      { nested: { walls: WallForm } },
+    )
+    const withRow = RoomForm.bundle.update(
+      RoomForm.initial,
+      RoomForm.Message.RowAdded({ key: 'walls' }),
+      undefined,
+    ).model
+    const [row] = RoomForm.rows(withRow, 'walls')
+    const sent: Array<unknown> = []
+    FormView.define(RoomForm, {
+      renderers: {
+        Swatch: ({ bundle, state, h }) => {
+          sent.push(bundle?.send(SwatchMessage.Chose({ hex: '#ff0000' })))
+          return h.div(state, [])
+        },
+      },
+    })({ model: withRow, errors: [], canSubmit: true }, SlotView.inertBuilder())
+    expect(sent).toEqual([
+      RoomForm.row('walls', row?.id ?? '').send(
+        WallForm.control('color').send(SwatchMessage.Chose({ hex: '#ff0000' })),
+      ),
+    ])
+  })
+})
+
+describe('FormView.submodel submit gating', () => {
+  const button = (root: Html) => Inert.all(root).find(node => node.sel === 'button')
+  const drawn = <M, I>(
+    view: (model: M, inputs: I, h: HtmlBuilder<typeof Edit.Message.Type>) => Html,
+    model: M,
+  ): Html => view(model, {} as I, SlotView.inertBuilder<typeof Edit.Message.Type>())
+  const ready = send(
+    Edit.Message.Changed({ key: 'title', value: 'Hello' }),
+    Edit.Message.Changed({ key: 'status', value: 'draft' }),
+  )
+
+  it('lets a submit made mid-check wait by default', () => {
+    const root = drawn(FormView.submodel(Edit, FormView.define(Edit)), ready)
+    expect(button(root)?.data?.props?.disabled).toBe(false)
+  })
+
+  it('takes a strict predicate that disables through checks', () => {
+    const root = drawn(
+      FormView.submodel(Edit, FormView.define(Edit), { canSubmit: () => false }),
+      ready,
+    )
+    expect(button(root)?.data?.props?.disabled).toBe(true)
+  })
+
+  it('takes never pre-disabling that validates wholly at submit', () => {
+    const root = drawn(
+      FormView.submodel(Edit, FormView.define(Edit), { canSubmit: () => true }),
+      initial,
+    )
+    expect(button(root)?.data?.props?.disabled).toBe(false)
+  })
+})

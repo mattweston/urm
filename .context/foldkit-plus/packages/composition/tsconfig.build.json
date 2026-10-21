@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": ".tsbuild/build",
+    "tsBuildInfoFile": ".tsbuild/build/tsconfig.build.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    {
+      "path": "../metadata/tsconfig.build.json"
+    },
+    {
+      "path": "../richtext/tsconfig.build.json"
+    },
+    {
+      "path": "../mixins/tsconfig.build.json"
+    },
+    {
+      "path": "../remote/tsconfig.build.json"
+    },
+    {
+      "path": "../surface/tsconfig.build.json"
+    }
+  ]
+}

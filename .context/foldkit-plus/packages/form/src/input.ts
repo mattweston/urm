@@ -1,0 +1,399 @@
+/**
+ * Controls: what edits one key of a form, described without a renderer.
+ *
+ * There is one primitive. A control is a `kind` (a name), the draft the Model
+ * holds while the user edits, and whatever data its kind needs. `Input.text()`
+ * and `Input.toggle()` are values of it, made by `Input.kind`, which is what an
+ * application calls for a date picker or a rich text editor. The kinds here are
+ * a collection, not a special case. Which DOM, component, or design system
+ * draws a kind is the application's.
+ */
+import { Schema, SchemaAST } from 'effect'
+import type { Bundle } from 'foldkit-bundle'
+import { SchemaShape, type AnyEntity, type InputMember } from 'foldkit-entity'
+import { Metadata } from 'foldkit-metadata'
+
+/**
+ * What a control holds while it is edited, which is not the value it submits: a
+ * number being typed is text, and an unchosen relation is the empty string.
+ */
+export type Draft = string | boolean | ReadonlyArray<string>
+
+/**
+ * The draft a control holds. `rows` is a nested key: rows of a form, not a
+ * draft. `model` is a control backed by a Bundle (`Input.bundle`): its draft is
+ * the Bundle's Model.
+ */
+export type DraftKind = 'text' | 'flag' | 'list' | 'rows' | 'model'
+
+/** What edits one key: the primitive every kind of control is a value of. */
+export interface Control<Data = unknown> {
+  /** The name a renderer is found by. */
+  readonly kind: string
+  readonly draft: DraftKind
+  /** Whether a view draws it. A control carried and submitted, not shown, is `false`. */
+  readonly shown: boolean
+  /**
+   * Whether the form also holds what the user typed to find a choice, which the
+   * application reads as the input of the query that lists the choices.
+   */
+  readonly searches: boolean
+  /** What this kind needs: a select's options, a relation's target. */
+  readonly data: Data
+  /**
+   * For a `text` draft: the value the key's schema is given, when that is not the
+   * text itself, read with the control's `data` (a select's options). `undefined`
+   * means the text does not read as one.
+   */
+  // A method, so a control of any data is a `Control<unknown>`.
+  parse?(draft: string, data: Data): unknown
+  /** What to say when `parse` gives `undefined`. */
+  readonly unparsed?: string | undefined
+  /**
+   * For a `text` draft: another key of the form this one is written from until
+   * the author writes it themselves. A slug follows a title.
+   */
+  readonly follows?: Follows | undefined
+}
+
+/** Which key a draft follows, and what it makes of that key's text. */
+export interface Follows {
+  readonly key: string
+  readonly through: (text: string) => string
+}
+
+/** A kind of control: how its values are made, and how one is told from another. */
+export interface ControlKind<Data> {
+  readonly kind: string
+  readonly of: (data: Data) => Control<Data>
+  readonly is: (control: Control) => control is Control<Data>
+}
+
+/**
+ * Under `inputs`, in place of a control: a change to the control the form would
+ * have resolved, such as giving the key's relation picker a search.
+ */
+export interface ControlChange {
+  readonly change: (resolved: Control | undefined, key: string) => Control
+}
+
+export const isControlChange = (value: Control | ControlChange): value is ControlChange =>
+  'change' in value
+
+/** One row of a nested key: a Model of the nested form, under an id that outlives reordering. */
+export interface FormRow<Model = unknown> {
+  readonly id: string
+  readonly model: Model
+}
+
+/** What a view needs of a nested form to draw its rows. Every form `Form.make` returns is one. */
+export interface NestedForm {
+  readonly controls: ReadonlyArray<{
+    readonly key: string
+    readonly control: Control
+    readonly label: string
+    readonly description: string | undefined
+    readonly required: boolean
+  }>
+  readonly field: (model: never, key: never) => unknown
+  readonly rows: (model: never, key: never) => ReadonlyArray<FormRow>
+  readonly search: (model: never, key: never) => string
+  readonly isFollowing: (model: never, key: never) => boolean
+  /** A key edited by a control backed by a Bundle: its state, with the Bundle's Model as the value. */
+  readonly control: (key: never) => { readonly field: (model: never) => unknown }
+  readonly Message: {
+    readonly Changed: (payload: never) => unknown
+    readonly Control: (payload: never) => unknown
+    readonly Blurred: (payload: never) => unknown
+    readonly Searched: (payload: never) => unknown
+    readonly Nested: (payload: never) => unknown
+    readonly RowAdded: (payload: never) => unknown
+    readonly RowRemoved: (payload: never) => unknown
+  }
+}
+
+/** A kind of control. The kinds below are made with it, and so is an application's. */
+const kind = <Data = Record<string, never>>(
+  name: string,
+  spec: {
+    readonly draft: DraftKind
+    readonly shown?: boolean
+    readonly searches?: boolean | ((data: Data) => boolean)
+    /** The value a text draft stands for, given the control's data; `undefined` when it stands for none. */
+    readonly parse?: (draft: string, data: Data) => unknown
+    readonly unparsed?: string
+  },
+): ControlKind<Data> => {
+  return {
+    kind: name,
+    of: data =>
+      Object.freeze({
+        kind: name,
+        draft: spec.draft,
+        shown: spec.shown ?? true,
+        searches:
+          typeof spec.searches === 'function' ? spec.searches(data) : (spec.searches ?? false),
+        data,
+        ...(spec.parse === undefined ? {} : { parse: spec.parse }),
+        unparsed: spec.unparsed,
+      }),
+    is: (control): control is Control<Data> => control.kind === name,
+  }
+}
+
+/**
+ * What a control backed by a Bundle carries: the Bundle, its args, and how the
+ * key's value is read from its Model and written into it.
+ */
+export interface BundleData<Model = any, Value = any> {
+  readonly bundle: Bundle.AnyBundle
+  readonly args: unknown
+  /** The value the key validates and submits. `undefined` or `null` is nothing entered. */
+  readonly value: (model: Model) => Value | null | undefined
+  /** The Model showing a value the form was given, from the Model the control holds. */
+  readonly fill: (model: Model, value: Value) => Model
+  /** The Model with nothing in flight, for a stored form shown again. */
+  readonly settled: (model: Model) => Model
+}
+
+/**
+ * A control backed by a Bundle. Its draft is the Bundle's Model, its Messages
+ * reach it through the form, and its Commands, Subscriptions and Resources are
+ * the form's.
+ */
+export interface BundleControl<Model, Message, Value, Resources = {}> extends Control<
+  BundleData<Model, Value>
+> {
+  readonly draft: 'model'
+  /** Type-only: the Bundle's Message, for `form.control(key).send`. Never set. */
+  readonly Message?: Message
+  /** Type-only: the Bundle's Resources, which a runtime running the form must provide. Never set. */
+  readonly Resources?: Resources
+}
+
+/** What `Input.bundle` takes: the Bundle, then how the key's value lives in its Model. */
+export type BundleControlSpec<
+  Args,
+  Model,
+  Message extends { readonly _tag: string },
+  Value,
+  Resources extends Bundle.ResourceEntries<Model, Message> = {},
+> = {
+  /**
+   * The Bundle. Its Commands may need no services, and it has no OutMessage: a
+   * form key has no parent to hand one to, and an OutMessage is never dropped
+   * by omission.
+   */
+  readonly bundle: Bundle.Bundle<any, Args, Model, Message, never, never, any, any, Resources, any>
+  /** The value the key validates and submits. `undefined` or `null` is nothing entered. */
+  readonly value: (model: Model) => Value | null | undefined
+  /** The Model showing a value the form was given (`fill`), from the Model the control holds. */
+  readonly fill: (model: Model, value: Value) => Model
+  /** The Model with nothing in flight, for a stored form shown again. Default: as it is. */
+  readonly settled?: (model: Model) => Model
+} & ([Args] extends [void] ? { readonly args?: undefined } : { readonly args: Args })
+
+/** A relation picker: what it chooses from, and whether it searches. */
+export interface RelationData {
+  readonly target: AnyEntity
+  readonly search: boolean
+}
+
+/** A nested key: how many rows it may hold, and the form each row is a Model of. */
+export interface NestedData {
+  readonly cardinality: 'one' | 'many'
+  /** Whether the rows may be none: always for a `many`, for a `one` when its schema admits nothing. */
+  readonly optional: boolean
+  readonly form: NestedForm
+}
+
+const nothing: Record<string, never> = Object.freeze({})
+
+const Text = kind('Text', { draft: 'text' })
+const Hidden = kind('Hidden', { draft: 'text', shown: false })
+const Multiline = kind('Multiline', { draft: 'text' })
+const Number_ = kind('Number', {
+  draft: 'text',
+  // `Number(' ')` is 0, which nobody typed: a number's draft of spaces is nothing.
+  parse: draft => {
+    const value = globalThis.Number(draft)
+    return draft.trim() === '' || !globalThis.Number.isFinite(value) ? undefined : value
+  },
+  unparsed: 'Enter a number',
+})
+const Toggle = kind('Toggle', { draft: 'flag' })
+/**
+ * One of a fixed set, text or numbers. The draft is the option as text, as a
+ * `<select>` holds it; the value is the option itself, so `3` is stored as `3`.
+ */
+const Select = kind<{ readonly options: ReadonlyArray<string | number> }>('Select', {
+  draft: 'text',
+  parse: (draft, data) => data.options.find(option => String(option) === draft),
+  unparsed: 'Choose one of the options',
+})
+const RelationOne = kind<RelationData>('RelationOne', {
+  draft: 'text',
+  searches: data => data.search,
+})
+const RelationMany = kind<RelationData>('RelationMany', {
+  draft: 'list',
+  searches: data => data.search,
+})
+const Nested = kind<NestedData>('Nested', { draft: 'rows' })
+
+const key = Metadata.key<Control>('foldkit-form/input', {
+  // The last control attached wins: a later annotation refines an earlier one.
+  merge: controls => controls.slice(-1),
+  summarize: control => control.kind,
+})
+
+// Optional text is still text, so `null` and `undefined` are set aside first.
+const fromSchema = (schema: Schema.Top): Control | undefined => {
+  const members = SchemaShape.present(schema.ast)
+  const [only] = members
+  if (members.length === 1 && only !== undefined) {
+    if (SchemaAST.isString(only)) return Text.of(nothing)
+    if (SchemaAST.isNumber(only)) return Number_.of(nothing)
+    if (SchemaAST.isBoolean(only)) return Toggle.of(nothing)
+  }
+  const literals = members.map(member => (SchemaAST.isLiteral(member) ? member.literal : undefined))
+  const options = literals.filter(
+    (literal): literal is string | number =>
+      typeof literal === 'string' || typeof literal === 'number',
+  )
+  return options.length > 0 && options.length === literals.length
+    ? Select.of({ options })
+    : undefined
+}
+
+export const Input = {
+  /**
+   * A kind of control. `Input.kind<{ min: string }>('Date', { draft: 'text' })`
+   * gives `.of(data)` to make one and `.is(control)` to tell one, exactly as the
+   * kinds below were made. A view draws it once it is given a renderer for `Date`.
+   */
+  kind,
+
+  // The kinds this package resolves to. A view finds its renderer by `kind`.
+  Text,
+  Hidden,
+  Multiline,
+  Number: Number_,
+  Toggle,
+  Select,
+  RelationOne,
+  RelationMany,
+  Nested,
+
+  /**
+   * A control backed by a Bundle, for a draft that is a Model of its own: a
+   * color picker with a popover, a page builder, a rich-text editor. The key's
+   * draft is the Bundle's Model; `value` reads what the key validates and
+   * submits from it, and `fill` writes a given value into it. The Bundle's
+   * Messages travel as the form's `Control` Message, and its Commands,
+   * Subscriptions and Resources become the form's.
+   */
+  bundle: <
+    Args,
+    Model,
+    Message extends { readonly _tag: string },
+    Value,
+    Resources extends Bundle.ResourceEntries<Model, Message> = {},
+  >(
+    kind: string,
+    spec: BundleControlSpec<Args, Model, Message, Value, Resources>,
+  ): BundleControl<Model, Message, Value, Resources> =>
+    Object.freeze({
+      kind,
+      draft: 'model' as const,
+      shown: true,
+      searches: false,
+      data: Object.freeze({
+        bundle: spec.bundle as Bundle.AnyBundle,
+        args: spec.args,
+        value: spec.value,
+        fill: spec.fill,
+        settled: spec.settled ?? ((model: Model) => model),
+      }),
+    }),
+
+  /** Whether a control is backed by a Bundle, whatever its kind is called. */
+  isBundle: (control: Control): control is Control<BundleData> => control.draft === 'model',
+
+  text: (): Control => Text.of(nothing),
+  /** Carried and submitted, not shown: the id of the thing being edited. Set it with `fill`. */
+  hidden: (): Control => Hidden.of(nothing),
+  multiline: (): Control => Multiline.of(nothing),
+  number: (): Control => Number_.of(nothing),
+  toggle: (): Control => Toggle.of(nothing),
+  select: (options: ReadonlyArray<string | number>): Control => Select.of({ options }),
+  /**
+   * A picker of one of `target`, for a value that is not a relation of the
+   * form's Entity: a page Builder's Block prop that holds an id. A relation key
+   * resolves to its picker without asking.
+   */
+  relationOne: (target: AnyEntity): Control => RelationOne.of({ target, search: false }),
+  /** A picker of any number of `target`, as `relationOne` is of one. */
+  relationMany: (target: AnyEntity): Control => RelationMany.of({ target, search: false }),
+
+  /**
+   * For a relation key, under `inputs`: its picker, with a search. Too many to
+   * list is the usual case for a relation; the form holds the search text, and
+   * the query that lists the options takes it as input.
+   */
+  search: (): ControlChange => ({
+    change: (resolved, inputKey) => {
+      if (resolved !== undefined && RelationOne.is(resolved))
+        return RelationOne.of({ ...resolved.data, search: true })
+      if (resolved !== undefined && RelationMany.is(resolved))
+        return RelationMany.of({ ...resolved.data, search: true })
+      throw new Error(`"${inputKey}" is not a relation, so it has no picker to search`)
+    },
+  }),
+
+  /**
+   * Under `inputs`: the key's own control, following another key. Until the
+   * author writes this key, its draft is `through` of that key's text, rewritten
+   * as that key is edited; once they write it, it is theirs. Emptying it hands
+   * it back. A form filled with a value for it does not follow: an address that
+   * is already published must not move because its title did.
+   */
+  following: (key: string, through: (text: string) => string = text => text): ControlChange => ({
+    change: (resolved, inputKey) => {
+      if (resolved === undefined || resolved.draft !== 'text')
+        throw new Error(`"${inputKey}" holds no text, so it cannot follow "${key}"`)
+      return Object.freeze({ ...resolved, follows: { key, through } })
+    },
+  }),
+
+  /**
+   * Entity metadata: the control a member is edited with wherever it appears,
+   * e.g. `Entity.annotateMembers({ body: Input.of(Input.multiline()) })`.
+   */
+  of: (control: Control) => key.of(control),
+
+  /**
+   * The control for one input key, from the most to the least explicit source:
+   * the member's `Input.of` metadata, the relation it writes, then the shape of
+   * its schema. `undefined` when none of them says, which a form reports rather
+   * than guessing.
+   */
+  resolve: (member: InputMember, schema: Schema.Top): Control | undefined => {
+    switch (member._tag) {
+      case 'Unmapped':
+        return fromSchema(schema)
+      // A nested key is not a control to choose: the form builds it from the nested input.
+      case 'NestedInput':
+        return undefined
+      case 'Field':
+        return key.get(member.metadata)[0] ?? fromSchema(schema)
+      case 'RelationInput': {
+        const { relation } = member
+        const [explicit] = key.get(relation.metadata)
+        if (explicit !== undefined) return explicit
+        const data = { target: relation.target(), search: false }
+        return relation.cardinality === 'many' ? RelationMany.of(data) : RelationOne.of(data)
+      }
+    }
+  },
+}

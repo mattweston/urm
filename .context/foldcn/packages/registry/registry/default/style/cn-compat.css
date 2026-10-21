@@ -1,0 +1,307 @@
+/* Hand-maintained foldkit compatibility deltas — concatenated AHEAD of the
+ * vendored shadcn style CSS (registry/styles/style-nova.css, byte-identical
+ * to upstream) by scripts/resolve-styles.mjs when building the style map
+ * (so delta utilities win tailwind-merge conflicts), then inlined into every
+ * resolved component. Do not regenerate this file.
+ *
+ * Convention: keep component class strings identical to the upstream base
+ * registry files; where foldkit cannot reproduce a Base UI attribute that
+ * upstream tokens rely on, add the adapted rule here instead of editing the
+ * component.
+ *
+ * Known foldkit deltas:
+ *  - Controls: Foldkit helpers emit `aria-disabled="true"` + `data-disabled`
+ *    and never the native `disabled` attribute (they stay focusable on
+ *    purpose). Upstream tokens style `disabled:` only, so each affected
+ *    control token needs aria-/data- twins below.
+ */
+
+/* Upstream leaves cn-font-heading in shipped sources and lets the CLI rewrite
+ * it at install time (transform-font → `font-heading` iff the project CSS
+ * defines `--font-heading:`). foldcn cannot use that path — the CLI
+ * transformers only inspect JSX className attributes / cva() / mergeProps()
+ * arguments, which foldcn's `.ts` class constants never are (verified against
+ * transform-font.ts/transform-cleanup.ts) — so the token resolves here to the
+ * real `font-heading` utility. The utility defers to a runtime --font-heading
+ * variable (wired via cssVars.theme on the style item and every item whose
+ * sources reference this token): a shadcn preset that set a heading font keeps
+ * working (component installs never overwrite existing user vars), and without
+ * one the var is undefined so titles inherit the body font.
+ */
+.cn-font-heading {
+  @apply font-heading;
+}
+
+/* Upstream rewrites this marker to rtl:rotate-180 at install time via the
+ * shadcn CLI (transform-rtl.ts). foldcn ships it as a real rule instead. */
+.cn-rtl-flip {
+  @apply rtl:rotate-180;
+}
+
+/* App-level utility from upstream (shadcn packages/shadcn/src/tailwind.css,
+ * also defined in the docs app globals) referenced by sidebar/command tokens. */
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* button: native :disabled never matches under foldkit, and the upstream
+ * cva base inlines group/button + flex/layout utilities outside the cn-button
+ * token — add them here so authored sources can stay cn-* only (see
+ * AGENTS.md: "Do not inline resolved Tailwind"). */
+.cn-button {
+  @apply group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all outline-none select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50;
+}
+
+/* checkbox: component string styles native :disabled; foldkit emits
+ * aria-disabled/data-disabled instead. */
+.cn-checkbox {
+  @apply aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50;
+}
+
+/* radio-group item: same native-:disabled delta as checkbox. */
+.cn-radio-group-item {
+  @apply aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50;
+}
+
+/* slider thumb: same native-:disabled delta (foldkit emits aria-disabled on
+ * the thumb while dragging is gated in the helper). */
+.cn-slider-thumb {
+  @apply aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50;
+}
+
+/* input: native :disabled never matches under foldkit. */
+.cn-input {
+  @apply aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50 aria-disabled:bg-input/50 data-disabled:bg-input/50 dark:aria-disabled:bg-input/80 dark:data-disabled:bg-input/80;
+}
+
+/* textarea: same native-:disabled delta as input. */
+.cn-textarea {
+  @apply aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50 aria-disabled:bg-input/50 data-disabled:bg-input/50 dark:aria-disabled:bg-input/80 dark:data-disabled:bg-input/80;
+}
+
+/* questionnaire freeform input: same native-:disabled delta as input. */
+.cn-questionnaire-input {
+  @apply aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50 aria-disabled:bg-input/50 data-disabled:bg-input/50 dark:aria-disabled:bg-input/80 dark:data-disabled:bg-input/80;
+}
+
+/* native-select: select element disabled twins. */
+.cn-native-select {
+  @apply aria-disabled:pointer-events-none aria-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:cursor-not-allowed;
+}
+
+/* native-select wrapper: has-[select:disabled] twins for foldkit's aria-disabled/data-disabled on the select. */
+.cn-native-select-wrapper {
+  @apply has-[select[aria-disabled=true]]:opacity-50 has-[select[data-disabled]]:opacity-50;
+}
+
+/* select trigger: same native-:disabled delta. */
+.cn-select-trigger {
+  @apply aria-disabled:cursor-not-allowed aria-disabled:opacity-50 data-disabled:cursor-not-allowed data-disabled:opacity-50;
+}
+
+/* navigation-menu trigger: same native-:disabled delta (foldkit emits aria-disabled). */
+.cn-navigation-menu-trigger {
+  @apply aria-disabled:pointer-events-none aria-disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50;
+}
+
+/* navigation-menu content: Base UI keys the fallback panel animation on root
+ * data-open/data-closed. Foldkit exposes its transition window on the panel. */
+.cn-navigation-menu-content {
+  @apply data-enter:animate-in data-enter:fade-in-0 data-enter:zoom-in-95 data-leave:animate-out data-leave:fade-out-0 data-leave:zoom-out-95 duration-300;
+}
+
+/* Floating panels that never scroll upstream: foldkit's anchor `size`
+ * middleware unconditionally writes inline `max-height: <available>px` +
+ * `overflow-y: auto` onto every anchored panel without an arrow element (see
+ * @foldkit/ui anchor/anchor.js). Upstream popover/tooltip/hover-card/
+ * navigation-menu popups have no max-height and no overflow, and the tooltip
+ * arrow deliberately protrudes past the panel's padding box — so the forced
+ * scroll container puts a scrollbar on panels whose content merely fits
+ * (tooltip, every side) or whenever content exceeds the available space
+ * (popover/hover-card/navigation-menu, instead of overflowing like upstream).
+ * These `!important` deltas beat the inline styles and restore the upstream
+ * behavior. Menu-family panels (menu/select/context-menu/menubar)
+ * intentionally scroll per their authored strings and are untouched. */
+.cn-popover-content,
+.cn-tooltip-content,
+.cn-hover-card-content,
+.cn-navigation-menu-content {
+  @apply max-h-none! overflow-visible!;
+}
+
+/* Combobox content keeps its upstream height cap but must not scroll itself:
+ * upstream pairs `overflow-hidden` on the content with scrolling on the inner
+ * `cn-combobox-list`. The anchor's inline `overflow-y: auto` defeats the
+ * token's `overflow-hidden`, so re-assert it importantly. */
+.cn-combobox-content {
+  @apply overflow-hidden!;
+}
+
+/* Tooltip arrow centering: upstream centers the arrow on the trigger via the
+ * floating-ui arrow middleware (inline `left`/`top` on the Arrow element).
+ * Foldkit's tooltip primitive has no arrow support, and the authored arrow
+ * string carries no cross-axis centering for top/bottom sides (left/right
+ * already center via `top-1/2`), so the arrow sat at its static position —
+ * ~25px off-center. Center it on the panel instead. This matches upstream
+ * exactly when the trigger is centered and unshifted; with start/end align
+ * or shift displacement the arrow sits panel-centered rather than
+ * trigger-centered (true centering needs primitive arrow middleware). */
+.cn-tooltip-arrow {
+  @apply data-[side=bottom]:left-1/2 data-[side=bottom]:-translate-x-1/2 data-[side=top]:left-1/2 data-[side=top]:-translate-x-1/2;
+}
+
+/* `--anchor-width` bridge: upstream sizes dropdown/select/combobox panels to
+ * the trigger (`w-(--anchor-width)`, combobox also
+ * `min-w-[calc(var(--anchor-width)+--spacing(7))]`), resolving the var through
+ * Base UI's positioner. Foldkit's anchor publishes the trigger width as
+ * `--button-width` on the panel instead, so those utilities are dead (panels
+ * fall back to auto/min-w — e.g. a 192px select trigger got a 144px panel).
+ * Alias the var on the consuming tokens (menubar inherits it through its
+ * dropdown composition). No foldkit equivalent exists for
+ * `--available-height`/`--available-width`/`--transform-origin`; the inline
+ * max-height cap and centered zoom origin stand in. */
+.cn-dropdown-menu-content,
+.cn-select-content,
+.cn-combobox-content {
+  @apply [--anchor-width:var(--button-width)];
+}
+
+/* Placement-keyed slide twins: foldkit writes the live side to
+ * `data-placement` (bare side, `-start`/`-end` stripped) on every anchored
+ * panel, but only popover/tooltip/navigation-menu emit (static) `data-side`
+ * — and `flip` can move the panel after render (observed: side=bottom with
+ * placement=top), so the vendored `data-[side=…]` slide-ins play from the
+ * wrong direction, or never play where no side is emitted at all. These twins
+ * apply the same slide when the live placement disagrees with the rendered
+ * side; the `:not()` guard raises specificity so the live side wins
+ * deterministically, and goes inert when they agree. All eight styles agree
+ * on the slide mapping. (Menubar inherits the dropdown twins through its
+ * composition. Tooltip arrow geometry stays `data-side`-keyed — the arrow is
+ * a child element and cannot see the panel's placement — so wrong-edge
+ * arrows post-flip remain a known gap.) */
+.cn-popover-content,
+.cn-tooltip-content,
+.cn-hover-card-content,
+.cn-dropdown-menu-content,
+.cn-select-content,
+.cn-context-menu-content,
+.cn-combobox-content {
+  @apply not-data-[side=bottom]:data-[placement=bottom]:slide-in-from-top-2 not-data-[side=left]:data-[placement=left]:slide-in-from-right-2 not-data-[side=right]:data-[placement=right]:slide-in-from-left-2 not-data-[side=top]:data-[placement=top]:slide-in-from-bottom-2;
+}
+
+/* sheet: upstream keys enter/exit motion on data-starting-style/
+ * data-ending-style, which foldkit cannot emit — mapped to its
+ * data-enter/data-leave transition windows instead. */
+.cn-sheet-overlay {
+  @apply data-enter:opacity-0 data-leave:opacity-0;
+}
+
+.cn-sheet-content {
+  @apply data-enter:opacity-0 data-leave:opacity-0 data-[side=bottom]:data-enter:translate-y-[2.5rem] data-[side=bottom]:data-leave:translate-y-[2.5rem] data-[side=left]:data-enter:translate-x-[-2.5rem] data-[side=left]:data-leave:translate-x-[-2.5rem] data-[side=right]:data-enter:translate-x-[2.5rem] data-[side=right]:data-leave:translate-x-[2.5rem] data-[side=top]:data-enter:translate-y-[-2.5rem] data-[side=top]:data-leave:translate-y-[-2.5rem];
+}
+
+/* menu sub-trigger: upstream keys on data-popup-open, foldkit emits data-open.
+ * Authored string keeps data-popup-open for upstream parity; style token
+ * already handles data-open, so add data-popup-open twin here for Base UI
+ * parity and data-open twin for foldkit (both present after merge). */
+.cn-dropdown-menu-sub-trigger {
+  @apply data-open:bg-accent data-open:text-accent-foreground data-[popup-open]:bg-accent data-[popup-open]:text-accent-foreground;
+}
+
+.cn-menubar-sub-trigger {
+  @apply data-open:bg-accent data-open:text-accent-foreground data-[popup-open]:bg-accent data-[popup-open]:text-accent-foreground;
+}
+
+/* menu shortcuts: upstream keys the accent-on-highlight on
+ * group-focus/<item> (e.g. group-focus/dropdown-menu-item:), but foldkit
+ * highlights items via data-active while DOM focus stays on the panel —
+ * :focus never lands on the item, so the group-focus rule never matches.
+ * Add data-active twins keyed on the same named groups the item classes
+ * declare (group/dropdown-menu-item, group/context-menu-item,
+ * group/menubar-item). */
+.cn-dropdown-menu-shortcut {
+  @apply group-data-active/dropdown-menu-item:text-accent-foreground;
+}
+
+.cn-context-menu-shortcut {
+  @apply group-data-active/context-menu-item:text-accent-foreground;
+}
+
+.cn-menubar-shortcut {
+  @apply group-data-active/menubar-item:text-accent-foreground;
+}
+
+/* input-otp: upstream leaves input/caret as no-op hooks (input-otp library
+ * handles positioning). foldcn renders its own absolute overlay input, so
+ * provide the overlay geometry here to keep authored strings bare
+ * (cn-input-otp-input / cn-input-otp-caret) while preserving behavior. */
+.cn-input-otp {
+  @apply relative;
+}
+
+.cn-input-otp-input {
+  @apply absolute inset-0 z-10 h-full w-full bg-transparent text-transparent caret-transparent outline-none;
+}
+
+.cn-input-otp-caret {
+  @apply pointer-events-none absolute inset-0 flex items-center justify-center;
+}
+
+/* input-group: nova/vega omit cn-input-group-button-size-sm; lyra/mira define it. */
+.cn-input-group-button-size-sm {
+  @apply gap-1;
+}
+
+/* menu panels: upstream's frosted-glass token (bg-popover/70 + a ::before
+ * backdrop-blur layer) does not reproduce under foldkit — the blur has no
+ * visible effect in foldcn's render, leaving raw see-through transparency on
+ * menubar/dropdown/context panels (upstream's deployed docs render these
+ * panels opaque). Pin the panel background opaque; authored strings keep
+ * cn-menu-translucent verbatim for upstream diffability. */
+.cn-menu-translucent {
+  @apply bg-popover;
+}
+
+/* CommandDialog composes the native Dialog host with shadcn's command panel. */
+.cn-command-dialog {
+  @apply top-1/3 translate-y-0 overflow-hidden p-0;
+}
+
+.cn-command-dialog-header {
+  @apply sr-only;
+}
+
+.cn-command-item-indicator {
+  @apply size-4 shrink-0 ml-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100;
+}
+
+/* scroll-area viewport: upstream hides the native scrollbars via the
+ * primitive's injected style (styleDisableScrollbar) and gives the viewport
+ * `overflow: scroll` on both axes; foldkit has no scroll-area primitive, so
+ * the viewport behavior is carried by this token definition. */
+.cn-scroll-area-viewport {
+  @apply no-scrollbar overflow-scroll;
+}
+
+/* Radio labels and descriptions share a column beside the control. */
+.cn-radio-group-description-row {
+  @apply flex w-full items-start gap-2 [&>[role=radio]]:mt-0.5;
+}
+.cn-radio-group-description-content {
+  @apply flex min-w-0 flex-1 flex-col gap-0.5 peer-aria-disabled:opacity-50;
+}
+
+/* Upstream Field-based radio examples use font-normal on labels. */
+.cn-radio-group-field-label {
+  @apply font-normal;
+}
+
+/* The shared Field token is physical text-left; RTL examples need its mirror. */
+.cn-radio-group-field-description {
+  @apply rtl:text-right;
+}

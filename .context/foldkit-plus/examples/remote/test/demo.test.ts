@@ -1,0 +1,34 @@
+import { describe, expect, it } from 'vitest'
+import { runDemo } from '../src/demo.js'
+
+describe('foldkit-remote example', () => {
+  it('traces plan, load, render, mutate, a decode failure and a refresh', async () => {
+    const lines = await runDemo()
+    expect(lines).toContain('surface: ProjectPage')
+    expect(lines).toContain('plan: Project:p1 [id,name,status]')
+    expect(lines).toContain('before fetch: Initial')
+    expect(lines).toContain('after fetch: Ready {"id":"p1","name":"Apollo","status":"active"}')
+    expect(lines).toContain(
+      'stale-while-revalidate: ReadStarted, RefreshStarted, ReadReceived; Refreshing {"id":"p1","name":"Apollo","status":"active"} -> Ready {"id":"p1","name":"Apollo","status":"active"}',
+    )
+    expect(lines).toContain('query page: Ready p1 Apollo; next page: none')
+    expect(lines).toContain('meta: updatedAt 2000, stale false, loading false')
+    expect(lines).toContain('inspect: 1 entities, 1 connection, 1 registered queries')
+    expect(lines).toContain('rendered classes: project-card')
+    expect(lines).toContain('rendered status: active')
+    expect(lines).toContain('mutation RenameProject (remote-1): MutationSucceeded')
+    expect(lines).toContain(
+      'after mutation: Ready {"id":"p1","name":"Apollo II","status":"active"}',
+    )
+    // Dated by the answer, so the stale-while-revalidate entry plans no refetch.
+    expect(lines).toContain('refetch after mutation: none')
+    expect(lines).toContain('retained: Project:p1; 1 entity and 1 connection collected')
+    expect(lines).toContain('corrupt store: Failed DecodeError')
+    expect(lines).toContain(
+      'refresh: Refreshing {"id":"p1","name":"Apollo","status":"active"}; list Refreshing p1; again unchanged: true',
+    )
+    expect(lines).toContain(
+      'after refresh: ReadStarted, QueryStarted, ReadReceived, ConnectionMerged; Ready {"id":"p1","name":"Artemis","status":"active"}; list Ready p2 Borealis',
+    )
+  })
+})

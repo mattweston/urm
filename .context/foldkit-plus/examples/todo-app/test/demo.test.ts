@@ -1,0 +1,150 @@
+import { Effect, Option, Schema } from 'effect'
+import { Agent } from 'foldkit-agent'
+import { describe, expect, it } from 'vitest'
+import { AppAgent, bindAgent } from '../src/agent.js'
+import { makeStore } from '../src/store.js'
+import { Message, initialModel, visibleTodos } from '../src/app.js'
+import { update } from '../src/surface.js'
+import { runDemo } from '../src/demo.js'
+import { manifest, validate } from '../src/module.js'
+import { stylesheet } from '../src/sheet.js'
+
+describe('the todo app', () => {
+  it('runs the whole transcript', async () => {
+    const transcript = (await runDemo()).join('\n')
+
+    expect(transcript).toContain('add_todo <- RequestedTodo: Add a todo with the given title')
+    expect(transcript).toContain('draft after submit: ""')
+    expect(transcript).toContain('completion: completed SubmittedTodo')
+    expect(transcript).toContain('guest clear_completed: AgentAuthorizationError')
+    expect(transcript).toContain('owner rename_list: completed on state, list "Launch"')
+    expect(transcript).toContain(
+      'registered tools: add_todo, toggle_todo, rename_todo, set_priority, delete_todo, clear_completed, rename_list',
+    )
+    expect(transcript).toContain('From the browser agent')
+    expect(transcript).toContain('submit FilterSelected: InvalidOutboxError')
+    expect(transcript).toContain(
+      'guest RenamedList: Operation "guest-agent:1" was refused by authorization',
+    )
+    expect(transcript).toContain('owner RenamedList: Team')
+    expect(transcript).toContain('findings: none')
+    expect(transcript).toContain('filter a11y: ok')
+    // The mirrors: the filter is linkable, a bad key is the default, the draft is remembered
+    // into a fresh Model but never over what the user is typing.
+    expect(transcript).toContain('link to the active filter: /?filter=active')
+    expect(transcript).toContain('filter from ?filter=completed: completed')
+    expect(transcript).toContain('filter from ?filter=bogus: all')
+    expect(transcript).toContain(
+      'draft restored into a fresh Model: "Buy milk"; while typing: "Call"',
+    )
+  })
+
+  it('exposes the intent, not the fact, plus every other durable Message', () => {
+    const tags = Agent.messages(AppAgent)
+      .map(capability => capability.tag)
+      .sort()
+    expect(tags).toEqual([
+      'ClearedCompleted',
+      'DeletedTodo',
+      'PrioritySet',
+      'RenamedList',
+      'RenamedTodo',
+      'RequestedTodo',
+      'ToggledTodo',
+    ])
+  })
+
+  it('completes add_todo on its fact and rename_list on the state it reads', () => {
+    const completion = (name: string) =>
+      Agent.toManifest(AppAgent).capabilities.find(capability => capability.name === name)
+        ?.completion
+
+    expect(completion('add_todo')).toEqual({ kind: 'message', success: ['SubmittedTodo'] })
+    expect(completion('rename_list')).toEqual({ kind: 'state', observes: ['listTitle'] })
+  })
+
+  it('completes two adds of one title each on its own todo, by the call, not the title', async () => {
+    const store = makeStore()
+    const agent = bindAgent({
+      definition: AppAgent,
+      host: { ...store.host, principal: () => ({ actorId: 'owner' }) },
+    })
+    const add = () =>
+      Effect.runPromise(agent.messages.dispatch(Message.RequestedTodo, { title: 'Milk' }))
+    const [first, second] = await Promise.all([add(), add()])
+    // Read back through the app's own Messages: the completion knows only it is one.
+    const created = (result: typeof first) =>
+      Option.getOrUndefined(
+        Option.filter(
+          Schema.decodeUnknownOption(Message)(result.completion?.message),
+          (message): message is typeof Message.SubmittedTodo.Type =>
+            message._tag === 'SubmittedTodo',
+        ),
+      )
+    expect(created(first)?.requestId).toBe(first.invocation.id)
+    expect(created(second)?.requestId).toBe(second.invocation.id)
+    expect(created(first)?.id).not.toBe(created(second)?.id)
+    expect(store.model().todos.map(todo => todo.title)).toEqual(['Milk', 'Milk'])
+  })
+
+  it('mints the fact in a Command and keeps local state out of it', () => {
+    const submitted = update({ ...initialModel, draft: '  Milk ' }, Message.DraftSubmitted())
+    expect(submitted.model.draft).toBe('')
+    expect(submitted.commands).toHaveLength(1)
+    // An agent's request mints the same fact, and leaves the draft being typed.
+    const typing = { ...initialModel, draft: 'typing' }
+    const requested = update(typing, Message.RequestedTodo({ title: '  Milk ' }))
+    expect(requested.model).toBe(typing)
+    expect(requested.commands).toHaveLength(1)
+
+    const fact = update(
+      { ...initialModel, draft: 'typing' },
+      Message.SubmittedTodo({ id: 'a', title: 'Milk', createdAt: 1 }),
+    )
+    // The durable fact does not touch `draft`; only the intent did.
+    expect(fact.model.draft).toBe('typing')
+    expect(fact.commands).toBeUndefined()
+    expect(fact.model.todos).toEqual([
+      { id: 'a', title: 'Milk', completed: false, priority: 'normal', createdAt: 1 },
+    ])
+  })
+
+  it('orders by priority, then age, under the filter', () => {
+    let model = initialModel
+    for (const [id, createdAt] of [
+      ['old', 1],
+      ['new', 2],
+    ] as const) {
+      model = update(model, Message.SubmittedTodo({ id, title: id, createdAt })).model
+    }
+    model = update(model, Message.PrioritySet({ id: 'new', priority: 'high' })).model
+    model = update(model, Message.ToggledTodo({ id: 'old' })).model
+
+    expect(visibleTodos(model).map(todo => todo.id)).toEqual(['new', 'old'])
+    expect(visibleTodos({ ...model, filter: 'active' }).map(todo => todo.id)).toEqual(['new'])
+    expect(visibleTodos({ ...model, filter: 'completed' }).map(todo => todo.id)).toEqual(['old'])
+  })
+
+  it('composes into a valid Module with one owner per shared field', () => {
+    expect(validate()).toEqual([])
+    const owner = (field: string) => manifest().ownership.find(row => row.path[0] === field)?.owner
+    expect(owner('todos')).toEqual({ kind: 'sync', name: 'todos' })
+    expect(owner('listTitle')).toEqual({ kind: 'sync', name: 'todos' })
+    expect(owner('draft')).toBeUndefined()
+  })
+
+  it('compiles the rule-based styles to one deterministic stylesheet', () => {
+    expect(stylesheet).toContain(':hover')
+    expect(stylesheet).toContain('@media (max-width: 30rem)')
+    expect(stylesheet).toBe(stylesheet.trim())
+  })
+
+  it('ships the layer order, the scales, and the palette in one sheet', () => {
+    expect(stylesheet.startsWith('@layer reset, tokens, theme, defaults,')).toBe(true)
+    expect(stylesheet).toContain('@layer tokens{:root{')
+    expect(stylesheet).toContain('@layer theme{:root{--fk-knob-accent-h:277;')
+    expect(stylesheet).toContain('--fk-text-done:')
+    // Each scale is declared once, in the tokens layer, not again with the palette.
+    expect(stylesheet.match(/--fk-space-md:/g)).toHaveLength(1)
+  })
+})

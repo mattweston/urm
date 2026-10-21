@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store
+*.log
+.pnpm-store/
+.pack/
+*.tgz
+PLAN.md
+.tsbuild/
+# Vite's Pages output. The worker script it copies lives in pages/static.
+examples/cloudflare/pages/public/
+# Vitest browser mode: screenshots and traces of failed browser tests.
+.vitest/

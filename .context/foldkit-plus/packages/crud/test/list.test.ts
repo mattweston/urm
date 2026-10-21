@@ -1,0 +1,231 @@
+import { Effect, Layer, Schema, Stream, Option } from 'effect'
+import { Entity, Relation } from 'foldkit-entity'
+import { Form } from 'foldkit-form'
+import { defineMessageUnion } from 'foldkit/message'
+import { Query, Remote, RemoteClient } from 'foldkit-remote'
+import { Surface } from 'foldkit-surface'
+import { describe, expect, it } from 'vitest'
+import { Crud } from '../src/index.js'
+
+const Author = Entity.define(
+  'Author',
+  Schema.Struct({ id: Schema.String, name: Schema.String.annotate({ title: 'Name' }) }),
+)
+const Post = Entity.define(
+  'Post',
+  // A title before a check, which Effect 4 resolves past.
+  Schema.Struct({
+    id: Schema.String,
+    title: Schema.String.annotate({ title: 'Title' }).check(Schema.isMinLength(1)),
+  }),
+)
+const Blog = Entity.relate({ Author, Post }, { Post: { author: Relation.one(Author) } })
+const Labelled = Blog.Post.pipe(Entity.annotateMembers({ author: Form.label('Written by') }))
+
+const AuthorsQuery = Query.make('Authors', {
+  Input: { search: Schema.String },
+  Result: Query.connection(Blog.Author),
+})
+
+const Authors = Crud.list('Authors', {
+  query: AuthorsQuery,
+  selection: Entity.select(Blog.Author, { id: true, name: true }),
+  pageSize: 2,
+  choice: { value: row => row.id, label: row => row.name },
+})
+
+const Model = Schema.Struct({ remote: Remote.Model, search: Schema.NullOr(Schema.String) })
+type Model = typeof Model.Type
+const Message = defineMessageUnion({ ...Remote.messages })
+const App = Surface.application({ Model, Message })
+const Data = Remote.make({
+  model: App.model.remote,
+  entities: Object.values(Blog),
+  queries: [AuthorsQuery],
+})
+
+const AuthorList = Authors.at({
+  data: Data,
+  // Shown while there is a search; `null` means the list is not on screen.
+  input: model => (model.search === null ? Option.none() : Option.some({ search: model.search })),
+})
+
+const names = ['Ada', 'Alan', 'Annie', 'Grace']
+const Client = Layer.succeed(RemoteClient, {
+  read: batch =>
+    Effect.sync(() => ({
+      settled: [],
+      entities: batch.requests.map(request => ({
+        entity: request.entity,
+        id: request.id,
+        values: { id: request.id, name: names[Number(request.id.slice(1))] },
+      })),
+    })),
+  query: request =>
+    Effect.sync(() => {
+      const { search } = request.input as { readonly search: string }
+      const matching = names.flatMap((name, index) =>
+        name.toLowerCase().startsWith(search) ? [`a${index}`] : [],
+      )
+      const start =
+        request.window.after === undefined ? 0 : matching.indexOf(request.window.after) + 1
+      const ids = matching.slice(start, start + (request.window.first ?? matching.length))
+      const last = ids.at(-1)
+      const more = last !== undefined && matching.indexOf(last) < matching.length - 1
+      return {
+        edges: ids.map(id => ({ entity: 'Author', id, key: id })),
+        start: { _tag: 'Terminal' as const },
+        end: more ? { _tag: 'Cursor' as const, cursor: last } : { _tag: 'Terminal' as const },
+      }
+    }),
+  mutate: () => Effect.die('no mutations'),
+  live: () => Stream.empty,
+})
+
+const initial: Model = { remote: Remote.initial, search: null }
+const run = <A>(effect: Effect.Effect<A, unknown, RemoteClient>) =>
+  Effect.runPromise(effect.pipe(Effect.provide(Client)))
+/** What Remote's read Subscription does for the active Surface. */
+const load = (model: Model) =>
+  run(Data.prefetch(model, Option.getOrThrow(AuthorList.active.projectionOf(model))))
+const shown = (model: Model) => {
+  const page = AuthorList.page(model)
+  return page._tag === 'Ready' ? page.value.items.map(row => row.name) : page._tag
+}
+
+describe('Crud.list', () => {
+  it('describes a column per selected member, labelled as the form labels it', () => {
+    expect(Authors.columns.map(column => [column.key, column.label])).toEqual([
+      ['id', 'id'],
+      ['name', 'Name'],
+    ])
+
+    const Posts = Crud.list('Posts', {
+      query: Query.make('Posts', { Input: {}, Result: Query.connection(Blog.Post) }),
+      selection: Entity.select(Labelled, { title: true, author: true }),
+    })
+    expect(Posts.columns.map(column => [column.key, column.label, column.member._tag])).toEqual([
+      ['title', 'Title', 'Field'],
+      ['author', 'Written by', 'Relation'],
+    ])
+  })
+
+  it('requires nothing, and shows nothing, while it has no input', () => {
+    expect(Option.isNone(AuthorList.active.projectionOf(initial))).toBe(true)
+    expect(AuthorList.page(initial)).toEqual({ _tag: 'Initial' })
+    expect(Option.isNone(AuthorList.more(initial))).toBe(true)
+  })
+
+  it('reads a page of rows through the Selection, and follows the input', async () => {
+    const searching = await load({ ...initial, search: 'a' })
+    expect(shown(searching)).toEqual(['Ada', 'Alan'])
+
+    // Another input is another connection: nothing of the first is shown for it.
+    expect(shown({ ...searching, search: 'g' })).toBe('Initial')
+    expect(shown(await load({ ...searching, search: 'g' }))).toEqual(['Grace'])
+  })
+
+  it('loads the next page onto the first, and has none to load after the last', async () => {
+    const first = await load({ ...initial, search: 'a' })
+    // One page more is asked of the Model; the read entry fetches it.
+    const second = await load(Option.getOrThrow(AuthorList.more(first)))
+    expect(shown(second)).toEqual(['Ada', 'Alan', 'Annie'])
+    expect(Option.isNone(AuthorList.more(second))).toBe(true)
+  })
+
+  it('offers its loaded rows as a picker choices, read through `choice`', async () => {
+    expect(AuthorList.choices({ ...initial, search: 'a' })).toEqual([])
+    expect(AuthorList.choices(await load({ ...initial, search: 'a' }))).toEqual([
+      { value: 'a0', label: 'Ada' },
+      { value: 'a1', label: 'Alan' },
+    ])
+  })
+
+  it('feeds every relation picker of a form from the list over its target', async () => {
+    const EditPost = Form.make(
+      'EditPost',
+      Entity.input(Blog.Post, Schema.Struct({ title: Schema.String, authorId: Schema.String }), {
+        authorId: Relation.input(Blog.Post.relations.author),
+      }),
+    )
+    const options = Crud.options(EditPost, [AuthorList])
+
+    expect(options({ ...initial, search: 'a' })).toEqual({ authorId: [] })
+    expect(options(await load({ ...initial, search: 'g' }))).toEqual({
+      authorId: [{ value: 'a3', label: 'Grace' }],
+    })
+  })
+
+  it('keeps what a picker holds among its choices, and requires it so it can be named', async () => {
+    const EditPost = Form.make(
+      'EditPost',
+      Entity.input(Blog.Post, Schema.Struct({ authorId: Schema.String }), {
+        authorId: Relation.input(Blog.Post.relations.author),
+      }),
+    )
+    // The form holds Grace (a3); the page has it wherever it keeps the form.
+    const form = EditPost.fill(EditPost.initial, { authorId: 'a3' }).model
+    const options = Crud.options(EditPost, [AuthorList], { chosen: () => form })
+
+    // A search for "al" finds Alan only, and Grace was never read: nothing names her yet.
+    const searched = await load({ ...initial, search: 'al' })
+    expect(options(searched)).toEqual({ authorId: [{ value: 'a1', label: 'Alan' }] })
+
+    // Being chosen is a requirement, so Remote reads her.
+    const required = Option.getOrThrow(options.active.projectionOf(searched))
+    const read = await run(Data.prefetch(searched, required))
+    expect(options(read)).toEqual({
+      authorId: [
+        { value: 'a3', label: 'Grace' },
+        { value: 'a1', label: 'Alan' },
+      ],
+    })
+
+    // Found by the list itself, she is offered once, where the list has her.
+    const found = await load({ ...read, search: 'g' })
+    expect(options(found)).toEqual({ authorId: [{ value: 'a3', label: 'Grace' }] })
+
+    // With nothing held there is nothing to require.
+    const empty = Crud.options(EditPost, [AuthorList], { chosen: () => EditPost.initial })
+    expect(Option.isNone(empty.active.projectionOf(searched))).toBe(true)
+    expect(Option.isNone(Crud.options(EditPost, [AuthorList]).active.projectionOf(searched))).toBe(
+      true,
+    )
+  })
+
+  it('gathers the requirement of every piece handed over, by the names given', () => {
+    const EditPost = Form.make(
+      'EditPost',
+      Entity.input(Blog.Post, Schema.Struct({ authorId: Schema.String }), {
+        authorId: Relation.input(Blog.Post.relations.author),
+      }),
+    )
+    const pickers = Crud.options(EditPost, [AuthorList])
+    const actives = Crud.actives({ authors: AuthorList, pickers })
+    expect(actives.authors).toBe(AuthorList.active)
+    expect(actives.pickers).toBe(pickers.active)
+    expect(Object.keys(actives)).toEqual(['authors', 'pickers'])
+  })
+
+  it('reports a picker with no list over its target, and a list with no choice', () => {
+    const EditPost = Form.make(
+      'EditPost',
+      Entity.input(Blog.Post, Schema.Struct({ authorId: Schema.String }), {
+        authorId: Relation.input(Blog.Post.relations.author),
+      }),
+    )
+    expect(() => Crud.options(EditPost, [])).toThrow(
+      'Crud.options: "authorId" picks a Author, and no list given is over Author',
+    )
+
+    const Bare = Crud.list('Bare', {
+      query: AuthorsQuery,
+      selection: Entity.select(Blog.Author, { id: true }),
+    }).at({ data: Data, input: () => Option.some({ search: '' }) })
+    expect(() => Bare.choices(initial)).toThrow('give it a "choice"')
+    // Caught when the page is wired, not when the picker is first drawn.
+    expect(() => Crud.options(EditPost, [Bare])).toThrow(
+      'Crud.options: "authorId" would pick from list "Bare", which has no "choice"',
+    )
+  })
+})

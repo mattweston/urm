@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": ".tsbuild/build",
+    "tsBuildInfoFile": ".tsbuild/build/tsconfig.build.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../entity/tsconfig.build.json" },
+    { "path": "../metadata/tsconfig.build.json" },
+    { "path": "../remote/tsconfig.build.json" },
+    { "path": "../remote-server/tsconfig.build.json" },
+    { "path": "../remote-drizzle/tsconfig.build.json" },
+    { "path": "../sync/tsconfig.build.json" }
+  ]
+}

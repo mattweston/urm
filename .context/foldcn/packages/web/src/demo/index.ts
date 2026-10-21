@@ -1,0 +1,5 @@
+export { Model, type Model as DemoModel } from './assemble'
+export { Message, type Message as DemoMessage } from './assemble'
+export { init, update } from './assemble'
+export { subscriptions } from './subscriptions'
+export { view } from './view'

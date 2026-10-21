@@ -1,0 +1,87 @@
+import type { Notification, Response } from './jsonRpc.js'
+import { type Handler, type HandlerOptions, handler } from './handler.js'
+
+/** The part of a readable stream `stdio` uses. `process.stdin` satisfies it. */
+export interface LineInput {
+  on(event: 'data', listener: (chunk: Buffer | string) => void): unknown
+  on(event: 'end', listener: () => void): unknown
+  off(event: 'data', listener: (chunk: Buffer | string) => void): unknown
+  off(event: 'end', listener: () => void): unknown
+}
+
+/** The part of a writable stream `stdio` uses. `process.stdout` satisfies it. */
+export interface LineOutput {
+  write(line: string): unknown
+}
+
+export interface StdioOptions {
+  readonly input?: LineInput | undefined
+  readonly output?: LineOutput | undefined
+}
+
+/**
+ * Serves a contract as newline-delimited JSON-RPC over stdin and stdout.
+ *
+ * `stdout` carries MCP messages and nothing else -- a stray `console.log`
+ * corrupts the stream, which is why diagnostics belong on `stderr`.
+ */
+export const stdio = <Model, Context_, Principal, ByName, ByTag>(
+  options: Omit<HandlerOptions<Model, Context_, Principal, ByName, ByTag>, 'onNotification'> &
+    StdioOptions,
+): Handler => {
+  const input = options.input ?? process.stdin
+  const output = options.output ?? process.stdout
+
+  const write = (message: Response | Notification): void => {
+    // Messages are newline-delimited and must not contain embedded newlines.
+    output.write(`${JSON.stringify(message)}\n`)
+  }
+
+  const served = handler({ ...options, onNotification: write })
+
+  // A multi-byte character can straddle two chunks; the streaming decoder holds
+  // the incomplete bytes back instead of emitting replacement characters.
+  const decoder = new TextDecoder('utf-8')
+
+  let buffer = ''
+  const onData = (chunk: Buffer | string): void => {
+    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true })
+
+    let newline = buffer.indexOf('\n')
+    while (newline !== -1) {
+      const line = buffer.slice(0, newline).trim()
+      buffer = buffer.slice(newline + 1)
+      newline = buffer.indexOf('\n')
+
+      if (line.length === 0) continue
+      void (async () => {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(line)
+        } catch {
+          write({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32700, message: 'Parse error' },
+          } as never)
+          return
+        }
+        const response = await served.handle(parsed)
+        if (response !== undefined) write(response)
+      })()
+    }
+  }
+
+  // Detaching is what stops dispatch: input arriving after close is never
+  // framed, so a closed server cannot accept new work.
+  const close = (): void => {
+    input.off('data', onData)
+    input.off('end', close)
+    served.close()
+  }
+
+  input.on('data', onData)
+  input.on('end', close)
+
+  return { handle: served.handle, close }
+}

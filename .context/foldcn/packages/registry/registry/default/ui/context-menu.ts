@@ -1,0 +1,150 @@
+/** ⚠ BEHAVIOR GAP vs upstream shadcn: does not open on right-click / long-press; it opens on activation at a fixed anchor (foldkit has no pointer-position anchor primitive yet).
+ *  The styled surface matches, but this behavior is absent — do not use
+ *  where that behavior is required.
+ */
+/** Stateful submodel — import the whole module as a namespace and wire its
+ *  Model/Message/init/update into your app:
+ *  `import * as ContextMenu from '@/components/ui/context-menu'`
+ */
+import { Menu as FoldkitMenu } from '@foldkit/ui'
+import type { AnchorConfig } from '@foldkit/ui/menu'
+import { childAttributes, inertHtml, type Html } from 'foldkit/html'
+
+import { cn } from '@/lib/utils'
+
+// Re-export the @foldkit/ui Menu surface. A context menu is a Menu variant
+// anchored to the top-start of a trigger region, styled like shadcn's
+// `context-menu`. (The foldkit Menu opens on activation; wire a region trigger
+// to open it from a right-click handler if you want literal contextmenu
+// behavior.)
+
+export const create = FoldkitMenu.create
+export const init = (config: InitConfig): Model => FoldkitMenu.init({ isAnimated: true, ...config })
+export const buttonId = FoldkitMenu.buttonId
+export const Model = FoldkitMenu.Model
+export type Model = typeof Model.Type
+export const Message = FoldkitMenu.Message
+export type Message = typeof Message.Type
+export const OutMessage = FoldkitMenu.OutMessage
+export type OutMessage = typeof OutMessage.Type
+
+// foldcn gap vs upstream: opens on activation at a fixed anchor — foldkit has
+// no right-click/pointer-position anchoring primitive (wire a region trigger
+// yourself). Items highlight via data-active (upstream focus:) per the
+// derivation mapping. The panel's data-side is emitted from the anchor
+// placement (foldkit anchors expose placement, not side). Flat item path uses
+// correct tokens/slots; per-item data-slot (context-menu-item etc) cannot be
+// stamped — primitive has no per-item attribute hook. Submenu/checkbox/radio/
+// destructive/inset kinds require primitive work. Pointer-anchoring is
+// primitive ceiling — tokens/slots only.
+
+export type Bundle<Item extends string = string> = FoldkitMenu.Bundle<Item>
+export type InitConfig = FoldkitMenu.InitConfig
+export type ViewInputs<Item extends string = string> = FoldkitMenu.ViewInputs<Item>
+export type ItemConfig = FoldkitMenu.ItemConfig
+export type GroupHeading = FoldkitMenu.GroupHeading
+
+export const contextMenuTriggerClass = 'cn-context-menu-trigger select-none'
+
+export const contextMenuItemsClass =
+  'cn-context-menu-content cn-context-menu-content-logical cn-menu-target cn-menu-translucent z-50 max-h-(--available-height) origin-(--transform-origin) overflow-x-hidden overflow-y-auto outline-none'
+
+export const contextMenuItemsAnimatedClass = contextMenuItemsClass
+
+export const contextMenuItemClass =
+  'cn-context-menu-item group/context-menu-item relative flex cursor-default items-center outline-hidden select-none data-active:bg-accent data-active:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0'
+
+export const contextMenuSeparatorClass = 'cn-context-menu-separator'
+
+export const contextMenuHeadingClass = 'cn-context-menu-label'
+
+export const contextMenuShortcutClass = 'cn-context-menu-shortcut'
+
+export const contextMenuSubTriggerClass =
+  'cn-context-menu-sub-trigger flex cursor-default items-center outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0'
+
+export const contextMenuBackdropClass = 'fixed inset-0 z-0'
+
+export const contextMenuWrapperClass = 'relative inline-block'
+
+export const CONTEXT_MENU_ANCHOR: AnchorConfig = {
+  placement: 'bottom-start',
+  gap: 4,
+  padding: 8,
+}
+
+export type ContextMenuViewInputsConfig<Item extends string> = Readonly<{
+  items: ReadonlyArray<Item>
+  itemToConfig: ViewInputs<Item>['itemToConfig']
+  buttonContent: Html
+  anchor?: AnchorConfig
+  isItemDisabled?: (item: Item, index: number) => boolean
+  itemToSearchText?: (item: Item, index: number) => string
+  isButtonDisabled?: boolean
+  isAnimated?: boolean
+  itemGroupKey?: (item: Item, index: number) => string
+  groupToHeading?: (groupKey: string) => GroupHeading | undefined
+  triggerClass?: string
+  itemsClass?: string
+  itemClass?: string
+  backdropClass?: string
+  wrapperClass?: string
+  separatorClass?: string
+  groupClass?: string
+  ariaLabel?: string
+  ariaLabelledBy?: string
+}>
+
+/** Build styled `Menu.ViewInputs` for a context menu with foldcn's classes. */
+export const viewInputs = <Item extends string>(
+  config: ContextMenuViewInputsConfig<Item>,
+): ViewInputs<Item> => {
+  // Upstream slide-in variants key on data-side; foldkit anchors expose
+  // placement ("bottom-start"), so derive the physical side here.
+  const anchor = config.anchor ?? CONTEXT_MENU_ANCHOR
+  const side = (anchor.placement ?? 'bottom').split('-')[0] || 'bottom'
+  return {
+    items: config.items,
+    anchor,
+    isItemDisabled: config.isItemDisabled,
+    itemToSearchText: config.itemToSearchText,
+    isButtonDisabled: config.isButtonDisabled,
+    buttonContent: config.buttonContent,
+    itemGroupKey: config.itemGroupKey,
+    groupToHeading: config.groupToHeading
+      ? (groupKey) => {
+          const heading = config.groupToHeading!(groupKey)
+          if (!heading) return undefined
+          return {
+            content: heading.content,
+            className: cn(contextMenuHeadingClass, heading.className),
+          }
+        }
+      : undefined,
+    ariaLabel: config.ariaLabel,
+    ariaLabelledBy: config.ariaLabelledBy,
+    buttonClassName: cn(contextMenuTriggerClass, config.triggerClass),
+    buttonAttributes: childAttributes([inertHtml.DataAttribute('slot', 'context-menu-trigger')]),
+    itemsClassName: cn(
+      config.isAnimated !== false ? contextMenuItemsAnimatedClass : contextMenuItemsClass,
+      config.itemsClass,
+    ),
+    itemsAttributes: childAttributes([
+      inertHtml.DataAttribute('slot', 'context-menu-content'),
+      inertHtml.DataAttribute('side', side),
+    ]),
+    itemToConfig: (item, context) => {
+      const { className, content } = config.itemToConfig(item, context)
+      return { className: cn(contextMenuItemClass, config.itemClass, className), content }
+    },
+    separatorClassName: cn(contextMenuSeparatorClass, config.separatorClass),
+    separatorAttributes: childAttributes([
+      inertHtml.DataAttribute('slot', 'context-menu-separator'),
+    ]),
+    groupClassName: config.groupClass,
+    groupAttributes: childAttributes([inertHtml.DataAttribute('slot', 'context-menu-group')]),
+    backdropClassName: cn(contextMenuBackdropClass, config.backdropClass),
+    className: cn(contextMenuWrapperClass, config.wrapperClass),
+    attributes: childAttributes([inertHtml.DataAttribute('slot', 'context-menu')]),
+  }
+}
