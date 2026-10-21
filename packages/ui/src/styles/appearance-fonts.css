@@ -1,0 +1,50 @@
+/* Shared data attributes written by the appearance submodel. Applications may
+   load these named families from their own static font assets; every entry has
+   a platform fallback so the sans/mono mode remains meaningful offline. */
+:root[data-font="inter"] {
+    --font-body: "Web Inter", Inter, system-ui, sans-serif;
+}
+
+:root[data-font="atkinson"] {
+    --font-body: "Web Atkinson", system-ui, sans-serif;
+}
+
+:root[data-font="geist-mono"] {
+    --font-body: "Web Geist Mono", ui-monospace, monospace;
+}
+
+:root[data-font="jetbrains-mono"] {
+    --font-body: "Web JetBrains Mono", ui-monospace, monospace;
+}
+
+:root[data-font="commit-mono"] {
+    --font-body: "Web Commit Mono", ui-monospace, monospace;
+}
+
+:root[data-font="fira-code"] {
+    --font-body: "Web Fira Code", ui-monospace, monospace;
+}
+
+:root[data-font="0xproto"] {
+    --font-body: "Web 0xProto", ui-monospace, monospace;
+}
+
+:root[data-code-font="geist-mono"] {
+    --font-code: "Web Geist Mono", ui-monospace, monospace;
+}
+
+:root[data-code-font="jetbrains-mono"] {
+    --font-code: "Web JetBrains Mono", ui-monospace, monospace;
+}
+
+:root[data-code-font="commit-mono"] {
+    --font-code: "Web Commit Mono", ui-monospace, monospace;
+}
+
+:root[data-code-font="fira-code"] {
+    --font-code: "Web Fira Code", ui-monospace, monospace;
+}
+
+:root[data-code-font="0xproto"] {
+    --font-code: "Web 0xProto", ui-monospace, monospace;
+}

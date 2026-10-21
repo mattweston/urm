@@ -1,0 +1,27 @@
+{
+    "name": "@urm/llm-docgen",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Generates LLMS.md documentation from the llm-docs/ corpus",
+    "homepage": "https://github.com/mattweston/urm",
+    "license": "MIT",
+    "type": "module",
+    "exports": {
+        "./*": "./src/*.ts",
+        "./package.json": "./package.json"
+    },
+    "bin": {
+        "urm-llm-docgen": "./src/main.ts"
+    },
+    "scripts": {
+        "check": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@effect/platform-node": "catalog:server",
+        "effect": "catalog:",
+        "glob": "^13.0.0"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:server"
+    }
+}

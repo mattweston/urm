@@ -1,0 +1,29 @@
+{
+    "extends": "@urm/config/tsconfig.base.json",
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "composite": false,
+        "lib": ["ES2023", "DOM", "DOM.Iterable"],
+        "types": ["node"],
+        "paths": {
+            "@urm/auth": ["../../packages/auth/src/index.ts"],
+            "@urm/auth/*": ["../../packages/auth/src/*"],
+            "@urm/contracts": ["../../packages/contracts/src/index.ts"],
+            "@urm/contracts/*": ["../../packages/contracts/src/*"],
+            "@urm/db": ["../../packages/db/src/index.ts"],
+            "@urm/db/*": ["../../packages/db/src/*"],
+            "@urm/domain": ["../../packages/domain/src/schemas/index.ts"],
+            "@urm/domain/*": ["../../packages/domain/src/*"],
+            "@urm/rpc": ["../../packages/rpc/src/index.ts"],
+            "@urm/rpc/*": ["../../packages/rpc/src/*"],
+            "@urm/server": ["../../packages/server/src/index.ts"],
+            "@urm/server/*": ["../../packages/server/src/*"],
+            "@urm/utils": ["../../packages/utils/src/index.ts"],
+            "@urm/utils/*": ["../../packages/utils/src/*"]
+        }
+    },
+    "include": ["src/**/*", "test/**/*"],
+    "exclude": ["dist", "node_modules"]
+}

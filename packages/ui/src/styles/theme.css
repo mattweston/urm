@@ -1,0 +1,117 @@
+/* Shared URM palette: the light and dark themes.
+ *
+ * Imported by every application through @urm/ui/styles/theme.css so the token
+ * values live in one place. Alternate palettes are in themes-extra.css and the
+ * Tailwind token mapping is in theme-tokens.css.
+ */
+
+/* Default System Theme */
+:root,
+:root[data-theme="light"] {
+    --radius: 0.625rem;
+    --font-body: system-ui, -apple-system, sans-serif;
+    --font-code: "Geist Mono", ui-monospace, monospace;
+    --radius-control: var(--radius);
+    --radius-surface-sm: var(--radius);
+    --radius-surface: var(--radius);
+    --radius-frame: var(--radius);
+    --control-border-width: 0px;
+    --control-outline-border-width: 1px;
+    --control-border-style: solid;
+    --field-border-width: 1px;
+    --surface-border-width: 1px;
+    --surface-divider-width: 0px;
+    /* Padding a card section restores when a divider separates it from the
+       section above. 0 while --surface-divider-width is 0, so the default
+       themes keep shadcn's tight pt-0 seam. */
+    --surface-divider-gap: 0rem;
+    --shadow-control: none;
+    --shadow-control-hover: none;
+    --shadow-primary: none;
+    --shadow-surface: 0 1px 2px 0 oklch(0 0 0 / 5%);
+    --shadow-card: var(--shadow-surface);
+    --shadow-overlay: 0 25px 50px -12px oklch(0 0 0 / 25%);
+    --control-font-family: inherit;
+    --control-font-weight: 500;
+    --control-letter-spacing: normal;
+    --control-text-transform: none;
+    --surface-title-font-family: inherit;
+    --surface-title-font-weight: 600;
+    --surface-title-letter-spacing: -0.025em;
+    --surface-title-text-transform: none;
+    --control-hover-translate: 0px;
+    --control-press-translate: 0px;
+    --focus-outline-width: 2px;
+    --focus-outline-offset: 2px;
+    --image-outline: light-dark(oklch(0 0 0 / 10%), oklch(1 0 0 / 10%));
+    --primary-hover: color-mix(in oklch, var(--primary) 90%, var(--foreground));
+    --secondary-hover: color-mix(
+        in oklch,
+        var(--secondary) 80%,
+        var(--background)
+    );
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.544 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --destructive-foreground: oklch(0.985 0 0);
+    /* Success and warning complete the status trio next to --destructive.
+       Themes that want their own may override them; anything that does not
+       declare them inherits these, which is why they live on bare :root. */
+    --success: oklch(0.531 0.17 150);
+    --success-foreground: oklch(0.985 0 0);
+    --warning: oklch(0.72 0.16 75);
+    --warning-foreground: oklch(0.205 0 0);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.66 0 0);
+    --chart-1: oklch(0.646 0.222 41.116);
+    --chart-2: oklch(0.6 0.118 184.704);
+    --chart-3: oklch(0.398 0.07 227.392);
+    --chart-4: oklch(0.828 0.189 84.429);
+    --chart-5: oklch(0.769 0.188 70.08);
+}
+
+/* Dark Theme */
+:root.dark,
+:root[data-theme="dark"] {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.578 0.191 22.216);
+    --destructive-foreground: oklch(0.985 0 0);
+    --success: oklch(0.72 0.17 150);
+    --success-foreground: oklch(0.205 0 0);
+    --warning: oklch(0.8 0.15 80);
+    --warning-foreground: oklch(0.205 0 0);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.488 0.243 264.376);
+    --chart-2: oklch(0.696 0.17 162.48);
+    --chart-3: oklch(0.769 0.188 70.08);
+    --chart-4: oklch(0.627 0.265 303.9);
+    --chart-5: oklch(0.645 0.246 16.439);
+}

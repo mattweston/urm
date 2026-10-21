@@ -1,0 +1,1 @@
+The Spotlight fix is a pnpm patch on @spotlightjs/astro@3.2.6 (falls back to spotlightBrowserIntegration under workerd) — worth an upstream issue/PR at some point, and re-check it when bumping that package.

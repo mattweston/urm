@@ -1,0 +1,9 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": { "incremental": false },
+    "include": [
+        "scripts/*.ts",
+        "test/auth-mail.test.ts",
+        "../../packages/rpc/src/http.ts"
+    ]
+}

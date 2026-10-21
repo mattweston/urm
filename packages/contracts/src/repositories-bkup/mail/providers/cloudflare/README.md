@@ -1,0 +1,3 @@
+- [Agentic Inbox](https://github.com/cloudflare/agentic-inbox)
+- [Email for Agents](https://blog.cloudflare.com/email-for-agents/)
+- [Email Service](https://developers.cloudflare.com/email-service/)

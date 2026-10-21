@@ -1,0 +1,1 @@
+ALTER TABLE "preferences" ALTER COLUMN "updated_at" SET DATA TYPE bigint USING "updated_at"::bigint;

@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json.schemastore.org/oxlintrc",
+    "categories": {
+        "correctness": "error",
+        "suspicious": "warn",
+        "style": "off",
+        "restriction": "off",
+        "nursery": "off"
+    },
+    "plugins": ["typescript", "jsx-a11y", "js-doc"],
+    "ignorePatterns": [
+        "node_modules/",
+        "dist/",
+        ".astro/",
+        ".output/",
+        "build/"
+    ],
+    "rules": {
+        "no-alert": "error",
+        "no-debugger": "error",
+        "typescript/no-explicit-any": "warn"
+    }
+}

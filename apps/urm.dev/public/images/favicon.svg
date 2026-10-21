@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2a2d4a"/>
+      <stop offset="100%" stop-color="#1a1c2e"/>
+    </linearGradient>
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4dd0e1"/>
+      <stop offset="100%" stop-color="#26c6da"/>
+    </linearGradient>
+    <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f48fb1"/>
+      <stop offset="100%" stop-color="#ec407a"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="100" height="100" rx="12" fill="url(#bgGrad)"/>
+  
+  <!-- Orbital ring -->
+  <circle cx="50" cy="50" r="28" fill="none" stroke="#6b7094" stroke-width="2"/>
+  
+  <!-- Middle ring -->
+  <circle cx="50" cy="50" r="18" fill="none" stroke="#6b7094" stroke-width="1.5"/>
+  
+  <!-- Crosshairs - from inner circle (r=8) to outer ring (r=28) -->
+  <line x1="50" y1="22" x2="50" y2="42" stroke="#9a9ec4" stroke-width="2"/>
+  <line x1="50" y1="58" x2="50" y2="78" stroke="#9a9ec4" stroke-width="2"/>
+  <line x1="22" y1="50" x2="42" y2="50" stroke="#9a9ec4" stroke-width="2"/>
+  <line x1="58" y1="50" x2="78" y2="50" stroke="#9a9ec4" stroke-width="2"/>
+  
+  <!-- Center circle -->
+  <circle cx="50" cy="50" r="8" fill="#e8eaf6" stroke="#9a9ec4" stroke-width="1.5"/>
+  
+  <!-- Orbital dots - positioned on the crosshair lines on the outer ring -->
+  <!-- Top (cyan) -->
+  <circle cx="50" cy="22" r="6" fill="url(#cyanGrad)"/>
+  <!-- Right (pink) -->
+  <circle cx="78" cy="50" r="6" fill="url(#pinkGrad)"/>
+  <!-- Bottom (pink) -->
+  <circle cx="50" cy="78" r="6" fill="url(#pinkGrad)"/>
+  <!-- Left (cyan) -->
+  <circle cx="22" cy="50" r="6" fill="url(#cyanGrad)"/>
+</svg>

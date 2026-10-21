@@ -1,0 +1,65 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "read": {
+      "*": "allow",
+      ".env": "deny",
+      ".env.*": "deny",
+      "*.env": "deny",
+      "**/.env": "deny",
+      "**/.env.*": "deny",
+      "**/.*env*": "deny"
+    },
+    "edit": {
+      "*": "allow",
+      ".env": "deny",
+      ".env.*": "deny",
+      "*.env": "deny",
+      "**/.env": "deny",
+      "**/.env.*": "deny",
+      "**/.*env*": "deny"
+    },
+    "bash": {
+      "*": "ask",
+      "git *": "allow",
+      "bun *": "ask",
+      "cat *env*": "deny",
+      "cat .env*": "deny",
+      "less *env*": "deny",
+      "more *env*": "deny",
+      "grep * *env*": "deny",
+      "grep * .env*": "deny",
+      "head *env*": "deny",
+      "tail *env*": "deny",
+      "vim *env*": "deny",
+      "nano *env*": "deny",
+      "code *env*": "deny"
+    },
+    "glob": {
+      "*": "allow",
+      "*.env*": "deny",
+      "**/.env*": "deny"
+    },
+    "grep": {
+      "*": "allow"
+    }
+  },
+  "mcp": {
+    "foldkit-devtools": {
+      "type": "local",
+      "command": ["npx", "-y", "@foldkit/devtools-mcp"],
+      "enabled": true,
+      "environment": {
+        "FOLDKIT_DEVTOOLS_MCP_PORT": "9988"
+      }
+    },
+    "better-design": {
+      "type": "remote",
+      "url": "https://better-design.com/api/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer bd_live_GhQPKffGeeAMI8QVNV1EAfMd5NvgLR96"
+      }
+    },
+  },
+}

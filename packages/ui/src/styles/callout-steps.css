@@ -1,0 +1,129 @@
+@import "./callout-icons.css";
+
+@layer components {
+    .documentation-callout {
+        --documentation-callout-accent: var(--documentation-callout-border);
+
+        margin-block: 1.5rem;
+        border: 0;
+        border-inline-start: 3px solid var(--documentation-callout-accent);
+        border-start-end-radius: 0.5rem;
+        border-end-end-radius: 0.5rem;
+        background: color-mix(
+            in srgb,
+            var(--documentation-callout-accent) 7%,
+            var(--card)
+        );
+        padding: 1rem 1.25rem;
+    }
+
+    .documentation-callout-title {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0;
+        color: var(--documentation-callout-accent);
+        font-size: 0.8125rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        line-height: 1;
+        text-transform: uppercase;
+    }
+
+    .documentation-callout-title::before {
+        display: inline-block;
+        flex-shrink: 0;
+        width: 0.9375rem;
+        height: 0.9375rem;
+        background-color: currentColor;
+        content: "";
+        mask-position: center;
+        mask-repeat: no-repeat;
+        mask-size: contain;
+        -webkit-mask-position: center;
+        -webkit-mask-repeat: no-repeat;
+        -webkit-mask-size: contain;
+    }
+
+    .documentation-callout-body {
+        margin-top: 0.75rem;
+        font-size: 0.9375rem;
+    }
+
+    .documentation-callout-body > :first-child {
+        margin-top: 0;
+    }
+
+    .documentation-callout-body > :last-child {
+        margin-bottom: 0;
+    }
+
+    .documentation-callout-note {
+        --documentation-callout-border: light-dark(
+            oklch(0.5 0.13 245),
+            oklch(0.75 0.11 245)
+        );
+    }
+
+    .documentation-callout-tip {
+        --documentation-callout-border: light-dark(
+            oklch(0.5 0.15 300),
+            oklch(0.75 0.12 300)
+        );
+    }
+
+    .documentation-callout-warning {
+        --documentation-callout-border: light-dark(
+            oklch(0.6 0.13 70),
+            oklch(0.8 0.13 80)
+        );
+    }
+
+    .documentation-callout-danger {
+        --documentation-callout-border: var(--destructive);
+    }
+
+    .documentation-steps > ol {
+        --documentation-step-size: 1.75rem;
+
+        display: block;
+        padding-inline-start: 0;
+        list-style: none;
+        counter-reset: documentation-steps;
+    }
+
+    .documentation-steps > ol > li {
+        position: relative;
+        min-height: var(--documentation-step-size);
+        padding-inline-start: calc(var(--documentation-step-size) + 1rem);
+    }
+
+    .documentation-steps > ol > li:not(:last-child) {
+        padding-bottom: 1rem;
+    }
+
+    .documentation-steps > ol > li::before {
+        position: absolute;
+        inset-inline-start: 0;
+        width: var(--documentation-step-size);
+        height: var(--documentation-step-size);
+        border: 1px solid var(--border);
+        border-radius: 50%;
+        background: var(--card);
+        content: counter(documentation-steps);
+        counter-increment: documentation-steps;
+        font-size: 0.8125rem;
+        font-weight: 700;
+        line-height: var(--documentation-step-size);
+        text-align: center;
+    }
+
+    .documentation-steps > ol > li:not(:last-child)::after {
+        position: absolute;
+        inset-block: calc(var(--documentation-step-size) + 0.25rem) 0.25rem;
+        inset-inline-start: calc(var(--documentation-step-size) / 2);
+        width: 1px;
+        background: var(--border);
+        content: "";
+    }
+}

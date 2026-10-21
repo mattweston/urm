@@ -1,0 +1,1 @@
+ALTER TABLE "publication_deployment_jobs" ADD COLUMN "channel" text DEFAULT 'development' NOT NULL;

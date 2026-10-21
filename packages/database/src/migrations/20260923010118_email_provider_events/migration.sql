@@ -1,0 +1,1 @@
+ALTER TABLE "email_deliveries" ADD COLUMN "provider_event_at" bigint;

@@ -1,0 +1,51 @@
+{
+    "name": "@urm/db",
+    "private": true,
+    "homepage": "https://github.com/mattweston/urm",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./*": "./src/*.ts",
+        "./*/index": null,
+        "./config": "./src/config/index.ts",
+        "./internal/*": null,
+        "./legacy-schema": "./src/legacy-schema/index.ts",
+        "./legacy-schema/*": "./src/legacy-schema/*/index.ts",
+        "./legacy-schema/media/images": "./src/legacy-schema/media/images.ts",
+        "./legacy-schema/relations": "./src/legacy-schema/relations.ts",
+        "./package.json": "./package.json",
+        "./schema": "./src/schema/index.ts",
+        "./schema/relations": "./src/schema/relations.ts"
+    },
+    "scripts": {
+        "test": "vitest run",
+        "test:integration:demo": "vitest run --config vitest.integration.config.ts",
+        "typecheck": "tsc --noEmit",
+        "typecheck:foundation": "tsc --noEmit -p tsconfig.foundation.json",
+        "seed:shop": "tsx scripts/seed-shop.ts",
+        "bootstrap:sysadmin": "tsx scripts/bootstrap-sysadmin.ts",
+        "platform-admin": "tsx scripts/platform-admin.ts",
+        "backfill:domain-contact-profiles": "tsx scripts/backfill-domain-contact-profiles.ts",
+        "provision:customer": "tsx scripts/provision-customer-organisation.ts",
+        "demo:workspaces": "tsx scripts/demo-workspace-lifecycle.ts",
+        "drizzle-kit": "drizzle-kit",
+        "db:generate": "drizzle-kit generate",
+        "db:generate:legacy": "drizzle-kit generate --config=drizzle.legacy.config.ts"
+    },
+    "dependencies": {
+        "@effect/sql-pg": "catalog:database",
+        "drizzle-orm": "catalog:database",
+        "effect": "catalog:",
+        "pg": "catalog:database"
+    },
+    "devDependencies": {
+        "@effect/vitest": "catalog:testing",
+        "@electric-sql/pglite": "^0.5.8",
+        "@faker-js/faker": "catalog:testing",
+        "@types/node": "catalog:server",
+        "@types/pg": "catalog:database",
+        "@urm/config": "workspace:*",
+        "drizzle-kit": "catalog:database",
+        "vitest": "catalog:testing"
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "composite": false,
+        "incremental": false,
+        "types": ["node"]
+    },
+    "include": [
+        "src/schema/**/*.ts",
+        "src/introspection.ts",
+        "test/foundation-schema.test.ts",
+        "drizzle.config.ts"
+    ]
+}

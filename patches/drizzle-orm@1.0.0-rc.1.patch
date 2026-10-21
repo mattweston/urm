@@ -1,0 +1,94 @@
+diff --git a/cache/core/cache-effect.cjs b/cache/core/cache-effect.cjs
+index 5b5d391dd08db7e83c8c99119da35adbd6cf476a..c2d13305423923f2e3472490e1f02927b7e25cca 100644
+--- a/cache/core/cache-effect.cjs
++++ b/cache/core/cache-effect.cjs
+@@ -100,7 +100,7 @@ function make(cache) {
+ * This error is thrown when any cache operation (get, put, onMutate) fails.
+ * The original error is available in the `cause` property.
+ */
+-var EffectCacheError = class extends effect_Schema.TaggedErrorClass()("EffectCacheError", { cause: effect_Schema.Unknown }) {
++var EffectCacheError = class extends effect_Schema.TaggedError()("EffectCacheError", { cause: effect_Schema.Unknown }) {
+ 	static [__entity_ts.entityKind] = "EffectCacheError";
+ };
+ 
+diff --git a/cache/core/cache-effect.js b/cache/core/cache-effect.js
+index 27e1cedd9b1966499723d2f7552561be9f206ae5..411dbc211cdd1c49808e957ece304d4fd7a31021 100644
+--- a/cache/core/cache-effect.js
++++ b/cache/core/cache-effect.js
+@@ -94,7 +94,7 @@ function make(cache) {
+ * This error is thrown when any cache operation (get, put, onMutate) fails.
+ * The original error is available in the `cause` property.
+ */
+-var EffectCacheError = class extends Schema.TaggedErrorClass()("EffectCacheError", { cause: Schema.Unknown }) {
++var EffectCacheError = class extends Schema.TaggedError()("EffectCacheError", { cause: Schema.Unknown }) {
+ 	static [entityKind] = "EffectCacheError";
+ };
+ 
+diff --git a/effect-core/errors.cjs b/effect-core/errors.cjs
+index 9ec5bab6a265fbdb694e4fffa639ebea7be3a6cc..e012a2244705550ad4281496c690a9086244e6f1 100644
+--- a/effect-core/errors.cjs
++++ b/effect-core/errors.cjs
+@@ -5,13 +5,13 @@ let effect_Schema = require("effect/Schema");
+ effect_Schema = require_runtime.__toESM(effect_Schema);
+ 
+ //#region src/effect-core/errors.ts
+-var EffectDrizzleError = class extends effect_Schema.TaggedErrorClass()("EffectDrizzleError", {
++var EffectDrizzleError = class extends effect_Schema.TaggedError()("EffectDrizzleError", {
+ 	message: effect_Schema.String,
+ 	cause: effect_Schema.Unknown
+ }) {
+ 	static [__entity_ts.entityKind] = "EffectDrizzleError";
+ };
+-var EffectDrizzleQueryError = class EffectDrizzleQueryError extends effect_Schema.TaggedErrorClass()("EffectDrizzleQueryError", {
++var EffectDrizzleQueryError = class EffectDrizzleQueryError extends effect_Schema.TaggedError()("EffectDrizzleQueryError", {
+ 	query: effect_Schema.String,
+ 	params: effect_Schema.Array(effect_Schema.Any).pipe(effect_Schema.mutable),
+ 	cause: effect_Schema.Unknown
+@@ -25,11 +25,11 @@ var EffectDrizzleQueryError = class EffectDrizzleQueryError extends effect_Schem
+ 		Error.captureStackTrace(this, EffectDrizzleQueryError);
+ 	}
+ };
+-var EffectTransactionRollbackError = class extends effect_Schema.TaggedErrorClass()("EffectTransactionRollbackError", {}) {
++var EffectTransactionRollbackError = class extends effect_Schema.TaggedError()("EffectTransactionRollbackError", {}) {
+ 	static [__entity_ts.entityKind] = "EffectTransactionRollbackError";
+ 	message = "Rollback";
+ };
+-var MigratorInitError = class extends effect_Schema.TaggedErrorClass()("MigratorInitError", { exitCode: effect_Schema.Literals(["databaseMigrations", "localMigrations"]) }) {
++var MigratorInitError = class extends effect_Schema.TaggedError()("MigratorInitError", { exitCode: effect_Schema.Literals(["databaseMigrations", "localMigrations"]) }) {
+ 	static [__entity_ts.entityKind] = "MigratorInitError";
+ };
+ 
+diff --git a/effect-core/errors.js b/effect-core/errors.js
+index 513d200e790abe54ca151c34ea6c061125054ba1..c5751d544bcd636601ff0dacd1d8d6c1d038b7c4 100644
+--- a/effect-core/errors.js
++++ b/effect-core/errors.js
+@@ -2,13 +2,13 @@ import { entityKind } from "../entity.js";
+ import * as Schema from "effect/Schema";
+ 
+ //#region src/effect-core/errors.ts
+-var EffectDrizzleError = class extends Schema.TaggedErrorClass()("EffectDrizzleError", {
++var EffectDrizzleError = class extends Schema.TaggedError()("EffectDrizzleError", {
+ 	message: Schema.String,
+ 	cause: Schema.Unknown
+ }) {
+ 	static [entityKind] = "EffectDrizzleError";
+ };
+-var EffectDrizzleQueryError = class EffectDrizzleQueryError extends Schema.TaggedErrorClass()("EffectDrizzleQueryError", {
++var EffectDrizzleQueryError = class EffectDrizzleQueryError extends Schema.TaggedError()("EffectDrizzleQueryError", {
+ 	query: Schema.String,
+ 	params: Schema.Array(Schema.Any).pipe(Schema.mutable),
+ 	cause: Schema.Unknown
+@@ -22,11 +22,11 @@ var EffectDrizzleQueryError = class EffectDrizzleQueryError extends Schema.Tagge
+ 		Error.captureStackTrace(this, EffectDrizzleQueryError);
+ 	}
+ };
+-var EffectTransactionRollbackError = class extends Schema.TaggedErrorClass()("EffectTransactionRollbackError", {}) {
++var EffectTransactionRollbackError = class extends Schema.TaggedError()("EffectTransactionRollbackError", {}) {
+ 	static [entityKind] = "EffectTransactionRollbackError";
+ 	message = "Rollback";
+ };
+-var MigratorInitError = class extends Schema.TaggedErrorClass()("MigratorInitError", { exitCode: Schema.Literals(["databaseMigrations", "localMigrations"]) }) {
++var MigratorInitError = class extends Schema.TaggedError()("MigratorInitError", { exitCode: Schema.Literals(["databaseMigrations", "localMigrations"]) }) {
+ 	static [entityKind] = "MigratorInitError";
+ };
+ 

@@ -1,0 +1,13 @@
+{
+    "extends": "@urm/config/tsconfig.base.json",
+    "include": ["**/*.ts", "**/*.tsx"],
+    "exclude": ["node_modules", "dist", "**/.todo/**"],
+    "compilerOptions": {
+        "jsx": "preserve",
+        "jsxImportSource": "solid-js",
+        "lib": ["ESNext", "dom", "dom.iterable"],
+        /* The astro/ subtree is compiled by Vite in the consuming site, so it
+           uses `import.meta.glob` and side-effect CSS imports. */
+        "types": ["vite/client"]
+    }
+}

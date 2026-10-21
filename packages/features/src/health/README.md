@@ -1,0 +1,5 @@
+- 30 Min Timer
+- Eyes 30/30/30/
+- Move with Breath
+- Finger Thumb touching
+- Hand Clasping (fingers into palm)

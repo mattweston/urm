@@ -1,0 +1,76 @@
+{
+    "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+    "extends": [
+        "./packages/tools/linter/.oxlintrc.json"
+    ],
+    "ignorePatterns": [
+        "LLMS.md",
+        ".todo/**",
+        "apps/**/.astro/**",
+        "**/._*",
+        "**/dist",
+        "**/build",
+        "**/.todo",
+        "**/.tsbuildinfo",
+        "packages/**/CHANGELOG.md",
+        "!scratchpad/**/*",
+        ".agents/**/*",
+        ".claude/skills/**/*",
+        ".context/**/*",
+        ".specs/**/*"
+    ],
+    "rules": {
+        "jest/require-to-throw-message": "off"
+    },
+    "overrides": [
+        {
+            "files": [
+                "**/{test,dtslint,examples,docs,benchmark,bundle,scripts,scratchpad}/**"
+            ],
+            "rules": {
+                "eslint/no-console": "off"
+            }
+        },
+        {
+            "files": [
+                "packages/utils/src/env.ts",
+                "apps/**/audio-highlight.client.ts"
+            ],
+            "rules": {
+                "unicorn/require-module-specifiers": "off"
+            }
+        },
+        {
+            "files": [
+                "apps/**/features/labs/rich-text-editor/rich-text-editor.update.ts"
+            ],
+            "rules": {
+                "no-alert": "off"
+            }
+        },
+        {
+            "files": [
+                "apps/projects/effect-atom-foldkit/src/example/index.ts"
+            ],
+            "rules": {
+                "import/default": "off"
+            }
+        },
+        {
+            "files": [
+                "apps/projects/effect-website-solid/**",
+                "apps/projects/urm.dev.octane/**",
+                "apps/projects/visual-effect-astro/**",
+                "apps/projects/web-solid-vite/**",
+                "apps/projects/web-solid-tanstack-router/**",
+                "apps/projects/web-solid-tanstack-start/**",
+                "packages/features-octane/**",
+                "packages/features-solid/**",
+                "packages/ui/src/solid/**"
+            ],
+            "rules": {
+                "foldkit/no-module-level-mutable-state": "off"
+            }
+        }
+    ]
+}

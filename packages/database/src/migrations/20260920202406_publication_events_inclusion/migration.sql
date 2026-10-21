@@ -1,0 +1,1 @@
+ALTER TABLE "publication_configurations" ADD COLUMN "events_included" boolean DEFAULT false NOT NULL;

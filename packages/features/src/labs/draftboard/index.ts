@@ -1,0 +1,6 @@
+export { Message, ChangedBoard } from "./draftboard.message.ts"
+export type { Message as MessageType } from "./draftboard.message.ts"
+export { Model } from "./draftboard.model.ts"
+export type { Model as ModelType } from "./draftboard.model.ts"
+export { init, update } from "./draftboard.update.ts"
+export { view } from "./draftboard.view.ts"

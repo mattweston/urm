@@ -1,0 +1,90 @@
+import { Option, Schema as S } from "effect"
+import * as Spreadsheet from "../../spreadsheet/index.ts"
+import {
+    ColumnType,
+    RawRow,
+    TableDefinition,
+    TableRow,
+} from "@urm/domain/schemas/data-tables"
+
+export const ColumnDraft = S.Struct({
+    name: S.String,
+    key: S.String,
+    type: ColumnType,
+    required: S.Boolean,
+    choices: S.String,
+    default_value: S.String,
+})
+export const Model = S.Struct({
+    spreadsheet: Spreadsheet.Model,
+    cell_edit: S.Option(
+        S.Struct({
+            row_id: S.String,
+            row_revision: S.Number,
+            schema_revision: S.Number,
+            column_key: S.String,
+            values: RawRow,
+            address: S.Struct({ row: S.Number, column: S.Number }),
+            draft: S.String,
+        })
+    ),
+    domain_id: S.String,
+    can_write: S.Boolean,
+    loaded: S.Boolean,
+    tables: S.Array(TableDefinition),
+    selected_id: S.String,
+    rows: S.Array(TableRow),
+    rows_loaded: S.Boolean,
+    name: S.String,
+    columns: S.Array(ColumnDraft),
+    creating: S.Boolean,
+    contact_import: S.Boolean,
+    busy: S.Boolean,
+    error: S.String,
+    notice: S.String,
+    uploads: S.Array(S.Struct({ id: S.String, filename: S.String })),
+    upload_id: S.String,
+    source_rows: S.Array(RawRow),
+    mapping: S.Record(S.String, S.String),
+    previewed: S.Boolean,
+    editing_id: S.String,
+    editing_revision: S.Number,
+    draft: RawRow,
+    page: S.Number,
+})
+export type Model = typeof Model.Type
+export const blank_column: typeof ColumnDraft.Type = {
+    name: "",
+    key: "",
+    type: "text",
+    required: false,
+    choices: "",
+    default_value: "",
+}
+export const init = (domain_id = ""): Model => ({
+    spreadsheet: Spreadsheet.init_table(),
+    cell_edit: Option.none(),
+    domain_id,
+    can_write: false,
+    loaded: false,
+    tables: [],
+    selected_id: "",
+    rows: [],
+    rows_loaded: false,
+    name: "",
+    columns: [{ ...blank_column }],
+    creating: false,
+    contact_import: false,
+    busy: false,
+    error: "",
+    notice: "",
+    uploads: [],
+    upload_id: "",
+    source_rows: [],
+    mapping: {},
+    previewed: false,
+    editing_id: "",
+    editing_revision: 0,
+    draft: {},
+    page: 0,
+})

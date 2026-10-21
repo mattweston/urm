@@ -1,0 +1,18 @@
+::view-transition-group(.gallery-artwork-image) {
+    animation-duration: 500ms;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-old(.gallery-artwork-image),
+::view-transition-new(.gallery-artwork-image) {
+    height: 100%;
+    object-fit: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(.gallery-artwork-image),
+    ::view-transition-old(.gallery-artwork-image),
+    ::view-transition-new(.gallery-artwork-image) {
+        animation: none !important;
+    }
+}

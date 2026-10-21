@@ -1,0 +1,40 @@
+{
+    "name": "@urm/utils",
+    "version": "0.0.1",
+    "homepage": "https://github.com/mattweston/urm",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./*": "./src/*.ts",
+        "./*/index": null,
+        "./browser": "./src/browser/index.ts",
+        "./dev-server": "./src/dev-server/index.ts",
+        "./hosts": "./src/hosts/index.ts",
+        "./internal/*": null,
+        "./layout": "./src/layout/index.ts",
+        "./media": "./src/media/index.ts",
+        "./package.json": "./package.json",
+        "./rpc": "./src/rpc/index.ts",
+        "./seo": "./src/seo/index.ts",
+        "./upload": "./src/upload/index.ts",
+        "./values": "./src/values/index.ts"
+    },
+    "scripts": {
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@aws-sdk/client-s3": "catalog:media",
+        "@aws-sdk/s3-request-presigner": "catalog:media",
+        "clsx": "catalog:layout",
+        "effect": "catalog:",
+        "tailwind-merge": "catalog:layout"
+    },
+    "devDependencies": {
+        "@effect/vitest": "catalog:testing",
+        "@types/node": "catalog:frontend",
+        "@urm/config": "workspace:*",
+        "typescript": "catalog:",
+        "vitest": "catalog:testing"
+    }
+}

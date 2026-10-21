@@ -1,0 +1,44 @@
+diff --git a/src/index.ts b/src/index.ts
+index f610fbf68173d96ed44fbed31b9dd9f8902349fd..2b243b2d6728e80e980c953e9cb04b317703f34c 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -33,7 +33,13 @@ const createPlugin = (options?: SpotlightInitOptions): AstroIntegration => {
+           const importPath = path.dirname(url.fileURLToPath(import.meta.url));
+           const pluginPath = path.join(importPath, "overlay/index.ts");
+ 
+-          addDevToolbarApp(pluginPath);
++          // Astro 6 takes an app entry object; the id/name here mirror the
++          // meta the overlay module still exports for older Astro versions.
++          addDevToolbarApp({
++            id: "spotlight-plugin",
++            name: "Spotlight by Sentry",
++            entrypoint: pluginPath,
++          });
+         } else if (options?.__debugOptions) {
+           injectScript("page", buildClientInit(options));
+         }
+diff --git a/src/snippets.ts b/src/snippets.ts
+index 7124ae67651315ae449bdb23d219d95fdb887c44..cbb313e58a3df2cc0400ccdae53f05828e5c31d5 100644
+--- a/src/snippets.ts
++++ b/src/snippets.ts
+@@ -3,11 +3,17 @@ import type { SpotlightInitOptions } from "@spotlightjs/spotlight/vite-plugin";
+ export const buildServerSnippet: (options?: SpotlightInitOptions) => string = options => `
+ import * as _SentrySDKForSpotlight from '@sentry/astro';
+ 
+-if (_SentrySDKForSpotlight && _SentrySDKForSpotlight.getClient()) {
+-  _SentrySDKForSpotlight.addIntegration(_SentrySDKForSpotlight.spotlightIntegration({
++// Non-node SSR runtimes (e.g. Cloudflare workerd) resolve '@sentry/astro' to
++// its browser build, which exports spotlightBrowserIntegration instead of
++// spotlightIntegration — fall back rather than crashing every SSR request.
++const _spotlightIntegrationFactory =
++  _SentrySDKForSpotlight.spotlightIntegration ?? _SentrySDKForSpotlight.spotlightBrowserIntegration;
++
++if (_SentrySDKForSpotlight && _SentrySDKForSpotlight.getClient() && _spotlightIntegrationFactory) {
++  _SentrySDKForSpotlight.addIntegration(_spotlightIntegrationFactory({
+     ${options?.sidecarUrl ? `sidecarUrl: '${options.sidecarUrl}'` : ""}
+   }));
+-} else {
++} else if (!_SentrySDKForSpotlight.getClient()) {
+   console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!! [@spotlightjs/astro] !!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+   console.log('Could not find Sentry SDK. Please make sure to install it for the best experience.');
+   console.log('Visit https://spotlightjs.com/setup/astro/ for detailed instructions.');

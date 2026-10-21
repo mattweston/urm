@@ -1,0 +1,104 @@
+#!/usr/bin/env node
+/**
+ * Sync styleguide docs to Mixedbread vector store via file upload API.
+ * Usage: node packages/tools/search/scripts/sync-mixedbread-styleguide.mjs
+ */
+import { readFileSync } from "node:fs";
+import { glob } from "node:fs/promises";
+import { extname } from "node:path";
+import { config } from "dotenv";
+
+config({ path: "styleguide/.env.local" });
+
+const MXBAI_API_KEY = process.env.MXBAI_API_KEY;
+const MXBAI_VECTOR_STORE_ID = process.env.MXBAI_VECTOR_STORE_ID;
+
+if (!MXBAI_API_KEY || !MXBAI_VECTOR_STORE_ID) {
+    console.error("Missing MXBAI_API_KEY or MXBAI_VECTOR_STORE_ID");
+    process.exit(1);
+}
+
+const MIME_TYPES = { ".md": "text/markdown", ".mdx": "text/markdown" };
+
+async function uploadFile(filePath) {
+    const ext = extname(filePath);
+    const mimeType = MIME_TYPES[ext] || "text/plain";
+    const content = readFileSync(filePath, "utf-8");
+
+    // Parse frontmatter
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    let frontmatter = {};
+    let body = content;
+    if (fmMatch) {
+        for (const line of fmMatch[1].split("\n")) {
+            const sep = line.indexOf(":");
+            if (sep === -1) continue;
+            frontmatter[line.slice(0, sep).trim()] = line
+                .slice(sep + 1)
+                .trim()
+                .replace(/^["']|["']$/g, "");
+        }
+        body = fmMatch[2];
+    }
+
+    if (frontmatter.search === "false") return null;
+
+    const filePathRel = filePath.includes("styleguide/src/content/")
+        ? filePath.slice(filePath.indexOf("styleguide/src/content/"))
+        : filePath;
+
+    const form = new FormData();
+    form.set("file", new Blob([body], { type: mimeType }), filePathRel);
+    form.set("body", JSON.stringify({
+        metadata: {
+            file_path: filePathRel,
+            title: frontmatter.title || "",
+            description: frontmatter.description || "",
+        },
+    }));
+
+    const response = await fetch(
+        `https://api.mixedbread.com/v1/stores/${MXBAI_VECTOR_STORE_ID}/files`,
+        {
+            method: "POST",
+            headers: { Authorization: `Bearer ${MXBAI_API_KEY}` },
+            body: form,
+        }
+    );
+
+    if (!response.ok) {
+        const err = await response.text();
+        // Some files fail — log and continue
+        console.error(`  ✗ ${filePathRel}: ${err}`);
+        return;
+    }
+
+    console.log(`  ✓ ${filePathRel}`);
+}
+
+async function sync() {
+    console.log("Uploading files to Mixedbread...\n");
+
+    const files = [];
+    for await (const f of glob("styleguide/src/content/**/*.{md,mdx}", { cwd: process.cwd() })) {
+        files.push(f);
+    }
+    console.log(`Found ${files.length} files\n`);
+
+    let indexed = 0;
+    for (const file of files) {
+        try {
+            await uploadFile(file);
+            indexed++;
+        } catch (err) {
+            console.error(`  ✗ ${file}: ${err.message}`);
+        }
+    }
+
+    console.log(`\nDone. Uploaded ${indexed}/${files.length} files.`);
+}
+
+sync().catch((err) => {
+    console.error("Sync failed:", err);
+    process.exit(1);
+});

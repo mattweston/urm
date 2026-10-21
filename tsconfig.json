@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "strictNullChecks": true
+    },
+    "exclude": [
+        "**/_TODO/**",
+        "**/.todo/**",
+        ".examples",
+        ".context",
+        ".btca",
+        ".opencode",
+        ".bkups",
+        "node_modules",
+        "dist",
+        "docgen-examples"
+    ],
+}

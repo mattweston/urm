@@ -1,0 +1,11 @@
+{
+    "name": "@urm/config",
+    "version": "0.0.0",
+    "private": true,
+    "homepage": "https://github.com/mattweston/urm",
+    "type": "module",
+    "exports": {
+        "./package.json": "./package.json",
+        "./tsconfig.base.json": "./tsconfig.base.json"
+    }
+}

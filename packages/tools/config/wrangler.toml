@@ -1,0 +1,9 @@
+name = "urm"
+main = "src/index.ts"
+compatibility_date = "2025-01-13"
+
+[assets]
+directory = "src/assets/dist/client"  # Static assets only (CSS, JS, images)
+binding = "ASSETS"
+not_found_handling = "single-page-application"  # SPA mode for TanStack Router
+run_worker_first = ["/api/*"]  # Explicit: Worker handles /api/* first

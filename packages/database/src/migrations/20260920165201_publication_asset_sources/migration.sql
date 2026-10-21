@@ -1,0 +1,1 @@
+ALTER TABLE "publication_releases" ADD COLUMN "asset_sources" jsonb DEFAULT '[]' NOT NULL;

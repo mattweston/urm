@@ -1,0 +1,161 @@
+@import "@urm/ui/urmcss/styles.css";
+@import "@urm/ui/urmcss/button.css";
+@import "@urm/ui/urmcss/media-actions.css";
+
+@layer components {
+    .urmcss-lab {
+        max-inline-size: 64rem;
+        margin-inline: auto;
+        padding: 2.5rem 1.5rem;
+        display: grid;
+        gap: 2rem;
+
+        & :where(h1, h2, p) {
+            margin: 0;
+        }
+        & h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+        & h2 {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+        & p {
+            max-inline-size: 65ch;
+            line-height: 1.7;
+            color: var(--muted-foreground);
+        }
+        & a {
+            color: var(--primary);
+            text-decoration: underline;
+            text-underline-offset: 0.2em;
+        }
+        & header {
+            display: grid;
+            gap: 0.75rem;
+        }
+        & section {
+            display: grid;
+            min-inline-size: 0;
+            gap: 1rem;
+            padding: 1.5rem;
+            border: var(--surface-border-width) solid var(--border);
+            border-radius: var(--radius-surface);
+            background: var(--card);
+            color: var(--card-foreground);
+            box-shadow: var(--shadow-card);
+
+            & > * {
+                min-inline-size: 0;
+            }
+        }
+        & output {
+            font-variant-numeric: tabular-nums;
+        }
+        & pre {
+            overflow-x: auto;
+            padding: 1rem;
+            background: var(--muted);
+            border-radius: var(--radius-surface-sm);
+            font-size: 0.8125rem;
+        }
+    }
+
+    .urmcss-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .urmcss-comparison {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+        gap: 1rem;
+    }
+    .urmcss-sidebar-actions {
+        display: grid;
+        gap: 0.5rem;
+        max-inline-size: 18rem;
+    }
+
+    .urmcss-calendar {
+        display: grid;
+        min-inline-size: 0;
+        gap: 0.75rem;
+        inline-size: min(100%, 23rem);
+        padding: 0.5rem;
+        overflow-x: auto;
+    }
+    .urmcss-calendar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+    }
+    .urmcss-calendar-title {
+        font-weight: 600;
+    }
+    .urmcss-calendar-grid {
+        display: grid;
+        gap: 0.25rem;
+    }
+    .urmcss-calendar-week {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 0.25rem;
+    }
+    @media (pointer: coarse) {
+        .urmcss-calendar-grid {
+            min-inline-size: 20.75rem;
+        }
+    }
+    .urmcss-calendar-weekday {
+        text-align: center;
+        font-size: 0.75rem;
+        color: var(--muted-foreground);
+    }
+    .urmcss-calendar-cell {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    .urmcss-calendar-periods {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-auto-rows: minmax(3rem, auto);
+        gap: 0.25rem;
+    }
+    .urmcss-action-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-surface);
+    }
+    .urmcss-media-card {
+        position: relative;
+        display: grid;
+        gap: 1rem;
+        max-inline-size: 26rem;
+        padding: 1rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-surface);
+
+        & > .urmcss-media-actions {
+            position: absolute;
+            inset-block-start: 1.5rem;
+            inset-inline-end: 1.5rem;
+        }
+    }
+    .urmcss-media-preview {
+        display: grid;
+        place-items: center;
+        min-block-size: 8rem;
+        background: var(--muted);
+        border-radius: var(--radius-surface-sm);
+    }
+}

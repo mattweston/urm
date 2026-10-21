@@ -1,0 +1,24 @@
+/**
+ * # Database Service
+ *
+ * The `DB` tag and its shape. Layers that provide it live in
+ * ./database-selector.ts.
+ */
+import * as PgDrizzle from "drizzle-orm/effect-postgres";
+import { PgClient } from "@effect/sql-pg";
+import * as Context from "effect/Context";
+import { relations } from "../schema/relations.ts";
+
+export type DBShape = PgDrizzle.EffectPgDatabase<typeof relations> & {
+    $client: PgClient.PgClient;
+};
+
+export class DB extends Context.Service<DB, DBShape>()("DB") { }
+
+export class DatabaseSelectorError {
+    readonly _tag = "DatabaseSelectorError";
+    constructor(
+        readonly message: string,
+        readonly cause?: unknown,
+    ) { }
+}

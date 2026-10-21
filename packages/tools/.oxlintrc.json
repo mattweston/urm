@@ -1,0 +1,89 @@
+{
+    "categories": {
+        "correctness": "error",
+        "suspicious": "warn",
+        "style": "off",
+        "restriction": "off",
+        "nursery": "off"
+    },
+    "plugins": [
+        "eslint",
+        "import",
+        "jsdoc",
+        "jsx-a11y",
+        "promise",
+        "typescript",
+        "unicorn",
+        "oxc"
+    ],
+    "ignorePatterns": [
+        "node_modules/",
+        "dist/",
+        ".astro/",
+        ".output/",
+        "build/",
+        "tmp/",
+        "src/env.d.ts",
+        "public/",
+        "src/assets/",
+        "**/_TODO/**",
+        "**/-TODO/**",
+        ".wrangler/",
+        ".vercel/",
+        ".netlify/"
+    ],
+    "rules": {
+        "jsdoc/check-tag-names": [
+            "error",
+            {
+                "definedTags": ["packageDocumentation"]
+            }
+        ],
+        "no-alert": "error",
+        "no-debugger": "error",
+        "typescript/ban-ts-comment": "error",
+        "typescript/no-explicit-any": "warn",
+        "typescript/no-deprecated": "warn",
+        "no-restricted-imports": [
+            "error",
+            {
+                "patterns": [
+                    {
+                        "group": ["@urm/*/src/**"],
+                        "message": "Do not import from internal package paths (@urm/*/src/**). Import from the package root '@urm/[package]' or from a declared subpath like '@urm/[package]/schema' instead. This enforces the deep modules architecture principle."
+                    },
+                    {
+                        "group": ["@urm/*/dist/**"],
+                        "message": "Do not import from dist/ folder. Build artifacts should not be imported directly."
+                    }
+                ]
+            }
+        ]
+    },
+    "overrides": [
+        {
+            "files": ["*.astro"],
+            "rules": {}
+        },
+        {
+            "files": [
+                "**/test/**/*.{js,ts,jsx,tsx}",
+                "**/*.test.{js,ts,jsx,tsx}"
+            ],
+            "plugins": ["jest"],
+            "env": {
+                "jest": true
+            },
+            "rules": {
+                "jest/no-disabled-tests": "off",
+                "no-console": "off"
+            }
+        }
+    ],
+    "env": {
+        "browser": true,
+        "node": true
+    },
+    "globals": {},
+    "settings": {}
+}

@@ -1,0 +1,8 @@
+{
+    "extends": "@urm/config/tsconfig.base.json",
+    "include": ["**/*.ts"],
+    "exclude": ["node_modules", "**/.todo/**"],
+    "compilerOptions": {
+        "types": ["node"]
+    }
+}

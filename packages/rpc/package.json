@@ -1,0 +1,58 @@
+{
+    "name": "@urm/rpc",
+    "private": true,
+    "homepage": "https://github.com/mattweston/urm",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./*/index": null,
+        "./api": "./src/api.ts",
+        "./auth": "./src/auth/index.ts",
+        "./handlers": "./src/handlers/index.ts",
+        "./handlers/*": "./src/handlers/*/index.ts",
+        "./http": "./src/http.ts",
+        "./internal/*": null,
+        "./package.json": "./package.json",
+        "./repositories": "./src/repositories.ts"
+    },
+    "scripts": {
+        "dev": "tsx watch src/server.ts",
+        "dev-remote": "tsx watch src/server.ts --host",
+        "start": "node dist/apps/rpc/src/server.js",
+        "build": "tsc -p tsconfig.build.json",
+        "typecheck": "tsc -p tsconfig.json",
+        "test": "vitest run",
+        "test:integration:shop": "vitest run --config vitest.integration.config.ts",
+        "test:integration:organisations": "vitest run --config vitest.organisations.integration.config.ts",
+        "test:integration:auth": "vitest run --config vitest.auth.integration.config.ts"
+    },
+    "dependencies": {
+        "@effect/ai-openai": "4.0.0-rc.108",
+        "@shikijs/twoslash": "4.1.0",
+        "@urm/auth": "workspace:*",
+        "@urm/contracts": "workspace:*",
+        "@urm/db": "workspace:*",
+        "@urm/domain": "workspace:*",
+        "@urm/email": "workspace:*",
+        "@urm/env": "workspace:*",
+        "@urm/ssg": "workspace:*",
+        "@urm/utils": "workspace:*",
+        "drizzle-orm": "catalog:database",
+        "effect": "catalog:",
+        "foldkit": "catalog:",
+        "foldkit-remote": "0.3.0",
+        "foldkit-remote-server": "0.3.0",
+        "foldkit-surface": "0.2.0",
+        "shiki": "4.1.0",
+        "twoslash": "^0.3.9"
+    },
+    "devDependencies": {
+        "@effect/vitest": "catalog:testing",
+        "@electric-sql/pglite": "^0.5.8",
+        "@faker-js/faker": "catalog:testing",
+        "@types/node": "catalog:frontend",
+        "tsx": "^4.7.0",
+        "typescript": "catalog:",
+        "vitest": "catalog:testing"
+    }
+}

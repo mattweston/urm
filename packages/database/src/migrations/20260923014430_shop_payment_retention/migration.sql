@@ -1,0 +1,1 @@
+ALTER TABLE "shop_payments" DROP CONSTRAINT "shop_payments_domain_id_domains_id_fkey", ADD CONSTRAINT "shop_payments_domain_id_domains_id_fkey" FOREIGN KEY ("domain_id") REFERENCES "domains"("id") ON DELETE RESTRICT;

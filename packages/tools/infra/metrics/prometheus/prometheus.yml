@@ -1,0 +1,8 @@
+scrape_configs:
+    - job_name: "${ORG}-postgres"
+      http_sd_configs:
+          - url: https://api.planetscale.com/v1/organizations/${ORG}/metrics
+            authorization:
+                type: "token"
+                credentials: "${TOKEN_ID}:${TOKEN}"
+            refresh_interval: 10m

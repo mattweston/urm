@@ -1,0 +1,4 @@
+CREATE UNIQUE INDEX "domains_id_organization_unique" ON "domains" ("id","organization_id");--> statement-breakpoint
+ALTER TABLE "audit_events" ADD CONSTRAINT "audit_events_xMyF2mVDb29c_fkey" FOREIGN KEY ("domain_id","organization_id") REFERENCES "domains"("id","organization_id") ON DELETE RESTRICT;--> statement-breakpoint
+ALTER TABLE "observability_logs" ADD CONSTRAINT "observability_logs_DkKOEOpKywVc_fkey" FOREIGN KEY ("domain_id","organization_id") REFERENCES "domains"("id","organization_id") ON DELETE RESTRICT;--> statement-breakpoint
+ALTER TABLE "observability_spans" ADD CONSTRAINT "observability_spans_QmaSXCCOX5IW_fkey" FOREIGN KEY ("domain_id","organization_id") REFERENCES "domains"("id","organization_id") ON DELETE RESTRICT;

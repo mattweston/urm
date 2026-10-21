@@ -1,0 +1,43 @@
+.ui-graph {
+    position: relative;
+    height: clamp(240px, 24vw, 300px);
+    background: var(--card);
+    border-radius: 12px;
+    margin-block: 1rem 2rem;
+}
+.ui-graph svg {
+    width: 100%;
+    height: 100%;
+    color: var(--ring);
+    position: absolute;
+}
+.ui-graph-node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    background: var(--background);
+    border: 1px solid var(--ring);
+    border-radius: 8px;
+    padding: 0.5rem 0.6rem;
+    max-width: 170px;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    text-align: center;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+.ui-graph-node small {
+    display: block;
+    font-size: 0.6rem;
+}
+.ui-graph-node.current {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.ui-graph-node:hover,
+.ui-graph-node:focus-visible {
+    border-color: var(--primary);
+}
+.ui-graph-node:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+}

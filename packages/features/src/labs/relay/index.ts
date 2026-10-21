@@ -1,0 +1,6 @@
+export { Message, ChangedChannel } from "./relay.message.ts"
+export type { Message as MessageType } from "./relay.message.ts"
+export { Model } from "./relay.model.ts"
+export type { Model as ModelType } from "./relay.model.ts"
+export { init, update } from "./relay.update.ts"
+export { view } from "./relay.view.ts"

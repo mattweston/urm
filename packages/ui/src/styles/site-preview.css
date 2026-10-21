@@ -1,0 +1,48 @@
+/* Scope site colors to the Design preview, never the administration root. */
+.site-appearance-preview {
+    color-scheme: light;
+    --background: var(--preview-light-background);
+    --foreground: var(--preview-light-foreground);
+    --muted-foreground: var(--preview-light-muted-foreground);
+    --border: var(--preview-light-border);
+    --primary: var(--preview-light-primary);
+    --font-body: var(--preview-light-font-body);
+    --font-code: var(--preview-light-font-code);
+    --card: var(--background);
+    --card-foreground: var(--foreground);
+    font-family: var(--font-body);
+    --preview-light-logo-display: block;
+    --preview-dark-logo-display: none;
+}
+.site-appearance-preview[data-site-appearance="dark"] {
+    color-scheme: dark;
+    --background: var(--preview-dark-background);
+    --foreground: var(--preview-dark-foreground);
+    --muted-foreground: var(--preview-dark-muted-foreground);
+    --border: var(--preview-dark-border);
+    --primary: var(--preview-dark-primary);
+    --font-body: var(--preview-dark-font-body);
+    --font-code: var(--preview-dark-font-code);
+    --preview-light-logo-display: none;
+    --preview-dark-logo-display: block;
+}
+@media (prefers-color-scheme: dark) {
+    .site-appearance-preview[data-site-appearance="system"] {
+        color-scheme: dark;
+        --background: var(--preview-dark-background);
+        --foreground: var(--preview-dark-foreground);
+        --muted-foreground: var(--preview-dark-muted-foreground);
+        --border: var(--preview-dark-border);
+        --primary: var(--preview-dark-primary);
+        --font-body: var(--preview-dark-font-body);
+        --font-code: var(--preview-dark-font-code);
+        --preview-light-logo-display: none;
+        --preview-dark-logo-display: block;
+    }
+}
+.site-appearance-preview .site-preview-logo-light {
+    display: var(--preview-light-logo-display);
+}
+.site-appearance-preview .site-preview-logo-dark {
+    display: var(--preview-dark-logo-display);
+}

@@ -1,0 +1,33 @@
+{
+    "name": "@urm/email",
+    "version": "0.0.1",
+    "homepage": "https://github.com/mattweston/urm",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./*": "./src/*.ts",
+        "./*/index": null,
+        "./internal/*": null,
+        "./package.json": "./package.json"
+    },
+    "scripts": {
+        "deploy:email": "alchemy deploy alchemy.run.ts",
+        "deploy:email-routing": "alchemy deploy alchemy.routing.run.ts",
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@urm/domain": "workspace:*",
+        "@urm/env": "workspace:*",
+        "alchemy": "2.0.0-beta.67",
+        "effect": "catalog:",
+        "@urm/db": "workspace:*",
+        "drizzle-orm": "catalog:database"
+    },
+    "devDependencies": {
+        "@effect/vitest": "catalog:testing",
+        "@types/node": "catalog:frontend",
+        "typescript": "catalog:",
+        "@electric-sql/pglite": "^0.5.8"
+    }
+}

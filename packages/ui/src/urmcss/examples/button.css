@@ -1,0 +1,53 @@
+@layer base {
+    /*
+     * This file is the complete presentation source of truth for native
+     * buttons: default, variants, states, contents, input mode, and supported
+     * ancestor contexts remain colocated here.
+     */
+    button {
+        display: inline-flex;
+        gap: var(--control-gap, 0.5rem);
+        align-items: center;
+        justify-content: center;
+        min-block-size: var(--control-size, 2.5rem);
+        padding-inline: var(--control-padding-inline, 1rem);
+        border: var(--control-border-width, 1px)
+            var(--control-border-style, solid) var(--border, currentColor);
+        border-radius: var(--radius-control, 0.5rem);
+        color: var(--secondary-foreground, currentColor);
+        background: var(--secondary, transparent);
+        box-shadow: var(--shadow-control, none);
+        font: inherit;
+
+        &:where([data-variant="primary"]) {
+            color: var(--primary-foreground);
+            background: var(--primary);
+        }
+
+        &:where(:disabled, [aria-disabled="true"], [data-disabled]) {
+            cursor: not-allowed;
+            opacity: var(--opacity-disabled, 0.5);
+        }
+
+        /* Icon-only presentation is explicit because :only-child ignores text. */
+        &:where([data-content="icon"]) {
+            aspect-ratio: 1;
+            padding-inline: 0;
+        }
+
+        /*
+         * Reverse-context nesting styles this button in a stable ancestor
+         * context. It expands to :where(.sidebar) button; it does not select
+         * or style the sidebar.
+         */
+        :where(.sidebar) & {
+            inline-size: 100%;
+            justify-content: start;
+        }
+
+        /* Input-mode adaptations remain with the concept they change. */
+        @media (pointer: coarse) {
+            min-block-size: var(--control-size-coarse, 2.75rem);
+        }
+    }
+}

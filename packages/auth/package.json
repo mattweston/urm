@@ -1,0 +1,37 @@
+{
+    "name": "@urm/auth",
+    "version": "0.0.1",
+    "homepage": "https://github.com/mattweston/urm",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./*": "./src/*.ts",
+        "./*/index": null,
+        "./cookies": "./src/cookies/index.ts",
+        "./internal/*": null,
+        "./oauth": "./src/oauth/pkce.ts",
+        "./package.json": "./package.json",
+        "./permissions": "./src/permissions/index.ts",
+        "./policies": "./src/policies/index.ts"
+    },
+    "scripts": {
+        "test": "vitest run",
+        "test:integration:sessions": "vitest run --config vitest.integration.config.ts",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@urm/config": "workspace:*",
+        "@urm/contracts": "workspace:*",
+        "@urm/db": "workspace:*",
+        "@urm/env": "workspace:*",
+        "arctic": "catalog:auth",
+        "drizzle-orm": "catalog:database",
+        "effect": "catalog:"
+    },
+    "devDependencies": {
+        "@effect/vitest": "catalog:testing",
+        "@electric-sql/pglite": "^0.5.8",
+        "@types/node": "catalog:frontend",
+        "vitest": "catalog:testing"
+    }
+}

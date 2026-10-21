@@ -1,0 +1,2 @@
+/* URMCSS cascade contract. Keep this order stable across every consumer. */
+@layer reset, tokens, base, objects, components, utilities, overrides;

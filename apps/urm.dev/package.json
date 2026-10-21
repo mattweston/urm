@@ -1,0 +1,39 @@
+{
+    "name": "@urm/client",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite --configLoader runner --host 0.0.0.0 --port 1420 --strictPort",
+        "build": "vite build --configLoader runner",
+        "format": "oxfmt .",
+        "lint": "oxlint -c ../../.oxlintrc.json .",
+        "preview": "vite preview --configLoader runner",
+        "test": "vitest run",
+        "typecheck": "tsc --project tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@capacitor/core": "8.4.2",
+        "@foldkit/ui": "catalog:ui",
+        "@urm/contracts": "workspace:*",
+        "@urm/db": "workspace:*",
+        "@urm/features": "workspace:*",
+        "@urm/ui": "workspace:*",
+        "@urm/utils": "workspace:*",
+        "cuelume": "^0.2.2",
+        "drizzle-orm": "catalog:database",
+        "effect": "catalog:",
+        "foldkit": "catalog:",
+        "foldkit-remote": "0.3.0",
+        "foldkit-surface": "0.2.0"
+    },
+    "devDependencies": {
+        "@foldkit/vite-plugin": "0.20.2",
+        "@tailwindcss/vite": "catalog:layout",
+        "@urm/config": "workspace:*",
+        "tailwindcss": "catalog:layout",
+        "typescript": "catalog:",
+        "vite": "catalog:build",
+        "vitest": "catalog:testing"
+    }
+}

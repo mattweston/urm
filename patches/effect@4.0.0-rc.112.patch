@@ -1,0 +1,43 @@
+diff --git a/dist/Schema.d.ts b/dist/Schema.d.ts
+--- a/dist/Schema.d.ts
++++ b/dist/Schema.d.ts
+@@ -9963,6 +9963,10 @@
+     };
+ };
+ /**
++ * @deprecated Compatibility alias for dependencies built before the rc.109 rename.
++ */
++export declare const TaggedErrorClass: typeof TaggedError;
++/**
+  * Represents a function that builds a fast-check `Arbitrary<T>` from the
+  * `fast-check` module.
+  *
+diff --git a/dist/Schema.js b/dist/Schema.js
+--- a/dist/Schema.js
++++ b/dist/Schema.js
+@@ -9425,6 +9425,10 @@
+   };
+ };
+ /**
++ * @deprecated Compatibility alias for dependencies built before the rc.109 rename.
++ */
++export const TaggedErrorClass = TaggedError;
++/**
+  * Returns an {@link Arbitrary} factory derived from a schema. The generated
+  * values satisfy the schema and use its decoded `Type`.
+  *
+diff --git a/src/Schema.ts b/src/Schema.ts
+--- a/src/Schema.ts
++++ b/src/Schema.ts
+@@ -15317,6 +15317,11 @@
+   }
+ }
+ 
++/**
++ * @deprecated Compatibility alias for dependencies built before the rc.109 rename.
++ */
++export const TaggedErrorClass = TaggedError
++
+ // -----------------------------------------------------------------------------
+ // Arbitrary
+ // -----------------------------------------------------------------------------

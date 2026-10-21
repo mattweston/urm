@@ -1,0 +1,19 @@
+{
+    "name": "@urm/linter",
+    "version": "0.0.0",
+    "private": true,
+    "homepage": "https://github.com/mattweston/urm",
+    "type": "module",
+    "exports": {
+        "./base": "./base.json",
+        "./package.json": "./package.json",
+        "./tanstack": "./tanstack.json"
+    },
+    "devDependencies": {
+        "@foldkit/oxlint-plugin": "catalog:lint",
+        "@urm/config": "workspace:*",
+        "eslint-plugin-better-tailwindcss": "catalog:lint",
+        "oxfmt": "catalog:lint",
+        "oxlint": "catalog:lint"
+    }
+}

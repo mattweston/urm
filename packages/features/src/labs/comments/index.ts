@@ -1,0 +1,8 @@
+export { GenerateComment } from "./comments.command.ts"
+export { Message } from "./comments.message.ts"
+export type { Message as MessageType } from "./comments.message.ts"
+export { Model } from "./comments.model.ts"
+export type { Model as ModelType } from "./comments.model.ts"
+export { init, initialModel, update } from "./comments.update.ts"
+export { view } from "./comments.view.ts"
+export { commentsHref, isCommentsPath } from "./route.ts"

@@ -1,0 +1,195 @@
+{
+    "extends": ["./node_modules/@foldkit/oxlint-plugin/recommended.json"],
+    "categories": {
+        "correctness": "error",
+        "suspicious": "warn",
+        "style": "off",
+        "restriction": "off",
+        "nursery": "off"
+    },
+    "plugins": [
+        "eslint",
+        "import",
+        "jsdoc",
+        "jsx-a11y",
+        "promise",
+        "typescript",
+        "unicorn",
+        "oxc"
+    ],
+    "ignorePatterns": [
+        "node_modules/",
+        "dist/",
+        "**/.astro/**",
+        ".output/",
+        "build/",
+        "tmp/",
+        "src/env.d.ts",
+        "public/",
+        "src/assets/",
+        "**/_TODO/**",
+        "**/-TODO/**",
+        ".wrangler/",
+        ".vercel/",
+        ".netlify/"
+    ],
+    "rules": {
+        "jsdoc/check-tag-names": [
+            "error",
+            {
+                "definedTags": ["packageDocumentation", "title"]
+            }
+        ],
+        "jsdoc/require-yields": "off",
+        "no-alert": "error",
+        "no-debugger": "error",
+        "no-shadow": "off",
+        "import/no-unassigned-import": "off",
+        "import/no-named-as-default": "off",
+        "jest/require-to-throw-message": "off",
+        "promise/always-return": "off",
+        "promise/no-multiple-resolved": "off",
+        "unicorn/no-array-sort": "off",
+        "unicorn/consistent-function-scoping": "off",
+        "typescript/ban-ts-comment": "error",
+        "typescript/no-explicit-any": "warn",
+        "typescript/no-deprecated": "warn",
+        "no-restricted-imports": [
+            "error",
+            {
+                "patterns": [
+                    {
+                        "group": ["@urm/*/src/**"],
+                        "message": "Do not import from internal package paths (@urm/*/src/**). Import from the package root '@urm/[package]' or from a declared subpath like '@urm/[package]/schema' instead. This enforces the deep modules architecture principle."
+                    },
+                    {
+                        "group": ["@urm/*/dist/**"],
+                        "message": "Do not import from dist/ folder. Build artifacts should not be imported directly."
+                    }
+                ]
+            }
+        ]
+    },
+    "overrides": [
+        {
+            "files": ["*.astro"],
+            "rules": {
+                "foldkit/command-binding-matches-name": "off",
+                "foldkit/command-define-pascal-const": "off",
+                "foldkit/got-prefix-requires-submodel-payload": "off",
+                "foldkit/got-submodel-message-name": "off",
+                "foldkit/got-wrapper-carries-only-routing": "off",
+                "foldkit/keyed-required-for-mapped-rows": "off",
+                "foldkit/lazy-view-stable-references": "off",
+                "foldkit/message-binding-matches-tag": "off",
+                "foldkit/mount-factory-must-use-element": "off",
+                "foldkit/no-array-index-view-keys": "off",
+                "foldkit/no-child-message-construction-in-root": "off",
+                "foldkit/no-disabling-dev-guardrails": "off",
+                "foldkit/no-duplicate-onmount-per-element": "off",
+                "foldkit/no-empty-object-tagged-call": "off",
+                "foldkit/no-hand-rolled-command-struct": "off",
+                "foldkit/no-hardcoded-route-strings": "off",
+                "foldkit/no-module-level-mutable-state": "off",
+                "foldkit/no-noop-message": "off",
+                "foldkit/no-raw-dom-event-attributes": "off",
+                "foldkit/no-spread-in-evo": "off",
+                "foldkit/prefer-callable-message-constructor": "off",
+                "foldkit/require-rel-for-external-link": "off",
+                "foldkit/selection-submodel-factory-at-module-scope": "off",
+                "foldkit/wrap-child-output-in-got-message": "off"
+            }
+        },
+        {
+            "files": [
+                "apps/server/**",
+                "packages/auth/**",
+                "packages/contracts/**",
+                "packages/db/**",
+                "packages/domain/**",
+                "packages/email/**",
+                "packages/env/**",
+                "packages/http/**",
+                "packages/rpc/**",
+                "packages/types/**",
+                "packages/utils/**",
+                "packages/tools/**"
+            ],
+            "rules": {
+                "foldkit/command-binding-matches-name": "off",
+                "foldkit/command-define-pascal-const": "off",
+                "foldkit/got-prefix-requires-submodel-payload": "off",
+                "foldkit/got-submodel-message-name": "off",
+                "foldkit/got-wrapper-carries-only-routing": "off",
+                "foldkit/keyed-required-for-mapped-rows": "off",
+                "foldkit/lazy-view-stable-references": "off",
+                "foldkit/message-binding-matches-tag": "off",
+                "foldkit/mount-factory-must-use-element": "off",
+                "foldkit/no-array-index-view-keys": "off",
+                "foldkit/no-child-message-construction-in-root": "off",
+                "foldkit/no-disabling-dev-guardrails": "off",
+                "foldkit/no-duplicate-onmount-per-element": "off",
+                "foldkit/no-empty-object-tagged-call": "off",
+                "foldkit/no-hand-rolled-command-struct": "off",
+                "foldkit/no-hardcoded-route-strings": "off",
+                "foldkit/no-module-level-mutable-state": "off",
+                "foldkit/no-noop-message": "off",
+                "foldkit/no-raw-dom-event-attributes": "off",
+                "foldkit/no-spread-in-evo": "off",
+                "foldkit/prefer-callable-message-constructor": "off",
+                "foldkit/require-rel-for-external-link": "off",
+                "foldkit/selection-submodel-factory-at-module-scope": "off",
+                "foldkit/wrap-child-output-in-got-message": "off"
+            }
+        },
+        {
+            "files": ["scripts/**", "llm-docs/**"],
+            "rules": {
+                "foldkit/command-binding-matches-name": "off",
+                "foldkit/command-define-pascal-const": "off",
+                "foldkit/got-prefix-requires-submodel-payload": "off",
+                "foldkit/got-submodel-message-name": "off",
+                "foldkit/got-wrapper-carries-only-routing": "off",
+                "foldkit/keyed-required-for-mapped-rows": "off",
+                "foldkit/lazy-view-stable-references": "off",
+                "foldkit/message-binding-matches-tag": "off",
+                "foldkit/mount-factory-must-use-element": "off",
+                "foldkit/no-array-index-view-keys": "off",
+                "foldkit/no-child-message-construction-in-root": "off",
+                "foldkit/no-disabling-dev-guardrails": "off",
+                "foldkit/no-duplicate-onmount-per-element": "off",
+                "foldkit/no-empty-object-tagged-call": "off",
+                "foldkit/no-hand-rolled-command-struct": "off",
+                "foldkit/no-hardcoded-route-strings": "off",
+                "foldkit/no-module-level-mutable-state": "off",
+                "foldkit/no-noop-message": "off",
+                "foldkit/no-raw-dom-event-attributes": "off",
+                "foldkit/no-spread-in-evo": "off",
+                "foldkit/prefer-callable-message-constructor": "off",
+                "foldkit/require-rel-for-external-link": "off",
+                "foldkit/selection-submodel-factory-at-module-scope": "off",
+                "foldkit/wrap-child-output-in-got-message": "off"
+            }
+        },
+        {
+            "files": [
+                "**/test/**/*.{js,ts,jsx,tsx}",
+                "**/*.test.{js,ts,jsx,tsx}"
+            ],
+            "plugins": ["jest"],
+            "env": {
+                "jest": true
+            },
+            "rules": {
+                "jest/no-disabled-tests": "off",
+                "no-console": "off"
+            }
+        }
+    ],
+    "env": {
+        "browser": true,
+        "node": true
+    },
+    "globals": {},
+    "settings": {}
+}

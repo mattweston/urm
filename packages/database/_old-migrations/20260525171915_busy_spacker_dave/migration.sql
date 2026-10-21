@@ -1,0 +1,2 @@
+ALTER TABLE "todo_list_items" ALTER COLUMN "updated_at" SET DATA TYPE bigint USING "updated_at"::bigint;--> statement-breakpoint
+ALTER TABLE "todo_list_items" ALTER COLUMN "created_at" SET DATA TYPE bigint USING "created_at"::bigint;

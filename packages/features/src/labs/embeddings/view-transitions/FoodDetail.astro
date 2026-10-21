@@ -1,0 +1,45 @@
+---
+import type { Food } from "./food.ts"
+
+type Props = Readonly<{
+    food: Food
+    backHref: string
+}>
+
+const { food, backHref } = Astro.props
+---
+
+<section
+    class="food-vt-detail"
+    style={`background-color: ${food.pageColor}; color: ${food.inkColor};`}
+>
+    <div
+        class="food-vt-detail-bg"
+        style={`view-transition-name: item-bg--${food.slug}; view-transition-class: food-bg;`}
+    />
+    <a class="food-vt-back" href={backHref}>Back to all foods</a>
+    <div class="food-vt-hero">
+        <div
+            class="food-vt-mark"
+            style={`view-transition-name: item-image--${food.slug}; view-transition-class: food-image;`}
+        >
+            {food.mark}
+        </div>
+        <div>
+            <p class="food-vt-kicker">{food.eyebrow}</p>
+            <h1
+                class="food-vt-detail-name"
+                style={`view-transition-name: item-name--${food.slug}; view-transition-class: food-name;`}
+            >
+                {food.name}
+            </h1>
+            <p class="food-vt-summary">{food.summary}</p>
+        </div>
+    </div>
+    <article class="food-vt-method">
+        <p class="food-vt-kicker">BEST METHOD</p>
+        <h2>Refrigerated</h2>
+        <p>{food.storage}</p>
+        <strong>{food.keeps}</strong>
+    </article>
+</section>

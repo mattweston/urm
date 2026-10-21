@@ -1,0 +1,6 @@
+{
+    "identifier": "default",
+    "description": "Baseline window permissions; URM currently needs no native APIs.",
+    "windows": ["main"],
+    "permissions": ["core:default"]
+}

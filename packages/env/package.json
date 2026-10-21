@@ -1,0 +1,25 @@
+{
+    "name": "@urm/env",
+    "private": true,
+    "homepage": "https://github.com/mattweston/urm",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./*": "./src/*.ts",
+        "./*/index": null,
+        "./client": "./src/client/index.ts",
+        "./internal/*": null,
+        "./package.json": "./package.json",
+        "./server": "./src/server/index.ts"
+    },
+    "scripts": {
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "effect": "catalog:"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:frontend",
+        "@urm/config": "workspace:*"
+    }
+}

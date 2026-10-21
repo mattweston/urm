@@ -1,0 +1,24 @@
+@layer components {
+    .terminal-shiki {
+        --terminal-shiki-foreground: var(--card-foreground);
+        --terminal-shiki-background: transparent;
+        --terminal-shiki-token-comment: var(--muted-foreground);
+        --terminal-shiki-token-keyword: var(--primary);
+        --terminal-shiki-token-string: var(--chart-2);
+        --terminal-shiki-token-string-expression: var(--chart-2);
+        --terminal-shiki-token-constant: var(--chart-1);
+        --terminal-shiki-token-function: var(--chart-5);
+        --terminal-shiki-token-parameter: var(--card-foreground);
+        --terminal-shiki-token-punctuation: var(--muted-foreground);
+        --terminal-shiki-token-link: var(--primary);
+    }
+
+    .terminal-shiki .shiki {
+        overflow: visible;
+        margin: 0;
+        background: transparent !important;
+        font-family: var(--font-mono);
+        font-size: 0.875rem;
+        line-height: 1.6;
+    }
+}

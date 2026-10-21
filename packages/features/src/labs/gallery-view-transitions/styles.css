@@ -1,0 +1,10 @@
+::view-transition-group(.gallery-demo-image) {
+    animation-duration: 500ms;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-old(.gallery-demo-image),
+::view-transition-new(.gallery-demo-image) {
+    height: 100%;
+    object-fit: contain;
+}

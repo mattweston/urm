@@ -1,0 +1,9 @@
+import { Schema as S } from "effect"
+
+export const Model = S.Struct({
+    elapsedMs: S.Number,
+    isRunning: S.Boolean,
+    startTime: S.Number,
+})
+
+export type Model = typeof Model.Type

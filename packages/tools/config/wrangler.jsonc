@@ -1,0 +1,9 @@
+{
+    "$schema": "./node_modules/wrangler/config-schema.json",
+    "name": "urm",
+    "compatibility_date": "2025-01-13",
+    "assets": {
+        "not_found_handling": "single-page-application",
+    },
+    "main": "./src/index.ts",
+}

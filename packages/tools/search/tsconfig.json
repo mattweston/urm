@@ -1,0 +1,5 @@
+{
+    "extends": "@urm/config/tsconfig.base.json",
+    "compilerOptions": { "noEmit": true, "types": ["node"], "lib": ["ESNext"] },
+    "include": ["*.ts"]
+}

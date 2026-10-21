@@ -1,0 +1,87 @@
+{
+    "$schema": "../../../node_modules/@effect/tsgo/schema.json",
+    "exclude": [
+        "node_modules",
+        "dist",
+        "build",
+        "coverage",
+        "tsconfig.build.json",
+        "dist",
+        "**/.todo/**",
+        ".context/**",
+        "logs/**"
+    ],
+    "compilerOptions": {
+        /*
+         * Project references
+         */
+        "incremental": true,
+        "composite": true,
+
+        /*
+         * Runtime and modules
+         */
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleDetection": "force",
+        "verbatimModuleSyntax": true,
+        "rewriteRelativeImportExtensions": true,
+        "erasableSyntaxOnly": true,
+
+        /*
+         * Output
+         *
+         * Individual build configurations can override noEmit when they
+         * actually emit declarations or JavaScript.
+         */
+        "noEmit": true,
+
+        /*
+         * Type safety
+         */
+        "strict": true,
+        "exactOptionalPropertyTypes": true,
+        "noUncheckedIndexedAccess": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noImplicitOverride": true,
+        "noFallthroughCasesInSwitch": true,
+
+        /*
+         * Compiler behaviour
+         */
+        "skipLibCheck": true,
+        "noErrorTruncation": true,
+        "forceConsistentCasingInFileNames": true,
+        "types": [],
+
+        /*
+         * Effect integration
+         */
+        "plugins": [
+            {
+                "name": "@effect/language-service",
+
+                "namespaceImportPackages": [],
+
+                "includeSuggestionsInTsc": false,
+
+                /*
+                 * Start conservatively. Effect errors block the check;
+                 * warnings and suggestions remain advisory.
+                 */
+                "ignoreEffectSuggestionsInTscExitCode": true,
+                "ignoreEffectWarningsInTscExitCode": true,
+                "ignoreEffectErrorsInTscExitCode": false,
+
+                "diagnosticSeverity": {
+                    "anyUnknownInErrorContext": "error",
+                    "globalErrorInEffectCatch": "error",
+                    "globalErrorInEffectFailure": "error",
+                    "unknownInEffectCatch": "error",
+                    "unsafeEffectTypeAssertion": "error"
+                }
+            }
+        ]
+    }
+}

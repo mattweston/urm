@@ -1,0 +1,43 @@
+{
+    "name": "server",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test": "vitest run",
+        "dev": "tsx watch src/main.ts",
+        "start": "tsx src/main.ts",
+        "build": "tsx build.ts",
+        "typecheck": "tsc --noEmit",
+        "test:contacts": "vitest run test/auth-mail.test.ts",
+        "auth:provision": "tsx --env-file=../../.env.local scripts/provision-account.ts",
+        "auth:grant-sysadmin": "tsx --env-file=../../.env.local scripts/grant-account-sysadmin.ts",
+        "contacts:smoke": "tsx scripts/contacts-smoke.ts"
+    },
+    "dependencies": {
+        "@tailwindcss/vite": "catalog:layout",
+        "@urm/auth": "workspace:*",
+        "@urm/contracts": "workspace:*",
+        "@urm/db": "workspace:*",
+        "@urm/domain": "workspace:*",
+        "@urm/email": "workspace:*",
+        "@urm/env": "workspace:*",
+        "@urm/http": "workspace:*",
+        "@urm/rpc": "workspace:*",
+        "@urm/utils": "workspace:*",
+        "dotenv": "catalog:env",
+        "effect": "catalog:",
+        "tsx": "^4.7.0",
+        "vite": "8.0.13"
+    },
+    "devDependencies": {
+        "@electric-sql/pglite": "^0.5.8",
+        "@types/node": "catalog:frontend",
+        "@urm/config": "workspace:*",
+        "@urm/ssg": "workspace:*",
+        "drizzle-orm": "catalog:database",
+        "foldkit": "catalog:",
+        "foldkit-remote": "0.3.0",
+        "foldkit-surface": "0.2.0",
+        "typescript": "catalog:"
+    }
+}

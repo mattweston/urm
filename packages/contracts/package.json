@@ -1,0 +1,28 @@
+{
+    "name": "@urm/contracts",
+    "version": "0.0.1",
+    "homepage": "https://github.com/mattweston/urm",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./*": "./src/*/index.ts",
+        "./*/index": null,
+        "./internal/*": null,
+        "./package.json": "./package.json",
+        "./repositories/*": "./src/repositories/*.ts"
+    },
+    "scripts": {
+        "typecheck": "tsc --noEmit",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@urm/domain": "workspace:*",
+        "effect": "catalog:",
+        "foldkit": "catalog:",
+        "foldkit-remote": "0.3.0"
+    },
+    "devDependencies": {
+        "@effect/vitest": "catalog:testing",
+        "vitest": "catalog:testing"
+    }
+}

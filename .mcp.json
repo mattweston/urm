@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "foldkit-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@foldkit/devtools-mcp"
+      ]
+    },
+    "planetscale": {
+      "url": "https://mcp.pscale.dev/mcp/planetscale"
+    }
+  }
+}

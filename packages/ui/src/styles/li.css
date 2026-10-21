@@ -1,0 +1,5 @@
+  li {
+      :where(.sidebar > ul) > & {
+          /* That list’s direct items */
+      }
+  }

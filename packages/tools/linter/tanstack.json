@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json.schemastore.org/oxlintrc",
+    "categories": {
+        "correctness": "error",
+        "suspicious": "warn",
+        "style": "off",
+        "restriction": "off",
+        "nursery": "off"
+    },
+    "plugins": ["typescript", "jsx-a11y", "unicorn"],
+    "ignorePatterns": [
+        "node_modules/",
+        "dist/",
+        ".astro/",
+        ".output/",
+        "build/",
+        ".wrangler/",
+        ".vercel/",
+        ".netlify/"
+    ],
+    "rules": {
+        "no-alert": "error",
+        "no-debugger": "error",
+        "typescript/no-explicit-any": "warn",
+        "typescript/no-deprecated": "warn"
+    },
+    "overrides": [
+        {
+            "files": [
+                "**/test/**/*.{js,ts,jsx,tsx}",
+                "**/*.test.{js,ts,jsx,tsx}"
+            ],
+            "plugins": ["jest"],
+            "rules": {
+                "jest/no-disabled-tests": "off",
+                "no-console": "off"
+            }
+        }
+    ]
+}

@@ -1,0 +1,231 @@
+/**
+ * Database Migrations
+ *
+ * Manages Drizzle ORM migrations with Effect integration.
+ * Provides:
+ * - Automatic migration detection and execution
+ * - Migration rollback capabilities
+ * - Proper error handling and logging
+ *
+ * ## Architecture
+ *
+ * Drizzle Kit generates migrations from schema changes. This module provides
+ * an Effect-based layer to execute migrations safely during application startup.
+ *
+ * ## Usage
+ *
+ * Import the migrator functions and provide the `MigratorService` layer
+ * to execute migrations at application startup.
+ *
+ * ## Migrations Directory
+ *
+ * Drizzle Kit generates migrations in: `packages/db/migrations/`
+ *
+ * @module @urm/db/migrator
+ * @since 0.0.1
+ */
+
+import * as Effect from "effect/Effect";
+import * as Context from "effect/Context";
+import * as Schema from "effect/Schema";
+
+/**
+ * Migration error - when migration execution fails
+ *
+ * @since 0.0.1
+ */
+export class MigrationError extends Schema.TaggedErrorClass<MigrationError>()(
+    "MigrationError",
+    {
+        operation: Schema.String,
+        cause: Schema.String,
+    },
+) {
+    get message(): string {
+        return `Migration ${this.operation} failed: ${this.cause}`;
+    }
+}
+
+/**
+ * Migrator service interface
+ *
+ * @since 1.0.0
+ */
+export interface Migrator {
+    readonly run: () => Effect.Effect<void, MigrationError>;
+    readonly rollback: () => Effect.Effect<void, MigrationError>;
+    readonly status: () => Effect.Effect<
+        { pending: number; applied: number },
+        MigrationError
+    >;
+}
+
+/**
+ * Migrator service tag for dependency injection
+ *
+ * Provides migration operations for the database.
+ *
+ * @since 1.0.0
+ */
+export class MigratorService extends Context.Service<
+    MigratorService,
+    Migrator
+>()("MigratorService") {
+    /**
+     * @see [Services](https://effect.website/docs/requirements-management/services/)
+     */
+}
+
+/**
+ * Run pending database migrations
+ *
+ * This effect will:
+ * 1. Detect pending migrations from the migrations directory
+ * 2. Execute them in order against the database
+ * 3. Log progress and errors
+ * 4. Fail if any migration fails (transactional safety)
+ *
+ * Should be called during application startup to ensure schema is up-to-date.
+ *
+ * @returns Effect that succeeds when all migrations are applied
+ *
+ * @example
+ * ```ts
+ * import { migrator, MigratorService } from "@urm/db/migrator"
+ * import * as Effect from "effect/Effect"
+ * import * as Layer from "effect/Layer"
+ *
+ * // Create a mock migrator layer for testing
+ * const TestMigratorLive = Layer.succeed(MigratorService, {
+ *   run: () => Effect.void,
+ *   rollback: () => Effect.void,
+ *   status: () => Effect.succeed({ pending: 0, applied: 1 })
+ * })
+ *
+ * const program = Effect.gen(function* () {
+ *   yield* migrator()
+ *   yield* Effect.log("Database migrations complete")
+ * }).pipe(Effect.provide(TestMigratorLive))
+ * ```
+ *
+ * @since 1.0.0
+ */
+export const migrator = (): Effect.Effect<
+    void,
+    MigrationError,
+    MigratorService
+> =>
+    Effect.gen(function* () {
+        const service = yield* MigratorService;
+        yield* Effect.log("Running database migrations...");
+        yield* service.run();
+        yield* Effect.log("Database migrations completed successfully");
+    });
+
+/**
+ * Check migration status without applying changes
+ *
+ * Returns the number of pending and applied migrations.
+ * Useful for diagnostics and health checks.
+ *
+ * @returns Effect containing migration status
+ *
+ * @example
+ * ```ts
+ * import { getMigrationStatus, MigratorService } from "@urm/db/migrator"
+ * import * as Effect from "effect/Effect"
+ * import * as Layer from "effect/Layer"
+ *
+ * const TestMigratorLive = Layer.succeed(MigratorService, {
+ *   run: () => Effect.void,
+ *   rollback: () => Effect.void,
+ *   status: () => Effect.succeed({ pending: 2, applied: 5 })
+ * })
+ *
+ * const checkStatus = Effect.gen(function* () {
+ *   const status = yield* getMigrationStatus()
+ *   console.log(`Pending: ${status.pending}, Applied: ${status.applied}`)
+ * }).pipe(Effect.provide(TestMigratorLive))
+ * ```
+ *
+ * @since 1.0.0
+ */
+export const getMigrationStatus = (): Effect.Effect<
+    { pending: number; applied: number },
+    MigrationError,
+    MigratorService
+> =>
+    Effect.gen(function* () {
+        const service = yield* MigratorService;
+        return yield* service.status();
+    });
+
+/**
+ * Rollback the last migration
+ *
+ * WARNING: Use with caution. Rollbacks may result in data loss.
+ *
+ * @returns Effect that succeeds when migration is rolled back
+ *
+ * @example
+ * ```ts
+ * import { rollbackMigration, MigratorService } from "@urm/db/migrator"
+ * import * as Effect from "effect/Effect"
+ * import * as Layer from "effect/Layer"
+ *
+ * const TestMigratorLive = Layer.succeed(MigratorService, {
+ *   run: () => Effect.void,
+ *   rollback: () => Effect.void,
+ *   status: () => Effect.succeed({ pending: 0, applied: 1 })
+ * })
+ *
+ * const rollback = Effect.gen(function* () {
+ *   yield* rollbackMigration()
+ *   console.log("Last migration rolled back")
+ * }).pipe(Effect.provide(TestMigratorLive))
+ * ```
+ *
+ * @since 1.0.0
+ */
+export const rollbackMigration = (): Effect.Effect<
+    void,
+    MigrationError,
+    MigratorService
+> =>
+    Effect.gen(function* () {
+        const service = yield* MigratorService;
+        yield* Effect.log("Rolling back last migration...");
+        yield* service.rollback();
+        yield* Effect.log("Migration rolled back");
+    });
+
+/**
+ * Example Migrator implementation using Drizzle
+ *
+ * This would be implemented using drizzle-orm's migration API.
+ * See: https://orm.drizzle.team/docs/migrations
+ *
+ * For Effect integration, use:
+ *
+ * ```ts
+ * import { type Migrator, MigrationError } from "@urm/db/migrator"
+ * import * as Effect from "effect/Effect"
+ *
+ * // Mock implementation for testing
+ * const mockMigrator: Migrator = {
+ *   run: () => Effect.void,
+ *   rollback: () => Effect.void,
+ *   status: () => Effect.succeed({ pending: 0, applied: 10 })
+ * }
+ *
+ * // Example error handling
+ * const failedRun = Effect.fail(
+ *   new MigrationError({
+ *     operation: "run",
+ *     cause: "Connection timeout"
+ *   })
+ * )
+ * ```
+ *
+ * @since 1.0.0
+ */

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://btca.dev/btca.schema.json",
+  "dataDirectory": ".btca",
+  "resources": [
+    {
+      "type": "git",
+      "name": "alchemy",
+      "url": "https://github.com/alchemy-run/alchemy",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "opencode",
+      "url": "https://github.com/anomalyco/opencode",
+      "branch": "dev"
+    },
+    {
+      "type": "git",
+      "name": "solidjs",
+      "url": "https://github.com/solidjs/solid",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "soliddocs",
+      "url": "https://github.com/solidjs/solid-docs",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "tanstackrouter",
+      "url": "https://github.com/TanStack/router",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "effect",
+      "url": "https://github.com/Effect-TS/effect",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "effectexamples",
+      "url": "https://github.com/Effect-TS/examples",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "accountability",
+      "url": "https://github.com/mikearnaldi/accountability",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "tanstackdb",
+      "url": "https://github.com/tanstack/db",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "drizzledocs",
+      "url": "https://github.com/drizzle-team/drizzle-orm-docs",
+      "branch": "main"
+    },
+    {
+      "type": "git",
+      "name": "drizzleorm",
+      "url": "https://github.com/drizzle-team/drizzle-orm",
+      "branch": "main"
+    },
+    {
+      "type": "local",
+      "name": "drizzle-effect",
+      "path": "/Volumes/bkup0/urm/.context/drizzle-orm-docs",
+      "specialNotes": "Drizzle + Effect integration documentation"
+    },
+    {
+      "type": "local",
+      "name": "hazel",
+      "path": "/Volumes/bkup0/urm/.context/hazel",
+      "specialNotes": "Hazel pattern examples for Effect + Drizzle repositories"
+    },
+    {
+      "type": "local",
+      "name": "urm-local",
+      "path": "/home/matt/urm",
+      "specialNotes": "Current URM workspace focusing on issues RPC, domain schemas, db schema, and web issue module."
+    },
+    {
+      "type": "local",
+      "name": "foldkit-examples",
+      "path": "/home/matt/urm/.examples/foldkit",
+      "specialNotes": "Foldkit examples and patterns reference for tooltip, sidebar, and submodel architecture."
+    },
+    {
+      "type": "local",
+      "name": "urm.dev",
+      "path": "/home/matt/urm/apps/web/port/cms/urm.dev",
+      "specialNotes": "Original urm.dev site that apps/docs foldkit application (apps/docs/src/pages/urm/_urm) was copied from. Compare against when the copy misbehaves."
+    }
+  ],
+  "model": "kimi-k2.5",
+  "provider": "opencode"
+}

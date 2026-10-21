@@ -1,0 +1,7 @@
+export { Message } from "./variable-fonts.message.ts"
+export type { Message as MessageType } from "./variable-fonts.message.ts"
+export { init, Model } from "./variable-fonts.model.ts"
+export type { Model as ModelType } from "./variable-fonts.model.ts"
+export { isVariableFontsPath, variableFontsHref } from "./route.ts"
+export { update } from "./variable-fonts.update.ts"
+export { view } from "./variable-fonts.view.ts"

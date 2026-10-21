@@ -1,0 +1,38 @@
+{
+    "extends": "../../packages/tools/config/tsconfig.base.json",
+    "include": ["**/*.ts"],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "src/handlers/example-todo/**",
+        "src/handlers/shop/repository.ts",
+        "**/.todo/**",
+        "**/_TODO/**",
+        ".examples",
+        ".context",
+        ".btca",
+        ".opencode",
+        ".bkups"
+    ],
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ES2022"],
+        "types": ["node"],
+        "noEmit": true,
+        "composite": false,
+        "paths": {
+            "@urm/db": ["../../packages/db/src/index.ts"],
+            "@urm/db/*": ["../../packages/db/src/*"],
+            "@urm/contracts": ["../../packages/contracts/src/index.ts"],
+            "@urm/contracts/*": ["../../packages/contracts/src/*"],
+            "@urm/domain": ["../../packages/domain/src/schemas/index.ts"],
+            "@urm/domain/*": ["../../packages/domain/src/*"],
+            "@urm/server": ["../../packages/server/src/index.ts"],
+            "@urm/server/*": ["../../packages/server/src/*"],
+            "@urm/utils": ["../../packages/utils/src/index.ts"],
+            "@urm/utils/*": ["../../packages/utils/src/*"]
+        }
+    }
+}

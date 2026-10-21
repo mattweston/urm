@@ -1,0 +1,15 @@
+@layer components {
+    .schema-forms-source {
+        --documentation-shiki-foreground: var(--card-foreground);
+        --documentation-shiki-background: transparent;
+        --documentation-shiki-token-comment: var(--muted-foreground);
+        --documentation-shiki-token-keyword: var(--primary);
+        --documentation-shiki-token-string: var(--chart-2);
+        --documentation-shiki-token-string-expression: var(--chart-2);
+        --documentation-shiki-token-constant: var(--chart-1);
+        --documentation-shiki-token-function: var(--chart-5);
+        --documentation-shiki-token-parameter: var(--card-foreground);
+        --documentation-shiki-token-punctuation: var(--muted-foreground);
+        --documentation-shiki-token-link: var(--primary);
+    }
+}

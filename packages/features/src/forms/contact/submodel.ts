@@ -1,0 +1,7 @@
+export { Message } from "./contact.message.ts"
+export type { Message as MessageType } from "./contact.message.ts"
+export { Model } from "./contact.model.ts"
+export type { Model as ModelType } from "./contact.model.ts"
+export { contactHref, isContactPath } from "./route.ts"
+export { init, update } from "./contact.update.ts"
+export { view } from "./contact.view.ts"

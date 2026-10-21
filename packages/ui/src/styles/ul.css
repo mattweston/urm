@@ -1,0 +1,9 @@
+  ul {
+      :where(nav) > & {
+          /* A list directly inside any nav */
+      }
+
+      :where(.sidebar) > & {
+          /* The sidebar’s direct list */
+      }
+  }

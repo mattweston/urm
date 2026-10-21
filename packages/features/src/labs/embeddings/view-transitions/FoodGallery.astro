@@ -1,0 +1,50 @@
+---
+import { foods } from "./food.ts"
+
+type Props = Readonly<{
+    basePath: string
+    comparisonHref: string
+    comparisonLabel: string
+}>
+
+const { basePath, comparisonHref, comparisonLabel } = Astro.props
+---
+
+<section class="food-vt-shell">
+    <div class="food-vt-intro">
+        <p class="food-vt-kicker">ASTRO × NATIVE CSS</p>
+        <h1>Browse all foods</h1>
+        <p>Select an item to learn about the best methods for storing it.</p>
+        <a class="food-vt-compare-link" href={comparisonHref}>{comparisonLabel}</a>
+    </div>
+
+    <div class="food-vt-grid">
+        {
+            foods.map(food => (
+                <a
+                    class="food-vt-card"
+                    href={`${basePath}/foods/${food.slug}/`}
+                    style={`background-color: ${food.cardColor}; color: ${food.inkColor};`}
+                >
+                    <div
+                        class="food-vt-card-bg"
+                        style={`view-transition-name: item-bg--${food.slug}; view-transition-class: food-bg;`}
+                    />
+                    <div
+                        class="food-vt-mark"
+                        style={`view-transition-name: item-image--${food.slug}; view-transition-class: food-image;`}
+                    >
+                        {food.mark}
+                    </div>
+                    <p
+                        class="food-vt-card-name"
+                        style={`view-transition-name: item-name--${food.slug}; view-transition-class: food-name;`}
+                    >
+                        {food.name}
+                    </p>
+                    <p class="food-vt-card-kind">{food.eyebrow}</p>
+                </a>
+            ))
+        }
+    </div>
+</section>

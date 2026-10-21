@@ -1,0 +1,22 @@
+@layer components {
+    .schema-shiki {
+        --schema-shiki-foreground: var(--card-foreground);
+        --schema-shiki-background: transparent;
+        --schema-shiki-token-comment: var(--muted-foreground);
+        --schema-shiki-token-keyword: var(--primary);
+        --schema-shiki-token-string: var(--chart-2);
+        --schema-shiki-token-string-expression: var(--chart-2);
+        --schema-shiki-token-constant: var(--chart-1);
+        --schema-shiki-token-function: var(--chart-5);
+        --schema-shiki-token-parameter: var(--card-foreground);
+        --schema-shiki-token-punctuation: var(--muted-foreground);
+        --schema-shiki-token-link: var(--primary);
+    }
+
+    .schema-shiki pre {
+        margin: 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-family: var(--font-mono);
+    }
+}

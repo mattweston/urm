@@ -1,0 +1,5 @@
+interface:
+    display_name: "URM Docs"
+    short_description: "Maintain URM Markdown docs, source JSDoc and research notes"
+policy:
+    allow_implicit_invocation: false

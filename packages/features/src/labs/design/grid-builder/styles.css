@@ -1,0 +1,71 @@
+.grid-builder-container {
+    container: grid-builder / size;
+}
+
+.grid-builder-grid:has(> :last-child:nth-child(3)) > :first-child {
+    grid-column: span 2;
+}
+
+.grid-builder-grid:has(> :last-child:nth-child(4)),
+.grid-builder-grid:has(> :last-child:nth-child(6)),
+.grid-builder-grid:has(> :last-child:nth-child(8)),
+.grid-builder-grid:has(> :last-child:nth-child(10)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.grid-builder-grid:has(> :last-child:nth-child(5)) > :first-child {
+    grid-column: span 2;
+}
+
+.grid-builder-grid:has(> :last-child:nth-child(7)) > :first-child,
+.grid-builder-grid:has(> :last-child:nth-child(11)) > :first-child {
+    grid-column: span 2;
+    grid-row: span 2;
+}
+
+.grid-builder-grid:has(> :last-child:nth-child(9)) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.grid-builder-grid:has(> :last-child:nth-child(12)) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@container grid-builder (orientation: landscape) {
+    .grid-builder-grid {
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+    }
+
+    .grid-builder-grid:has(> :last-child:nth-child(3)) {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .grid-builder-grid:has(> :last-child:nth-child(5)) > :first-child {
+        grid-column: auto;
+        grid-row: span 2;
+    }
+
+    .grid-builder-grid:has(> :last-child:nth-child(6)),
+    .grid-builder-grid:has(> :last-child:nth-child(8)),
+    .grid-builder-grid:has(> :last-child:nth-child(10)),
+    .grid-builder-grid:has(> :last-child:nth-child(12)) {
+        grid-template-rows: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-builder-grid:has(> :last-child:nth-child(9)) > :first-child {
+        grid-column: span 2;
+        grid-row: span 2;
+    }
+}
+
+::view-transition-group(.grid-builder-box) {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-old(.grid-builder-box),
+::view-transition-new(.grid-builder-box) {
+    width: 100%;
+    height: 100%;
+}

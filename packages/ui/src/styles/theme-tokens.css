@@ -1,0 +1,86 @@
+/* Tailwind token mapping for the URM palette.
+ *
+ * Turns the custom properties defined in theme.css into Tailwind utilities:
+ * `bg-card`, `text-muted-foreground`, `border-border`, `font-mono`, `rounded-lg`
+ * and friends. Import it from a Tailwind entry, after `@import "tailwindcss"`.
+ *
+ * DaisyUI aliases (base-100, *-content) are not here; the applications using
+ * DaisyUI declare those themselves.
+ */
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-hover: var(--primary-hover);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-hover: var(--secondary-hover);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    /* Sidebar family, used by solid/nav/sidebar-kobalte.tsx. Derived from the
+     * palette rather than declared in theme.css, so all 16 themes get it
+     * without each having to define six more values. Without these, every
+     * `bg-sidebar` / `text-sidebar-foreground` in that component emits nothing
+     * and the sidebar renders unstyled. */
+    --color-sidebar: var(--card);
+    --color-sidebar-foreground: var(--card-foreground);
+    --color-sidebar-border: var(--border);
+    --color-sidebar-accent: var(--accent);
+    --color-sidebar-accent-foreground: var(--accent-foreground);
+    --color-sidebar-hover: var(--accent);
+    --color-sidebar-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --font-sans: var(--font-body);
+    --font-mono: var(--font-code);
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* The one definition of what each Shiki token role means. It lives here rather
+ * than in documentation.css because that file is imported by only some apps,
+ * and highlighted code appears in more places than the documentation layout.
+ * Anything rendering Shiki output carries `shiki-tokens`; `documentation-shiki`
+ * additionally brings the documentation container's own chrome. */
+.documentation-content,
+.documentation-shiki,
+.shiki-tokens {
+    --documentation-shiki-foreground: var(--foreground);
+    --documentation-shiki-background: transparent;
+    --documentation-shiki-token-comment: var(--muted-foreground);
+    --documentation-shiki-token-keyword: var(--primary);
+    --documentation-shiki-token-string: var(--chart-2);
+    --documentation-shiki-token-string-expression: var(--chart-2);
+    --documentation-shiki-token-constant: var(--chart-1);
+    --documentation-shiki-token-number: var(--chart-1);
+    --documentation-shiki-token-function: var(--chart-5);
+    --documentation-shiki-token-parameter: var(--foreground);
+    --documentation-shiki-token-punctuation: var(--muted-foreground);
+    --documentation-shiki-token-link: var(--primary);
+    --documentation-shiki-token-inserted: var(--chart-4);
+    --documentation-shiki-token-deleted: var(--destructive);
+    --documentation-shiki-token-changed: var(--chart-5);
+}
+
