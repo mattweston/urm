@@ -5,7 +5,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as RichText from 'foldkit-richtext'
-import { anchorToBlock, anchorToSelection, placeBeside, placeOver } from '../src/floating.js'
+import {
+  anchorToBlock,
+  anchorToSelection,
+  placeBeside,
+  placeInsideEnd,
+  placeOver,
+  placeUnder,
+} from '../src/floating.js'
 import { mountInto, releaseMount } from '../src/host.js'
 
 const target = { top: 100, left: 200, width: 60, height: 20 }
@@ -44,6 +51,22 @@ describe('placeOver', () => {
   })
 })
 
+describe('placeUnder', () => {
+  it.each([
+    ['below, from its left', target, 400, { top: 128, left: 200, placement: 'bottom' }],
+    // 128 + 30 is past a viewport 150 tall, so it goes above.
+    ['above with no room below', target, 150, { top: 62, left: 200, placement: 'top' }],
+    [
+      'inside the right edge',
+      { ...target, left: 990 },
+      400,
+      { top: 128, left: 960, placement: 'bottom' },
+    ],
+  ] as const)('%s', (_, box, height, expected) => {
+    expect(placeUnder(box, { width: 40, height: 30 }, { width: 1000, height }, 8)).toEqual(expected)
+  })
+})
+
 describe('anchorToSelection', () => {
   let selectionBox = target
   beforeEach(() => {
@@ -60,6 +83,7 @@ describe('anchorToSelection', () => {
       () => ({ width: floating().style.position === 'fixed' ? 40 : 1000, height: 30 }) as DOMRect,
     )
     Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true })
   })
   afterEach(() => vi.restoreAllMocks())
 
@@ -105,6 +129,24 @@ describe('anchorToSelection', () => {
     release()
   })
 
+  it('follows a caret, under it, when asked to', () => {
+    select('text', 2, 2)
+    const release = anchorToSelection(floating(), 'host', 8, true)
+    expect(placed()).toEqual(['128px', '200px', 'bottom'])
+    release()
+  })
+
+  it('reads a caret with no box of its own from the element it is in', () => {
+    selectionBox = { top: 0, left: 0, width: 0, height: 0 }
+    vi.spyOn(document.getElementById('text')!, 'getBoundingClientRect').mockReturnValue(
+      target as DOMRect,
+    )
+    select('text', 2, 2)
+    const release = anchorToSelection(floating(), 'host', 8, true)
+    expect(placed()).toEqual(['128px', '200px', 'bottom'])
+    release()
+  })
+
   it('stops following once released', () => {
     select('text', 0, 5)
     anchorToSelection(floating(), 'host', 8)()
@@ -122,6 +164,20 @@ describe('placeBeside', () => {
     ['inside the left edge', { ...target, left: 20 }, { top: 100, left: 0, placement: 'left' }],
   ] as const)('%s', (_, box, expected) => {
     expect(placeBeside(box, { width: 40 }, 8)).toEqual(expected)
+  })
+})
+
+describe('placeInsideEnd', () => {
+  it.each([
+    ['in the top right corner', { ...target, width: 300 }, 200 + 300 - 8 - 40],
+    // A toolbar wider than the block starts at its left edge rather than past it.
+    ['at the left edge of a narrow block', { ...target, width: 30 }, target.left],
+  ] as const)('%s', (_, box, left) => {
+    expect(placeInsideEnd(box, { width: 40 }, 8)).toEqual({
+      top: target.top + 8,
+      left,
+      placement: 'inside',
+    })
   })
 })
 

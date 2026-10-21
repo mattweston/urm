@@ -8,9 +8,7 @@ import { Theme } from 'foldkit-mixins/theme'
 import { GridSlots } from './slots.js'
 
 /** The tokens the grid's styles draw with; the marks' too (`marks.ts`). */
-export const ref = Theme.ref(
-  Theme.compose(Theme.tokens, Theme.oklch({ accent: { h: 0, c: 0, l: '50%' } })),
-)
+export const ref = Theme.ref(Theme.standard())
 
 const line = `${ref.border.thin} solid ${ref.outline.subtle}`
 // Between columns: barely there, so rows read across and columns still part.
@@ -24,22 +22,23 @@ const pinnedEdge = [
     borderInlineStart: `${ref.border.thick} solid ${ref.outline.default}`,
   }),
 ] as const
-// A small padlock, for a column that does not edit: a mask, so it takes the
-// colour it is painted with.
-const padlock = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5 7V5a3 3 0 0 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2z'/%3E%3C/svg%3E")`
 
 // The field an edit is typed in fills its cell, the cell lifted off the grid
 // (below), so an edit does not look like a cell that only has focus.
-const field = Style.self({
-  background: ref.surface.base,
-  border: 'none',
-  caretColor: ref.outline.focus,
-  color: 'inherit',
-  font: 'inherit',
-  outline: `${ref.border.thick} solid ${ref.outline.focus}`,
-  outlineOffset: `calc(-1 * ${ref.border.thick})`,
-  paddingInline: ref.space.sm,
-})
+const field = Style.compose(
+  Style.self({
+    background: ref.surface.base,
+    border: 'none',
+    caretColor: ref.outline.focus,
+    color: 'inherit',
+    font: 'inherit',
+    outline: `${ref.border.thick} solid ${ref.outline.focus}`,
+    outlineOffset: `calc(-1 * ${ref.border.thick})`,
+    paddingInline: ref.space.sm,
+  }),
+  // At least 16px on a touch screen, where iOS zooms into any smaller focused field.
+  Style.media('(pointer: coarse)', { fontSize: 'max(1rem, 1em)' }),
+)
 // A draft the column refuses: the field in the error colour.
 const refused = Style.nest('&[aria-invalid="true"]', {
   outlineColor: ref.error.default,
@@ -82,7 +81,7 @@ export const GridStyle = Style.forSlots(GridSlots)(
         flex: 'none',
         height: '0.75em',
         marginInlineEnd: ref.space['2xs'],
-        mask: `${padlock} center / contain no-repeat`,
+        mask: `${ref.icon.lock} center / contain no-repeat`,
         width: '0.75em',
       }),
       Style.nest('&[data-dragging]', {
@@ -206,19 +205,41 @@ export const GridStyle = Style.forSlots(GridSlots)(
     resizeHandle: Style.compose(
       Style.self({
         background: `linear-gradient(to right, transparent calc(100% - 1px), color-mix(in oklch, ${ref.outline.subtle} 70%, transparent) calc(100% - 1px))`,
+        WebkitTouchCallout: 'none',
       }),
       Style.pseudo(':hover', {
         background: `linear-gradient(to right, transparent calc(100% - 2px), ${ref.outline.focus} calc(100% - 2px))`,
       }),
+      // A finger needs more than the 8px a pointer takes: 24px, the line still at its end.
+      Style.at(
+        '@media (pointer: coarse)',
+        Style.nest('&::before', {
+          content: '""',
+          position: 'absolute',
+          insetBlock: '0',
+          insetInlineStart: '-12px',
+          insetInlineEnd: '-4px',
+        }),
+      ),
     ),
-    fillHandle: Style.self({
-      width: '7px',
-      height: '7px',
-      background: ref.outline.focus,
-      border: `1px solid ${ref.surface.base}`,
-      cursor: 'crosshair',
-      zIndex: '3',
-    }),
+    fillHandle: Style.compose(
+      Style.self({
+        width: '7px',
+        height: '7px',
+        background: ref.outline.focus,
+        border: `1px solid ${ref.surface.base}`,
+        cursor: 'crosshair',
+        zIndex: '3',
+        // The drag is the fill's, not a pan of the grid, and a held press no callout of iOS's.
+        touchAction: 'none',
+        WebkitTouchCallout: 'none',
+      }),
+      // On a touch screen, a 44px target around the 7px square it draws.
+      Style.at(
+        '@media (pointer: coarse)',
+        Style.nest('&::before', { content: '""', position: 'absolute', inset: '-18px' }),
+      ),
+    ),
     menuButton: Style.compose(
       Style.self({
         background: 'none',
@@ -274,7 +295,7 @@ export const GridStyle = Style.forSlots(GridSlots)(
         height: '0.4em',
         opacity: '0',
         transform: 'translateY(-0.15em) rotate(45deg)',
-        transition: `opacity ${ref.motion.fast} ${ref.motion.ease}, transform ${ref.motion.fast} ${ref.motion.ease}`,
+        transition: `opacity ${ref.motion.fast} ${ref.motion.ease}, transform calc(${ref.motion.fast} * ${ref.knob.travel}) ${ref.motion.ease}`,
         width: '0.4em',
       }),
       Style.nest('&:hover::after', { opacity: '0.35' }),

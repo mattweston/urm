@@ -98,20 +98,33 @@ What each part does, and does not do:
 
 `editorAt(hostId, placement)` takes, each optional:
 
-- **`rendering`**: how marks and node kinds become elements (§121); the default renders the
+- **`rendering`**: how marks and node kinds become elements; the default renders the
   core's own names. A mark renders *inside* its run element, so the run stays outermost and a
   selection still maps.
 - **`vocabulary`**: `{ marks, nodes }` registries. The editor refuses an edit a declaration
-  forbids, rather than only letting `validate` report it later (§125).
+  forbids, rather than only letting `validate` report it later.
 - **`inputRules`**: rules applied to what is typed, so a marker turns into a block change as it
-  is completed (§128), such as `foldkit-richtext-markdown`'s `markdownInputRules`. A rule the
+  is completed, such as `foldkit-richtext-markdown`'s `markdownInputRules`. A rule the
   vocabulary refuses does not cost the keystroke: the text is inserted on its own.
 - **`decorate`**: `document => DecorationSet`, drawn over the document on the mount and every
-  patch (§129), code highlighting for one. It sees the document only. A highlight derived
+  patch, code highlighting for one. It sees the document only. A highlight derived
   from application state, such as a search query or other people's carets, goes through
   the `overlay(hostId, decorations)` Command instead. It draws them after the placement's
   own and leaves the caret where it is. Its positions name the document shown, so set it
   again when that changes; placing the host id again starts it with none.
+  `focus(hostId, selection)` is the Command that sends the reader into the text from a control
+  outside it (a table of contents, a find bar closing on its match): the editor takes the focus
+  with that selection, scrolled to the middle of the window when it is out of view. The browser
+  reports the selection back as `Selected`.
+- **`keymap`**: chords beside the built-in ones, checked first, as `{ chord, command }`
+  (`Mod-u` toggling an application's `Underline`, say). `Mod` is Ctrl or Cmd.
+- **`slashEntries`**: what its slash menu offers, which Enter in a query resolves against: an
+  application's own catalogue (an image, a table, a callout), beside or instead of the
+  editor's `slashEntries`. The application's menu view draws the same list.
+- An empty line holds a `<br data-richtext-filler>` after its run. A browser can neither draw a
+  caret in an empty text node nor move one there with the arrow keys, so without it a new line
+  made with Enter had no height and could not be reached. The caret on an empty line stands
+  before it; it holds no text or position, server markup draws it too, and an import drops it.
 - **`placeholder`**: what a blank document shows (`RichText.isBlank`). It is put on the block as
   `data-placeholder`, and the root, a `role="textbox"`, carries it as `aria-placeholder`.
   Drawing it is the stylesheet's, so the text never enters the content:
@@ -126,6 +139,10 @@ What each part does, and does not do:
   }
   ```
 
+- **`lineHint`**: what the empty paragraph a collapsed caret is in shows, such as "Type / for
+  blocks", put on it as `data-hint` and moved as the caret moves. A blank document's block shows
+  the placeholder instead. Draw it like the placeholder, under `:focus` so it shows only while
+  the editor is being written in: `[contenteditable]:focus [data-hint]::before`.
 - **`serverRendered`**: whether a render is the server's; see "On a server-rendered page".
 
 Each has a record at `foldkit-richtext-dom/host` (`placeRendering`/`renderingFor`,
@@ -192,12 +209,12 @@ submitted, and reported by `authoredChanged` like any other.
 - **Filling:** `fill` shows a given document with a history of its own and no selection, since
   the caret was in runs the given document does not have.
 - **Resuming:** `settled`, for a stored draft shown again, keeps the caret, the stored marks,
-  and the history, clears only the slash menu's highlight, and takes this placement's host id
+  and the history, clears only the slash menu's highlight and dismissal, and takes this placement's host id
   in case the draft was stored under another.
 
 ## Chrome around the editor
 
-The editor renders its host and nothing else (§29). A toolbar, a menu, a handle: each is the
+The editor renders its host and nothing else. A toolbar, a menu, a handle: each is the
 application's chrome, drawn beside the host from the Model, sending the editor's Messages.
 This package ships the plain versions below; `foldkit-mixins-richtext` draws the same chrome
 as slot views an application restyles.
@@ -237,14 +254,20 @@ a caret. The Mount only moves it. It places the element `gap` pixels above the p
 selection, centred and kept inside the window's width, or below when there is no room above,
 and again on `selectionchange`, any scroll, and resize; a selection outside the host is
 ignored. It writes `position: fixed`, `top`, `left`, and `data-placement` (`top` or `bottom`)
-on the element, so a style there must leave those alone.
+on the element, so a style there must leave those alone. With `caret: true` it follows a caret
+too, opening under it (above when there is no room below), which is where a slash menu goes; a
+caret in an empty run is read from the element it is in.
 
 ### The block handle: anchor and drag
 
 `blockAnchor({ hostId, node, gap })` places an element `gap` pixels left of block `node`, level
-with its top edge and never past the window's left edge. It places it again when the editor's
-subtree changes (a patch can move a block without the page scrolling), on scroll, and on
-resize, and it finds a host drawn after it, or drawn again in the same parent.
+with its top edge and never past the window's left edge; with `side: 'above'` it goes `gap`
+pixels above the block, at its left edge, or just inside its top when there is no room above,
+which is where a block's toolbar (a table's) goes; with `side: 'inside-end'` it goes inside the
+block's top right corner, for a toolbar that should cover nothing around the block (a code
+block's, over its own header). It places it again when the editor's subtree changes (a patch can
+move a block without the page scrolling), on scroll, on resize, and when the element's own size
+changes, and it finds a host drawn after it, or drawn again in the same parent.
 
 `blockDrag({ hostId, node })` drags block `node` by the element it is mounted on, to any block
 `RichText.moveTargets` allows under the placed vocabulary, so an item can go into another list
@@ -254,8 +277,14 @@ but not to the top level:
   bottom. Where a container's edge meets its first or last block's, the block's is picked while
   the pointer is inside it, and the container's once the pointer is past it.
 - A line, `[data-richtext-drop]`, is fixed at that edge, outside the editable subtree, for a
-  stylesheet to draw. The place is read again on a scroll and on release, where the blocks are
-  then, and release sends `MovedBlock` there.
+  stylesheet to draw: it has no size or color of its own, so a page that styles nothing shows
+  no feedback at all. Once the pointer moves, the dragged block carries
+  `data-richtext-dragging` until the drag ends, and the page's root element
+  `data-richtext-drag`, for a `grabbing` cursor wherever the pointer goes. The place is read again on a scroll and on
+  release, where the blocks are then, and release sends `MovedBlock` there.
+- Held within 48 pixels of the window's top or bottom, the pointer scrolls the page a frame at
+  a time, faster the nearer the edge (`edgeScroll`), so a block can be dragged past what the
+  window shows.
 - Escape, a cancelled pointer, a move with the button up (a release the page never heard, over
   a frame say), or a place where the block already is ends it with nothing sent.
 - Only the pointer that pressed steers or ends it. The page is listened to only during a drag,
@@ -268,7 +297,7 @@ by the block (`h.Key(node)`) when the block it stands for can change.
 ### The slash menu
 
 The editor owns the slash menu's vocabulary, because an entry is one of its own Messages and
-the Bundle resolves Enter by handling the chosen entry as that Message (§123):
+the Bundle resolves Enter by handling the chosen entry as that Message:
 
 ```ts
 import { slashEntries, slashMenu, slashQuery } from 'foldkit-richtext-dom/editor'
@@ -280,18 +309,29 @@ slashMenu(slashEntries, 'see /head', 0)?.highlighted?.label // 'Heading 1'
 - **`slashEntries`** leads with the text blocks a caret can become (`Paragraph`,
   `Heading 1`–`3`), then the standard containers (`Quote`, `Bulleted list`, `Numbered list`,
   `Code block`, whose id is `code-block` because `code` is the Code mark's), then the marks.
-  Each has a stable `id`, a `label`, the words a query may also match, and its Message.
+  Each has a stable `id`, a `label`, the words a query may also match, and its Message, and
+  for a menu to draw, a `description`, the `group` it is listed under (Text, Lists, Blocks,
+  Formatting), and an `icon` by name.
 - **`slashMenu(entries, textBefore, index)`** is the one value a view and `update` share:
   whether a query is open, what matches, and what Enter would send. A stale index falls back to
-  the first match. `textBefore` is a read (`RichText.textBefore(document, position)`), not
-  stored state, so there is no switch that opens or closes the menu.
+  the first match. The text a query is read from is the document's, so typing a slash opens
+  the menu and leaving the query closes it, with no switch to keep in step.
 - **`EditorState.menuIndex`** is the one thing a menu owns. The application moves it (with
   `slashMove` from `foldkit-mixins-richtext`), and on `Entered` the Bundle treats the
   highlighted entry as the Message a click would send. Choosing an entry also removes the
-  query typed for it, as one action (§124 §5): one transition and one undo step.
+  query typed for it, as one action: one transition and one undo step.
+- **`Message.DismissedSlash`** is Escape over the menu. `EditorState.slashDismissed` keeps the
+  slash of the query it closed, so the menu stays shut while that query is typed on and Enter
+  splits the line, and it ends when the query does: a slash typed later opens a menu again.
+  `menuTextOf(view)` from `foldkit-richtext-dom/editor-bundle` is the text a menu reads, empty
+  while dismissed, and the Bundle's Enter reads it too, so a view built on it agrees with Enter.
 
-`matchingEntries` filters, and it, `slashQuery`, and `slashMenu` work over any entries carrying
-a `message`, so an application's own catalogue reuses them.
+`matchingEntries` decides the order. With no query it lists every entry with each group's
+entries together, in the order the group first appears; with one, the best matches first (a
+label the query starts, then a word of a label, then a keyword, then any containing it). The
+keys move through that order and a menu draws it, so they cannot disagree. It, `slashQuery`, and
+`slashMenu` work over any entries carrying a `message`, so an application's own catalogue reuses
+them.
 
 ## Showing a document: the read-only renderer
 
@@ -306,14 +346,14 @@ renderDocument(document, renderer) // a declared Link as a real <a href>
 renderDocument(document, renderer, decorations) // a decoration overlaid on the runs it covers
 ```
 
-It takes the same `rendering(...)` registry as the HTML serializer and the editor (§121), so a
+It takes the same `rendering(...)` registry as the HTML serializer and the editor, so a
 declared mark or kind becomes the same element everywhere, custom elements included. Without
 one, blocks become `p`/`h1`–`h6`, marks nest as `strong`/`em`/`code` in the serializer's order,
 an undeclared mark rides on a `span` with `data-marks`, and an unknown block renders as an
 inert `div data-unknown="Type"` placeholder. A tag Foldkit cannot build is reported, never
 swapped for another element.
 
-A decoration set (§64, §126) is projected with `RichText.decorationsIn`: each covered piece of
+A decoration set is projected with `RichText.decorationsIn`: each covered piece of
 a run becomes a `span[data-decoration=<kind>]` with the run's marks inside it, which is also how
 the editor draws one, so one stylesheet serves both. Each string field of the decoration's
 `data` whose name is lowercase letters, digits, and hyphens is drawn as
@@ -353,12 +393,16 @@ cases (each built as `Message.Typed({ text })` and so on, not exported one by on
 
 ```text
 Typed, Backspace, DeletedForward, Entered, ToggledMark, AppliedMark, ClearedMark,
-RetypedBlock, WrappedBlock, ConvertedBlock, LiftedBlock, MovedBlock, Selected, Pasted, Undone,
-Redone, Patched
+RetypedBlock, WrappedBlock, ConvertedBlock, LiftedBlock, MovedBlock, InsertedBlock,
+DeletedBlock, InsertedRow, InsertedColumn, DeletedRow, DeletedColumn, Indented, Outdented,
+ReplacedText, InsertedFootnote, RenamedFootnote, ActivatedAdornment, DismissedSlash,
+ChangedProps, Selected, Pasted, Undone, Redone, Patched
 ```
 
 The adapter reports what the browser did as commands, a caret, and history chords, and
-`toMessage` turns each into a Message. It refuses what the vocabulary cannot carry rather than
+`toMessage` turns each into a Message. Its chords are Mod+B, Mod+I and Mod+E for Bold, Italic
+and Code, Mod+Shift+S for Strikethrough (Mod+S alone is left to the browser), and Mod+Z,
+Mod+Shift+Z and Mod+Y for undo and redo; a placement's `keymap` adds its own, checked first. It refuses what the vocabulary cannot carry rather than
 dropping a detail: an insertion carrying marks, or a mark value with props, comes back
 `undefined`. The rest are the application's to send, because no browser event means them:
 
@@ -366,6 +410,21 @@ dropping a detail: an insertion carrying marks, or a mark value with props, come
   `LiftedBlock` for the core's block commands;
 - `MovedBlock` (`{ node, to }`, `to` a `RichText.Beside`), which a block handle sends and which
   needs no selection;
+- `InsertedBlock` (`{ block, to? }`) and `DeletedBlock` (`{ node }`) for `InsertBlock` and
+  `DeleteBlock`: an insert menu's image or table, a handle's Duplicate and Delete;
+- `ChangedProps` (`{ node, props }`) for `SetProps`. The adapter sends it too, for a click on a
+  block's adornment that toggles a prop (a task's checkbox, from `ElementRendering.adornments`);
+- `InsertedRow` and `InsertedColumn` (`{ where }`), `DeletedRow` and `DeletedColumn` for the
+  table commands, which act on the caret's cell: what a table toolbar sends;
+- `Indented` and `Outdented` for `Indent` and `Outdent`. The adapter sends them for Tab and
+  Shift+Tab, but only where `RichText.takesTab` says Tab means something (code, a table cell,
+  under the placement's vocabulary); anywhere else Tab is left to move focus;
+- `ReplacedText` (`{ query, replacement, caseSensitive?, at? }`) for `Replace`: one match, or
+  every match, as one undo step, which a find bar sends;
+- `InsertedFootnote` (`{ text? }`) and `RenamedFootnote` (`{ from, to }`) for `InsertFootnote` and
+  `RenameFootnote`, which need `FootnoteRef` in the placement's vocabulary;
+- `ActivatedAdornment` (`{ node, action }`): an adornment with an `action` was clicked, a code
+  block's Copy, say. It is no edit, and the editor changes nothing; the application acts on it;
 - `AppliedMark` (`{ mark }`, a name or a `{ name, props }` value) and `ClearedMark` (`{ mark }`)
   for `SetMark` and `ClearMark`: what a link editor sends, which at a caret changes or removes
   the whole link the caret is in.
@@ -418,7 +477,19 @@ that transition committed.
   focus. A keystroke, a composition start, a cut, or a paste reads the live selection first and
   reports it before its intent, because `selectionchange` is asynchronous and a click just
   before would otherwise be missed. `keymap` adds or overrides chord bindings, checked
-  before the built-in ones. `attachment.sync(state, changeSet)` patches and restores the
+  before the built-in ones. A press on an atom (an image, a divider) selects it as a node
+  selection; the browser is given the range around its element, which reads back as that
+  selection, and the block carries `data-selected`, the only sign of it a stylesheet can
+  reach. An arrow that leaves a block for an atom beside it (Right at its end, Down from its
+  last line) selects the atom rather than stepping over it, and from a selected atom an arrow
+  goes to the text beside it. A press on an adornment (a task's checkbox, a code block's Copy)
+  keeps the caret where it was, so writing goes on there. A third press selects its block's
+  text, where the browser's selection runs on to the next block and typing over it would join
+  that block too. In code (a kind declared `lineBreaks`), the first Mod+A selects the code and
+  a second the document. A press in the space below
+  the last block puts the caret at the end of a last paragraph or heading, and after anything
+  else (a table, code, an image) opens a paragraph there, which no caret could reach.
+  `attachment.sync(state, changeSet)` patches and restores the
   selection in one call, but only while the browser's selection is inside the editor: a sync
   never takes the caret from another editor or an input. While an IME is composing, the latest
   state waits and is drawn when composition ends, so another person's edit never rewrites the
@@ -429,7 +500,7 @@ that transition committed.
   `decorations` is the next render's whole set, so a run whose share of it changed is redrawn,
   and a patch without one clears what was drawn. An element that is no longer what its block
   renders as (a heading re-leveled to `h3`, say) is re-rendered rather than kept.
-- **`repair(dom, content)`** is recovery, not domain state (§31): it drops what the subtree
+- **`repair(dom, content)`** is recovery, not domain state: it drops what the subtree
   holds that the document does not, re-renders blocks whose rendering drifted, and returns the
   same `EditorDom` when nothing was wrong. Call it after a cancelled IME.
 - **`positionToRange` and `rangeToPosition`** translate between a semantic `Position` and a DOM
@@ -440,7 +511,7 @@ that transition committed.
 
 A Foldkit view owns the host element; the interpreter owns what goes inside it. `mountInto`
 renders into the host and records the attachment there, so a patch Command that has only the
-element can find it (§118):
+element can find it:
 
 ```ts
 import { attachmentIn, mountInto, releaseMount } from 'foldkit-richtext-dom/host'
@@ -463,7 +534,7 @@ Anything else in the host is replaced, so it ends with one subtree either way.
 `renderEditable(document, renderer?, decorations?)` is the same subtree as `Html`, which is
 what a server sends.
 
-`attachEditor(host, content, emit, { rendering?, decorate?, placeholder? })` attaches the
+`attachEditor(host, content, emit, { rendering?, decorate?, placeholder?, lineHint? })` attaches the
 translation to Messages to a host element; `events({ content })` wraps it as the Mount the
 editor's view uses; `patchEditor(hostId, state, changeSet)` is what the patch Command runs,
 reporting whether it patched. A missing host is an editor that went away while the transition

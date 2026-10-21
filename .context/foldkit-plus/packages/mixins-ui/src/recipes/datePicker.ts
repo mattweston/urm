@@ -1,13 +1,23 @@
 /**
  * A date picker: a trigger button opening the month grid in a card. `size`
- * is the trigger's density. Note the universe: this adapter resolves in the
+ * steps the trigger and the grid on the size ladder. Note the universe: this adapter resolves in the
  * date picker's own Message, so an application draws the shell through its
  * own slots and resolves the embedded calendar separately; the recipe serves
  * a view composed in that universe.
  */
 import { Style } from 'foldkit-mixins'
+import { raise, raisedSurface } from 'foldkit-mixins/theme'
 import { DatePickerSlots } from '../datePicker.js'
-import { component, density, disabled, focusRing, ref, transition } from './design.js'
+import {
+  component,
+  controlCorner,
+  disabled,
+  focusRing,
+  onLadder,
+  ref,
+  steps,
+  transition,
+} from './design.js'
 
 export const DatePicker = Style.recipeFor(DatePickerSlots)({
   base: {
@@ -15,13 +25,13 @@ export const DatePicker = Style.recipeFor(DatePickerSlots)({
       Style.self({
         display: 'inline-flex',
         alignItems: 'center',
-        gap: ref.space.xs,
+        ...onLadder,
         border: `${ref.border.thin} solid ${ref.outline.default}`,
-        borderRadius: ref.radius.md,
+        borderRadius: controlCorner,
         background: ref.surface.base,
+        boxShadow: ref.shadow.field,
         color: ref.text.default,
         font: 'inherit',
-        lineHeight: ref.leading.normal,
         cursor: 'pointer',
         ...transition('border-color, background-color'),
       }),
@@ -35,17 +45,17 @@ export const DatePicker = Style.recipeFor(DatePickerSlots)({
         minInlineSize: '18rem',
         border: `${ref.border.thin} solid ${ref.outline.subtle}`,
         borderRadius: ref.radius.lg,
-        background: ref.surface.base,
+        background: raisedSurface(),
         boxShadow: ref.shadow.lg,
       }),
+      raise(2),
     ),
     backdrop: component(Style.self({ position: 'fixed', inset: '0' })),
   },
   variants: {
     size: {
-      sm: { trigger: density(ref.space['2xs'], ref.space.sm, ref.size.sm) },
-      md: { trigger: density(ref.space.xs, ref.space.md, ref.size.md) },
+      sm: { trigger: steps.sm, panel: steps.sm },
+      md: { trigger: steps.md, panel: steps.md },
     },
   },
-  defaults: { size: 'md' },
 })

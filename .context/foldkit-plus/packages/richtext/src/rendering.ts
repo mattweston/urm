@@ -16,6 +16,75 @@ export interface ElementRendering {
    * the renderer did not write, and Foldkit refuses to serialize it.
    */
   readonly inner?: string | undefined
+  /**
+   * Elements drawn inside the block before its content that are not content: a task's
+   * checkbox, an image's picture and caption, a callout's icon. They hold no position, are
+   * never edited as text, and an HTML import skips them, so a block's text stays its runs'.
+   */
+  readonly adornments?: ReadonlyArray<Adornment> | undefined
+}
+
+/**
+ * One element of a block's adornments. `toggles` names a boolean prop of the block that a click
+ * on the element flips, through the editor's own Message (a task's `checked`, a toggle's
+ * `open`), so the document stays the one place that state lives. `action` names something a
+ * click on it asks the application for that is not an edit, a code block's Copy or its language
+ * menu: the editor reports it, with the block, and changes nothing.
+ */
+export interface Adornment {
+  readonly tag: string
+  readonly attributes: Readonly<Record<string, string>>
+  readonly text?: string | undefined
+  readonly toggles?: string | undefined
+  readonly action?: string | undefined
+}
+
+/** The attribute that marks an element as an adornment, which every interpreter skips as content. */
+export const ADORNMENT_ATTRIBUTE = 'data-adornment'
+/** The attribute naming the prop an adornment's click flips. */
+export const TOGGLES_ATTRIBUTE = 'data-toggles'
+/** The attribute naming what an adornment's click asks the application for. */
+export const ACTION_ATTRIBUTE = 'data-action'
+
+/** An adornment's attributes as every interpreter writes them: its own, then the markers. */
+export const adornmentAttributes = (
+  adornment: Adornment,
+): ReadonlyArray<readonly [string, string]> => [
+  ...Object.entries(adornment.attributes).filter(
+    ([name]) =>
+      name !== ADORNMENT_ATTRIBUTE && name !== TOGGLES_ATTRIBUTE && name !== ACTION_ATTRIBUTE,
+  ),
+  [ADORNMENT_ATTRIBUTE, ''],
+  ...(adornment.toggles === undefined ? [] : [[TOGGLES_ATTRIBUTE, adornment.toggles] as const]),
+  ...(adornment.action === undefined ? [] : [[ACTION_ATTRIBUTE, adornment.action] as const]),
+]
+
+/** Whether two renderings draw the same element: tag, attributes, holder and adornments. */
+export const sameElementRendering = (left: ElementRendering, right: ElementRendering): boolean =>
+  left.tag === right.tag &&
+  left.inner === right.inner &&
+  sameRecord(left.attributes, right.attributes) &&
+  (left.adornments ?? []).length === (right.adornments ?? []).length &&
+  (left.adornments ?? []).every((adornment, at) => {
+    const other = right.adornments![at]!
+    return (
+      adornment.tag === other.tag &&
+      adornment.text === other.text &&
+      adornment.toggles === other.toggles &&
+      adornment.action === other.action &&
+      sameRecord(adornment.attributes, other.attributes)
+    )
+  })
+
+const sameRecord = (
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean => {
+  const names = Object.keys(left)
+  return (
+    names.length === Object.keys(right).length &&
+    names.every(name => Object.hasOwn(right, name) && left[name] === right[name])
+  )
 }
 
 /**
@@ -24,7 +93,8 @@ export interface ElementRendering {
  * apply, so the name falls back the way an entry-less name does.
  */
 export type RenderingEntry<Value> =
-  ElementRendering | ((value: Value) => ElementRendering | undefined)
+  | ElementRendering
+  | ((value: Value) => ElementRendering | undefined)
 
 /**
  * A vocabulary of renderings built *over* a Kit, never inside it (§34, §121). A

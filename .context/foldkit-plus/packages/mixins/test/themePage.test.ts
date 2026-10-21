@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { Diagnostics, Layers, Style } from '../src/index.js'
 import { Theme } from '../src/theme.js'
+import { palette as colors } from '../src/theme/oklch.js'
 
 const cssOf = (piece: { readonly globalCss?: ReadonlyArray<string> }) =>
   (piece.globalCss ?? []).join('')
@@ -44,7 +45,9 @@ describe('Theme.root', () => {
 
 describe('Theme.scoped', () => {
   it('writes the overrides under the selector, unlayered', () => {
-    const palette = Theme.oklch({ accent: { h: 280, c: 0.15, l: '60%' } })
+    const palette = Theme.standard(
+      Theme.make({ accent: { hue: 280, chroma: 0.15, lightness: 60 } }),
+    )
     expect(
       cssOf(Theme.scoped(palette, ':root[data-theme="ocean"]', { knob: { 'accent-h': '215' } })),
     ).toBe(':root[data-theme="ocean"]{--fk-knob-accent-h:215}')
@@ -53,24 +56,42 @@ describe('Theme.scoped', () => {
 
 describe('Theme.tokens', () => {
   it('scales space, radius, and durations by their knobs', () => {
-    expect(Theme.tokens.knob).toEqual({
+    expect(Theme.tokens.knob).toMatchObject({
       density: '1',
       'radius-factor': '1',
       motion: '1',
+      travel: '1',
+      step: '0',
       'shadow-strength': '100%',
+      'text-scale': '1',
+      'heading-scale': '1',
+      leading: '1',
+      'control-round': '0',
+      // The standard knobs' defaults the tokens below read.
+      'border-width': '1px',
+      'font-body': 'system-ui, sans-serif',
+      'font-heading': 'inherit',
+      'heading-weight': '600',
+      'heading-tracking': '-0.01em',
+      ease: 'ease-out',
     })
+    expect(Theme.tokens.border.thick).toBe('calc(var(--fk-knob-border-width) + 1px)')
+    expect(Theme.tokens.font.body).toBe('var(--fk-knob-font-body)')
     expect(Theme.tokens.space.md).toBe('calc(1rem * var(--fk-knob-density))')
     expect(Theme.tokens.radius.md).toBe('calc(6px * var(--fk-knob-radius-factor))')
-    expect(Theme.tokens.radius.full).toBe('9999px')
-    expect(Theme.tokens.motion.fast).toBe('calc(150ms * var(--fk-knob-motion))')
-    expect(Theme.tokens.motion.normal).toBe('calc(250ms * var(--fk-knob-motion))')
-    expect(Theme.tokens.motion.ease).toBe('ease-out')
+    expect(Theme.tokens.radius.full).toBe('calc(9999px * min(var(--fk-knob-radius-factor), 1))')
+    expect(Theme.tokens.motion.fast).toBe('calc(80ms * var(--fk-knob-motion))')
+    expect(Theme.tokens.motion.moderate).toBe('calc(160ms * var(--fk-knob-motion))')
+    expect(Theme.tokens.motion.slow).toBe('calc(240ms * var(--fk-knob-motion))')
+    // Each exit a tier quicker than its entrance.
+    expect(Theme.tokens.motion['moderate-exit']).toBe('calc(120ms * var(--fk-knob-motion))')
+    expect(Theme.tokens.motion.ease).toBe('var(--fk-knob-ease)')
   })
 
   it('a still theme zeroes every recipe transition through the knob', () => {
     const still = Theme.compose(Theme.tokens, { knob: { motion: '0' } })
     expect(still.knob.motion).toBe('0')
-    expect(still.motion.fast).toBe('calc(150ms * var(--fk-knob-motion))')
+    expect(still.motion.fast).toBe('calc(80ms * var(--fk-knob-motion))')
   })
 
   it('names the groups a design system shares', () => {
@@ -82,26 +103,72 @@ describe('Theme.tokens', () => {
       'size',
       'leading',
       'weight',
+      'tracking',
       'motion',
+      'control',
+      'type',
+      'width',
+      'icon',
       'border',
       'shadow',
       'breakpoint',
+      'safe',
     ])
   })
 
+  it('holds a mask for every icon the components draw, read by name', () => {
+    expect(Object.keys(Theme.tokens.icon)).toEqual([
+      'search',
+      'eye',
+      'eye-off',
+      'pipette',
+      'rotate-ccw',
+      'rotate-cw',
+      'success',
+      'warning',
+      'error',
+      'info',
+      'lock',
+      'close',
+    ])
+    for (const mask of Object.values(Theme.tokens.icon)) {
+      expect(mask).toMatch(/^url\("data:image\/svg\+xml,[^"]+"\)$/)
+    }
+    expect(Theme.ref(Theme.tokens).icon['eye-off']).toBe('var(--fk-icon-eye-off)')
+  })
+
   it('draws every shadow in the one color a palette sets, dimmed by the strength knob', () => {
-    const steps = Object.values(Theme.tokens.shadow)
-    expect(steps).toHaveLength(7)
-    for (const step of steps) {
-      expect(step).toContain('var(--fk-shadow-color, oklch(0% 0 0 / 0.12))')
-      expect(step).toContain('var(--fk-knob-shadow-strength, 100%)')
+    const { raised, pressed, field, ...elevation } = Theme.tokens.shadow
+    expect(Object.keys(elevation)).toHaveLength(7)
+    // Each token is what the shadow knobs chose: soft and flat by default.
+    const knob = Theme.tokens.knob
+    expect([raised, pressed, field]).toEqual([
+      'var(--fk-knob-relief-raised)',
+      'var(--fk-knob-relief-pressed)',
+      'var(--fk-knob-relief-field)',
+    ])
+    expect([knob['relief-raised'], knob['relief-pressed'], knob['relief-field']]).toEqual([
+      '0 0 #0000',
+      '0 0 #0000',
+      '0 0 #0000',
+    ])
+    for (const [step, token] of Object.entries(elevation))
+      expect(token).toBe(`var(--fk-knob-shadow-${step})`)
+    for (const list of [
+      knob['shadow-xs'],
+      knob['shadow-md'],
+      knob['shadow-2xl'],
+      knob['shadow-inset'],
+    ]) {
+      expect(list).toContain('var(--fk-shadow-color, oklch(0% 0 0 / 0.12))')
+      expect(list).toContain('var(--fk-knob-shadow-strength, 100%)')
     }
     // Each layer of a step is drawn in it, not only the first.
-    expect(Theme.tokens.shadow.md.split('var(--fk-shadow-color').length - 1).toBe(2)
+    expect(knob['shadow-md'].split('var(--fk-shadow-color').length - 1).toBe(2)
   })
 
   it('keeps a deeper step for modals', () => {
-    expect(Theme.tokens.shadow['2xl']).toContain('32px')
+    expect(Theme.tokens.knob['shadow-2xl']).toContain('32px')
   })
 
   it('breakpoint is the record Style.responsive takes', () => {
@@ -151,8 +218,10 @@ describe('Theme.breakpointWidths', () => {
   })
 })
 
-describe('Theme.oklch', () => {
-  const brand = Theme.oklch({ accent: { h: 280, c: 0.15, l: '60%' } })
+describe('the palette', () => {
+  const brand = colors
+  const hovered = (hover: 'neutral' | 'accent') =>
+    Theme.standard(Theme.make({ surface: { hover } }))
 
   const references = (value: string): ReadonlyArray<readonly [string, string]> =>
     [...value.matchAll(/var\(--fk-([a-z]+)-([a-z0-9-]+)\)/g)].map(match => [
@@ -160,7 +229,7 @@ describe('Theme.oklch', () => {
       match[2] ?? '',
     ])
 
-  it('has the fourteen groups', () => {
+  it('has the twenty-four groups', () => {
     expect(Object.keys(brand)).toEqual([
       'knob',
       'hue',
@@ -171,12 +240,44 @@ describe('Theme.oklch', () => {
       'secondary',
       'tertiary',
       'shadow',
+      'state',
+      'popup',
       'success',
       'warning',
       'error',
       'info',
+      'chart',
+      'red',
+      'orange',
+      'yellow',
+      'green',
+      'teal',
+      'blue',
+      'purple',
       'syntax',
     ])
+  })
+
+  it('steps every color scale down one lightness ladder, and washes step 6 into the page', () => {
+    const names = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple'] as const
+    const lightness = (value: string) => Number(value.match(/^oklch\(([\d.]+)%/)?.[1])
+    const ladder = (name: (typeof names)[number]) =>
+      (['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'] as const).map(step =>
+        lightness(brand[name][step]),
+      )
+    const first = ladder('red')
+    // Near white to near black, each step darker than the last.
+    expect(first[0]).toBeGreaterThan(95)
+    expect(first.at(-1)).toBeLessThan(25)
+    first.slice(1).forEach((value, index) => expect(value).toBeLessThan(first[index]!))
+    // The same ladder in every hue, each on its own hue knob.
+    for (const name of names) {
+      expect(ladder(name)).toEqual(first)
+      expect(brand[name]['6']).toContain(`var(--fk-knob-${name}-h)`)
+      expect(brand[name]['wash-1']).toBe(
+        `color-mix(in oklab, var(--fk-${name}-6) 8%, var(--fk-surface-base))`,
+      )
+    }
   })
 
   it('sets the shadow color per scheme, denser on a dark surface', () => {
@@ -187,26 +288,45 @@ describe('Theme.oklch', () => {
     expect(alpha(dark)).toBeGreaterThan(alpha(light))
   })
 
-  it('records the knobs as literals, with defaults filled', () => {
-    expect(brand.knob['accent-h']).toBe('280')
-    expect(brand.knob['accent-l']).toBe('60%')
-    expect(brand.knob['accent-l-dark']).toBe('70%')
-    expect(brand.knob['accent-c-dark']).toBe('0.18')
-    expect(brand.knob['surface-contrast']).toBe('65%')
-    expect(brand.knob['success-h']).toBe('145')
+  it('names the state ink the text, or the accent’s ink', () => {
+    // The state ink is the knob the hover choice writes.
+    expect(brand.state.ink).toBe('var(--fk-knob-state-ink)')
+    expect(brand.knob['state-ink']).toBe('currentColor')
+    expect(hovered('neutral').knob['state-ink']).toBe('currentColor')
+    expect(hovered('accent').knob['state-ink']).toBe('var(--fk-accent-ink)')
   })
 
-  it('writes computed knobs without float noise', () => {
-    expect(brand.knob['surface-c-dark']).toBe('0.02')
-    const loud = Theme.oklch({ accent: { h: 0, c: 0.27, l: '60%' }, surfaceSaturation: 0.02 })
-    expect(loud.knob['accent-c-dark']).toBe('0.3')
-    expect(loud.knob['surface-c-dark']).toBe('0.0267')
+  it('lets painted surfaces name their ink except in neutral', () => {
+    expect(brand.knob['surface-ink']).toBe('1')
+    expect(hovered('neutral').knob['surface-ink']).toBe('0')
+    expect(hovered('accent').knob['surface-ink']).toBe('1')
+  })
+
+  it('names a separate field ground on the default step', () => {
+    expect(brand.surface.field).toBe('var(--fk-surface-default)')
+  })
+
+  it('declares a theme’s knobs over the defaults, a dark half following its light one', () => {
+    const knob = Theme.standard(
+      Theme.make({ accent: { hue: 280, chroma: 0.15, lightness: 60 } }),
+    ).knob
+    expect(knob['accent-h']).toBe('280')
+    expect(knob['accent-l']).toBe('60%')
+    expect(knob['accent-l-dark']).toBe('70%')
+    expect(knob['accent-c-dark']).toBe('min(0.4, calc(var(--fk-knob-accent-c) + 0.03))')
+    expect(knob['surface-contrast']).toBe('26%')
+    expect(knob['success-h']).toBe('145')
+    const set = Theme.standard(Theme.make({ accent: { chroma: { light: 0.27, dark: 0.3 } } }))
+    expect(set.knob['accent-c-dark']).toBe('0.3')
   })
 
   it('every value outside knob is a reference expression over tokens that exist', () => {
+    // `currentColor` resolves on the element reading the token, so it is the
+    // one live literal a value may be.
     for (const [group, names] of Object.entries(brand)) {
       if (group === 'knob') continue
       for (const [name, value] of Object.entries(names)) {
+        if (value === 'currentColor') continue
         const found = references(value)
         expect(found.length, `${group}.${name} references nothing`).toBeGreaterThan(0)
         for (const [refGroup, refName] of found) {
@@ -228,13 +348,14 @@ describe('Theme.oklch', () => {
   })
 
   it('is deterministic', () => {
-    expect(Theme.oklch({ accent: { h: 280, c: 0.15, l: '60%' } })).toEqual(brand)
+    const values = { accent: { hue: 280, chroma: 0.15, lightness: 60 } }
+    expect(Theme.standard(Theme.make(values))).toEqual(Theme.standard(Theme.make(values)))
     expect(cssOf(Theme.root(brand))).toBe(cssOf(Theme.root(brand)))
   })
 
   it('derives surfaces by mixing the base toward a target by surface-contrast', () => {
     expect(brand.surface.default).toBe(
-      'color-mix(in oklch, var(--fk-surface-base) calc(100% - var(--fk-knob-surface-contrast)), light-dark(oklch(from var(--fk-surface-base) calc(l - 0.055) calc(c * 1.25) h), oklch(from var(--fk-surface-base) calc(l + 0.045) calc(c * 1.1) h)) var(--fk-knob-surface-contrast))',
+      'color-mix(in oklch, var(--fk-surface-base) calc(100% - var(--fk-knob-surface-contrast)), light-dark(oklch(from var(--fk-surface-base) calc(l - 0.1375) calc(c * 1.625) h), oklch(from var(--fk-surface-base) calc(l + 0.1125) calc(c * 1.25) h)) var(--fk-knob-surface-contrast))',
     )
   })
 
@@ -279,7 +400,7 @@ describe('Theme.oklch', () => {
     const after = cssOf(Theme.root(ocean)).split(';')
     expect(after.length).toBe(before.length)
     const changed = before.filter((line, index) => line !== after[index])
-    expect(changed).toEqual([':root{--fk-knob-accent-h:280'])
+    expect(changed).toEqual([':root{--fk-knob-accent-h:264'])
   })
 
   it('is a concrete type: a known token autocompletes, an unknown one is refused', () => {
@@ -292,10 +413,7 @@ describe('Theme.oklch', () => {
 describe('the page sheet', () => {
   it('composes layers, tokens, a theme, a scoped override, and a page style', () => {
     const L = Layers.standard
-    const theme = Theme.compose(
-      Theme.tokens,
-      Theme.oklch({ accent: { h: 280, c: 0.15, l: '60%' } }),
-    )
+    const theme = Theme.standard(Theme.make({ accent: { hue: 280, chroma: 0.15, lightness: 60 } }))
     const page = Style.compose(
       Style.class('page'),
       Style.pseudo(':focus-within', {

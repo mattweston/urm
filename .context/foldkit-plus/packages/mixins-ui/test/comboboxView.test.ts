@@ -17,6 +17,7 @@ import {
   create as createFork,
   defaultToView,
   type ComboboxRenderInfo,
+  type MultiViewInputs,
 } from '../src/comboboxView.js'
 
 const fruits = ['apple', 'banana', 'cherry'] as const
@@ -283,6 +284,53 @@ describe('forked combobox seam', () => {
     expect(render.groups[0]!.items).toHaveLength(3)
   })
 
+  it('draws the panel for the top layer only when the anchor stays in place', () => {
+    Scene.scene<SingleModel, Message, UpstreamCombobox.OutMessage<Fruit>>(
+      {
+        update: upstreamSingle.update,
+        view: (current, h) => forkSingle.view(current, singleInputs(h), h),
+      },
+      Scene.given(openSingle()),
+      anchoredSingle(),
+      Scene.expect(Scene.selector(panel)).not.toHaveAttr('popover', 'manual'),
+    )
+    Scene.scene<SingleModel, Message, UpstreamCombobox.OutMessage<Fruit>>(
+      {
+        update: upstreamSingle.update,
+        view: (current, h) =>
+          forkSingle.view(
+            current,
+            {
+              ...singleInputs(h),
+              anchor: { placement: 'bottom-start', gap: 4, padding: 8, portal: false },
+            },
+            h,
+          ),
+      },
+      Scene.given(openSingle()),
+      anchoredSingle(),
+      Scene.expect(Scene.selector(panel)).toHaveAttr('popover', 'manual'),
+    )
+  })
+
+  it('keeps a phone keyboard from correcting what filters, its Enter key a search', () => {
+    Scene.scene<SingleModel, Message, UpstreamCombobox.OutMessage<Fruit>>(
+      {
+        update: upstreamSingle.update,
+        view: (current, h) => forkSingle.view(current, singleInputs(h), h),
+      },
+      Scene.given(singleModel()),
+      Scene.Mount.resolve(
+        UpstreamCombobox.AttachComboboxPreventBlur,
+        UpstreamCombobox.Message.CompletedAttachComboboxPreventBlur(),
+      ),
+      Scene.expect(Scene.selector(input)).toHaveAttr('autocapitalize', 'none'),
+      Scene.expect(Scene.selector(input)).toHaveAttr('autocorrect', 'off'),
+      Scene.expect(Scene.selector(input)).toHaveAttr('spellcheck', 'false'),
+      Scene.expect(Scene.selector(input)).toHaveAttr('enterkeyhint', 'search'),
+    )
+  })
+
   it('single enter-select closes with the value', () => {
     Scene.scene<SingleModel, Message, UpstreamCombobox.OutMessage<Fruit>>(
       {
@@ -329,5 +377,111 @@ describe('forked combobox seam', () => {
       }),
       Scene.expect(Scene.selector(panel)).toExist(),
     )
+  })
+})
+
+describe("the fork's own parts", () => {
+  // No toggle: its blur guard is a Mount this scene would have to resolve.
+  const toggleless = (h: HtmlBuilder<Message>) => {
+    const { buttonContent: _, ...inputs } = multiInputs(h)
+    return inputs
+  }
+  // The bundles, as the fork hands them to `toView`; upstream's markup draws none of the parts.
+  const seen = (
+    initial: MultiModel,
+    extra: Partial<MultiViewInputs<Fruit>>,
+    ...steps: Array<MultiStep>
+  ) => {
+    let render: ComboboxRenderInfo | undefined
+    Scene.scene<MultiModel, Message, UpstreamCombobox.OutMessage<Fruit>>(
+      {
+        update: upstreamMulti.update,
+        view: (current, h) =>
+          forkMulti.view(
+            current,
+            {
+              ...toggleless(h),
+              ...extra,
+              toView: drawn => {
+                render = drawn
+                return defaultToView(h)(drawn)
+              },
+            },
+            h,
+          ),
+      },
+      Scene.given(initial),
+      ...steps,
+    )
+    return render!
+  }
+
+  it('draws a chip per chosen value only when asked', () => {
+    expect(seen(multiModel(), {}).chips).toEqual([])
+    expect(seen(multiModel(), { chips: {} }).chips.map(chip => chip.label)).toEqual(['banana'])
+    expect(
+      seen(multiModel(), { chips: { label: value => value.toUpperCase() } }).chips.map(
+        chip => chip.label,
+      ),
+    ).toEqual(['BANANA'])
+  })
+
+  it.each([
+    [false, 'sends Selected for its value'],
+    [true, 'is disabled and sends nothing'],
+  ])("with the field disabled %s, a chip's remove button %s", (isDisabled, _) => {
+    Scene.scene<MultiModel, Message, UpstreamCombobox.OutMessage<Fruit>>(
+      {
+        update: upstreamMulti.update,
+        view: (current, h) =>
+          forkMulti.view(
+            current,
+            {
+              ...toggleless(h),
+              isDisabled,
+              chips: {},
+              toView: drawn =>
+                h.div(
+                  [],
+                  drawn.chips.map(each => h.button(each.remove, [each.label])),
+                ),
+            },
+            h,
+          ),
+      },
+      Scene.given(multiModel()),
+      ...(isDisabled
+        ? [Scene.expect(Scene.role('button', { name: 'Remove banana' })).toHaveAttr('disabled')]
+        : [
+            Scene.click(Scene.role('button', { name: 'Remove banana' })),
+            Scene.expectOutMessage<UpstreamCombobox.OutMessage<Fruit>>({
+              _tag: 'Selected',
+              value: 'banana',
+            }),
+          ]),
+    )
+  })
+
+  it('draws the clear button only while the field has text and it is given', () => {
+    const clear = { clearContent: null }
+    expect(seen(multiModel(), clear).clearButton).toBeUndefined()
+    expect(seen(multiModel({ inputValue: 'ch' }), {}).clearButton).toBeUndefined()
+    expect(seen(multiModel({ inputValue: 'ch' }), clear).clearButton?.key).toBe('c-clear')
+  })
+
+  it('draws the empty panel only while open with no items', () => {
+    const empty = { empty: null }
+    expect(seen(multiModel(), { ...empty, items: [] }).empty).toBeUndefined()
+    expect(seen(openMulti(), { items: [] }).empty).toBeUndefined()
+    // With items, the list is drawn, and its anchor and click-away are Mounts to resolve.
+    const panel = Scene.Mount.resolveAll(
+      [UpstreamCombobox.AnchorCombobox, UpstreamCombobox.Message.CompletedAnchorCombobox()],
+      [
+        UpstreamCombobox.PortalComboboxBackdrop,
+        UpstreamCombobox.Message.CompletedPortalComboboxBackdrop(),
+      ],
+    )
+    expect(seen(openMulti(), empty, panel).empty).toBeUndefined()
+    expect(seen(openMulti(), { ...empty, items: [] }).empty?.key).toBe('c-empty')
   })
 })

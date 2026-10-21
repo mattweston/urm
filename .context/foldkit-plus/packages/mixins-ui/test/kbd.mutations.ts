@@ -4,6 +4,7 @@
  * fails for every one.
  */
 const tests = ['packages/mixins-ui/test/kbd.test.ts']
+const browser = ['packages/mixins-ui/test/kbd.browser.test.ts']
 
 export default [
   {
@@ -13,6 +14,46 @@ export default [
         file: '../src/recipes/kbd.ts',
         find: 'fontFamily: ref.font.mono,',
         replace: 'fontFamily: ref.font.body,',
+      },
+    ],
+    tests: browser,
+  },
+  {
+    name: 'a keycap loses its lit top',
+    edits: [
+      {
+        file: '../src/recipes/kbd.ts',
+        find: 'boxShadow: `inset 0 ${ref.border.thin} 0 ${ref.surface.base}, ',
+        replace: 'boxShadow: `',
+      },
+    ],
+    tests: browser,
+  },
+  {
+    name: 'a combination joins its first key too',
+    edits: [
+      {
+        file: '../src/kbd.ts',
+        find: '...(index === 0 || joiner === undefined ? []',
+        replace: '...(joiner === undefined ? []',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a combination of no keys draws an empty kbd',
+    edits: [
+      { file: '../src/kbd.ts', find: 'if (options.keys.length === 0) {', replace: 'if (false) {' },
+    ],
+    tests,
+  },
+  {
+    name: 'a combination draws its keys as plain text',
+    edits: [
+      {
+        file: '../src/kbd.ts',
+        find: 'h.kbd(builders.key.attrs(), [key]),',
+        replace: 'key,',
       },
     ],
     tests,
@@ -26,6 +67,6 @@ export default [
         replace: '',
       },
     ],
-    tests,
+    tests: browser,
   },
 ]

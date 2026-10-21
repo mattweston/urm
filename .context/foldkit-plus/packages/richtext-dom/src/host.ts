@@ -6,7 +6,14 @@
  */
 import * as RichText from 'foldkit-richtext'
 import { adopt, mount } from './index.js'
-import { attach, type AttachOptions, type Attachment, type Decorate } from './events.js'
+import {
+  attach,
+  type AttachOptions,
+  type Attachment,
+  type Decorate,
+  type KeyBinding,
+} from './events.js'
+import type { EditorEvent, SlashEntry } from './editor.js'
 
 const attachments = new WeakMap<Element, Attachment>()
 const renderings = new Map<string, RichText.Rendering>()
@@ -76,19 +83,55 @@ export const placeServerRendered = (hostId: string, serverRendered: () => boolea
 export const serverRenderedFor = (hostId: string): (() => boolean) =>
   serverRenders.get(hostId) ?? (() => false)
 
-const placeholders = new Map<string, string>()
-
-/**
- * Records what a placement's blank editor shows, by host id, beside the rest of how it
- * draws, so the mount reads all of it from the id it renders.
- */
-export const placePlaceholder = (hostId: string, placeholder: string | undefined): void => {
-  if (placeholder === undefined) placeholders.delete(hostId)
-  else placeholders.set(hostId, placeholder)
+/** What an editor shows where nothing is written yet. */
+export interface Placeholders {
+  /** On a blank document's lone block (`RichText.isBlank`). */
+  readonly placeholder?: string | undefined
+  /** On the empty paragraph the caret is in, such as "Type / for blocks". */
+  readonly lineHint?: string | undefined
 }
 
-/** The placeholder placed for a host id, or none. */
-export const placeholderFor = (hostId: string): string | undefined => placeholders.get(hostId)
+const placeholders = new Map<string, Placeholders>()
+
+/**
+ * Records what a placement's editor shows where nothing is written, by host id, beside the
+ * rest of how it draws, so the mount reads all of it from the id it renders.
+ */
+export const placePlaceholders = (hostId: string, placed: Placeholders): void => {
+  placeholders.set(hostId, placed)
+}
+
+/** The placeholders placed for a host id; none when nothing was placed. */
+export const placeholdersFor = (hostId: string): Placeholders => placeholders.get(hostId) ?? {}
+
+const keymaps = new Map<string, ReadonlyArray<KeyBinding>>()
+
+/** Records the chords a placement's editor adds to the built-in ones, by host id. */
+export const placeKeymap = (hostId: string, keymap: ReadonlyArray<KeyBinding>): void => {
+  keymaps.set(hostId, keymap)
+}
+
+/** The chords placed for a host id; none when nothing was placed. */
+export const keymapFor = (hostId: string): ReadonlyArray<KeyBinding> => keymaps.get(hostId) ?? []
+
+const slashCatalogues = new Map<string, ReadonlyArray<SlashEntry<EditorEvent>>>()
+
+/**
+ * Records what a placement's slash menu offers, by host id, so the `update` that resolves Enter
+ * reads the same entries the application's menu draws. Absent, it offers `slashEntries`.
+ */
+export const placeSlashEntries = (
+  hostId: string,
+  entries: ReadonlyArray<SlashEntry<EditorEvent>> | undefined,
+): void => {
+  if (entries === undefined) slashCatalogues.delete(hostId)
+  else slashCatalogues.set(hostId, entries)
+}
+
+/** The entries placed for a host id, or undefined when it offers the editor's own. */
+export const slashEntriesFor = (
+  hostId: string,
+): ReadonlyArray<SlashEntry<EditorEvent>> | undefined => slashCatalogues.get(hostId)
 
 const ruleSets = new Map<string, ReadonlyArray<RichText.InputRule>>()
 

@@ -31,10 +31,13 @@ import {
   type SeedFor,
 } from 'foldkit-bundle'
 import * as Command from 'foldkit/command'
+import { defineTaggedUnion } from 'foldkit/schema'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 import * as Navigation from 'foldkit/navigation'
+import type { KeyBinding, KeySequence } from 'foldkit/dom'
 import { UrlRequest } from 'foldkit/navigation'
-import type { Router } from 'foldkit/route'
+import { oneOf, parseUrlWithFallback, type Router } from 'foldkit/route'
+import type { Meta } from 'foldkit-ssr/client'
 import * as Update from 'foldkit/update'
 import * as Url from 'foldkit/url'
 import type { Url as UrlValue } from 'foldkit/url'
@@ -93,6 +96,17 @@ export interface NodeLayout {
 export interface NodeView {
   readonly render: (model: any, h: any) => Html
 }
+
+/**
+ * What a node says of itself in the document's head, from its route value and
+ * the Model (a post's excerpt is in the Model, not the route). The node keeps
+ * it with the Model as `any`, quarantined as `NodeLayout`'s is: name the Model
+ * where it is declared (`.meta<Model>(...)`) and it checks there.
+ */
+export type NodeMeta<Route, Model = any> = (page: {
+  readonly route: Route
+  readonly model: Model
+}) => Meta
 
 /**
  * The route's place in the Model, read and written. A field holding a tagged
@@ -155,12 +169,11 @@ export interface SiteNode<Route extends { readonly _tag: string }> {
    */
   readonly landing?: Omit<Route, '_tag'> | undefined
   /**
-   * The keyboard shortcut announcing this node, for key bindings derived
-   * beside the application (`G H` for Home): the characters pressed in
-   * sequence. Key bindings stay application-owned; this only names them once,
-   * next to the destination they go to.
+   * The keys that go to this node's `landing`, as Foldkit's key bindings name
+   * them: one press (`'/'`, `'Mod+K'`) or a sequence (`['G', 'H']`).
+   * `Site.shortcuts` makes the bindings.
    */
-  readonly shortcut?: string | undefined
+  readonly shortcut?: KeySequence | undefined
   /**
    * Which history step a move within this node is: a string, or a function
    * for nodes where some param changes are entries of their own (another
@@ -174,13 +187,62 @@ export interface SiteNode<Route extends { readonly _tag: string }> {
   readonly layout?: NodeLayout | undefined
   /** What this node draws for its own route, if it draws anything. */
   readonly view?: NodeView | undefined
+  /** What this node says of itself in the head; nodes below override it per field. */
+  readonly meta?: NodeMeta<Route> | undefined
+  /**
+   * Whether search engines index this node and, unless they say otherwise,
+   * the nodes below it. Undeclared up the whole chain, a node is indexed.
+   */
+  readonly indexed?: boolean | undefined
+  /**
+   * Who may be shown this node and the nodes below it: see `Site.accessOf`.
+   * Held as `never` for its reader, so a rule given in the options must
+   * name the reader it reads (`allow: (me: Me) => …`).
+   */
+  readonly access?: NodeAccess<never> | undefined
 }
 
-/** A node mounted with its children: structure, not state. */
-export interface SiteMount {
+/**
+ * Who may be shown a node, and where anyone else is sent. Presentation, not
+ * authorization: the server guards what the page reads whatever this says.
+ * `Who` is what the application knows of the reader (its `Me` row, say).
+ */
+export interface NodeAccess<Who> {
+  readonly allow: (who: Who) => boolean
+  /** Where a reader `allow` refuses goes, given the address they asked for (a sign-in page returning to it). */
+  readonly otherwise: (requested: string) => SiteTarget<any>
+}
+
+/**
+ * Whether the reader may be shown a route: `Allowed`; `Pending` while the
+ * application does not know who they are yet, to draw a loading state rather
+ * than flash the sign-in page at someone signed in; `Denied` with the address
+ * to send them to.
+ */
+export const Access = defineTaggedUnion({
+  Allowed: {},
+  Pending: {},
+  Denied: { url: Schema.String },
+})
+export type Access = typeof Access.Type
+
+/** Carries the routes a mount or tree holds, in its type only: nothing sets it. */
+declare const routes: unique symbol
+
+/** A node mounted with its children: structure, not state. `Route` is every route it holds. */
+export interface SiteMount<Route extends { readonly _tag: string } = any> {
   readonly node: SiteNode<any>
   readonly children: ReadonlyArray<SiteMount>
+  readonly [routes]?: (route: Route) => void
 }
+
+/** The routes a bare node or a mount holds. */
+export type RoutesOf<Mounted> =
+  Mounted extends SiteNode<infer Route>
+    ? Route
+    : Mounted extends SiteMount<infer Route>
+      ? Route
+      : never
 
 /**
  * A node under construction, from `Site.node`: each method annotates and
@@ -199,7 +261,7 @@ export interface NodeBuilder<Route extends { readonly _tag: string }> {
    *
    * ```ts
    * const inSection = <R extends { readonly _tag: string }>(b: NodeBuilder<R>) =>
-   *   b.section('People').shortcut('GP')
+   *   b.section('People').shortcut(['G', 'P'])
    *
    * const Person = Site.node(personRouter, AppRoute.Person).pipe(inSection).node
    * ```
@@ -214,8 +276,8 @@ export interface NodeBuilder<Route extends { readonly _tag: string }> {
   section(section: string): NodeBuilder<Route>
   /** Where the section's nav item points, as this node's params. */
   landing(landing: Omit<Route, '_tag'>): NodeBuilder<Route>
-  /** The keyboard shortcut announcing this node. */
-  shortcut(shortcut: string): NodeBuilder<Route>
+  /** The keys that go to this node's landing. */
+  shortcut(shortcut: KeySequence): NodeBuilder<Route>
   /** Which history step a move within this node is. */
   history(
     history: HistoryIntent | ((prev: Route, next: Route) => HistoryIntent),
@@ -224,6 +286,12 @@ export interface NodeBuilder<Route extends { readonly _tag: string }> {
   layout(layout: NodeLayout): NodeBuilder<Route>
   /** What this node draws for its own route. */
   view(view: NodeView): NodeBuilder<Route>
+  /** What this node says of itself in the head, from its route and the Model. */
+  meta<Model = any>(meta: NodeMeta<Route, Model>): NodeBuilder<Route>
+  /** Whether search engines index this node and the nodes below it. */
+  indexed(indexed: boolean): NodeBuilder<Route>
+  /** Who may be shown this node and the nodes below it, and where anyone else goes. */
+  access<Who>(access: NodeAccess<Who>): NodeBuilder<Route>
   /** The Surface this route activates. */
   surface<SRoot, SModel, SMessage, SParams>(config: {
     readonly surface: SurfaceType<SRoot, SModel, SMessage, SParams>
@@ -231,9 +299,37 @@ export interface NodeBuilder<Route extends { readonly _tag: string }> {
   }): NodeBuilder<Route>
 }
 
-/** The deployed topology: roots with everything mounted under them, frozen. */
-export interface SiteTree {
+/**
+ * The deployed topology: roots with everything mounted under them, frozen.
+ * `Route` is the union of every node's route, so the tree parses an address
+ * to it (`Site.parse`) and builds one back (`Site.hrefOf`).
+ */
+export interface SiteTree<Route extends { readonly _tag: string } = any> {
   readonly roots: ReadonlyArray<SiteMount>
+  readonly [routes]?: (route: Route) => void
+}
+
+/** One address a node's `Site.paths` lists: the route's params, and when its content last changed. */
+export interface SitePath<Route extends { readonly _tag: string }> {
+  readonly params: Omit<Route, '_tag'>
+  /** When what the page shows last changed, as ISO 8601 text, for a sitemap. */
+  readonly modified?: string | undefined
+}
+
+/** A node's addresses, listed by an Effect the build runs: from `Site.paths`. */
+export interface SitePaths<E, R> {
+  readonly node: SiteNode<any>
+  readonly list: Effect.Effect<ReadonlyArray<SitePath<any>>, E, R>
+}
+
+/** How a listing of `SitePaths` can fail: each one's error, and none for no paths. */
+export type PathsError<Paths> = Paths extends SitePaths<infer E, any> ? E : never
+/** What a listing of `SitePaths` needs: each one's services, and none for no paths. */
+export type PathsServices<Paths> = Paths extends SitePaths<any, infer R> ? R : never
+
+/** One address of the whole site, from `Site.targets`: a target, and when it last changed. */
+export interface SiteListed<Route extends { readonly _tag: string }> extends SiteTarget<Route> {
+  readonly modified?: string | undefined
 }
 
 /**
@@ -262,11 +358,13 @@ const tagOfConstructor = (constructor: unknown, what: string): string => {
 interface SiteIndex {
   readonly parent: ReadonlyMap<SiteNode<any>, SiteNode<any> | undefined>
   readonly byTag: ReadonlyMap<string, SiteNode<any>>
+  /** The route the first node in tree order reads at an address, or nothing. */
+  readonly read: (url: UrlValue) => Option.Option<any>
 }
 
 const indexes = new WeakMap<SiteTree, SiteIndex>()
 
-/** The parent and tag maps of a tree, computed once per tree value. */
+/** The parent and tag maps and the parser of a tree, computed once per tree value. */
 const indexOf = (site: SiteTree): SiteIndex => {
   const known = indexes.get(site)
   if (known !== undefined) return known
@@ -287,10 +385,23 @@ const indexOf = (site: SiteTree): SiteIndex => {
     for (const child of mount.children) visit(child, mount.node)
   }
   for (const root of site.roots) visit(root, undefined)
-  const index = { parent, byTag }
+  // Foldkit's parser takes only a fallback, so no match falls back to `None`.
+  const parser = parseUrlWithFallback<any, Option.Option<any>>(
+    oneOf(...[...parent.keys()].map(node => node.router)),
+    { make: () => Option.none() },
+  )
+  const read = (url: UrlValue): Option.Option<any> => {
+    const parsed = parser(url)
+    return Option.isOption(parsed) ? parsed : Option.some(parsed)
+  }
+  const index = { parent, byTag, read }
   indexes.set(site, index)
   return index
 }
+
+/** Whether a node's route has params beyond its tag, so its addresses must be listed. */
+const takesParams = (node: SiteNode<any>): boolean =>
+  Object.keys((node.case as { fields?: object }).fields ?? {}).some(field => field !== '_tag')
 
 const asMount = (node: SiteNode<any> | SiteMount): SiteMount =>
   'children' in node ? node : { node, children: [] }
@@ -307,6 +418,10 @@ const sourceOf = <Root>(
     throw new Error(`Site: "${bound.surface.name}" belongs to another application than the site`)
   return [node.tag, Surface.when(bound.surface, place, node.case, bound.params)]
 }
+
+/** The fields a `Meta` gives, so one left `undefined` does not erase an ancestor's. */
+const saidOf = (meta: Meta): Meta =>
+  Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== undefined))
 
 const freezeMount = (mount: SiteMount): SiteMount =>
   Object.freeze({
@@ -349,10 +464,13 @@ export const Site = {
       readonly title?: ((route: Route) => string) | undefined
       readonly section?: string | undefined
       readonly landing?: Omit<Route, '_tag'> | undefined
-      readonly shortcut?: string | undefined
+      readonly shortcut?: KeySequence | undefined
       readonly history?: HistoryIntent | ((prev: Route, next: Route) => HistoryIntent) | undefined
       readonly layout?: NodeLayout | undefined
       readonly view?: NodeView | undefined
+      readonly meta?: NodeMeta<Route> | undefined
+      readonly indexed?: boolean | undefined
+      readonly access?: NodeAccess<never> | undefined
       readonly surface?:
         | {
             readonly surface: SurfaceType<SRoot, SModel, SMessage, SParams>
@@ -369,6 +487,9 @@ export const Site = {
     if (options?.history !== undefined) built = built.history(options.history)
     if (options?.layout !== undefined) built = built.layout(options.layout)
     if (options?.view !== undefined) built = built.view(options.view)
+    if (options?.meta !== undefined) built = built.meta(options.meta)
+    if (options?.indexed !== undefined) built = built.indexed(options.indexed)
+    if (options?.access !== undefined) built = built.access(options.access)
     if (options?.surface !== undefined)
       built = built.surface<SRoot, SModel, SMessage, SParams>(options.surface)
     return built.node
@@ -407,6 +528,9 @@ export const Site = {
       history: history => at(Object.freeze({ ...built, history })),
       layout: layout => at(Object.freeze({ ...built, layout })),
       view: view => at(Object.freeze({ ...built, view })),
+      meta: meta => at(Object.freeze({ ...built, meta })),
+      indexed: indexed => at(Object.freeze({ ...built, indexed })),
+      access: access => at(Object.freeze({ ...built, access })),
       surface: config => at(Object.freeze({ ...built, bound: config as BoundSurface })),
     })
     return at(baseNode(router, routeCase))
@@ -417,18 +541,24 @@ export const Site = {
    * so it stays usable bare for targets and hrefs. Children may be bare
    * nodes (childless) or mounts.
    */
-  mount: (
-    node: SiteNode<any>,
-    children: ReadonlyArray<SiteNode<any> | SiteMount> = [],
-  ): SiteMount => Object.freeze({ node, children: Object.freeze(children.map(asMount)) }),
+  mount: <
+    Route extends { readonly _tag: string },
+    const Children extends ReadonlyArray<SiteNode<any> | SiteMount> = [],
+  >(
+    node: SiteNode<Route>,
+    children?: Children,
+  ): SiteMount<Route | RoutesOf<Children[number]>> =>
+    Object.freeze({ node, children: Object.freeze((children ?? []).map(asMount)) }),
 
   /**
    * The deployed topology from its roots: bare nodes or mounts, frozen.
    * Refuses two nodes sharing a tag and one node mounted twice, since both
    * would make chain inspection ambiguous.
    */
-  make: (...roots: ReadonlyArray<SiteNode<any> | SiteMount>): SiteTree => {
-    const tree: SiteTree = Object.freeze({
+  make: <const Roots extends ReadonlyArray<SiteNode<any> | SiteMount>>(
+    ...roots: Roots
+  ): SiteTree<RoutesOf<Roots[number]>> => {
+    const tree: SiteTree<RoutesOf<Roots[number]>> = Object.freeze({
       roots: Object.freeze(roots.map(asMount).map(freezeMount)),
     })
     // Fail at definition time, not at the first inspection.
@@ -464,6 +594,110 @@ export const Site = {
       node: SiteNode<Route>,
       params: Omit<Route, '_tag'>,
     ): string
+  },
+
+  /**
+   * The tree's parser: an address to the route of the first node, in tree
+   * order (depth-first, parents first), whose router takes all of it, or the
+   * fallback. A router that takes any segment (`/:slug`) belongs after the
+   * nodes whose literal it would take too. With `Site.hrefOf`, the tree is
+   * the one declaration of both directions.
+   */
+  parse: <Route extends { readonly _tag: string }, Fallback>(
+    site: SiteTree<Route>,
+    fallback: { readonly make: (data: { readonly path: string }) => Fallback },
+  ): ((url: UrlValue) => Route | Fallback) => {
+    const { read } = indexOf(site)
+    return (url): Route | Fallback =>
+      Option.getOrElse(read(url), () => fallback.make({ path: url.pathname }))
+  },
+
+  /**
+   * The route the tree reads at an address, as `Site.parse` does, or nothing
+   * when no node takes it: an address the tree does not hold is another
+   * document's, which a link reaches with a full load.
+   */
+  routeAt: <Route extends { readonly _tag: string }>(
+    site: SiteTree<Route>,
+    url: UrlValue,
+  ): Option.Option<Route> => indexOf(site).read(url),
+
+  /**
+   * The address of a route the tree holds, built by its node's router, so it
+   * parses back to the same route (`Site.parse`).
+   */
+  hrefOf: <Route extends { readonly _tag: string }>(
+    site: SiteTree<Route>,
+    route: Route,
+  ): string => {
+    const node = indexOf(site).byTag.get(route._tag)
+    if (node === undefined) throw new Error(`Site.hrefOf: no node holds the tag "${route._tag}"`)
+    const { _tag, ...params } = route
+    return node.router.build(params)
+  },
+
+  /**
+   * A node's addresses, from data: every published post is one. `list` is an
+   * Effect the build runs, such as a Remote query read through
+   * `Data.satisfy`, so it lists what a visitor may see.
+   *
+   * ```ts
+   * const posts = Site.paths(PostNode, listPosts.pipe(
+   *   Effect.map(rows => rows.map(row => ({ params: { slug: row.slug }, modified: row.at }))),
+   * ))
+   * ```
+   */
+  paths: <Route extends { readonly _tag: string }, E, R>(
+    node: SiteNode<Route>,
+    list: Effect.Effect<ReadonlyArray<SitePath<Route>>, E, R>,
+  ): SitePaths<E, R> => ({ node, list }),
+
+  /**
+   * Every address of the site, in tree order: one for each node whose route
+   * has no params, and what `paths` lists for each node whose route has
+   * them. What a build renders, a sitemap lists (with `Site.indexedOf`), and
+   * a prefetch warms. A node with params and no `paths` is refused, as are
+   * `paths` for a node the tree does not hold or twice for one node, so no
+   * page is left out unsaid; `Site.paths(node, Effect.succeed([]))` lists none.
+   */
+  targets: <const Paths extends ReadonlyArray<SitePaths<any, any>>>(
+    site: SiteTree,
+    paths: Paths,
+  ): Effect.Effect<
+    ReadonlyArray<SiteListed<any>>,
+    PathsError<Paths[number]>,
+    PathsServices<Paths[number]>
+  > => {
+    const nodes = Site.nodesOf(site)
+    const listed = new Map<SiteNode<any>, SitePaths<any, any>>()
+    for (const each of paths) {
+      if (!nodes.includes(each.node))
+        throw new Error(`Site.targets: "${each.node.tag}" has paths but is not in the tree`)
+      if (listed.has(each.node)) throw new Error(`Site.targets: "${each.node.tag}" has paths twice`)
+      listed.set(each.node, each)
+    }
+    const unlisted = nodes.filter(node => takesParams(node) && !listed.has(node))
+    if (unlisted.length > 0)
+      throw new Error(
+        `Site.targets: ${unlisted.map(node => `"${node.tag}"`).join(', ')} take params and have no paths`,
+      )
+    return Effect.map(
+      Effect.forEach(
+        nodes,
+        node => {
+          const source = listed.get(node)
+          if (source === undefined) return Effect.succeed([Site.target(node, {})])
+          return Effect.map(source.list, found =>
+            found.map(({ params, modified }) => ({
+              ...Site.target(node, params),
+              ...(modified === undefined ? {} : { modified }),
+            })),
+          )
+        },
+        { concurrency: 'unbounded' },
+      ),
+      perNode => perNode.flat(),
+    )
   },
 
   /** Every node in the tree, depth-first, parents before children. */
@@ -520,6 +754,84 @@ export const Site = {
     return node?.title?.(route)
   },
 
+  /**
+   * Whether search engines index a route: the nearest declaration up its
+   * chain, so a `noindex` studio covers every node below it. A route the tree
+   * does not hold is indexed, as a page with no declaration is.
+   */
+  indexedOf: (site: SiteTree, route: { readonly _tag: string }): boolean => {
+    const chain = Site.chainOf(site, route)
+    for (let at = chain.length - 1; at >= 0; at--) {
+      const indexed = chain[at]!.indexed
+      if (indexed !== undefined) return indexed
+    }
+    return true
+  },
+
+  /**
+   * Whether the reader may be shown a route: every `access` up its chain,
+   * root first, must allow `who`, and the first that refuses sends them to
+   * its `otherwise`, given the route's address. `who` is `Option.none()`
+   * while the application does not know yet (its `Me` loading): `Pending`
+   * wherever a rule would need it. A route no rule covers is `Allowed`.
+   *
+   * ```ts
+   * Access.match(Site.accessOf(AppSite, model.route, me), {
+   *   Allowed: () => page,
+   *   Pending: () => loading,
+   *   Denied: ({ url }) => redirecting, // and `update` replaces the URL with `url`
+   * })
+   * ```
+   *
+   * A server answers `Denied` with a 303 to `url` before rendering. It is
+   * presentation: what the page reads is guarded on the server regardless.
+   */
+  accessOf: <Route extends { readonly _tag: string }, Who>(
+    site: SiteTree<Route>,
+    route: Route,
+    who: Option.Option<Who>,
+  ): Access => {
+    for (const node of Site.chainOf(site, route)) {
+      const { access } = node
+      if (access === undefined) continue
+      if (Option.isNone(who)) return Access.Pending()
+      // The tree holds its rules' readers as `never`: `who` is the reader they read.
+      if ((access as NodeAccess<Who>).allow(who.value)) continue
+      const target = access.otherwise(Site.hrefOf(site, route))
+      // A target this same rule covers refuses the reader again, for ever.
+      if (Site.chainOf(site, target.route).includes(node))
+        throw new Error(
+          `foldkit-site: ${node.tag}'s access sends a refused reader to ${target.url}, which it also covers`,
+        )
+      return Access.Denied({ url: target.url })
+    }
+    return Access.Allowed()
+  },
+
+  /**
+   * What a route says of itself in the head, for an SSR plan's `meta`:
+   *
+   * ```ts
+   * SSR.plan(App, { id: 'site', state, meta: model => Site.metaOf(AppSite, model.route, model) })
+   * ```
+   *
+   * Each node of the chain's `meta`, root first, with a deeper node's field
+   * replacing its ancestor's and a field it leaves out keeping the ancestor's.
+   * The preview title falls back to the route's `title`. An unindexed route
+   * (`Site.indexedOf`) is `noindex` whatever its `meta` says.
+   */
+  metaOf: <Root>(site: SiteTree, route: { readonly _tag: string }, model: Root): Meta => {
+    let meta: Meta = {}
+    for (const node of Site.chainOf(site, route))
+      if (node.meta !== undefined) meta = { ...meta, ...saidOf(node.meta({ route, model })) }
+    const title = meta.title ?? Site.titleOf(site, route)
+    return {
+      ...meta,
+      ...(title === undefined ? {} : { title }),
+      ...(Site.indexedOf(site, route) ? {} : { robots: 'noindex' }),
+    }
+  },
+
   /** The navigation section the tree annotates for a route value, or nothing. */
   sectionOf: (site: SiteTree, route: { readonly _tag: string }): string | undefined =>
     indexOf(site).byTag.get(route._tag)?.section,
@@ -537,6 +849,41 @@ export const Site = {
       return Site.target(candidate, landing)
     }
     return undefined
+  },
+
+  /**
+   * The tree's shortcuts as key bindings, each sending the Message
+   * `toMessage` makes of its node's landing:
+   *
+   * ```ts
+   * Dom.streamFromKeyBindings({
+   *   bindings: Site.shortcuts(AppSite, target => Message.PressedShortcut({ url: target.url })),
+   * })
+   * ```
+   *
+   * A shortcut on a node with no `landing` goes nowhere, and one used twice
+   * goes to two places; both are refused.
+   */
+  shortcuts: <Message>(
+    site: SiteTree,
+    toMessage: (target: SiteTarget<any>) => Message,
+  ): ReadonlyArray<KeyBinding<Message>> => {
+    const taken = new Map<string, string>()
+    return Site.nodesOf(site).flatMap((node): ReadonlyArray<KeyBinding<Message>> => {
+      const keys = node.shortcut
+      if (keys === undefined) return []
+      if (node.landing === undefined)
+        throw new Error(`Site.shortcuts: "${node.tag}" has a shortcut and no landing to go to`)
+      const named = typeof keys === 'string' ? keys : keys.join(' ')
+      const other = taken.get(named)
+      if (other !== undefined)
+        throw new Error(`Site.shortcuts: "${named}" goes to both "${other}" and "${node.tag}"`)
+      taken.set(named, node.tag)
+      const message = toMessage(Site.target(node, node.landing))
+      const mapEvent = () => message
+      // The binding's two shapes are told apart by `keys`, so each is made whole.
+      return [typeof keys === 'string' ? { keys, mapEvent } : { keys, mapEvent }]
+    })
   },
 
   /**
@@ -610,9 +957,8 @@ export const Site = {
    * const prepared = yield* Data.satisfy({ ...model, route: target.route }, active)
    * ```
    *
-   * There is deliberately no `SitePlan` object yet: the chain is already
-   * `Site.chainOf`, and head/access metadata arrive with their real consumers
-   * (§31.9), not ahead of them.
+   * There is deliberately no `SitePlan` object: the chain is already
+   * `Site.chainOf`, and the head is `Site.metaOf`.
    */
   sourcesFor: <Root>(
     site: SiteTree,
@@ -630,9 +976,10 @@ export const Site = {
 
   /**
    * The application's link-click and URL-change lifecycle as one wiring, so
-   * `update` stops hand-writing those two branches. A click on an internal
-   * link navigates (pushing or replacing per `Site.historyOf`); on an
-   * external link it loads; a URL change sets the route field — or touches
+   * `update` stops hand-writing those two branches. A click on a link the
+   * tree holds navigates (pushing or replacing per `Site.historyOf`); on any
+   * other, on this origin or not, it loads, since another document serves
+   * it (`Site.routeAt`); a URL change sets the route field — or touches
    * nothing when the address parses to the route already shown, so an echo
    * of our own write never re-renders or clears pending state. The
    * application's own update answers nothing for either message; `reduces`
@@ -688,6 +1035,12 @@ export const Site = {
      * `Site.routing<Model, Message, AppRoute, RemoteClient>`.
      */
     readonly pages?: ReadonlyArray<SitePage<Root, Message, R, any>> | undefined
+    /**
+     * What the application does once a new route is set and its pages are
+     * told: moving focus to what it drew, say. An echo of the shown address
+     * arrives nowhere, so it runs nothing.
+     */
+    readonly arrived?: ((model: Root, route: Route) => Update.Return<Root, Message, R>) | undefined
   }): Wiring<Root, Message, R> & {
     /** Whether the routing owns a message: its click or its URL change. */
     readonly reduces: (message: Message) => boolean
@@ -704,6 +1057,7 @@ export const Site = {
           Effect.as(config.completed()),
         ),
     })
+    const { arrived } = config
     const Load = Command.define('Site.Load', {
       args: { href: Schema.String },
       messages: [config.completed],
@@ -738,22 +1092,24 @@ export const Site = {
           const request = (message as unknown as { readonly request: UrlRequest }).request
           return Option.some(
             UrlRequest.match(request, {
-              Internal: ({ url }) => {
-                const next = config.parse(url)
-                const node = Site.nodeOf(config.site, next)
-                const intent =
-                  node === undefined
-                    ? ('push' as const)
-                    : Site.historyOf(currentTarget(model), {
-                        node,
-                        route: next,
-                        url: Url.toString(url),
-                      })
-                return {
-                  model,
-                  commands: [Navigate({ url: Url.toString(url), history: intent })],
-                }
-              },
+              Internal: ({ url }) =>
+                Option.match(Site.routeAt(config.site, url), {
+                  // No node takes it, so another document serves it.
+                  onNone: () => ({ model, commands: [Load({ href: Url.toString(url) })] }),
+                  onSome: next => {
+                    // A lookup: the route came from one of the tree's nodes.
+                    const node = Site.nodeOf(config.site, next)!
+                    const history = Site.historyOf(currentTarget(model), {
+                      node,
+                      route: next,
+                      url: Url.toString(url),
+                    })
+                    return {
+                      model,
+                      commands: [Navigate({ url: Url.toString(url), history })],
+                    }
+                  },
+                }),
               External: ({ href }) => ({ model, commands: [Load({ href })] }),
             }),
           )
@@ -771,6 +1127,7 @@ export const Site = {
               page => (model: Root) =>
                 Option.getOrElse(page.inform(model, next), () => ({ model })),
             ),
+            ...(arrived === undefined ? [] : [(model: Root) => arrived(model, next)]),
           ]
           return Option.some(Update.combine(model, steps))
         }

@@ -15,6 +15,7 @@ import { AppStyle } from 'foldkit-mixins/app'
 import { Layout } from 'foldkit-mixins/layout'
 import { Theme } from 'foldkit-mixins/theme'
 import { Utilities as U } from 'foldkit-mixins/utilities'
+import { masks } from './iconMasks.js'
 import {
   AlertSlots,
   AvatarSlots,
@@ -57,18 +58,15 @@ import {
   Touch,
 } from 'foldkit-mixins-ui'
 
-const palette = Theme.compose(
-  Theme.oklch({
-    accent: { h: 222, c: 0.09, l: '52%', dark: { l: '70%', c: 0.1 } },
-    // Zinc-like neutrals: barely any chroma in the surfaces.
-    surfaceSaturation: 0.003,
-    surfaceContrast: '60%',
-  }),
+const theme = Theme.make({
+  accent: { hue: 222, chroma: { light: 0.09, dark: 0.1 } },
+  // Zinc-like neutrals: barely any chroma in the surfaces.
+  surface: { saturation: 0.003, contrast: 24 },
   // shadcn's corners: cards at 0.625rem, controls near 0.5rem.
-  Theme.define({ knob: { 'radius-factor': '1.4' } }),
-)
+  shape: { radius: 1.4 },
+})
 
-const app = AppStyle.make({ palette })
+const app = AppStyle.make({ theme })
 
 export const { t, L } = app
 export const stylesheet = app.stylesheet
@@ -314,13 +312,14 @@ export const FieldsetStyle = app.forSlots(FieldsetSlots)(
 /** Radio options as circles; the chosen one fills with a dot. */
 export const RadioStyle = app.forSlots(RadioGroupSlots)(
   Recipes.RadioGroup.extend({
-    // One choice per line: the recipe lays the group as a row, the demo
-    // stacks it, circle beside its text.
+    // One choice per line, as the recipe stacks a vertical group, each row
+    // stretched and spaced wider.
     base: {
-      group: { flexDirection: 'column', alignItems: 'stretch', gap: t.space.sm },
-      // The 1rem circle top-aligns against a taller first line (21px here),
-      // so it rides 3px down to sit on the line's center. Measured in
-      // Chromium; re-measure if the label's type or the default size moves.
+      group: { alignItems: 'stretch', gap: t.space.sm },
+      // The recipe centers the circle on a body line (20px); this label's
+      // first line is taller (21px here), so it rides 3px down to sit on the
+      // line's center. Measured in Chromium; re-measure if the label's type
+      // or the default size moves.
       option: { marginBlockStart: '3px' },
     },
   })({}),
@@ -343,193 +342,13 @@ export const RadioRowStyle = app.slots(
   { name: 'RadioRowStyle' },
 )
 
-/**
- * Every calendar mode: the day grid stacks its weeks (it carries
- * `aria-rowcount`), while the month and year pickers share a three-by-four
- * grid. Cell buttons read their state off the cell: today, selected, focused,
- * disabled, or outside the shown month.
- */
-export const CalendarStyle = app.forSlots(CalendarSlots)(
-  {
-    // Layout only, no card: the standalone preview wraps this in a card of
-    // its own, and the picker panel already is one (a card here would double
-    // the box). Grids are fixed columns: fractional units collapse without a
-    // definite width, which neither the shrink-wrapped root nor the months
-    // grid's content provides.
-    root: [{ display: 'block' }],
-    previousMonthButton: [
-      U.text('sm'),
-      {
-        inlineSize: '2rem',
-        blockSize: '2rem',
-        border: '0',
-        borderRadius: t.radius.md,
-        background: 'transparent',
-        color: t.text.muted,
-        font: 'inherit',
-        cursor: 'pointer',
-      },
-      Style.pseudo(':hover', { background: t.surface.muted, color: t.text.overt }),
-    ],
-    nextMonthButton: [
-      U.text('sm'),
-      {
-        inlineSize: '2rem',
-        blockSize: '2rem',
-        border: '0',
-        borderRadius: t.radius.md,
-        background: 'transparent',
-        color: t.text.muted,
-        font: 'inherit',
-        cursor: 'pointer',
-      },
-      Style.pseudo(':hover', { background: t.surface.muted, color: t.text.overt }),
-    ],
-    headingButton: [
-      U.text('sm'),
-      U.font('semibold'),
-      {
-        padding: `${t.space['2xs']} ${t.space.xs}`,
-        border: '0',
-        borderRadius: t.radius.md,
-        background: 'transparent',
-        color: t.text.overt,
-        font: 'inherit',
-        cursor: 'pointer',
-      },
-      Style.pseudo(':hover', { background: t.surface.muted }),
-    ],
-    previousPageButton: [
-      U.text('sm'),
-      {
-        inlineSize: '2rem',
-        blockSize: '2rem',
-        border: '0',
-        borderRadius: t.radius.md,
-        background: 'transparent',
-        color: t.text.muted,
-        font: 'inherit',
-        cursor: 'pointer',
-      },
-      Style.pseudo(':hover', { background: t.surface.muted, color: t.text.overt }),
-    ],
-    nextPageButton: [
-      U.text('sm'),
-      {
-        inlineSize: '2rem',
-        blockSize: '2rem',
-        border: '0',
-        borderRadius: t.radius.md,
-        background: 'transparent',
-        color: t.text.muted,
-        font: 'inherit',
-        cursor: 'pointer',
-      },
-      Style.pseudo(':hover', { background: t.surface.muted, color: t.text.overt }),
-    ],
-    grid: [
-      {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 5rem)',
-        gridTemplateRows: 'repeat(4, 1fr)',
-        justifyContent: 'center',
-        gap: t.space['3xs'],
-      },
-      Style.pseudo('[aria-rowcount]', { display: 'flex', flexDirection: 'column' }),
-    ],
-    headerRow: [{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: t.space['3xs'] }],
-    columnHeader: [U.text('xs'), U.color('text.muted'), { textAlign: 'center' }],
-    weekRow: [{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: t.space['3xs'] }],
-    dayCell: [{ display: 'grid', placeItems: 'center' }],
-    dayButton: [
-      U.text('sm'),
-      {
-        inlineSize: '2rem',
-        blockSize: '2rem',
-        border: '0',
-        borderRadius: t.radius.full,
-        background: 'transparent',
-        color: t.text.default,
-        font: 'inherit',
-        fontVariantNumeric: 'tabular-nums',
-        cursor: 'pointer',
-      },
-      Style.pseudo(':hover', { background: t.surface.muted }),
-      Style.nest('[data-today] > &', { boxShadow: `0 0 0 1px ${t.outline.overt}` }),
-      Style.nest('[data-outside-month] > &', { color: t.text.muted }),
-      Style.nest('[data-selected] > &, [data-selected] > &:hover', {
-        background: t.accent.default,
-        color: t.accent['on-fill'],
-      }),
-      Style.nest('[data-focused] > &', {
-        outline: `${t.border.thick} solid ${t.accent.default}`,
-        outlineOffset: '-2px',
-      }),
-      Style.nest('[data-disabled] > &', { opacity: '0.4', cursor: 'not-allowed' }),
-    ],
-    monthCell: [{ display: 'grid', placeItems: 'center' }],
-    monthButton: [
-      U.text('sm'),
-      {
-        inlineSize: '100%',
-        paddingBlock: t.space.xs,
-        border: '0',
-        borderRadius: t.radius.md,
-        background: 'transparent',
-        color: t.text.default,
-        font: 'inherit',
-        cursor: 'pointer',
-      },
-      Style.pseudo(':hover', { background: t.surface.muted }),
-      Style.nest('[data-selected] > &, [data-selected] > &:hover', {
-        background: t.accent.default,
-        color: t.accent['on-fill'],
-      }),
-      Style.nest('[data-focused] > &', {
-        outline: `${t.border.thick} solid ${t.accent.default}`,
-        outlineOffset: '-2px',
-      }),
-      Style.nest('[data-disabled] > &', { opacity: '0.4', cursor: 'not-allowed' }),
-    ],
-    yearCell: [{ display: 'grid', placeItems: 'center' }],
-    yearButton: [
-      U.text('sm'),
-      {
-        inlineSize: '100%',
-        paddingBlock: t.space.xs,
-        border: '0',
-        borderRadius: t.radius.md,
-        background: 'transparent',
-        color: t.text.default,
-        font: 'inherit',
-        fontVariantNumeric: 'tabular-nums',
-        cursor: 'pointer',
-      },
-      Style.pseudo(':hover', { background: t.surface.muted }),
-      Style.nest('[data-selected] > &, [data-selected] > &:hover', {
-        background: t.accent.default,
-        color: t.accent['on-fill'],
-      }),
-      Style.nest('[data-focused] > &', {
-        outline: `${t.border.thick} solid ${t.accent.default}`,
-        outlineOffset: '-2px',
-      }),
-      Style.nest('[data-disabled] > &', { opacity: '0.4', cursor: 'not-allowed' }),
-    ],
-  },
-  { name: 'CalendarStyle' },
-)
+/** The month grid, from the shipped recipe; the picker's panel and the preview's card frame it. */
+export const CalendarStyle = app.forSlots(CalendarSlots)(Recipes.Calendar({}), {
+  name: 'CalendarStyle',
+})
 
-export const SliderStyle = app.forSlots(SliderSlots)(
-  Recipes.Slider.extend({
-    // The thumb already offers the pointer; the bar it rides does too, so
-    // the whole control reads draggable before the pointer finds the thumb.
-    base: { track: { cursor: 'pointer' } },
-  })({}),
-  {
-    name: 'SliderStyle',
-  },
-)
+/** The shipped slider: one thumb spans its track, so the whole bar offers the pointer. */
+export const SliderStyle = app.forSlots(SliderSlots)(Recipes.Slider({}), { name: 'SliderStyle' })
 
 // --- overlays ----------------------------------------------------------------------
 // Popover, Tooltip, and HoverIntent are Submodels: each trigger draws through
@@ -627,8 +446,6 @@ export const DateChromeSlots = Slots.define({
   trigger: Slot.make({ capability: Capability.Container }),
   panel: Slot.make({ capability: Capability.Container }),
   backdrop: Slot.make({ capability: Capability.Container }),
-  header: Slot.make({ capability: Capability.Container }),
-  monthHeader: Slot.make({ capability: Capability.Container }),
 })
 
 export const DateChromeStyle = app.slots(
@@ -652,14 +469,6 @@ export const DateChromeStyle = app.slots(
     ],
     panel: [...popupPanel, { minInlineSize: '18rem' }],
     backdrop: [{ position: 'fixed', inset: '0' }],
-    header: [
-      L.in('layouts', Layout.cluster({ justify: 'space-between', align: 'center' })),
-      { marginBlockEnd: t.space['2xs'] },
-    ],
-    monthHeader: [
-      L.in('layouts', Layout.cluster({ justify: 'center', align: 'center' })),
-      { marginBlockEnd: t.space['2xs'] },
-    ],
   },
   { name: 'DateChromeStyle' },
 )
@@ -748,9 +557,6 @@ export const IconSlots = Slots.define({
   chip: Slot.make({ capability: Capability.Container }),
 })
 
-const iconUrl = (shape: string): string =>
-  `url('data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27>${shape}</svg>')`
-
 /**
  * `Icons` + `Touch` as mechanisms: each chip shows the icon its `data-icon`
  * names, and every chip is a 44px target where the pointer is coarse.
@@ -761,12 +567,8 @@ export const IconStyle = app.slots(
     chip: [
       Touch.target,
       Icons.glyph('1rem'),
-      Icons.byAttribute('data-icon', {
-        dot: iconUrl('<circle cx=%278%27 cy=%278%27 r=%276%27 fill=%27black%27/>'),
-        star: iconUrl(
-          '<path d=%27M8 1l2.2 4.8 5.3.6-3.9 3.6 1 5.2-4.6-2.6-4.6 2.6 1-5.2L.5 6.4l5.3-.6z%27 fill=%27black%27/>',
-        ),
-      }),
+      // Masks written by `pnpm icons` from `icons.json`, so the chips' shapes are data too.
+      Icons.byAttribute('data-icon', masks),
       U.text('sm'),
       {
         display: 'inline-flex',
@@ -796,14 +598,9 @@ export const PillTabsStyle = app.forSlots(TabsSlots)(
     name: 'PillTabsStyle',
   },
 )
+// Across the column, the plans in equal shares.
 export const PlanStyle = app.forSlots(SegmentedSlots)(
-  {
-    group: Style.compose(
-      L.in('layouts', Layout.cluster({ gap: '2px', align: 'center' })),
-      Recipes.Segmented({ tray: 'tray', size: 'sm' }).group ?? Style.empty,
-    ),
-    option: Recipes.Segmented({ tray: 'tray', size: 'sm' }).option ?? Style.empty,
-  },
+  Recipes.Segmented({ tray: 'tray', size: 'sm', width: 'fill' }),
   { name: 'PlanStyle' },
 )
 
@@ -831,22 +628,9 @@ export const StatusStyle = app.slots(
   { name: 'StatusStyle' },
 )
 
-export const DialogPreviewStyle = app.forSlots(DialogSlots)(
-  Recipes.Dialog.extend({
-    // The dialog element is a full-viewport fixed layer, so the panel sits
-    // at its top: grid centers it on both axes. Scoped to `[open]` — an
-    // unconditional display would override the user agent's
-    // `dialog:not([open]) { display: none }` and leave a closed dialog
-    // intercepting every pointer event. The fixed backdrop does not take
-    // part in grid layout, so only the panel moves.
-    base: {
-      dialog: Style.nest('&[open]', { display: 'grid', placeItems: 'center' }),
-    },
-  })({ size: 'sm' }),
-  {
-    name: 'DialogPreviewStyle',
-  },
-)
+export const DialogPreviewStyle = app.forSlots(DialogSlots)(Recipes.Dialog({ size: 'sm' }), {
+  name: 'DialogPreviewStyle',
+})
 
 export const DialogActionsSlots = Slots.define({
   actions: Slot.make({ capability: Capability.Container }),
@@ -916,11 +700,6 @@ export const KbdStyle = app.forSlots(KbdSlots)(Recipes.Kbd({}), {
 export const SeparatorStyle = app.forSlots(SeparatorSlots)(Recipes.Separator({}), {
   name: 'SeparatorStyle',
 })
-
-export const SeparatorVerticalStyle = app.forSlots(SeparatorSlots)(
-  Recipes.Separator({ orientation: 'vertical' }),
-  { name: 'SeparatorVerticalStyle' },
-)
 
 export const SkeletonStyle = app.forSlots(SkeletonSlots)(Recipes.Skeleton({}), {
   name: 'SkeletonStyle',

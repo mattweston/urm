@@ -2,7 +2,7 @@
 
 A guard set is declared once, implemented on the server, attached to
 Entities, and enforced by each seam through a subpath: reads and writes
-(`/server`, `/drizzle`), Sync edits (`/sync`), agents (`/agent`). The design
+(`/server`, `/drizzle`), Sync edits (`/sync`), agents (`/agent`), uploads (`/media`). The design
 and its reasons are
 [guard-DESIGN.md](https://github.com/doeixd/foldkit-plus/blob/main/docs/design/guard-DESIGN.md).
 
@@ -22,7 +22,7 @@ the application's, handed in through `G.Principal`.
 
 ## Basic use
 
-- `Guards.declare(name, PrincipalSchema, guard => ({ … }), { key })` takes the
+- `Guards.declare(name, PrincipalSchema, guard => ({ … }), { key, unguarded: 'deny' })` takes the
   principal as a `Schema.Struct`; its fields are what row guards read.
 - `G.implement(bodies)` must give a body to every principal guard and nothing
   else (a type error, and refused at runtime too).
@@ -78,10 +78,17 @@ const Todo = TodoFields.pipe(
 - `Policy.writable(Todo, principal, 'Update' | 'Create' | 'Delete' | Archive.key)`
   is `{ condition, deny }`; `Policy.writeMembers(..., 'Create' | 'Update')` and
   `Policy.linkable(Todo, principal, 'project', 'Link' | 'Unlink')` likewise.
+- A body may need a service (`Effect.map(Memberships, …)`). The read seams
+  (`GuardDrizzle.visible`, `GuardServer.memory`, `GuardSync`) take a Policy
+  needing nothing: `Policy.provide(context)` gives one, once at startup, and
+  a seam built from it counts as built from `Policy` for `validate`.
+  Per-request facts belong in the principal.
 - `foldkit-guard/server`: `...GuardServer.memory(Policy, [Todo, Project])`
   spread into `RemoteServer.memory` enforces row and member Reads, inherited
   Reads included; `GuardServer.filter(Todo, Policy)` is a Source's `filter`
   for member Reads. The principal is an `Option` (none is a visitor).
+  `GuardServer.me(Me, Policy)` goes in the same call's `entities`, with `Me`
+  left out of the rows' domain.
 - `foldkit-guard/drizzle`: `GuardDrizzle.visible(Policy, [Todo, Project])`
   gives each binding's `visible` (`bind(..., { Todo: { table, visible:
   visible.Todo } })`); an inherited Read compiles to a subquery, checked
@@ -92,7 +99,9 @@ const Todo = TodoFields.pipe(
 - `GuardServer.validate(Policy, { entities, domain, server })` at startup
   throws for a guarded Entity whose Source, or a query listing it, lacks the
   rule or filter the guard seams built for it (a hand-written Source would
-  serve every row). Every guarded Entity needs both. A declared write of one
+  serve every row). Every guarded Entity needs both. A query whose body
+  filters or orders by a member with a Read rule is refused too: its answer
+  would tell what the member hides. A declared write of one
   must land through its `GuardServer.writer`; a handler cannot be checked. A
   field a Source declares `shared` is refused when a Read rule (rows',
   `always`, its own, a relation target's) could tell its readers apart. So are
@@ -121,12 +130,25 @@ const Todo = TodoFields.pipe(
   `May.can(may, Archive.key)`, `May.canSet(may, Todo, 'ownerId')`,
   `May.canLink(may, Todo, 'project', 'Link')`, and `May.reason(may, 'Delete')`
   (an `explain`'s sentence for a refusal, else none). A hint, never the check.
+- `Me`, the visitor as an Entity: `const Me = Guards.me(G, { interactions: {
+  [OpenAdmin.key]: [G.isAdmin] } })` in shared code, `GuardServer.me(Me,
+  Policy)` among the Sources. One row, `me` (`ME`): `signedIn`, `key`
+  (`Policy.key` of the principal; none for a visitor), `may`. Its Read is
+  `Guards.anyone`, its writes nobody's. Read it as any row for nav links,
+  "who am I", and route-level `may`; `Remote.forget` on any change of principal
+  drops it.
 - Sync: `foldkit-guard/sync`. `GuardSync.document(ProductEdits, { readers: [G.isStaff] })`
   (refused at definition when an edit could reach a reader its rows hide it from);
   `authorize: { EditedProducts: GuardSync.authorize(Policy, Edits) }` under the
   journal's lock (principal guards only); `journalExchange({ …, opens:
   GuardSync.opens(Policy, Edits, principal), admit: GuardSync.admit(Policy, Edits,
   { principal, source, changesOf }) })` reads each edited row before the journal.
+- Uploads: `foldkit-guard/media`'s `GuardMedia.uploadPolicy(Policy, { resolve, Upload: [G.isEditor],
+  DescribeUrl: [G.isAdmin] })` is `foldkit-media`'s `UploadPolicy`: principal guards per route
+  (any one allows; a route not named admits nobody; a row guard is a type error), for who
+  `resolve` (Remote's resolver, `AuthServer.resolver`) says is asking, read from the headers
+  alone. A resolver failure is a `401`, a refusal a `403`, each its kind only. `Policy` needs no
+  service (`Policy.provide`).
 - Agents: `foldkit-guard/agent`'s `GuardAgent.authorize(Archive.key, ({ input,
   model }) => Data.get(TodoRow, input.id).read(model))` and
   `GuardAgent.available(...)` gate a capability on the row's `may` (refused

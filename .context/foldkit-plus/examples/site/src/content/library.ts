@@ -11,9 +11,14 @@ import { Option } from 'effect'
 
 import { compilerOptionsOf, extract, packageSource } from '../api/extract.js'
 import { allSubsites, type Subsite } from '../catalog.js'
-import type { Draw, Library, Region } from '../library.js'
+import { showcaseOf, showcases } from '../gallery/showcases.js'
+import { COMPONENTS, CREATE, type Draw, type Library, type Region } from '../library.js'
 import { Page, type Example } from '../main.js'
-import { apiPages, type ApiPage } from './api.js'
+import type { RootContent } from 'mdast'
+
+import { packageName } from '../demos.js'
+import { apiPages, apiTargets, type ApiPage, type Mention } from './api.js'
+import { links, type Links, type Target } from './links.js'
 import { highlighter, type Highlight } from './highlight.js'
 import { guidePages, GITHUB, type Anchor, type GuidePage } from './guides.js'
 import { blocks, codeBlock } from './render.js'
@@ -42,7 +47,7 @@ interface DocPage {
   readonly body: (ih: Ih) => Region
 }
 
-const fromGuide = (highlight: Highlight, page: GuidePage): DocPage => ({
+const fromGuide = (highlight: Highlight, linkOf: Links['linkOf'], page: GuidePage): DocPage => ({
   path: page.path,
   subsite: page.subsite,
   group: page.source.label,
@@ -55,8 +60,24 @@ const fromGuide = (highlight: Highlight, page: GuidePage): DocPage => ({
   listed: true,
   module: page.path,
   crumb: `${page.subsite.title} / ${page.source.label}`,
-  body: ih => blocks(ih, { highlight, href: page.href, idOf: page.idOf }, page.nodes),
+  body: ih =>
+    blocks(
+      ih,
+      { highlight, href: page.href, idOf: page.idOf, codeLink: code => linkOf(code, page.path) },
+      page.nodes,
+    ),
 })
+
+/**
+ * The code spans a guide page links, as `render.ts` draws them: not inside a
+ * link or a heading, where a span stays text.
+ */
+const codeSpansIn = (nodes: ReadonlyArray<RootContent>): ReadonlyArray<string> =>
+  nodes.flatMap(node => {
+    if (node.type === 'inlineCode') return [node.value]
+    if (node.type === 'link' || node.type === 'heading' || !('children' in node)) return []
+    return codeSpansIn(node.children)
+  })
 
 const fromApi = (page: ApiPage): DocPage => ({ ...page, kind: 'api' })
 
@@ -77,6 +98,29 @@ const SNIPPETS: Readonly<Record<Example | 'app' | 'remote', string>> = {
   remote: 'remote.ts',
 }
 
+/**
+ * The code between `// #region <name>` and `// #endregion` in `source`, by
+ * name. A region left open, or a name used twice, fails the build.
+ */
+export const regionsOf = (source: string): ReadonlyMap<string, string> => {
+  const regions = new Map<string, string>()
+  let open: { readonly name: string; readonly lines: Array<string> } | undefined
+  for (const line of source.split('\n')) {
+    const start = /^\/\/ #region (\S+)$/.exec(line)
+    if (start !== null) {
+      if (open !== undefined) throw new Error(`region ${start[1]} opens inside ${open.name}`)
+      if (regions.has(start[1]!)) throw new Error(`two regions are named ${start[1]}`)
+      open = { name: start[1]!, lines: [] }
+    } else if (line === '// #endregion') {
+      if (open === undefined) throw new Error('a region ends that never opened')
+      regions.set(open.name, open.lines.join('\n').trim())
+      open = undefined
+    } else open?.lines.push(line)
+  }
+  if (open !== undefined) throw new Error(`region ${open.name} never ends`)
+  return regions
+}
+
 export interface ServerLibrary extends Library {
   /** Every address the build writes a page for. */
   readonly paths: ReadonlyArray<string>
@@ -92,17 +136,63 @@ export const makeLibrary = async (repository: string): Promise<ServerLibrary> =>
       .flatMap(dir => Option.toArray(packageSource(join(repository, 'packages', dir)))),
     compilerOptionsOf(repository),
   )
+  const packagesOf = (subsite: Subsite) =>
+    packages.filter(source => subsite.packages.includes(source.dir))
+  // A package's name leads to the first page of its README's guides.
+  const packageTargets = guides.pages.flatMap((page, index): ReadonlyArray<Target> => {
+    const readme = /^packages\/([^/]+)\/README\.md$/.exec(page.source.file)
+    const first = guides.pages[index - 1]?.source !== page.source
+    return readme === null || !first
+      ? []
+      : [
+          {
+            name: packageName(readme[1]!),
+            path: page.path,
+            subsite: page.subsite.id,
+            declared: true,
+            namespace: false,
+          },
+        ]
+  })
+  const subsiteOf = new Map<string, string>()
+  const { linkOf } = links(
+    [
+      ...packageTargets,
+      ...allSubsites.flatMap(subsite => apiTargets(subsite, packagesOf(subsite))),
+    ],
+    path => subsiteOf.get(path) ?? '',
+  )
+  for (const page of guides.pages) subsiteOf.set(page.path, page.subsite.id)
+  // Which guide pages name each API page, for the "In the guides" list there.
+  const mentions = new Map<string, Array<Mention>>()
+  for (const page of guides.pages)
+    for (const code of new Set(codeSpansIn(page.nodes))) {
+      const target = linkOf(code, page.path)
+      if (Option.isNone(target)) continue
+      const path = target.value.split('#')[0]!
+      const named = mentions.get(path) ?? []
+      if (!named.some(mention => mention.path === page.path))
+        named.push({
+          path: page.path,
+          title: page.title,
+          crumb: `${page.subsite.title} / ${page.source.label}`,
+        })
+      mentions.set(path, named)
+    }
   const docs = allSubsites.flatMap(subsite => [
     ...guides.pages
       .filter(page => page.subsite === subsite)
-      .map(page => fromGuide(highlight, page)),
-    ...apiPages(
+      .map(page => fromGuide(highlight, linkOf, page)),
+    ...apiPages({
       subsite,
-      packages.filter(source => subsite.packages.includes(source.dir)),
+      packages: packagesOf(subsite),
       highlight,
-      guides.linksFrom,
-    ).map(fromApi),
+      linksFrom: guides.linksFrom,
+      linkOf,
+      mentionsOf: path => mentions.get(path) ?? [],
+    }).map(fromApi),
   ])
+  for (const page of docs) subsiteOf.set(page.path, page.subsite.id)
   const byPath = new Map<string, DocPage>()
   for (const page of docs) {
     if (byPath.has(page.path)) throw new Error(`two doc pages claim ${page.path}`)
@@ -175,7 +265,6 @@ export const makeLibrary = async (repository: string): Promise<ServerLibrary> =>
     (ih: Ih): Region => [
       ih.header([], [ih.p([ih.Class('crumb')], [current.crumb]), ih.h1([], [current.title])]),
       ...current.body(ih),
-      pager(current, ih),
     ]
 
   const outline =
@@ -206,12 +295,33 @@ export const makeLibrary = async (repository: string): Promise<ServerLibrary> =>
     return ih => [codeBlock(ih, highlight, { code: source.trimEnd(), lang: 'ts', copy: true })]
   }
 
+  const usages = regionsOf(
+    readFileSync(join(repository, 'examples/site/src/snippets/components.ts'), 'utf8'),
+  )
+  const componentPaths = showcases.map(showcase => `${COMPONENTS}/${showcase.slug}`)
+  const usage = (slug: string): Draw => {
+    const code = usages.get(slug)
+    if (code === undefined) throw new Error(`src/snippets/components.ts has no region ${slug}`)
+    return ih => [codeBlock(ih, highlight, { code, lang: 'ts', copy: true })]
+  }
+  // Every showcase's snippet regions read now, so a missing region fails the build, not one page.
+  for (const showcase of showcases) {
+    if (showcase.examples.length === 0) usage(showcase.slug)
+    else for (const example of showcase.examples) usage(`${showcase.slug}-${example.name}`)
+  }
+
   return {
-    paths: [HOME, DEMOS, ...byPath.keys()],
+    paths: [HOME, DEMOS, COMPONENTS, ...componentPaths, CREATE, ...byPath.keys()],
     pageAt: path => {
       const normal = normalize(path)
       if (normal === HOME) return Page.Home()
       if (normal === DEMOS) return Page.Demos()
+      if (normal === COMPONENTS) return Page.Components()
+      if (normal === CREATE) return Page.Create()
+      if (normal.startsWith(`${COMPONENTS}/`)) {
+        const slug = normal.slice(COMPONENTS.length + 1)
+        return Option.isSome(showcaseOf(slug)) ? Page.Component({ slug }) : Page.Missing()
+      }
       const page = byPath.get(normal)
       return page === undefined
         ? Page.Missing()
@@ -219,7 +329,9 @@ export const makeLibrary = async (repository: string): Promise<ServerLibrary> =>
     },
     sidebar: path => sidebar(pageOf(path)),
     article: path => article(pageOf(path)),
+    pager: path => ih => [pager(pageOf(path), ih)],
     outline: path => outline(pageOf(path)),
     example,
+    usage,
   }
 }

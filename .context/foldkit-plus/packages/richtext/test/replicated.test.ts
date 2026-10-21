@@ -221,7 +221,13 @@ const randomEdit = (
     return attempt({ type: 'InsertText', text: pick(['x', 'yz', ' ']) })
   }
   const filled = texts(view.state).filter(value => value.length > 0)
-  if (filled.length === 0) return undefined
+  // A range over several kinds of block deletes them all, so a long session can empty the
+  // document; it starts over rather than stopping there.
+  if (filled.length === 0) {
+    view.state = base()
+    view.selection = null
+    return undefined
+  }
   const blocks: Array<RichText.Block> = []
   const collect = (list: ReadonlyArray<RichText.Block>) => {
     for (const block of list) {
@@ -440,7 +446,8 @@ describe('translating an edit', () => {
         ]).children,
       },
     })
-    expect(texts(view.state).slice(-3)).toEqual(['last', 'one', 'two'])
+    // The first block joins the line the caret is at the end of.
+    expect(texts(view.state).slice(-2)).toEqual(['lastone', 'two'])
   })
 
   it('carries the caret to where the edit left it', () => {

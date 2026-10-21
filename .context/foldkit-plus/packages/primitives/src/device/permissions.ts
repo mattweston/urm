@@ -1,11 +1,3 @@
-/**
- * Permission states as a bundle factory: queried on placement, kept current
- * by each status object's `onchange`. A resource holds the status objects
- * (they cannot live in the Model); its queue feeds the subscription, and
- * release detaches every handler. An unknown permission name fails the
- * acquire; an unknown state string fails it too — both become `Failed`,
- * never Model facts.
- */
 import { Effect, Option, Queue, Schema, Stream } from 'effect'
 import { defineMessageUnion } from 'foldkit/message'
 import * as ManagedResource from 'foldkit/managedResource'
@@ -75,6 +67,14 @@ const readState = (state: string, name: string): PermissionState => {
   return state
 }
 
+/**
+ * Permission states as a bundle factory: queried on placement, kept current
+ * by each status object's `onchange`. A resource holds the status objects
+ * (they cannot live in the Model); its queue feeds the subscription, and
+ * release detaches every handler. An unknown permission name fails the
+ * acquire; an unknown state string fails it too — both become `Failed`,
+ * never Model facts.
+ */
 export const permissions = <const Name extends string>(config: {
   readonly name: Name
   /** Read lazily so tests can substitute a double, like the SSE bundle. */
@@ -198,7 +198,7 @@ export const permissions = <const Name extends string>(config: {
       Subscription.make<PermissionsModel, PermissionsMessage, WatchService>()(() => ({
         // No model gate: the queue outlives every state change, and release
         // ends the stream through teardown, not through dependencies.
-        changes: Subscription.persistent(
+        changes: Subscription.persistentEntry(
           Stream.unwrap(
             Effect.matchEffect(Watch.get, {
               // Released between placement and attach: end quietly.

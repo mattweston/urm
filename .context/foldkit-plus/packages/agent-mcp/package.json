@@ -1,6 +1,6 @@
 {
   "name": "foldkit-agent-mcp",
-  "version": "0.5.2",
+  "version": "0.7.0",
   "description": "External MCP adapter for foldkit-agent. Serves a Foldkit agent contract over the Model Context Protocol.",
   "keywords": [
     "foldkit",
@@ -17,7 +17,7 @@
     "url": "git+https://github.com/doeixd/foldkit-plus.git",
     "directory": "packages/agent-mcp"
   },
-  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/agent-mcp#readme",
+  "homepage": "https://foldkit-plus.pages.dev/agent/guides/agent-mcp",
   "bugs": {
     "url": "https://github.com/doeixd/foldkit-plus/issues"
   },
@@ -44,15 +44,15 @@
   "peerDependencies": {
     "foldkit-agent": "workspace:^",
     "effect": "^4.0.0",
-    "foldkit": "^0.165.0"
+    "foldkit": "^0.168.0"
   },
   "devDependencies": {
-    "@effect/platform-browser": "4.0.0",
-    "effect": "4.0.0",
-    "foldkit": "0.165.0",
+    "@effect/platform-browser": "^4.0.4",
+    "effect": "^4.0.4",
+    "foldkit": "0.168.0",
     "foldkit-agent": "workspace:*",
     "foldkit-surface": "workspace:*",
-    "tsdown": "^0.23.0",
-    "typescript": "5.9.3"
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2"
   }
 }

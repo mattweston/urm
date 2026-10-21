@@ -4,10 +4,12 @@
  * every one.
  */
 const tests = [
+  'examples/site/test/live.test.ts',
   'examples/site/test/demos.test.ts',
   'examples/site/test/guides.test.ts',
   'examples/site/test/prerender.test.ts',
   'examples/site/test/copy.test.ts',
+  'examples/site/test/links.test.ts',
 ]
 export default [
   {
@@ -168,6 +170,83 @@ export default [
     edits: [
       { file: '../src/content/render.ts', find: '...(copy ? { copy: {} } : {}),', replace: '' },
     ],
+    tests,
+  },
+  {
+    name: 'a plain word linked to another family',
+    edits: [
+      { file: '../src/content/links.ts', find: '/^[A-Z][a-z]+$/.test(name)', replace: 'false' },
+    ],
+    tests,
+  },
+  {
+    name: 'a re-export as good as the declaration',
+    edits: [
+      {
+        file: '../src/content/links.ts',
+        find: 'declared.length > 0 ? declared : found',
+        replace: 'found',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a page that links to itself',
+    edits: [
+      {
+        file: '../src/content/links.ts',
+        find: "Option.filter(path => path.split('#')[0] !== from),",
+        replace: '',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'an export that does not list the guides naming it',
+    edits: [
+      {
+        file: '../src/content/library.ts',
+        find: 'mentionsOf: path => mentions.get(path) ?? [],',
+        replace: 'mentionsOf: () => [],',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a shared export documented under the first entry point to list it',
+    edits: [
+      {
+        file: '../src/content/api.ts',
+        find: 'nearness(module, entry) > nearness(held.module, entry)',
+        replace: 'false',
+      },
+    ],
+    tests,
+  },
+  {
+    name: "the primitives' subpath guides left off the site",
+    edits: [{ file: '../src/catalog.ts', find: "        ['time', 'Time'],\n", replace: '' }],
+    tests,
+  },
+  {
+    name: "a Bundle's page draws only its full type",
+    edits: [{ file: '../src/content/api.ts', find: 'bundleTable(ih, bundle),', replace: '' }],
+    tests,
+  },
+  {
+    name: 'the timer is declared but never placed',
+    edits: [
+      {
+        file: '../src/main.ts',
+        find: 'Parent.at(Ticks, { args: { intervalMs: 1000 } }),',
+        replace: '',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the live primitives on every doc page',
+    edits: [{ file: '../src/view/doc.ts', find: 'model.path === LIVE_PATH', replace: 'true' }],
     tests,
   },
   {

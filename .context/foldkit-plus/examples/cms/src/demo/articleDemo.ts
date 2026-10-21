@@ -119,9 +119,6 @@ const EditorSlot = Parent.at(Slot, { onOut: ArticleEditor.onOut })
 const placements = Parent.assemble(EditorSlot, Data.wiring(actives))
 const update = ArticleEditor.after(
   placements.update((model, message) => {
-    // Remote's Messages go to its wiring, so they never reach here; the guard
-    // narrows to the demo's own tags, which the match below covers all of.
-    if (Remote.reduces(message)) return { model }
     return Match.valueTags(message, {
       OpenedEntry: ({ entry }) => EditorSlot.helpers.open(entry)(model),
       StartedArticle: ({ entry }) => EditorSlot.helpers.create(entry)(model),
@@ -192,8 +189,8 @@ export const runArticleDemo = async (): Promise<ReadonlyArray<string>> => {
       actives,
       prefetch: (model, projection) =>
         Data.prefetch(model, projection, { policy: RemotePolicy.networkOnly }),
-      // The editor's patch Command draws into a host element this story has none of.
-      skipCommand: name => name === 'RichText.patch',
+      // The editor's patch and answer Commands reach a host element this story has none of.
+      skipCommand: name => name === 'RichText.patch' || name === 'RichText.answer',
       runCommand: (effect, client) =>
         Effect.runPromise(
           (effect as Effect.Effect<Message, never, RemoteClient>).pipe(Effect.provide(client)),

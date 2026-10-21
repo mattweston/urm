@@ -6,7 +6,7 @@
  * document's contract, journal and `changesOf`.
  */
 import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
-import { Effect, Option, Schema } from 'effect'
+import { Context, Effect, Layer, Option, Schema } from 'effect'
 import { Entity, Expr, type Selected } from 'foldkit-entity'
 import { Guards } from 'foldkit-guard'
 import type { CellChange } from 'foldkit-guard/sync'
@@ -42,7 +42,7 @@ const G = Guards.declare(
     isOwner: guard.row(TodoFields, p => Expr.eq(TodoFields.fields.ownerId, p.id)),
     inProject: guard.row(TodoFields, p => Expr.in(TodoFields.fields.projectId, p.projectIds)),
   }),
-  { key: user => user.id },
+  { key: user => user.id, unguarded: 'deny' },
 )
 
 // Server: the body of every principal guard, and nothing else.
@@ -145,6 +145,22 @@ import { GuardDrizzle } from 'foldkit-guard/drizzle'
 import { bind, source } from 'foldkit-remote-drizzle'
 
 const visible = GuardDrizzle.visible(Policy, [Todo])
+
+class Memberships extends Context.Service<
+  Memberships,
+  { readonly admins: ReadonlyArray<string> }
+>()('app/Memberships') {}
+
+const Checked = G.implement({
+  isAdmin: principal =>
+    Effect.map(Memberships, ({ admins }) =>
+      Option.exists(principal, user => admins.includes(user.id)),
+    ),
+})
+const ReadPolicy = Checked.provide(Context.make(Memberships, { admins: ['ada'] }))
+GuardDrizzle.visible(ReadPolicy, [Todo])
+// @ts-expect-error a type error with `Checked`
+GuardDrizzle.visible(Checked, [Todo])
 const Db = bind(
   { Todo, Project },
   {
@@ -225,6 +241,22 @@ May.can(row.may, Archive.key) // the row's rule for Archive
 May.canSet(row.may, Todo, 'ownerId') // the row's Update, and ownerId's own
 May.canLink(row.may, Todo, 'project', 'Link')
 
+// ## Who the client is: `Me`
+
+const OpenAdmin = Interaction.make('OpenAdmin')
+
+// Shared domain code, beside the other Entities.
+export const Me = Guards.me(G, {
+  interactions: { [OpenAdmin.key]: [G.isAdmin] },
+})
+
+// The server: one Source among the others.
+const MeSource = GuardServer.me(Me, Policy)
+
+declare const me: Selected<typeof MeRow>
+const MeRow = Entity.select(Me, { signedIn: true, key: true, may: true })
+May.can(me.may, OpenAdmin.key)
+
 // ## Sync
 
 // The reader's own: the document's Sync contract and journal, and what reads an
@@ -285,4 +317,25 @@ TodoAgent.expose(Message, {
   },
 })
 
+// ## Uploads
+
+// The reader's own: their resolver (`AuthServer.resolver`) and their inspector.
+declare const resolve: (request: Request) => Effect.Effect<Option.Option<typeof User.Type>, unknown>
+declare const inspector: Layer.Layer<Inspector>
+
+import { Inspector } from 'foldkit-media'
+import { uploadLayer, uploadsKeyValueStore } from 'foldkit-media/server'
+import { GuardMedia } from 'foldkit-guard/media'
+
+const uploads = uploadLayer().pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      uploadsKeyValueStore(),
+      inspector,
+      GuardMedia.uploadPolicy(Policy, { resolve, Upload: [G.isAdmin], DescribeUrl: [G.isAdmin] }),
+    ),
+  ),
+)
+
 void authorize
+void uploads

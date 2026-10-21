@@ -1,6 +1,6 @@
 {
   "name": "foldkit-richtext-code-shiki",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "Shiki grammars as foldkit-richtext code tokenizers, producing syntax decorations.",
   "keywords": [
     "foldkit",
@@ -21,7 +21,7 @@
     "url": "git+https://github.com/doeixd/foldkit-plus.git",
     "directory": "packages/richtext-code-shiki"
   },
-  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/richtext-code-shiki#readme",
+  "homepage": "https://foldkit-plus.pages.dev/richtext/guides/richtext-code-shiki",
   "bugs": {
     "url": "https://github.com/doeixd/foldkit-plus/issues"
   },
@@ -50,9 +50,9 @@
     "shiki": "^4.4.3"
   },
   "devDependencies": {
-    "effect": "4.0.0",
-    "shiki": "4.4.3",
-    "tsdown": "^0.23.0",
-    "typescript": "5.9.3"
+    "effect": "^4.0.4",
+    "shiki": "4.5.0",
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2"
   }
 }

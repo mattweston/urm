@@ -1,22 +1,3 @@
-/**
- * Measures marked elements as a Mount, for a view to draw something over them,
- * such as an editor's selection outline, with no Message and no Model: where
- * an element is, is presentation, known to the DOM and to no transition.
- *
- * For each named target, the first element in the mounted one's subtree that
- * matches its selector is measured relative to the mounted element's scroll
- * box, which is what an absolutely placed child of it is laid out in. The
- * mounted element gets `--fk-<name>-x`, `-y`, `-w` and `-h` in pixels, and
- * `--fk-<name>-display`: `block` while a target is found, `none` while none is.
- *
- * It measures again when the subtree changes (a selection moves), in the
- * frame the change is drawn in; and, at most once a frame, when the mounted
- * element scrolls, the window resizes, the mounted element or a measured one
- * changes size, an image or a font inside loads, and on every frame of a
- * transition or an animation inside. What moves a target by any other way,
- * such as a stylesheet added that shifts it without resizing it, is seen at
- * the next of these.
- */
 import { Effect, Schema, Stream } from 'effect'
 import * as Mount from 'foldkit/mount'
 
@@ -28,8 +9,35 @@ export const measured = (name: string) =>
     w: `--fk-${name}-w`,
     h: `--fk-${name}-h`,
     display: `--fk-${name}-display`,
+    /**
+     * `1` for the measure that finds the mark on another element than the
+     * last, `0` for any other (the layout moved or resized the same one, or
+     * it is the first found): an overlay that glides to a new mark scales its
+     * duration by it, so it keeps to its element as the layout settles.
+     */
+    moving: `--fk-${name}-moving`,
   }) as const
 
+/**
+ * Measures marked elements as a Mount, for a view to draw something over them,
+ * such as an editor's selection outline, with no Message and no Model: where
+ * an element is, is presentation, known to the DOM and to no transition.
+ *
+ * For each named target, the first element in the mounted one's subtree that
+ * matches its selector is measured relative to the mounted element's scroll
+ * box, which is what an absolutely placed child of it is laid out in. The
+ * mounted element gets `--fk-<name>-x`, `-y`, `-w` and `-h` in pixels, and
+ * `--fk-<name>-display`: `block` while a target is found, `none` while none is,
+ * and `--fk-<name>-moving` (see `measured`).
+ *
+ * It measures again when the subtree changes (a selection moves) or the
+ * mounted element or a measured one changes size, in the frame the change is
+ * drawn in; and, at most once a frame, when the mounted element scrolls, the
+ * window resizes, an image or a font inside loads, and on every frame of a
+ * transition or an animation inside. What moves a target by any other way,
+ * such as a stylesheet added that shifts it without resizing it, is seen at
+ * the next of these.
+ */
 export const Measure = Mount.defineStream('Measure', {
   messages: [Schema.Never],
   args: {
@@ -43,6 +51,8 @@ export const Measure = Mount.defineStream('Measure', {
           const container = element as HTMLElement
           const names = Object.keys(targets)
           let watched: ReadonlyArray<Element> = []
+          // The element each target was last measured on, to tell a new mark from a moved layout.
+          const last = new Map<string, Element>()
           let frame: number | undefined
           // Whether a transition or an animation may be moving something, until one frame finds none.
           let animating = false
@@ -60,6 +70,8 @@ export const Measure = Mount.defineStream('Measure', {
                 continue
               }
               found.push(target)
+              const previous = last.get(name)
+              last.set(name, target)
               const rect = target.getBoundingClientRect()
               // Relative to the scroll box: where the content is, not where the viewport shows it.
               const x = rect.left - box.left - container.clientLeft + container.scrollLeft
@@ -69,6 +81,10 @@ export const Measure = Mount.defineStream('Measure', {
               container.style.setProperty(property.w, `${rect.width}px`)
               container.style.setProperty(property.h, `${rect.height}px`)
               container.style.setProperty(property.display, 'block')
+              container.style.setProperty(
+                property.moving,
+                previous === undefined || previous === target ? '0' : '1',
+              )
             }
             // A measured element that changes size, as an image loading does, is measured again.
             if (found.length !== watched.length || found.some((each, at) => each !== watched[at])) {
@@ -97,8 +113,10 @@ export const Measure = Mount.defineStream('Measure', {
           const changes = new MutationObserver(measure)
           // Made, and the fonts listened to, before anything observes: where one is
           // missing (jsdom has neither a ResizeObserver nor `document.fonts`), the Mount
-          // fails with nothing attached to call `measure`.
-          const sizes = new ResizeObserver(soon)
+          // fails with nothing attached to call `measure`. A size is measured as it is
+          // observed, after layout and before paint: a frame later, a popup whose width
+          // settled as it opened showed its marker at the old width, past its edge.
+          const sizes = new ResizeObserver(measure)
           document.fonts.addEventListener('loadingdone', soon)
           // Its own properties change the container's style too, but writing the same
           // values again records nothing, so a measure that changed nothing rests.

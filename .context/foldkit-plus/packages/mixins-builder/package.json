@@ -1,6 +1,6 @@
 {
   "name": "foldkit-mixins-builder",
-  "version": "0.1.2",
+  "version": "0.3.11",
   "description": "The page builder drawn as accessible HTML through foldkit-mixins slots: a palette, a keyboard-driven layers tree, an inspector, and the page in edit mode.",
   "keywords": [
     "foldkit",
@@ -17,7 +17,7 @@
     "url": "git+https://github.com/doeixd/foldkit-plus.git",
     "directory": "packages/mixins-builder"
   },
-  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/mixins-builder#readme",
+  "homepage": "https://foldkit-plus.pages.dev/composition/guides/mixins-builder",
   "bugs": {
     "url": "https://github.com/doeixd/foldkit-plus/issues"
   },
@@ -43,7 +43,7 @@
   },
   "peerDependencies": {
     "effect": "^4.0.0",
-    "foldkit": "^0.165.0"
+    "foldkit": "^0.168.0"
   },
   "dependencies": {
     "foldkit-builder": "workspace:*",
@@ -55,11 +55,11 @@
     "foldkit-primitives": "workspace:*"
   },
   "devDependencies": {
-    "effect": "4.0.0",
-    "foldkit": "0.165.0",
+    "effect": "^4.0.4",
+    "foldkit": "0.168.0",
     "foldkit-bundle": "workspace:*",
-    "jsdom": "26.1.0",
-    "tsdown": "^0.23.0",
-    "typescript": "5.9.3"
+    "jsdom": "30.1.2",
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2"
   }
 }

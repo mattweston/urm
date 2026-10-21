@@ -9,8 +9,10 @@ mutations, so an edit paints before the server answers. Pages forwards
 Pages cannot host the Durable Object class itself.
 
 ```
-POST /remote  ->  serveFetch            (D1 reads, queries, live)
-POST /sync    ->  SyncHost               (upgrade; one object per document)
+POST /remote         ->  serveFetch             (D1 reads, queries, live)
+POST /sync           ->  SyncHost               (upgrade; one object per document)
+GET  /_image/        ->  foldkit-media server   (R2 originals, the Images binding)
+POST /_media/upload  ->  foldkit-media upload   (into R2; bearing UPLOAD_TOKEN)
 ```
 
 `pnpm demo` runs it against local [miniflare](https://miniflare.dev) — a real
@@ -29,6 +31,7 @@ are at the end of [Run it](#run-it).
 | `settleTodos` | applying what the journal committed to the `todos` table, where Remote reads it back |
 | Create, Rename, Toggle, Delete | the page's writes. Remote mutations land in the same table |
 | The page (`app.ts`, `view.ts`) | the list, the forms, and the optimistic paint. It does not open `/sync` |
+| `MEDIA` (R2) and `IMAGES` | image originals, by SHA-256, and the variants made of them (`variants/`); the Images binding makes them; `LIMITER` limits how many a client has made a minute. `foldkit-media`'s server answers `/_image/`, the URLs `Provider.hosted` writes, and `POST /_media/upload` takes an original into R2 and answers its facts, for a request bearing the `UPLOAD_TOKEN` secret (`Authorization: Bearer <token>`); unset, every upload is refused, since `x-actor` proves nothing |
 
 Two writers, one table. The journal path:
 
@@ -122,7 +125,7 @@ journal, `settle`, the polling source, and the Remote mutation handlers.
 `src/domain.ts` is the Entity, `src/operations.ts` the query and the
 mutations the page and the server share, and `src/forms.ts`, `src/app.ts`,
 and `src/view.ts` the page. `src/browser.ts` boots it. `src/worker.ts` is the
-two routes. `src/client.ts` drives the wire for the test and the demo;
+routes. `src/client.ts` drives the wire for the test and the demo;
 `src/stack.ts` boots miniflare for both.
 
 ## The page
@@ -165,6 +168,8 @@ pnpm --filter foldkit-example-cloudflare build:page
 wrangler d1 create foldkit-cloudflare
 # put that database_id in wrangler.toml
 wrangler d1 migrations apply foldkit-cloudflare --remote
+# only to take uploads; without it, every upload is refused
+wrangler secret put UPLOAD_TOKEN
 wrangler deploy
 cd pages
 wrangler pages deploy ./public --commit-dirty=true

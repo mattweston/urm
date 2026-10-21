@@ -136,6 +136,7 @@ describe('Order.chosen orders by the field the input names', () => {
   it('refuses a choice from another Entity than the query reads', () => {
     expect(() =>
       Query.from(Post).pipe(
+        // @ts-expect-error the type refuses it too: a choice is an ordering term's field
         Query.orderBy(Order.chosen(sort, { title: Blog.Author.fields.name, id: Post.fields.id })),
       ),
     ).toThrow(/reads Author\.name, but the query is from Post/)
@@ -376,6 +377,7 @@ describe('The operations the CMS worklist needs', () => {
 
   it('checks a nested predicate against the Entity the query is from', () => {
     expect(() =>
+      // @ts-expect-error the type refuses it too; the run-time check is for what the type cannot see
       Query.from(Post).pipe(Query.where(Expr.eq(Expr.isNotNull(Blog.Comment.fields.body), true))),
     ).toThrow('reads Comment.body, but the query is from Post')
   })
@@ -474,5 +476,149 @@ describe('show renders a query for a person to read', () => {
     expect(Query.show(Query.from(Post).pipe(Query.orderBy(Order.asc(Post.fields.id))))).toBe(
       'FROM Post\nORDER BY Post.id ASC',
     )
+  })
+})
+
+describe('and, or and not', () => {
+  const titled = Expr.eq(Post.fields.title, 'hello')
+  const live = Expr.eq(Post.fields.published, true)
+  const draft = Expr.isNull(Post.fields.published)
+
+  it('flattens a connective of the same kind into its parent, and nothing else', () => {
+    const nested = Expr.and(Expr.and(titled, live), draft)
+    expect(nested).toEqual({ _tag: 'And', operands: [titled, live, draft] })
+    expect(Expr.or(titled, Expr.or(live, draft))).toEqual({
+      _tag: 'Or',
+      operands: [titled, live, draft],
+    })
+    // An or under an and is a grouping, so it stays.
+    const grouped = Expr.and(Expr.or(titled, live), draft)
+    expect(grouped).toEqual({
+      _tag: 'And',
+      operands: [{ _tag: 'Or', operands: [titled, live] }, draft],
+    })
+  })
+
+  it('is one operand when given one, adding no node', () => {
+    expect(Expr.or(titled)).toBe(titled)
+    expect(Expr.and(live)).toBe(live)
+  })
+
+  it('refuses no operands, and an operand that is not a predicate', () => {
+    const none: ReadonlyArray<Predicate> = []
+    // @ts-expect-error a list that may be empty
+    expect(() => Expr.or(...none)).toThrow('Expr.or: no operands, which would match no row')
+    // @ts-expect-error a list that may be empty
+    expect(() => Expr.and(...none)).toThrow('Expr.and: no operands, which would match every row')
+    // @ts-expect-error a field is a value
+    expect(() => Expr.and(titled, Post.fields.published)).toThrow('every operand is a predicate')
+    // @ts-expect-error a field is a value
+    expect(() => Expr.not(Post.fields.published)).toThrow('the operand is a predicate')
+  })
+
+  it('refuses a flattened list longer than a query may hold, before building it twice over', () => {
+    let wide: Predicate = Expr.or(titled, live)
+    expect(() => {
+      // Twelve doublings is 8,192 operands: past the cap, and cheap to build without it.
+      for (let depth = 0; depth < 12; depth++) wide = Expr.or(wide, wide)
+    }).toThrow('more than 1000 operands')
+  })
+
+  it('reads every field under it, and names the operations it uses', () => {
+    expect(dependenciesOf(Expr.or(titled, Expr.not(Expr.and(live, draft))))).toEqual({
+      fields: [
+        { entity: 'Post', key: 'title', owner: Post.identity },
+        { entity: 'Post', key: 'published', owner: Post.identity },
+      ],
+      inputs: [],
+      operations: ['or', 'eq', 'not', 'and', 'isNull'],
+    })
+  })
+
+  it('is checked against the Entity the query is from, however deep', () => {
+    expect(() =>
+      Query.from(Post).pipe(
+        // @ts-expect-error the type refuses it too, however deep
+        Query.where(Expr.or(titled, Expr.not(Expr.eq(Blog.Comment.fields.body, 'x')))),
+      ),
+    ).toThrow('reads Comment.body, but the query is from Post')
+  })
+
+  it('is shown parenthesised among several wheres, so the clauses read as they conjoin', () => {
+    const query = Query.from(Post).pipe(Query.where(Expr.or(titled, live), draft))
+    expect(Query.show(query)).toBe(
+      [
+        'FROM Post',
+        'WHERE (Post.title = "hello" or Post.published = true)',
+        '  AND Post.published is null',
+      ].join('\n'),
+    )
+    expect(Query.show(Query.from(Post).pipe(Query.where(Expr.or(titled, live))))).toBe(
+      'FROM Post\nWHERE Post.title = "hello" or Post.published = true',
+    )
+  })
+
+  it('is shown grouped as written', () => {
+    expect(Expr.show(Expr.and(Expr.or(titled, live), Expr.not(draft)))).toBe(
+      '(Post.title = "hello" or Post.published = true) and not (Post.published is null)',
+    )
+  })
+
+  it('builds an optional filter as an or over whether its input is given', () => {
+    const chosen = Expr.input('title', Schema.NullOr(Schema.String))
+    const filter = Expr.whenGiven(chosen, title => Expr.eq(Post.fields.title, title))
+    expect(Expr.show(filter)).toBe('$title is null or Post.title = $title')
+  })
+})
+
+describe('comparisons', () => {
+  const Ranked = Entity.define(
+    'Ranked',
+    Schema.Struct({ id: Schema.String, rank: Schema.Number, name: Schema.String }),
+  ).pipe(Entity.annotateMembers({ name: Collation.of(Collation.binary) }))
+
+  it('orders numbers with no collation, and text under the field’s', () => {
+    expect(Expr.lt(Ranked.fields.rank, 3).collation).toEqual(Option.none())
+    expect(Expr.gte(Ranked.fields.name, 'm').collation).toEqual(Option.some(Collation.binary))
+    expect(Expr.gte(Post.fields.title, 'm', { collation: Collation.asciiFold }).collation).toEqual(
+      Option.some(Collation.asciiFold),
+    )
+  })
+
+  it('refuses text no interpreter would order alike: no collation, a locale, or no field', () => {
+    expect(() => Expr.lt(Post.fields.title, 'm')).toThrow(
+      'Post.title is text with no declared collation',
+    )
+    expect(() => Expr.lt(Post.fields.title, 'm', { collation: Collation.locale('en') })).toThrow(
+      'compares by the backend\'s "en" collation',
+    )
+    expect(() =>
+      Expr.lt(Expr.input('a', Schema.String), 'm', { collation: Collation.binary }),
+    ).toThrow('text compared with no field')
+    // Numbers need neither a field nor a collation.
+    expect(() => Expr.lt(Expr.input('n', Schema.Number), 3)).not.toThrow()
+  })
+
+  it('refuses what does not order as stored, and a number against text', () => {
+    // @ts-expect-error a boolean does not order
+    expect(() => Expr.lt(Expr.input('flag', Schema.Boolean), true)).toThrow(
+      'only numbers with numbers, or text with text',
+    )
+    expect(() =>
+      // @ts-expect-error the sides are of two kinds
+      Expr.lt(Ranked.fields.rank, Expr.input('name', Schema.String)),
+    ).toThrow('only numbers with numbers, or text with text')
+  })
+
+  it('reads both sides, and is named as one operation', () => {
+    expect(dependenciesOf(Expr.gt(Ranked.fields.rank, Expr.input('n', Schema.Number)))).toEqual({
+      fields: [{ entity: 'Ranked', key: 'rank', owner: Ranked.identity }],
+      inputs: ['n'],
+      operations: ['compare'],
+    })
+  })
+
+  it('is shown with its symbol', () => {
+    expect(Expr.show(Expr.lte(Ranked.fields.rank, 3))).toBe('Ranked.rank <= 3')
   })
 })

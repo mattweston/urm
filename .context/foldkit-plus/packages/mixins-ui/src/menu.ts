@@ -1,12 +1,85 @@
-import { Attr, Capability, Event, Slot, Slots, type SlotAttributes } from 'foldkit-mixins'
-import type { Html } from 'foldkit/html'
+/**
+ * A menu, opened by a button or at a point (a context menu), whose rows may
+ * open submenus, in three layers, each built on the one before.
+ *
+ * The fork (`MenuView`, `./menuView.ts`) is `@foldkit/ui`'s Menu view with a
+ * `toView` seam upstream lacks; the Menu's Model, `update` and Mounts stay
+ * upstream's.
+ *
+ * The panel adapter (`MenuSlots`, `resolve`, `toView`, `fluid`,
+ * `overlayBars`, `drawAtPoint`, `pointTarget`) styles a Menu drawn through
+ * the fork, whoever keeps its Model: `toView` is that Menu's `toView`. Menubar
+ * draws its menus through it, and so does an application that folds
+ * `@foldkit/ui`'s Menu itself, for typed items or groups, which the
+ * component's rows do not have; `drawAtPoint` and `pointTarget` open such a
+ * Menu at a point. One recipe, `Recipes.Menu`, styles every panel and the
+ * rows' words and chevrons.
+ *
+ * The component (`init`, `update`, `view`, `target`) is a menu of string rows
+ * drawn through the adapter. Its Model holds `@foldkit/ui` Menus, one for the
+ * menu and one per row with `items`, so each keeps its own keys, typeahead and
+ * rows, and `update` sorts out which Menu a key belongs to. A plain menu is a
+ * menu none of whose rows have `items`, and a context menu is the same menu
+ * with `opensAt: 'point'`: a submenu, a button and a point are each one
+ * difference in the same Model.
+ *
+ * Submenus are one level deep. A submenu is drawn inside its row, so its own
+ * anchor places it beside the row: its button is a mark the size of the row
+ * that nothing sees, focuses or presses. Being inside the row, every key,
+ * click and release in a submenu also bubbles to the menu's panel, which
+ * answers in the Menu's Messages. `update` reads those against its own Model:
+ * while a submenu is open, focus is in it, so the menu's key Messages and its
+ * blur are the submenu's and are dropped, and the menu's `Closed` is the
+ * submenu's Escape. The submenu's own `Closed` is dropped for that reason, and
+ * it draws no click-away: the menu's serves both, closing everything on
+ * `pointerdown`. The keys the Menu does not answer (ArrowRight, ArrowLeft, and
+ * Tab while a submenu is open) are heard on the menu's panel.
+ *
+ * A submenu's row is a `menuitem` with `aria-haspopup="menu"` and
+ * `aria-expanded`. ArrowRight, Enter or Space on it opens the submenu with its
+ * first row active, and ArrowLeft or Escape closes it back to that row; under
+ * `direction: 'rtl'` the submenu opens to the left and the two arrows swap.
+ * Resting the pointer on it opens it after a short delay, and resting on
+ * another row closes it. Choosing a submenu's row closes the whole menu.
+ *
+ * At a point, `target` goes on the area that opens the menu: a right press
+ * records its point, and the `contextmenu` that follows (a right press,
+ * Shift+F10 or the ContextMenu key, the browser's own menu kept shut) opens
+ * the menu there, its button a mark of no size the Menu's anchor places the
+ * rows against. Opened from the keyboard, with no press before it, the mark
+ * stands where the menu is drawn.
+ */
+import * as UiMenu from '@foldkit/ui/menu'
+import { Effect, Match, Option, Schema } from 'effect'
+import {
+  Attr,
+  Behavior,
+  Capability,
+  Event,
+  Slot,
+  Slots,
+  type NamedStyle,
+  type SlotAttributes,
+} from 'foldkit-mixins'
+import * as Command from 'foldkit/command'
+import type { Attribute, Html, HtmlBuilder } from 'foldkit/html'
+import { defineMessageUnion } from 'foldkit/message'
+import { modifyFields } from 'foldkit/struct'
+import type { ReturnWithOutMessage } from 'foldkit/update'
+import { FluidHover, ScrollBars } from 'foldkit-primitives/dom'
+import { readingKey } from './direction.js'
+import * as Kbd from './kbd.js'
+import type { KbdSlots } from './kbd.js'
+import { scrollBarOf } from './popupScroll.js'
 import { buildersOf, type MixinList, type ResolveContext } from './resolve.js'
-import type {
-  MenuGroupRender,
-  MenuHeadingRender,
-  MenuItemRender,
-  MenuRenderInfo,
+import {
+  create,
+  type MenuGroupRender,
+  type MenuHeadingRender,
+  type MenuItemRender,
+  type MenuRenderInfo,
 } from './menuView.js'
+import { drawMenu } from './popupView.js'
 
 /**
  * Menu is a nested Submodel: one `button`/`backdrop`/`items` group plus an
@@ -41,6 +114,27 @@ export const MenuSlots = Slots.define({
   group: Slot.make({ capability: Capability.Container, attributes: [Attr.Role] }),
   heading: Slot.make({ capability: Capability.Container }),
   separator: Slot.make({ capability: Capability.Container, attributes: [Attr.Role] }),
+  rows: Slot.make({ capability: Capability.Container }),
+  highlight: Slot.make({ capability: Capability.Container }),
+  scrollBar: Slot.make({ capability: Capability.Container }),
+  scrollThumb: Slot.make({ capability: Capability.Container }),
+  /** A row's words, which `view` draws. */
+  label: Slot.make({ capability: Capability.Container }),
+  /**
+   * A row's content, laid out as the row's own (`display: contents`); a
+   * submenu row's says whether its submenu shows (`data-open`).
+   */
+  sub: Slot.make({ capability: Capability.Container }),
+  /** The mark that a row opens a submenu. */
+  chevron: Slot.make({ capability: Capability.Container }),
+  /**
+   * A checkbox or radio row's mark, before its words, with `data-kind` and
+   * `data-checked`; every row of a menu holding one draws one, empty, so
+   * the words line up.
+   */
+  check: Slot.make({ capability: Capability.Container }),
+  /** The keys that run a row elsewhere, at its end, drawn as `Kbd.combo`. */
+  shortcut: Slot.make({ capability: Capability.Container }),
 })
 
 export type ResolvedMenuItem<Message> = Omit<MenuItemRender, 'attributes'> & {
@@ -71,6 +165,16 @@ export type ResolvedMenu<Message> = Omit<
   readonly backdrop: { key: string; attributes: SlotAttributes<Message> } | undefined
   readonly items: { key: string; attributes: SlotAttributes<Message> } | undefined
   readonly scroll: SlotAttributes<Message> | undefined
+  /**
+   * The box of the open panel's rows, which `fluid` runs on, and the hover it
+   * moves, drawn first in it: this package's, with no upstream bundle (the
+   * panel itself carries upstream's anchor, and an element holds one Mount).
+   */
+  readonly rows: SlotAttributes<Message> | undefined
+  readonly highlight: SlotAttributes<Message> | undefined
+  /** The overlay bar `overlayBars` drives, beside `scroll` in the panel, and its thumb: only with `scroll`. */
+  readonly scrollBar: SlotAttributes<Message> | undefined
+  readonly scrollThumb: SlotAttributes<Message> | undefined
   readonly groups: ReadonlyArray<ResolvedMenuGroup<Message>>
 }
 
@@ -102,6 +206,12 @@ export const resolve = <Input, Message>(
             attributes: builders.items.attrs(render.items.attributes),
           },
     scroll: render.scroll === undefined ? undefined : builders.scroll.attrs(render.scroll),
+    rows: render.items === undefined ? undefined : builders.rows.attrs(),
+    highlight:
+      render.items === undefined
+        ? undefined
+        : builders.highlight.attrs([context.h.AriaHidden(true)]),
+    ...scrollBarOf(render.scroll !== undefined, builders, context.h),
     groups: render.groups.map(group => ({
       key: group.key,
       heading:
@@ -135,12 +245,1002 @@ export const resolve = <Input, Message>(
   }
 }
 
-/** The menu's `toView`: `draw` receives its bundles with `mixins` applied. */
+/**
+ * The menu's `toView`: `draw` receives its bundles with `mixins` applied.
+ * Without one, it draws upstream's markup from them.
+ */
 export const toView =
   <Message>(
     mixins: MixinList<Message>,
     context: ResolveContext<unknown, Message>,
-    draw: (resolved: ResolvedMenu<Message>) => Html,
+    draw: (resolved: ResolvedMenu<Message>) => Html = resolved => drawMenu(resolved, context.h),
   ) =>
   (render: MenuRenderInfo): Html =>
     draw(resolve(render, mixins, context))
+
+/**
+ * What moves the open panel's `highlight`: on its rows, one highlight
+ * follows the pointer to the nearest row (`--fk-popup-hover-*`),
+ * and to the row the keys mark (`data-active`) while the pointer is away.
+ * Pass them beside the style; until they run, each row marks itself.
+ */
+export const fluid = [
+  Behavior.forSlots(MenuSlots)<unknown, never>(
+    {
+      rows: Behavior.slot({
+        requires: { capability: Capability.Container },
+        mount: () =>
+          FluidHover({
+            name: 'popup-hover',
+            item: '[role^="menuitem"]',
+            axis: 'y',
+            gapClick: true,
+            follows: '[data-active]',
+          }),
+      }),
+    },
+    { name: 'MenuHover' },
+  ).mixin,
+] as const
+
+/**
+ * What draws the open panel's `scrollBar` over its `scroll` (`ScrollBars`),
+ * in place of the browser's bar, on a pointer that can hover. Pass it beside
+ * the style when the menu scrolls (`itemsScrollAttributes`); without a
+ * `scroll` there is no bar.
+ */
+export const overlayBars = [
+  Behavior.forSlots(MenuSlots)<unknown, never>(
+    {
+      scroll: Behavior.slot({
+        requires: { capability: Capability.Container },
+        mount: () => ScrollBars({}),
+      }),
+    },
+    { name: 'MenuScrollBars' },
+  ).mixin,
+] as const
+
+/** What any row may carry beside its words. */
+interface RowParts {
+  readonly label: string
+  /**
+   * The keys that run it elsewhere, such as `['⌘', 'C']`: drawn at the row's
+   * end and named in its `aria-keyshortcuts` (`Meta+C`). The menu binds
+   * nothing; the application listens for them.
+   */
+  readonly shortcut?: readonly [string, ...ReadonlyArray<string>] | undefined
+  /** `'destructive'` for a row that deletes or cannot be undone: `data-tone` on the row. */
+  readonly tone?: 'destructive' | undefined
+  /**
+   * The heading of the group it stands in. Rows next to each other with one
+   * group are a `group` under one heading, and a separator parts groups. A
+   * group's rows stand together: the same name again starts another group.
+   */
+  readonly group?: string | undefined
+}
+
+/** A row chosen to run it, which closes the menu. */
+export interface ItemRow extends RowParts {
+  readonly check?: undefined
+  readonly items?: undefined
+}
+
+/**
+ * A row that is on or off: `menuitemcheckbox` or `menuitemradio`, with
+ * `aria-checked`. Choosing it sends `Selected` and leaves the menu open, as
+ * Base UI's checkbox and radio items do, so several can be set in one
+ * visit; the application keeps `checked`, and a radio row's group is the
+ * rows of its `group`.
+ */
+export interface CheckRow extends RowParts {
+  readonly check: 'checkbox' | 'radio'
+  readonly checked: boolean
+  readonly items?: undefined
+}
+
+/** A row that opens a submenu of `items`. */
+export interface SubmenuRow extends RowParts {
+  readonly items: ReadonlyArray<string>
+  readonly isItemDisabled?: ((item: string) => boolean) | undefined
+  readonly check?: undefined
+}
+
+/** A row that opens nothing: what a Menubar's menus hold. */
+export type LeafRow = ItemRow | CheckRow
+
+/** One row of the menu. */
+export type Row = LeafRow | SubmenuRow
+
+const isCheck = (row: Row): row is CheckRow => row.check !== undefined
+const isSubmenu = (row: Row): row is SubmenuRow => row.items !== undefined
+
+// A Map: a key is read by what the application wrote, and a plain object
+// would answer `constructor` from its prototype.
+const KEY_NAMES: ReadonlyMap<string, string> = new Map([
+  ['⌘', 'Meta'],
+  ['⌃', 'Control'],
+  ['⌥', 'Alt'],
+  ['⇧', 'Shift'],
+  ['↵', 'Enter'],
+  ['⏎', 'Enter'],
+  ['⌫', 'Backspace'],
+  ['⌦', 'Delete'],
+  ['⎋', 'Escape'],
+  ['⇥', 'Tab'],
+  ['↑', 'ArrowUp'],
+  ['↓', 'ArrowDown'],
+  ['←', 'ArrowLeft'],
+  ['→', 'ArrowRight'],
+  ['Ctrl', 'Control'],
+  ['Cmd', 'Meta'],
+  ['Esc', 'Escape'],
+])
+
+/** The `aria-keyshortcuts` value of keys drawn as symbols: `['⌘', '⇧', 'P']` is `Meta+Shift+P`. */
+export const keyShortcuts = (keys: ReadonlyArray<string>): string =>
+  keys.map(key => KEY_NAMES.get(key) ?? key).join('+')
+
+/**
+ * The view inputs that set `rows` in their groups under their headings, for
+ * a Menu's `viewInputs`; none when no row names a group. A group is keyed by
+ * its first row, since a heading's words make no id.
+ */
+export const grouping = <Message>(
+  rows: ReadonlyArray<Row>,
+  h: HtmlBuilder<Message>,
+): Pick<UiMenu.ViewInputs<string>, 'itemGroupKey' | 'groupToHeading'> => {
+  if (!rows.some(row => row.group !== undefined)) return {}
+  const keys: Array<string> = []
+  rows.forEach((row, index) => {
+    const starts = index === 0 || rows[index - 1]?.group !== row.group
+    keys.push(starts ? `g${index}` : (keys[index - 1] ?? `g${index}`))
+  })
+  const headings = new Map(
+    rows.flatMap((row, index) =>
+      row.group === undefined ? [] : [[keys[index] ?? '', row.group] as const],
+    ),
+  )
+  return {
+    itemGroupKey: (_item, index) => keys[index] ?? '',
+    groupToHeading: key =>
+      Option.match(Option.fromNullishOr(headings.get(key)), {
+        onNone: () => undefined,
+        onSome: words => ({ content: h.span([], [words]) }),
+      }),
+  }
+}
+
+/**
+ * The check row a Menu Message chooses, if it chooses one. Send its
+ * `Selected` in place of the Message: the Menu's own `update` would close.
+ */
+export const checkChosen = (
+  rows: ReadonlyArray<Row>,
+  message: UiMenu.Message,
+): Option.Option<CheckRow> =>
+  Match.value(message).pipe(
+    Match.tag('SelectedItem', ({ index }) =>
+      Option.filter(Option.fromNullishOr(rows[index]), isCheck),
+    ),
+    Match.orElse(() => Option.none()),
+  )
+
+export interface RowsOptions<Message> {
+  /** The menu's mixins: they style the rows' words, marks and shortcuts too. */
+  readonly mixins: MixinList<Message>
+  /** A style of `KbdSlots` for the shortcuts' keys; without one they are the keys' words alone. */
+  readonly kbd?: NamedStyle<typeof KbdSlots> | undefined
+}
+
+/**
+ * A resolved menu with `rows` drawn in its rows, by index: each row's words
+ * (`label`), a checkbox or radio row's role, `aria-checked` and `check`
+ * mark, a shortcut and its `aria-keyshortcuts`, a tone, and a `separator`
+ * before every group after the first. Upstream draws a separator only from
+ * attributes an application cannot write, so it is drawn here.
+ */
+export const withRows = <Message>(
+  resolved: ResolvedMenu<Message>,
+  rows: ReadonlyArray<Row>,
+  options: RowsOptions<Message>,
+  h: HtmlBuilder<Message>,
+): ResolvedMenu<Message> => {
+  const builders = buildersOf(MenuSlots, options.mixins, { h })
+  const marked = rows.some(isCheck)
+  const draw = (item: ResolvedMenuItem<Message>, row: Row): ResolvedMenuItem<Message> => ({
+    ...item,
+    attributes: [
+      ...item.attributes,
+      ...(isCheck(row)
+        ? [
+            h.Role(row.check === 'checkbox' ? 'menuitemcheckbox' : 'menuitemradio'),
+            h.AriaChecked(row.checked),
+          ]
+        : []),
+      ...(row.tone === undefined ? [] : [h.DataAttribute('tone', row.tone)]),
+      ...(row.shortcut === undefined ? [] : [h.AriaKeyshortcuts(keyShortcuts(row.shortcut))]),
+    ],
+    content: h.span(builders.sub.attrs([h.Style({ display: 'contents' })]), [
+      ...(marked
+        ? [
+            h.span(
+              builders.check.attrs([
+                h.AriaHidden(true),
+                ...(isCheck(row)
+                  ? [
+                      h.DataAttribute('kind', row.check),
+                      h.DataAttribute('checked', String(row.checked)),
+                    ]
+                  : []),
+              ]),
+              [],
+            ),
+          ]
+        : []),
+      h.span(builders.label.attrs(), [row.label]),
+      ...(row.shortcut === undefined
+        ? []
+        : [
+            h.span(builders.shortcut.attrs([h.AriaHidden(true)]), [
+              Kbd.combo({ keys: row.shortcut, style: options.kbd }, h),
+            ]),
+          ]),
+    ]),
+  })
+  const groups = resolved.groups.map((group, at) => {
+    const first = resolved.groups.slice(0, at).reduce((count, each) => count + each.items.length, 0)
+    return {
+      ...group,
+      separator:
+        at === 0 || group.separator !== undefined
+          ? group.separator
+          : {
+              key: `${resolved.id}-separator-${at}`,
+              attributes: builders.separator.attrs([h.Role('separator')]),
+            },
+      items: group.items.map((item, offset) =>
+        Option.match(Option.fromNullishOr(rows[first + offset]), {
+          onNone: () => item,
+          onSome: row => draw(item, row),
+        }),
+      ),
+    }
+  })
+  return { ...resolved, groups }
+}
+
+/** A point in viewport pixels. */
+export const Point = Schema.Struct({ x: Schema.Number, y: Schema.Number })
+export type Point = typeof Point.Type
+
+/** The menu's button at a point: a mark of no size at `point`, or where it is drawn. */
+const pointMark = (point: Option.Option<Point>) => ({
+  ...Option.match(point, {
+    onNone: () => ({}),
+    onSome: ({ x, y }) => ({ position: 'fixed', left: `${x}px`, top: `${y}px` }),
+  }),
+  inlineSize: '0',
+  blockSize: '0',
+  // The Menu recipe gives its button the ladder's height as a minimum, which
+  // would set the rows that much below the press.
+  minInlineSize: '0',
+  minBlockSize: '0',
+  padding: '0',
+  border: '0',
+  overflow: 'hidden',
+  opacity: '0',
+})
+
+/** The button turned into the mark at `point`, with no tab stop: nothing shows where it stands. */
+const pointButton = <Message>(
+  button: SlotAttributes<Message>,
+  point: Option.Option<Point>,
+  h: HtmlBuilder<Message>,
+): SlotAttributes<Message> => [...button, h.Tabindex(-1), h.Style(pointMark(point))]
+
+/**
+ * A `draw` for `toView` that opens a `@foldkit/ui` Menu at a point, for an
+ * application that folds the Menu itself: its button becomes a mark of no
+ * size at `point` (where it is drawn, with none), which the Menu's anchor
+ * places the rows against, so give the anchor no `gap`. The application
+ * keeps the point, from `pointTarget`'s press, and opens the Menu with its
+ * `Opened` Message on `pointTarget`'s `onOpen`.
+ */
+export const drawAtPoint =
+  <Message>(point: Option.Option<Point>, h: HtmlBuilder<Message>) =>
+  (resolved: ResolvedMenu<Message>): Html =>
+    drawMenu({ ...resolved, button: pointButton(resolved.button, point, h) }, h)
+
+export interface PointTargetOptions<Message> {
+  /** A right press on the area, at its point in viewport pixels. */
+  readonly onPress: (point: Point) => Message
+  /** The area's `contextmenu`, which follows a right press, Shift+F10 or the ContextMenu key. */
+  readonly onOpen: Message
+}
+
+/**
+ * The attributes of the area a menu opens in at a point: a right press
+ * reports its point, and the `contextmenu` that follows asks to open, the
+ * browser's own menu kept shut. `target` is this for the component.
+ */
+export const pointTarget = <Message>(
+  options: PointTargetOptions<Message>,
+  h: HtmlBuilder<Message>,
+): ReadonlyArray<Attribute<Message>> => [
+  // A touch's press too: Android's `contextmenu` for a held finger opens it under the finger.
+  h.OnPointerDown((type, button, _screenX, _screenY, _time, clientX, clientY) =>
+    button === 2 || (button === 0 && type !== 'mouse')
+      ? Option.some(options.onPress({ x: clientX, y: clientY }))
+      : Option.none(),
+  ),
+  h.OnContextMenu(options.onOpen),
+]
+
+/** How long a finger is held on the `target` area before the menu opens there. */
+export const HOLD_MS = 500
+
+/** How far, in CSS pixels, a held finger may wander and still be holding. */
+const HOLD_SLOP = 10
+
+const Submenu = Schema.Struct({
+  /** The index of the row it opens from. */
+  row: Schema.Number,
+  label: Schema.String,
+  menu: UiMenu.Model,
+})
+type Submenu = typeof Submenu.Type
+
+export const Model = Schema.Struct({
+  menu: UiMenu.Model,
+  submenus: Schema.Array(Submenu),
+  /** Counts the pointer's moves between rows, so a delay that ran out after another does nothing. */
+  hover: Schema.Number,
+  /** Where the menu opened, at a point: kept while it closes, so a fading panel stays put. */
+  point: Schema.Option(Point),
+  /** A right press waiting for the `contextmenu` that follows it. */
+  press: Schema.Option(Point),
+  /** A finger held on the `target` area, from where on the screen it went down. */
+  holding: Schema.Option(Point),
+  /** Counts the holds, so a `HOLD_MS` that ran out for an earlier one does nothing. */
+  hold: Schema.Number,
+})
+export type Model = typeof Model.Type
+
+/** The keys heard outside the Menus. */
+const Key = Schema.Literals(['ArrowRight', 'ArrowLeft', 'Tab'])
+const isKey = Schema.is(Key)
+
+export const Message = defineMessageUnion({
+  GotMenu: { message: UiMenu.Message },
+  GotSubmenu: { row: Schema.Number, message: UiMenu.Message },
+  /**
+   * A key pressed in the menu or a submenu, read against the Model, not the
+   * last frame; ArrowRight is toward the submenu's side, as a left-to-right
+   * reader presses it.
+   */
+  Pressed: { key: Key },
+  /** A press outside the menu and its submenus. */
+  PressedAway: {},
+  CompletedHoverDelay: { hover: Schema.Number, row: Schema.Number },
+  /** A right press on the `target` area, at its point. */
+  PressedTarget: { point: Point },
+  /** A finger or a pen down on the `target` area: its point, and where on the screen it is. */
+  TouchedTarget: { point: Point, screen: Point },
+  /** The finger moved, to where on the screen it is. */
+  MovedOnTarget: { screen: Point },
+  /** The finger lifted, or the browser took it for a scroll. */
+  LiftedFromTarget: {},
+  /** `HOLD_MS` ran out for the hold it counts. */
+  HeldTarget: { hold: Schema.Number },
+  /** A checkbox or radio row chosen, which leaves the menu open: its words. */
+  ChoseCheck: { value: Schema.String },
+  /** The `target` area's `contextmenu`: a right press, Shift+F10 or the ContextMenu key. */
+  RequestedContextMenu: {},
+})
+export type Message = typeof Message.Type
+
+export const OutMessage = defineMessageUnion({
+  /** A row was chosen: its value, and the label of the row whose submenu holds it. */
+  Selected: { value: Schema.String, submenu: Schema.Option(Schema.String) },
+})
+export type OutMessage = typeof OutMessage.Type
+
+/** How a menu opens and shuts; each is off by default, as upstream's. */
+export interface InitOptions {
+  /**
+   * Its panels, the menu's and its submenus', carry upstream's transition
+   * marks (`data-closed`, `data-enter`, `data-leave`) and stay drawn while
+   * they leave, so a recipe's fade runs.
+   */
+  readonly isAnimated?: boolean | undefined
+  /**
+   * While it is open the page does not scroll and the rest of it is inert.
+   * The menu's alone: its submenus are drawn inside it, and a modal submenu
+   * would make the menu's other rows inert.
+   */
+  readonly isModal?: boolean | undefined
+}
+
+/** A shut menu, and a shut submenu for each row with `items`. */
+export const init = (id: string, rows: ReadonlyArray<Row>, options: InitOptions = {}): Model => {
+  const isAnimated = options.isAnimated ?? false
+  return {
+    menu: UiMenu.init({ id, isAnimated, isModal: options.isModal ?? false }),
+    submenus: rows.flatMap((row, index) =>
+      row.items === undefined
+        ? []
+        : [
+            {
+              row: index,
+              label: row.label,
+              menu: UiMenu.init({ id: `${id}-sub-${index}`, isAnimated }),
+            },
+          ],
+    ),
+    hover: 0,
+    point: Option.none(),
+    press: Option.none(),
+    holding: Option.none(),
+    hold: 0,
+  }
+}
+
+/** How long the pointer rests on a row before its submenu opens, or the open one closes. */
+const HOVER_DELAY_MILLISECONDS = 150
+
+const DelayHover = Command.define('DelayHover', {
+  args: { hover: Schema.Number, row: Schema.Number },
+  messages: [Message.CompletedHoverDelay],
+  execute: ({ hover, row }) =>
+    Effect.sleep(HOVER_DELAY_MILLISECONDS).pipe(
+      Effect.as(Message.CompletedHoverDelay({ hover, row })),
+    ),
+})
+
+const Menus = create<string>()
+
+type Return = ReturnWithOutMessage<Model, Message, OutMessage>
+type Commands = ReadonlyArray<Command.Command<Message>>
+type MenuResult = ReturnType<typeof Menus.update>
+
+const ofMenu = (result: MenuResult): Commands =>
+  Command.mapMessages(result.commands, message => Message.GotMenu({ message }))
+
+/** A submenu's Commands, but the focus it sends its button: the button is a mark. */
+const ofSubmenu = (row: number, result: MenuResult): Commands =>
+  Command.mapMessages(result.commands, message => Message.GotSubmenu({ row, message })).filter(
+    command => command.name !== UiMenu.FocusButton.name,
+  )
+
+const focusPanel = (model: Model): Commands =>
+  Command.mapMessages([UiMenu.FocusItems({ id: model.menu.id })], message =>
+    Message.GotMenu({ message }),
+  )
+
+const submenuAt = (model: Model, row: number): Option.Option<Submenu> =>
+  Option.fromNullishOr(model.submenus.find(sub => sub.row === row))
+
+const openSubmenu = (model: Model): Option.Option<Submenu> =>
+  Option.fromNullishOr(model.submenus.find(sub => sub.menu.isOpen))
+
+const replaced = (submenus: ReadonlyArray<Submenu>, next: Submenu): ReadonlyArray<Submenu> =>
+  submenus.map(sub => (sub.row === next.row ? next : sub))
+
+/** The Model with `parts` written, the same Model when none changed. */
+const written = (model: Model, parts: Partial<Model>): Model => {
+  const menu = parts.menu ?? model.menu
+  const submenus = parts.submenus ?? model.submenus
+  const hover = parts.hover ?? model.hover
+  const point = parts.point ?? model.point
+  const press = parts.press ?? model.press
+  const holding = parts.holding ?? model.holding
+  const hold = parts.hold ?? model.hold
+  return menu === model.menu &&
+    submenus === model.submenus &&
+    hover === model.hover &&
+    point === model.point &&
+    press === model.press &&
+    holding === model.holding &&
+    hold === model.hold
+    ? model
+    : modifyFields(model, {
+        menu: () => menu,
+        submenus: () => submenus,
+        hover: () => hover,
+        point: () => point,
+        press: () => press,
+        holding: () => holding,
+        hold: () => hold,
+      })
+}
+
+type Shut = Readonly<{ submenus: ReadonlyArray<Submenu>; commands: Commands }>
+
+/** Every open submenu shut, the same array when none was open. */
+const shutAll = (submenus: ReadonlyArray<Submenu>): Shut => {
+  if (!submenus.some(sub => sub.menu.isOpen)) return { submenus, commands: [] }
+  const steps = submenus.map(sub => {
+    if (!sub.menu.isOpen) return { sub, commands: [] }
+    const result = Menus.update(sub.menu, UiMenu.Message.Closed())
+    return {
+      sub: modifyFields(sub, { menu: () => result.model }),
+      commands: ofSubmenu(sub.row, result),
+    }
+  })
+  return { submenus: steps.map(step => step.sub), commands: steps.flatMap(step => step.commands) }
+}
+
+/** The menu's own `update`, and its submenus shut once it is. */
+const plain = (model: Model, message: UiMenu.Message): Return => {
+  const result = Menus.update(model.menu, message)
+  const shut = result.model.isOpen
+    ? { submenus: model.submenus, commands: [] }
+    : shutAll(model.submenus)
+  const next = written(model, { menu: result.model, submenus: shut.submenus })
+  const commands = [...ofMenu(result), ...shut.commands]
+  return Option.match(Option.fromNullishOr(result.outMessage), {
+    onNone: () => ({ model: next, commands }),
+    onSome: ({ value }) => ({
+      model: next,
+      commands,
+      outMessage: OutMessage.Selected({ value, submenu: Option.none() }),
+    }),
+  })
+}
+
+/** Opens the submenu at `row`, shutting any other; `active` is the row it starts on. */
+const opened = (model: Model, row: number, active: Option.Option<number>): Return => {
+  if (!model.menu.isOpen) return { model }
+  return Option.match(submenuAt(model, row), {
+    onNone: () => ({ model }),
+    onSome: sub => {
+      if (sub.menu.isOpen) return { model }
+      const others = shutAll(model.submenus)
+      const result = Menus.update(sub.menu, UiMenu.Message.Opened({ maybeActiveItemIndex: active }))
+      return {
+        model: written(model, {
+          submenus: replaced(others.submenus, modifyFields(sub, { menu: () => result.model })),
+        }),
+        commands: [...others.commands, ...ofSubmenu(row, result)],
+      }
+    },
+  })
+}
+
+/**
+ * Closes the open submenu back to its row: the row active and focus on the
+ * menu's panel. A pending hover is dropped, so the key has the last word.
+ */
+const back = (model: Model, sub: Submenu): Return => {
+  const shut = shutAll(model.submenus)
+  const result = Menus.update(
+    model.menu,
+    UiMenu.Message.ActivatedItem({ index: sub.row, activationTrigger: 'Keyboard' }),
+  )
+  return {
+    model: written(model, { menu: result.model, submenus: shut.submenus, hover: model.hover + 1 }),
+    commands: [...shut.commands, ...ofMenu(result), ...focusPanel(model)],
+  }
+}
+
+/** The menu's row at `index` under the pointer: a delay before its submenu opens, or the open one closes. */
+const hovered = (model: Model, message: UiMenu.Message, index: number): Return => {
+  const step = plain(model, message)
+  const hover = model.hover + 1
+  const unchanged = Option.match(openSubmenu(model), {
+    onSome: sub => sub.row === index,
+    onNone: () => Option.isNone(submenuAt(model, index)),
+  })
+  return {
+    ...step,
+    model: written(step.model, { hover }),
+    commands: [...(step.commands ?? []), ...(unchanged ? [] : [DelayHover({ hover, row: index })])],
+  }
+}
+
+/** A Message of the menu, which a submenu's row answers by opening the submenu. */
+const menuStep = (model: Model, message: UiMenu.Message): Return =>
+  Match.value(message).pipe(
+    Match.withReturnType<Return>(),
+    // Not chosen: a click opens the submenu with no row active, Enter or
+    // Space on its first row.
+    Match.tag('SelectedItem', ({ index }) =>
+      Option.isSome(submenuAt(model, index))
+        ? opened(model, index, Option.none())
+        : plain(model, message),
+    ),
+    Match.tag('RequestedItemClick', ({ index }) =>
+      Option.isSome(submenuAt(model, index))
+        ? opened(model, index, Option.some(0))
+        : plain(model, message),
+    ),
+    Match.tag('MovedPointerOverItem', ({ index }) => hovered(model, message, index)),
+    Match.orElse(() => plain(model, message)),
+  )
+
+/** A Message of the menu while `sub` is open, and so holds focus. */
+const whileOpen = (model: Model, sub: Submenu, message: UiMenu.Message): Return =>
+  Match.value(message).pipe(
+    Match.withReturnType<Return>(),
+    // The submenu's keys, typing and releases bubbled to the menu's panel,
+    // and the blur of focus moving into the submenu.
+    Match.tag(
+      'ActivatedItem',
+      'Searched',
+      'RequestedItemClick',
+      'ReleasedPointerOnItems',
+      'BlurredItems',
+      () => ({ model }),
+    ),
+    // The submenu's Escape, bubbled. A click in the submenu bubbles to its
+    // row as well, which `menuStep` finds open already.
+    Match.tag('Closed', () => back(model, sub)),
+    Match.orElse(() => menuStep(model, message)),
+  )
+
+/** A Message of the submenu `sub`; choosing one of its rows closes the whole menu. */
+const submenuStep = (model: Model, sub: Submenu, message: UiMenu.Message): Return => {
+  const result = Menus.update(sub.menu, message)
+  const submenus =
+    result.model === sub.menu
+      ? model.submenus
+      : replaced(model.submenus, modifyFields(sub, { menu: () => result.model }))
+  const commands = ofSubmenu(sub.row, result)
+  return Option.match(Option.fromNullishOr(result.outMessage), {
+    onNone: () => ({ model: written(model, { submenus }), commands }),
+    onSome: ({ value }) => {
+      const menu = Menus.update(model.menu, UiMenu.Message.Closed())
+      return {
+        model: written(model, { menu: menu.model, submenus }),
+        commands: [...commands, ...ofMenu(menu)],
+        outMessage: OutMessage.Selected({ value, submenu: Option.some(sub.label) }),
+      }
+    },
+  })
+}
+
+/** The menu after `message`; the same Model when nothing changes. */
+export const update = (model: Model, message: Message): Return =>
+  Message.match(message, {
+    GotMenu: ({ message }) =>
+      Option.match(openSubmenu(model), {
+        onSome: sub => whileOpen(model, sub, message),
+        onNone: () => menuStep(model, message),
+      }),
+    GotSubmenu: ({ row, message }) =>
+      Option.match(submenuAt(model, row), {
+        onNone: () => ({ model }),
+        onSome: sub =>
+          Match.value(message).pipe(
+            Match.withReturnType<Return>(),
+            // Its only source is its Escape, which the menu's panel hears too.
+            Match.tag('Closed', () => ({ model })),
+            // The pointer reached the submenu: a pending close is dropped.
+            Match.tag('MovedPointerOverItem', () =>
+              submenuStep(written(model, { hover: model.hover + 1 }), sub, message),
+            ),
+            Match.orElse(() => submenuStep(model, sub, message)),
+          ),
+      }),
+    Pressed: ({ key }) =>
+      Option.match(openSubmenu(model), {
+        onSome: sub =>
+          Match.value(key).pipe(
+            Match.withReturnType<Return>(),
+            Match.when('ArrowLeft', () => back(model, sub)),
+            // Out of a submenu, Tab closes everything and focus returns to the
+            // trigger, as upstream's anchor does for a portaled panel.
+            Match.when('Tab', () => plain(model, UiMenu.Message.Closed())),
+            Match.orElse(() => ({ model })),
+          ),
+        onNone: () =>
+          key === 'ArrowRight'
+            ? Option.match(model.menu.maybeActiveItemIndex, {
+                onNone: () => ({ model }),
+                onSome: index => opened(model, index, Option.some(0)),
+              })
+            : { model },
+      }),
+    PressedAway: () => plain(model, UiMenu.Message.Closed()),
+    CompletedHoverDelay: ({ hover, row }) => {
+      if (hover !== model.hover || !model.menu.isOpen) return { model }
+      return Option.match(submenuAt(model, row), {
+        onSome: () => opened(model, row, Option.none()),
+        onNone: () =>
+          Option.match(openSubmenu(model), {
+            onNone: () => ({ model }),
+            onSome: () => {
+              const shut = shutAll(model.submenus)
+              return {
+                model: written(model, { submenus: shut.submenus }),
+                commands: [...shut.commands, ...focusPanel(model)],
+              }
+            },
+          }),
+      })
+    },
+    PressedTarget: ({ point }) => ({ model: written(model, { press: Option.some(point) }) }),
+    // A held finger opens it, as a right press does: iOS fires no `contextmenu` for one.
+    TouchedTarget: ({ point, screen }) => {
+      const hold = model.hold + 1
+      return {
+        model: written(model, { press: Option.some(point), holding: Option.some(screen), hold }),
+        commands: [
+          {
+            name: 'Menu.hold',
+            args: { hold },
+            effect: Effect.as(Effect.sleep(HOLD_MS), Message.HeldTarget({ hold })),
+          },
+        ],
+      }
+    },
+    MovedOnTarget: ({ screen }) =>
+      Option.match(model.holding, {
+        onNone: () => ({ model }),
+        onSome: from =>
+          Math.hypot(screen.x - from.x, screen.y - from.y) < HOLD_SLOP
+            ? { model }
+            : { model: written(model, { holding: Option.none() }) },
+      }),
+    LiftedFromTarget: () => ({ model: written(model, { holding: Option.none() }) }),
+    HeldTarget: ({ hold }) =>
+      Option.isSome(model.holding) && hold === model.hold
+        ? plain(
+            written(model, { point: model.press, press: Option.none(), holding: Option.none() }),
+            UiMenu.Message.Opened({ maybeActiveItemIndex: Option.some(0) }),
+          )
+        : { model },
+    ChoseCheck: ({ value }) => ({
+      model,
+      outMessage: OutMessage.Selected({ value, submenu: Option.none() }),
+    }),
+    // The press before it, if any, is where it opens; the keyboard's opens
+    // at the area. Its first row active, as a key opening a Menu leaves it.
+    RequestedContextMenu: () =>
+      plain(
+        written(model, { point: model.press, press: Option.none(), holding: Option.none() }),
+        UiMenu.Message.Opened({ maybeActiveItemIndex: Option.some(0) }),
+      ),
+  })
+
+/**
+ * The attributes of the area a menu with `opensAt: 'point'` opens in: a right press records
+ * its point, and its `contextmenu` opens the menu; a finger or a pen held there `HOLD_MS`
+ * opens it too, as iOS fires no `contextmenu` for one. Give the area
+ * `-webkit-touch-callout: none` and `user-select: none`, or iOS shows its own callout over it.
+ */
+export const target = <ParentMessage>(
+  onMessage: (message: Message) => ParentMessage,
+  h: HtmlBuilder<ParentMessage>,
+): ReadonlyArray<Attribute<ParentMessage>> => {
+  const finger = (type: string) => type !== 'mouse'
+  return [
+    h.OnPointerDown((type, button, screenX, screenY, _time, clientX, clientY) => {
+      const point = { x: clientX, y: clientY }
+      if (button === 2) return Option.some(onMessage(Message.PressedTarget({ point })))
+      if (button !== 0 || !finger(type)) return Option.none()
+      return Option.some(
+        onMessage(Message.TouchedTarget({ point, screen: { x: screenX, y: screenY } })),
+      )
+    }),
+    h.OnPointerMove((screenX, screenY, type) =>
+      finger(type)
+        ? Option.some(onMessage(Message.MovedOnTarget({ screen: { x: screenX, y: screenY } })))
+        : Option.none(),
+    ),
+    h.OnPointerUp((_x, _y, type) =>
+      finger(type) ? Option.some(onMessage(Message.LiftedFromTarget())) : Option.none(),
+    ),
+    // After a `pointercancel` too, when the browser took the finger for a scroll.
+    h.OnPointerLeave(type =>
+      finger(type) ? Option.some(onMessage(Message.LiftedFromTarget())) : Option.none(),
+    ),
+    h.OnContextMenu(onMessage(Message.RequestedContextMenu())),
+  ]
+}
+
+export interface MenuViewOptions<ParentMessage> {
+  readonly model: Model
+  /** The rows `init` was given, in its order. */
+  readonly rows: ReadonlyArray<Row>
+  /** The trigger's content; at a point, the name of the mark that stands for it. */
+  readonly buttonContent: Html
+  readonly isRowDisabled?: ((label: string) => boolean) | undefined
+  readonly onMessage: (message: Message) => NoInfer<ParentMessage>
+  /** Default `'button'`; `'point'` opens where `target`'s area was pressed. */
+  readonly opensAt?: 'button' | 'point' | undefined
+  /**
+   * Under `'rtl'` a submenu opens to the left, and ArrowLeft and ArrowRight
+   * swap. Given, it is drawn as the root's `dir`, so the CSS (the chevrons)
+   * reads it too; unset, the keys read left to right and the page's `dir`
+   * stands.
+   */
+  readonly direction?: 'ltr' | 'rtl' | undefined
+  /** The menu's mixins: a style of `MenuSlots` (`Recipes.Menu`), which also styles the rows' words and chevrons. */
+  readonly mixins: MixinList<ParentMessage>
+  /**
+   * The submenus' mixins, default `mixins`. Pass `fluid` here and not in
+   * `mixins` when rows open submenus: the menu's rows hold its submenus' rows,
+   * which its highlight would chase too.
+   */
+  readonly submenuMixins?: MixinList<ParentMessage> | undefined
+  /** A style of `KbdSlots` for the rows' shortcuts (`Recipes.Kbd`); without one they are the keys' words. */
+  readonly kbd?: NamedStyle<typeof KbdSlots> | undefined
+}
+
+/** A submenu's button: over its row, so the submenu's anchor places it beside the row. */
+const rowMark = {
+  position: 'absolute',
+  insetBlockStart: '0',
+  insetInlineStart: '0',
+  inlineSize: '100%',
+  blockSize: '100%',
+  margin: '0',
+  padding: '0',
+  border: '0',
+  opacity: '0',
+  pointerEvents: 'none',
+}
+
+export const view = <ParentMessage>(
+  options: MenuViewOptions<ParentMessage>,
+  h: HtmlBuilder<ParentMessage>,
+): Html => {
+  const builders = buildersOf(MenuSlots, options.mixins, { h })
+  const { model, rows, onMessage } = options
+  const atPoint = options.opensAt === 'point'
+  const submenuMixins = options.submenuMixins ?? options.mixins
+  const label = (text: string) => h.span(builders.label.attrs(), [text])
+  const submenuSide = options.direction === 'rtl' ? 'left-start' : 'right-start'
+
+  const drawSubmenu = (sub: Submenu, row: SubmenuRow, labelId: string) =>
+    h.submodel({
+      slotId: sub.menu.id,
+      model: sub.menu,
+      view: Menus.view,
+      viewInputs: {
+        anchor: { placement: submenuSide, gap: 8, padding: 8, portal: false },
+        items: row.items,
+        itemToConfig: (item: string) => ({ content: label(item) }),
+        isItemDisabled: row.isItemDisabled ?? (() => false),
+        buttonContent: label(row.label),
+        toView: toView(submenuMixins, { h }, resolved =>
+          drawMenu(
+            {
+              ...resolved,
+              wrapper: [...resolved.wrapper, h.Style({ display: 'contents' })],
+              button: [...resolved.button, h.Tabindex(-1), h.AriaHidden(true), h.Style(rowMark)],
+              backdrop: undefined,
+              items:
+                resolved.items === undefined
+                  ? undefined
+                  : {
+                      ...resolved.items,
+                      attributes: [...resolved.items.attributes, h.AriaLabelledBy(labelId)],
+                    },
+            },
+            h,
+          ),
+        ),
+      },
+      toParentMessage: message => onMessage(Message.GotSubmenu({ row: sub.row, message })),
+    })
+
+  // Upstream draws a submenu's row as any other; the row gains the submenu's
+  // semantics, and a name of its words alone, since its content holds the submenu.
+  const withSubmenus = (
+    groups: ReadonlyArray<ResolvedMenuGroup<ParentMessage>>,
+  ): ReadonlyArray<ResolvedMenuGroup<ParentMessage>> =>
+    groups.map((group, at) => {
+      const start = groups.slice(0, at).reduce((count, each) => count + each.items.length, 0)
+      return {
+        ...group,
+        items: group.items.map((item, offset) => {
+          const index = start + offset
+          const hosted = Option.all({
+            sub: submenuAt(model, index),
+            row: Option.filter(Option.fromNullishOr(rows[index]), isSubmenu),
+          })
+          return Option.match(hosted, {
+            onNone: () => item,
+            onSome: ({ sub, row }) => {
+              const labelId = `${item.key}-label`
+              return {
+                ...item,
+                attributes: [
+                  ...item.attributes,
+                  h.AriaHasPopup('menu'),
+                  h.AriaExpanded(sub.menu.isOpen),
+                  ...(sub.menu.isOpen ? [h.AriaControls(`${sub.menu.id}-items`)] : []),
+                  h.AriaLabelledBy(labelId),
+                  h.Style({ position: 'relative' }),
+                ],
+                content: h.span(
+                  builders.sub.attrs([
+                    h.Style({ display: 'contents' }),
+                    // Whether this row's submenu shows, for a recipe that lets it out of the menu's scroll box.
+                    h.DataAttribute('open', String(sub.menu.isOpen)),
+                  ]),
+                  [
+                    // The words line up with a checkbox or radio row's.
+                    ...(marked ? [h.span(builders.check.attrs([h.AriaHidden(true)]), [])] : []),
+                    h.span(builders.label.attrs([h.Id(labelId)]), [row.label]),
+                    h.span(builders.chevron.attrs([h.AriaHidden(true)]), []),
+                    drawSubmenu(sub, row, labelId),
+                  ],
+                ),
+              }
+            },
+          })
+        }),
+      }
+    })
+
+  const anyOpen = Option.isSome(openSubmenu(model))
+  const marked = rows.some(isCheck)
+
+  return h.submodel({
+    slotId: model.menu.id,
+    model: model.menu,
+    view: Menus.view,
+    viewInputs: {
+      anchor: { placement: 'bottom-start', gap: atPoint ? 0 : 4, padding: 8, portal: false },
+      items: rows.map(row => row.label),
+      itemToConfig: (item: string) => ({ content: label(item) }),
+      isItemDisabled: options.isRowDisabled ?? (() => false),
+      buttonContent: options.buttonContent,
+      ...grouping(rows, h),
+      toView: toView(options.mixins, { h }, given => {
+        const resolved = withRows(given, rows, { mixins: options.mixins, kbd: options.kbd }, h)
+        return drawMenu(
+          {
+            ...resolved,
+            // So the CSS reads the direction the keys do: a submenu's chevron points where it opens.
+            wrapper:
+              options.direction === undefined
+                ? resolved.wrapper
+                : [...resolved.wrapper, h.Dir(options.direction)],
+            button: atPoint ? pointButton(resolved.button, model.point, h) : resolved.button,
+            // On press, ahead of the Menu's own click, which then finds it shut.
+            backdrop:
+              resolved.backdrop === undefined
+                ? undefined
+                : {
+                    ...resolved.backdrop,
+                    attributes: [
+                      ...resolved.backdrop.attributes,
+                      h.OnPointerDown(() => Option.some(onMessage(Message.PressedAway()))),
+                    ],
+                  },
+            items:
+              resolved.items === undefined
+                ? undefined
+                : {
+                    ...resolved.items,
+                    attributes: [
+                      ...resolved.items.attributes,
+                      // Tab only out of a submenu: from the menu, its blur closes it.
+                      h.OnKeyDownPreventDefault(pressed => {
+                        const key = readingKey(pressed, options.direction)
+                        return isKey(key) && (key !== 'Tab' || anyOpen)
+                          ? Option.some(onMessage(Message.Pressed({ key })))
+                          : Option.none()
+                      }),
+                    ],
+                  },
+            groups: withSubmenus(resolved.groups),
+          },
+          h,
+        )
+      }),
+    },
+    toParentMessage: message =>
+      onMessage(
+        Option.match(checkChosen(rows, message), {
+          onSome: row => Message.ChoseCheck({ value: row.label }),
+          onNone: () => Message.GotMenu({ message }),
+        }),
+      ),
+  })
+}

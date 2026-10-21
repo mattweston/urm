@@ -14,12 +14,15 @@
     { "path": "./packages/durable" },
     { "path": "./packages/sync" },
     { "path": "./packages/metadata" },
+    { "path": "./packages/media" },
+    { "path": "./packages/plus" },
     { "path": "./packages/composition" },
     { "path": "./packages/builder" },
     { "path": "./packages/mixins-builder" },
     { "path": "./packages/ssr" },
     { "path": "./packages/entity" },
     { "path": "./packages/guard" },
+    { "path": "./packages/auth" },
     { "path": "./packages/form" },
     { "path": "./packages/crud" },
     { "path": "./packages/data-grid" },
@@ -59,7 +62,9 @@
     { "path": "./examples/livestore" },
     { "path": "./examples/kitchen-sink" },
     { "path": "./examples/data-grid" },
+    { "path": "./examples/richtext-playground" },
     { "path": "./examples/registry" },
+    { "path": "./examples/auth" },
     { "path": "./examples/todo-app" },
     { "path": "./examples/richtext" },
     { "path": "./examples/form" },
@@ -82,6 +87,7 @@
     { "path": "./examples/foldkit/ssg" },
     { "path": "./examples/site" },
     { "path": "./examples/foldkit/ssr" },
-    { "path": "./examples/pages" }
+    { "path": "./examples/pages" },
+    { "path": "./examples/design-system" }
   ]
 }

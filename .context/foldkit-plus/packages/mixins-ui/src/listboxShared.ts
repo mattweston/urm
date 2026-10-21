@@ -28,6 +28,7 @@ import type {
 } from '@foldkit/ui/listbox'
 import { childAttributes, type ChildAttribute, type Html, type HtmlBuilder } from 'foldkit/html'
 import { defineView, type View as SubmodelView } from 'foldkit/submodel'
+import { readingKey } from './direction.js'
 import {
   findFirstEnabledIndex,
   groupContiguous,
@@ -36,6 +37,7 @@ import {
   resolveTypeaheadMatch,
   whenOption as when,
 } from './menuUtils.js'
+import { topLayer } from './anchor.js'
 
 /** One listbox item's bundle: element key, attributes, and caller content. */
 export type ListboxItemRender = Readonly<{
@@ -83,11 +85,22 @@ const itemId = (id: string, index: number): string => `${id}-item-${index}`
 
 export type SharedBehavior = Readonly<{ ariaMultiSelectable: boolean }>
 
+/** The one view input the forks add beside upstream's. */
+export type DirectionInput = Readonly<{
+  /**
+   * Under `'rtl'` a horizontal listbox's ArrowLeft and ArrowRight swap. Given,
+   * it is drawn as the root's `dir`, so the CSS reads it too; unset, the keys
+   * read left to right and the page's `dir` stands.
+   */
+  direction?: 'ltr' | 'rtl' | undefined
+}>
+
 /** Normalized inputs: the multi shape both variants lower into, built from
  *  upstream's own pieces so field additions there flow through. */
 export type NormalizedInputs<Item, Value extends string> = BaseViewInputsCommon<Item> &
   Readonly<{ selectedValues: ReadonlyArray<Value> }> &
-  ItemToValueInput<Item, Value>
+  ItemToValueInput<Item, Value> &
+  DirectionInput
 
 export type SharedViewInputs = NormalizedInputs<unknown, string> & {
   toView?: ((render: ListboxRenderInfo) => Html) | undefined
@@ -140,6 +153,7 @@ export const computeRender = (
     ariaLabel,
     ariaLabelledBy,
     selectedValues,
+    direction,
   } = viewInputs
 
   const itemToValue = viewInputs.itemToValue ?? ((item: unknown) => globalThis.String(item))
@@ -321,7 +335,7 @@ export const computeRender = (
       ? [h.AriaDisabled(true), h.DataAttribute('disabled', '')]
       : [
           h.OnPointerDown(handleButtonPointerDown),
-          h.OnKeyDownPreventDefault(handleButtonKeyDown),
+          h.OnKeyDownPreventDefault(key => handleButtonKeyDown(readingKey(key, direction))),
           h.OnKeyUpPreventDefault(handleSpaceKeyUp),
           h.OnClick(handleButtonClick()),
         ]),
@@ -339,12 +353,30 @@ export const computeRender = (
     onSome: index => [h.AriaActiveDescendant(itemId(id, index))],
   })
 
+  const placed = { position: 'absolute', margin: '0', visibility: 'hidden' }
   const anchorAttributes = [
-    h.Style({ position: 'absolute', margin: '0', visibility: 'hidden' }),
-    h.OnMount(UpstreamListbox.AnchorListbox({ buttonId: `${id}-button`, anchor })),
+    // Only with an in-place panel: portal relocation moves a panel after the
+    // Mount acquires, and moving a shown popover hides it again. The panel
+    // then draws in the top layer, out of every stacking context and overflow
+    // box; the anchor positions it as before, and light dismiss stays the
+    // application's Messages closing it. A popover keeps the browser's
+    // `inset: 0`, of which the anchor overwrites only `left` and `top`: right
+    // to left, `right: 0` won and the panel opened at the viewport's far edge.
+    ...(anchor.portal === false
+      ? [
+          h.Attribute('popover', 'manual'),
+          h.Style({ ...placed, inset: 'auto' }),
+          h.OnMount(topLayer(UpstreamListbox.AnchorListbox({ buttonId: `${id}-button`, anchor }))),
+        ]
+      : [
+          h.Style(placed),
+          h.OnMount(UpstreamListbox.AnchorListbox({ buttonId: `${id}-button`, anchor })),
+        ]),
   ]
 
   const wrapper: ReadonlyArray<ChildAttribute> = childAttributes([
+    // So the CSS reads the direction the keys do.
+    ...(direction === undefined ? [] : [h.Dir(direction)]),
     ...(className ? [h.Class(className)] : []),
     ...attributes,
     ...(isVisible ? [h.DataAttribute('open', '')] : []),
@@ -394,7 +426,7 @@ export const computeRender = (
       ...(isLeaving
         ? []
         : [
-            h.OnKeyDownPreventDefault(handleItemsKeyDown),
+            h.OnKeyDownPreventDefault(key => handleItemsKeyDown(readingKey(key, direction))),
             h.OnKeyUpPreventDefault(handleSpaceKeyUp),
             h.OnBlur(Message.BlurredItems()),
           ]),

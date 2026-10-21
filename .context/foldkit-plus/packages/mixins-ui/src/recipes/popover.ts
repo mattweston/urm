@@ -1,12 +1,78 @@
 /**
  * A popover: a trigger opening a card anchored against it, with a click-away
- * behind it. `size` is the panel's maximum width.
+ * behind it and an arrow at the trigger. `size` is the panel's maximum width;
+ * `arrow: 'none'` hides the arrow.
  */
-import { Style } from 'foldkit-mixins'
+import { Style, type StyleValue } from 'foldkit-mixins'
+import { raise, raisedSurface, role } from 'foldkit-mixins/theme'
 import { PopoverSlots } from '../popover.js'
-import { component, disabled, focusRing, hover, ref, transition, variant } from './design.js'
+import {
+  component,
+  disabled,
+  focusRing,
+  hover,
+  ref,
+  transition,
+  unfilledHover,
+  variant,
+} from './design.js'
 
 const width = (max: string) => variant(Style.self({ maxInlineSize: `min(${max}, 100% - 2rem)` }))
+
+/** The arrow's square, whose turned corner shows past the panel's edge. */
+const smallArrow = ref.space.xs
+
+/** Where the arrow stands on each side the anchor placed the panel: the edge facing the trigger. */
+const facing = {
+  bottom: { edge: 'top', along: 'left', turn: '45deg' },
+  top: { edge: 'bottom', along: 'left', turn: '225deg' },
+  right: { edge: 'left', along: 'top', turn: '-45deg' },
+  left: { edge: 'right', along: 'top', turn: '135deg' },
+} as const
+
+/**
+ * An arrow drawn as a floating panel's child, for Popover, Tooltip and Hover
+ * Card: a square turned so one corner points at the trigger, half past the
+ * panel's edge, in the panel's `fill` with its `line` on the two sides that
+ * show. It stands where `--arrow-x` or `--arrow-y` says (upstream's anchor
+ * writes them on the panel, `Anchor.PlaceArrow` on the arrow), centred
+ * until either is known, and never nearer a corner than the panel's
+ * `corner` radius, unless the side is too short for that: then it stands in
+ * the middle, as beside a one-line tooltip, rather than below it on the
+ * rounded corner. Physical sides, as the anchor's pixels are. `size` is
+ * the square's side, `space.xs` unless given; half its diagonal shows, so it
+ * suits a gap to the trigger a little wider than that.
+ */
+export const arrow = (look: {
+  readonly fill: string
+  readonly line: string
+  readonly corner: string
+  readonly size?: string
+}): StyleValue => {
+  const arrowSize = look.size ?? smallArrow
+  const middle = `50% - ${arrowSize} / 2`
+  return component(
+    Style.self({
+      position: 'absolute',
+      inlineSize: arrowSize,
+      blockSize: arrowSize,
+      boxSizing: 'border-box',
+      background: look.fill,
+      borderTop: `${ref.border.thin} solid ${look.line}`,
+      borderLeft: `${ref.border.thin} solid ${look.line}`,
+      pointerEvents: 'none',
+    }),
+    ...Object.entries(facing).map(([side, { edge, along, turn }]) =>
+      Style.nest(`:where([data-placement="${side}"]) > &`, {
+        [edge]: `calc(${arrowSize} / -2 - ${ref.border.thin} / 2)`,
+        // A side shorter than both corners and the arrow would make the clamp's least
+        // more than its most, which clamp resolves to the least: past the middle.
+        [along]: `clamp(min(${look.corner}, ${middle}), var(--arrow-${along === 'left' ? 'x' : 'y'}, calc(${middle})), max(100% - ${look.corner} - ${arrowSize}, ${middle}))`,
+        rotate: turn,
+      }),
+    ),
+  )
+}
 
 export const Popover = Style.recipeFor(PopoverSlots)({
   base: {
@@ -22,12 +88,12 @@ export const Popover = Style.recipeFor(PopoverSlots)({
         background: 'transparent',
         color: ref.text.default,
         font: 'inherit',
-        fontSize: ref.size.sm,
+        ...role('body'),
         fontWeight: ref.weight.medium,
         cursor: 'pointer',
         ...transition('background-color, border-color, color'),
       }),
-      hover({ background: ref.surface.muted }),
+      hover({ background: unfilledHover }),
       focusRing,
       disabled,
     ),
@@ -36,22 +102,22 @@ export const Popover = Style.recipeFor(PopoverSlots)({
         padding: ref.space.md,
         border: `${ref.border.thin} solid ${ref.outline.subtle}`,
         borderRadius: ref.radius.lg,
-        background: ref.surface.base,
+        background: raisedSurface(),
         boxShadow: ref.shadow.lg,
         color: ref.text.muted,
         zIndex: '20',
       }),
+      raise(2),
     ),
     backdrop: component(Style.self({ position: 'fixed', inset: '0' })),
-    arrow: component(
-      Style.self({
-        inlineSize: '0.75rem',
-        blockSize: '0.75rem',
-        background: ref.surface.base,
-        borderBlockStart: `${ref.border.thin} solid ${ref.outline.subtle}`,
-        borderInlineStart: `${ref.border.thin} solid ${ref.outline.subtle}`,
-      }),
-    ),
+    // Larger than a tooltip's: in the panel's own light fill and faint line, the
+    // small one was a nub too slight to see against the page.
+    arrow: arrow({
+      fill: raisedSurface(),
+      line: ref.outline.subtle,
+      corner: ref.radius.lg,
+      size: ref.space.sm,
+    }),
   },
   variants: {
     size: {
@@ -59,6 +125,10 @@ export const Popover = Style.recipeFor(PopoverSlots)({
       md: { panel: width('24rem') },
       lg: { panel: width('32rem') },
     },
+    arrow: {
+      shown: {},
+      none: { arrow: variant(Style.self({ display: 'none' })) },
+    },
   },
-  defaults: { size: 'sm' },
+  defaults: { size: 'sm', arrow: 'shown' },
 })

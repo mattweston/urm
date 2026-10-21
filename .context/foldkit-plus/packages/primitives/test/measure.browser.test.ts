@@ -63,6 +63,35 @@ it('follows the mark, a change of size, and hides when nothing is marked', async
   }
 })
 
+it('lets an overlay glide to the mark on another element, and keep to one the layout resizes', async () => {
+  const { container, rows, read, fiber } = mount()
+  // An overlay whose glide is scaled by `moving`, long enough to be caught running.
+  const overlay = document.createElement('div')
+  overlay.style.cssText =
+    'position: absolute; top: 0; translate: 0 var(--fk-selected-y); height: var(--fk-selected-h);' +
+    ' transition-property: translate, height; transition-duration: calc(10s * var(--fk-selected-moving, 1))'
+  container.prepend(overlay)
+  const gliding = () =>
+    overlay.getAnimations().map(animation => (animation as CSSTransition).transitionProperty)
+  try {
+    await vi.waitFor(() => expect(read('y')).toBe('100px'))
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    expect(gliding()).toEqual([])
+    delete rows[1]!.dataset['mark']
+    rows[2]!.dataset['mark'] = ''
+    await vi.waitFor(() => expect(read('y')).toBe('200px'))
+    expect(gliding()).toEqual(['translate'])
+    // The same element, resized by the layout: the overlay keeps to it rather than gliding.
+    rows[2]!.style.height = '40px'
+    await vi.waitFor(() => expect(read('h')).toBe('40px'))
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    expect(gliding()).toEqual(['translate'])
+    expect(overlay.getBoundingClientRect().height).toBeCloseTo(40, 1)
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  }
+})
+
 it('measures again when a marked element changes size with no change to the DOM', async () => {
   const { read, fiber } = mount()
   // As a stylesheet arriving does, or an image loading.
@@ -72,6 +101,31 @@ it('measures again when a marked element changes size with no change to the DOM'
     sheet.textContent = '[data-mark] { height: 30px !important }'
     document.head.appendChild(sheet)
     await vi.waitFor(() => expect(read('h')).toBe('30px'))
+  } finally {
+    sheet.remove()
+    await Effect.runPromise(Fiber.interrupt(fiber))
+  }
+})
+
+it('measures a change of size in the frame it is drawn in', async () => {
+  const { read, fiber } = mount()
+  const sheet = document.createElement('style')
+  /** Once the next frame is drawn: what the reader saw. */
+  const drawn = () =>
+    new Promise(resolve =>
+      requestAnimationFrame(() => {
+        const channel = new MessageChannel()
+        channel.port1.onmessage = resolve
+        channel.port2.postMessage(0)
+      }),
+    )
+  try {
+    await vi.waitFor(() => expect(read('h')).toBe('100px'))
+    // A stylesheet records no change in the subtree: only the size says so.
+    sheet.textContent = '[data-mark] { height: 30px !important }'
+    document.head.appendChild(sheet)
+    await drawn()
+    expect(read('h')).toBe('30px')
   } finally {
     sheet.remove()
     await Effect.runPromise(Fiber.interrupt(fiber))

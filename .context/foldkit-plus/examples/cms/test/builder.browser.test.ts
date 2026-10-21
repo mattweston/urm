@@ -105,6 +105,51 @@ const at = (element: EventTarget, type: string, where: { clientX: number; client
     new PointerEvent(type, { bubbles: true, button: 0, buttons: 1, isPrimary: true, ...where }),
   )
 
+/** A page of one Image block at `src`, its facts `asset` if any. */
+const imagePage = (src: string, asset?: Readonly<Record<string, unknown>>) => {
+  const section = NodeId.make('s')
+  const image = NodeId.make('image')
+  return Composition.Document.make({
+    format: 1,
+    roots: [section],
+    nodes: {
+      [section]: { block: 'Section', props: { heading: '' }, regions: { body: [image] } },
+      [image]: {
+        block: 'Image',
+        props: { src, alt: 'A desk', caption: '', ...(asset === undefined ? {} : { asset }) },
+        regions: {},
+      },
+    },
+  })
+}
+
+// The file never arrives (no such path), so only what the page says holds the box.
+const MISSING = '/missing/desk.png'
+
+it.each([
+  [
+    'the shape its facts give',
+    { key: MISSING, width: 800, height: 400, alpha: false, hash: null, placeholder: null },
+    2,
+  ],
+  ['4:3 with no facts', undefined, 4 / 3],
+  [
+    '4:3 for facts of another address',
+    { key: '/other.png', width: 800, height: 400, alpha: false, hash: null, placeholder: null },
+    4 / 3,
+  ],
+])('holds an image’s box at %s before its file arrives', async (_, asset, ratio) => {
+  unmount = mount(stylesheet, 0, imagePage(MISSING, asset))
+  const image = await vi.waitFor(() => {
+    const drawn = document.querySelector<HTMLImageElement>('[aria-label="Page"] img')
+    if (drawn === null) throw new Error('no image drawn yet')
+    return drawn
+  })
+  const box = image.getBoundingClientRect()
+  expect(box.width).toBeGreaterThan(100)
+  expect(box.width / box.height).toBeCloseTo(ratio, 1)
+})
+
 it('reads its announcements out without showing them', async () => {
   unmount = mount(stylesheet)
   await vi.waitFor(() => expect(canvas()).not.toBeNull())
@@ -447,6 +492,8 @@ it('keeps focus on a command button that its own press leaves with nothing to do
     row()?.focus()
     expect(document.activeElement).toBe(row())
   })
+  // Pressed at once: the key is judged in `update`, so it meets the selection
+  // the focus made even before the frame that draws it.
   await userEvent.keyboard('{Delete}')
   await vi.waitFor(() => expect(undo()?.getAttribute('aria-disabled')).toBeNull())
   const button = undo()
@@ -505,4 +552,29 @@ it('adds a Section dragged onto an empty page, where nothing marks a place', asy
   await vi.waitFor(() =>
     expect(page.querySelectorAll('[data-composition-node]').length).toBeGreaterThan(0),
   )
+})
+
+it('draws its segmented choices and its narrow tabs across their rows', async () => {
+  // Across what holds it, within a pixel.
+  const across = (element: HTMLElement | null) => {
+    if (element?.parentElement === null || element === null) throw new Error('not drawn')
+    const holder = element.parentElement
+    const style = getComputedStyle(holder)
+    const inner =
+      holder.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    expect(element.getBoundingClientRect().width).toBeCloseTo(inner, 0)
+  }
+  unmount = mount(stylesheet, 3)
+  await vi.waitFor(() => expect(canvas()).not.toBeNull())
+  canvas()?.querySelector<HTMLElement>('[data-composition-node="h1"] h2')?.click()
+  const size = () => document.querySelector<HTMLElement>('[role="group"][aria-label="Size"]')
+  await vi.waitFor(() => expect(size()).not.toBeNull())
+  across(size())
+  unmount()
+  document.body.innerHTML = ''
+
+  unmount = mount(stylesheet, 3, longPage(3), '600px')
+  const tabs = () => document.querySelector<HTMLElement>('[aria-label="Panels"]')
+  await vi.waitFor(() => expect(tabs()?.checkVisibility()).toBe(true))
+  across(tabs())
 })

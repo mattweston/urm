@@ -1,6 +1,6 @@
 {
   "name": "foldkit-site",
-  "version": "0.1.0",
+  "version": "0.4.2",
   "description": "The deployed route topology of a Foldkit application: stable route nodes, their hierarchy, typed targets, and per-node metadata, compiled to the Foldkit Router, Surface, and Bundle primitives the runtime already runs.",
   "keywords": [
     "foldkit",
@@ -20,7 +20,7 @@
     "url": "git+https://github.com/doeixd/foldkit-plus.git",
     "directory": "packages/site"
   },
-  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/site#readme",
+  "homepage": "https://foldkit-plus.pages.dev/site",
   "bugs": {
     "url": "https://github.com/doeixd/foldkit-plus/issues"
   },
@@ -43,21 +43,22 @@
   },
   "dependencies": {
     "foldkit-bundle": "workspace:*",
+    "foldkit-ssr": "workspace:*",
     "foldkit-surface": "workspace:*"
   },
   "peerDependencies": {
     "effect": "^4.0.0",
-    "foldkit": "^0.165.0"
+    "foldkit": "^0.168.0"
   },
   "devDependencies": {
-    "effect": "4.0.0",
-    "foldkit": "0.165.0",
+    "effect": "^4.0.4",
+    "foldkit": "0.168.0",
     "foldkit-bundle": "workspace:*",
     "foldkit-entity": "workspace:*",
     "foldkit-remote": "workspace:*",
     "foldkit-ssr": "workspace:*",
     "foldkit-surface": "workspace:*",
-    "tsdown": "^0.23.0",
-    "typescript": "5.9.3"
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2"
   }
 }

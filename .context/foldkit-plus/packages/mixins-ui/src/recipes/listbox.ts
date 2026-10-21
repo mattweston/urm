@@ -1,12 +1,100 @@
 /**
- * A listbox: the trigger shows the choice, the shared popup panel lists the
- * options with the chosen one tinted. `size` is the density of the trigger
- * and each row.
+ * A listbox, and the custom select drawn over it: the trigger shows the
+ * choice, the shared popup panel lists the options with the chosen one
+ * tinted. `size` steps the trigger and the rows it opens on the size ladder
+ * together; unset, they follow the region. With `Listbox.parts`, an option
+ * is its icon, its label over a quieter description, and a check the chosen
+ * row shows (`check`: at the row's `end`, its `start`, or `none`), and the
+ * trigger its value, muted while it is the placeholder, before a chevron
+ * that turns while open. `trigger` is the button's look: `outline`,
+ * `filled` (the field fill), or `ghost` (no box until hovered).
  */
 import { Style } from 'foldkit-mixins'
+import { ladder, role } from 'foldkit-mixins/theme'
 import { ListboxSlots } from '../listbox.js'
-import { component, disabled, focusRing, listScroll, ref, transition } from './design.js'
-import { backdrop, density, heading, item, panel, separator } from './popup.js'
+import {
+  component,
+  controlCorner,
+  cornerSides,
+  disabled,
+  focusRing,
+  hover,
+  onLadder,
+  ref,
+  steps,
+  transition,
+  triggerChevron,
+  unfilledHover,
+  variant,
+} from './design.js'
+import {
+  backdrop,
+  heading,
+  highlight,
+  indicator,
+  item,
+  mergedChoice,
+  panel,
+  rows,
+  scroll,
+  separator,
+  triggerWidth,
+  unlit,
+} from './popup.js'
+import { bar, thumb } from './scrollBars.js'
+
+/** An option's parts, which Listbox.parts and Combobox.parts draw; the two recipes share them. */
+export const optionParts = {
+  itemContent: component(
+    Style.self({
+      display: 'flex',
+      flex: '1',
+      alignItems: 'center',
+      gap: ladder('gap'),
+      minInlineSize: '0',
+    }),
+  ),
+  itemIcon: component(
+    Style.self({
+      display: 'inline-grid',
+      placeItems: 'center',
+      flex: 'none',
+      inlineSize: ladder('icon'),
+      blockSize: ladder('icon'),
+    }),
+  ),
+  itemText: component(Style.self({ display: 'grid', flex: '1', minInlineSize: '0' })),
+  itemLabel: component(Style.self({ overflow: 'hidden', textOverflow: 'ellipsis' })),
+  itemDescription: component(
+    Style.self({
+      // The panel's ink, quieter: muted text would not read on an inverted panel.
+      color: `color-mix(in oklab, ${ref.popup.ink} 62%, transparent)`,
+      ...role('caption'),
+    }),
+  ),
+  // Two sides of a box, turned into a check; kept in place while hidden, so
+  // the labels line up whichever row is chosen.
+  itemCheck: component(
+    Style.self({
+      flex: 'none',
+      inlineSize: '0.3em',
+      blockSize: '0.6em',
+      marginInline: '0.2em',
+      marginBlockEnd: '0.15em',
+      ...cornerSides(ref.border.glyph, 'currentColor'),
+      rotate: '45deg',
+      visibility: 'hidden',
+    }),
+    Style.nest(':where([aria-selected="true"]) &', { visibility: 'visible' }),
+  ),
+} as const
+
+/** Where an option's check sits: a selection of a `check` axis. */
+export const checkAt = {
+  end: {},
+  start: { itemCheck: variant(Style.self({ order: '-1' })) },
+  none: { itemCheck: variant(Style.self({ display: 'none' })) },
+} as const
 
 export const Listbox = Style.recipeFor(ListboxSlots)({
   base: {
@@ -16,16 +104,14 @@ export const Listbox = Style.recipeFor(ListboxSlots)({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: ref.space.sm,
         inlineSize: '100%',
-        paddingBlock: ref.space.xs,
-        paddingInline: ref.space.sm,
+        ...onLadder,
         border: `${ref.border.thin} solid ${ref.outline.default}`,
-        borderRadius: ref.radius.md,
+        borderRadius: controlCorner,
         background: ref.surface.base,
+        boxShadow: ref.shadow.field,
         color: ref.text.default,
         font: 'inherit',
-        lineHeight: ref.leading.normal,
         cursor: 'pointer',
         ...transition('border-color, background-color'),
       }),
@@ -35,29 +121,72 @@ export const Listbox = Style.recipeFor(ListboxSlots)({
     ),
     backdrop,
     items: panel,
-    scroll: listScroll,
+    scroll,
     item: component(
       item,
-      // The chosen row reads DOM state, so it goes through `states`.
-      Style.states(
-        { true: { background: ref.accent.subtle, color: ref.accent.ink } },
-        'aria-selected',
-      ),
+      // The chosen row reads DOM state; its fill is the indicator's once that glides.
+      Style.states({ true: { color: ref.accent.ink } }, 'aria-selected'),
+      Style.nest(`${unlit}[aria-selected="true"]`, { background: ref.accent.subtle }),
+      mergedChoice,
     ),
     heading,
     separator,
+    rows,
+    highlight,
+    indicator,
+    scrollBar: bar,
+    scrollThumb: thumb,
+    ...optionParts,
+    value: component(
+      Style.self({
+        display: 'flex',
+        flex: '1',
+        alignItems: 'center',
+        gap: ladder('gap'),
+        minInlineSize: '0',
+      }),
+    ),
+    valueText: component(
+      Style.self({
+        flex: '1',
+        overflow: 'hidden',
+        textAlign: 'start',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }),
+      Style.states({ true: { color: ref.text.muted } }, 'data-placeholder'),
+    ),
+    chevron: component(
+      triggerChevron(':where([aria-expanded="true"]) &', '0.45em'),
+      Style.self({ color: ref.text.muted }),
+    ),
   },
   variants: {
     size: {
-      sm: {
-        button: density(ref.space['2xs'], ref.space.xs, ref.size.sm),
-        item: density(ref.space['3xs'], ref.space.sm, ref.size.sm),
+      // On the wrapper, so the trigger and the rows it opens step together,
+      // and on the panel too, which upstream portals out of the wrapper by default.
+      sm: { wrapper: steps.sm, items: steps.sm },
+      md: { wrapper: steps.md, items: steps.md },
+      lg: { wrapper: steps.lg, items: steps.lg },
+    },
+    trigger: {
+      outline: {},
+      filled: {
+        button: variant(Style.self({ background: ref.surface.field, borderColor: 'transparent' })),
       },
-      md: {
-        button: density(ref.space.xs, ref.space.sm, ref.size.md),
-        item: density(ref.space['2xs'], ref.space.sm, ref.size.sm),
+      ghost: {
+        button: variant(
+          Style.self({ background: 'transparent', borderColor: 'transparent' }),
+          hover({ background: unfilledHover, borderColor: 'transparent' }),
+        ),
       },
     },
+    check: checkAt,
+    width: {
+      /** The panel at least as wide as the trigger, never narrower beside it. */
+      trigger: { items: triggerWidth },
+      auto: {},
+    },
   },
-  defaults: { size: 'md' },
+  defaults: { width: 'auto', trigger: 'outline', check: 'end' },
 })

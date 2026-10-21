@@ -5,26 +5,28 @@
  * switch thumb are pseudo-elements, so the view renders an empty control.
  */
 import { Style } from 'foldkit-mixins'
+import { ladder, role } from 'foldkit-mixins/theme'
 import { CheckboxSlots } from '../checkbox.js'
 import { SwitchSlots } from '../switch.js'
 import {
   component,
+  cornerSides,
   disabled,
   focusRing,
+  hover,
   ref,
-  tones,
   toneVar,
+  tones,
   transition,
+  travelled,
   variant,
 } from './design.js'
 
 const checked = '[aria-checked="true"]'
 
-const label = component(
-  Style.self({ color: ref.text.default, fontSize: ref.size.md, cursor: 'pointer' }),
-)
+const label = component(Style.self({ color: ref.text.default, ...role('body'), cursor: 'pointer' }))
 
-const description = component(Style.self({ color: ref.text.muted, fontSize: ref.size.sm }))
+const description = component(Style.self({ color: ref.text.muted, ...role('body') }))
 
 /** The control's edge length; the check mark and the thumb scale from it. */
 const box = (length: string) => variant(Style.self({ '--_fk-toggle-size': length }))
@@ -35,7 +37,8 @@ const sizes = {
   lg: box('1.25rem'),
 } as const
 
-const edge = 'var(--_fk-toggle-size)'
+// With no size, the ladder's icon rung: 16px, 14px compact, as Fluid Functionalism's.
+const edge = `var(--_fk-toggle-size, ${ladder('icon')})`
 
 export const Checkbox = Style.recipeFor(CheckboxSlots)({
   base: {
@@ -50,6 +53,7 @@ export const Checkbox = Style.recipeFor(CheckboxSlots)({
         border: `${ref.border.thin} solid ${ref.outline.overt}`,
         borderRadius: ref.radius.sm,
         background: ref.surface.base,
+        boxShadow: ref.shadow.field,
         cursor: 'pointer',
         ...transition('background-color, border-color'),
       }),
@@ -57,22 +61,45 @@ export const Checkbox = Style.recipeFor(CheckboxSlots)({
         background: toneVar('fill'),
         borderColor: toneVar('fill'),
       }),
-      // A check: two borders of a box, rotated; a dash when mixed.
-      Style.pseudo(`${checked}::after`, {
+      // A check: two borders of a box, rotated; a dash when mixed. Placed
+      // physically, as its sides are, so right to left draws the same check
+      // in the same place. Turned, the box's ink spans 0.311 of the edge to
+      // either side of its center, 0.311 below it and 0.085 above, plus 0.707
+      // of the stroke: so the box sits 0.113 of the edge less 0.354 of the
+      // stroke above center, and the ink's middle lands on the control's at
+      // every size. The mark is always drawn,
+      // clipped away until checked, so checking wipes it on over the fast
+      // tier; the wipe travels, so reduced motion shows the mark at once.
+      Style.pseudo('::after', {
         content: '""',
         position: 'absolute',
-        insetBlockStart: '12%',
-        insetInlineStart: '32%',
+        top: `calc(10.7% + ${ref.border.glyph} * 0.354)`,
+        left: '34%',
         inlineSize: '32%',
         blockSize: '56%',
-        border: `solid ${toneVar('on-fill')}`,
-        borderWidth: `0 ${ref.border.thick} ${ref.border.thick} 0`,
+        ...cornerSides(ref.border.glyph, toneVar('on-fill')),
         rotate: '45deg',
+        clipPath: 'inset(0 100% 100% 0)',
+        transitionProperty: 'clip-path',
+        transitionDuration: travelled(ref.motion.fast),
+        transitionTimingFunction: ref.motion.ease,
       }),
+      Style.pseudo(`${checked}::after`, { clipPath: 'inset(0 0 0 0)' }),
+      // The check's box lives on every `::after` so it can wipe in. A dash
+      // clears that box, or it inherits the check's size, borders and turn.
       Style.pseudo('[aria-checked="mixed"]::after', {
         content: '""',
         position: 'absolute',
-        inset: '45% 20%',
+        // The check's stroke, on the middle: a share of the box was 1.4px at
+        // 16px, thinner than the check and blurred off its pixel rows.
+        top: `calc(50% - ${ref.border.glyph} / 2)`,
+        right: '22%',
+        left: '22%',
+        inlineSize: 'auto',
+        blockSize: ref.border.glyph,
+        border: '0',
+        rotate: 'none',
+        clipPath: 'inset(0 0 0 0)',
         background: toneVar('on-fill'),
       }),
       focusRing,
@@ -89,8 +116,16 @@ export const Checkbox = Style.recipeFor(CheckboxSlots)({
     },
     size: { sm: { checkbox: sizes.sm }, md: { checkbox: sizes.md }, lg: { checkbox: sizes.lg } },
   },
-  defaults: { tone: 'accent', size: 'md' },
+  defaults: { tone: 'accent' },
 })
+
+/**
+ * The switch's height, a quarter over the toggle edge: 20px on a 34px track
+ * with a 16px thumb by default, as Fluid Functionalism's. `stretch` is what
+ * the thumb grows by while hovered, into a pill.
+ */
+const rail = `calc(${edge} * 1.25)`
+const stretch = 'var(--_fk-switch-stretch, 0px)'
 
 export const Switch = Style.recipeFor(SwitchSlots)({
   base: {
@@ -99,8 +134,8 @@ export const Switch = Style.recipeFor(SwitchSlots)({
         position: 'relative',
         display: 'inline-block',
         flexShrink: '0',
-        inlineSize: `calc(${edge} * 1.8)`,
-        blockSize: edge,
+        inlineSize: `calc(${rail} * 1.7)`,
+        blockSize: rail,
         padding: '0',
         border: '0',
         borderRadius: ref.radius.full,
@@ -113,16 +148,24 @@ export const Switch = Style.recipeFor(SwitchSlots)({
         position: 'absolute',
         insetBlockStart: '2px',
         insetInlineStart: '2px',
-        inlineSize: `calc(${edge} - 4px)`,
-        blockSize: `calc(${edge} - 4px)`,
+        inlineSize: `calc(${rail} - 4px + ${stretch})`,
+        blockSize: `calc(${rail} - 4px)`,
         borderRadius: ref.radius.full,
         background: ref.surface.base,
-        transitionProperty: 'translate',
-        transitionDuration: ref.motion.fast,
-        transitionTimingFunction: ref.motion.ease,
+        transitionProperty: 'translate, inline-size',
+        transitionDuration: `${travelled(ref.motion.moderate)}, ${travelled(ref.motion.moderate)}`,
+        transitionTimingFunction: ref.motion.settle,
       }),
+      // Hovered, the thumb stretches into a pill, as if leaning to go.
+      hover({ '--_fk-switch-stretch': '2px' }),
       Style.pseudo(checked, { background: toneVar('fill') }),
-      Style.pseudo(`${checked}::before`, { translate: `calc(${edge} * 0.8) 0` }),
+      // On, it sits at the far end, and a stretch grows back from that end.
+      Style.pseudo(`${checked}::before`, { translate: `calc(${rail} * 0.7 - ${stretch}) 0` }),
+      // `translate` is physical while the thumb starts at the inline start:
+      // right to left it starts on the right and moves left.
+      Style.nest(`&${checked}:dir(rtl)::before`, {
+        translate: `calc(-1 * (${rail} * 0.7 - ${stretch})) 0`,
+      }),
       focusRing,
       disabled,
     ),
@@ -137,5 +180,5 @@ export const Switch = Style.recipeFor(SwitchSlots)({
     },
     size: { sm: { button: sizes.sm }, md: { button: sizes.md }, lg: { button: sizes.lg } },
   },
-  defaults: { tone: 'accent', size: 'md' },
+  defaults: { tone: 'accent' },
 })

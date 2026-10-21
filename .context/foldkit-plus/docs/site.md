@@ -6,9 +6,8 @@ activates — as data that compiles down to the primitives the runtime already
 runs. This guide builds a site end to end: nodes, navigation, data fetching
 without waterfalls, prefetching, server rendering, and SEO.
 
-The package README is the onboarding reference; the
-[router design](./design/router-DESIGN.md) (see its Status section first)
-is the reasoning. This guide is the path between them.
+The package README is the onboarding reference; this guide is the path
+from it to a working application.
 
 ## The one rule
 
@@ -83,7 +82,7 @@ with no annotation:
 
 ```ts
 const inPeopleSection = <R extends { readonly _tag: string }>(b: NodeBuilder<R>) =>
-  b.section('People').shortcut('GP')
+  b.section('People').shortcut(['G', 'P'])
 
 const People = Site.node(peopleRouter, AppRoute.People).pipe(inPeopleSection).node
 ```
@@ -91,7 +90,7 @@ const People = Site.node(peopleRouter, AppRoute.People).pipe(inPeopleSection).no
 Read `.node` at any stage: every step freezes, so intermediates are usable
 nodes too (targets, hrefs), never drafts. The full annotation set is
 `title`, `section`, `landing` (the section's nav address, as this node's
-params), `shortcut` (key names beside their destination), `history` (below),
+params), `shortcut` (the keys that go to its landing; `Site.shortcuts` binds them), `history` (below),
 `surface` (below), `layout`, and `view` (below).
 
 Two deliberate absences, both load-bearing. The tag always derives from the
@@ -173,14 +172,17 @@ const update = assembly.update((model, message) =>
 )
 ```
 
-A click on an internal link navigates — pushing or replacing per
+A click on a link the tree holds navigates — pushing or replacing per
 `Site.historyOf`, computed from the current route, so entries stay entries.
-An external link loads. A URL change sets the route field, or returns the
+Any other link loads, on this origin or not (`Site.routeAt`): another
+application serves it. A URL change sets the route field, or returns the
 same Model when the address parses to the route already shown, so an echo of
 the application's own write never re-renders or clears pending state. The
 wiring claims the click tag and shares the change tag with URL mirrors,
 which read their slices first. `pages` are routed placements (next section),
-informed through their own Messages when their route arrives.
+informed through their own Messages when their route arrives, and
+`arrived: (model, route) => ({ model, commands })` is what the application
+does after them for a new route (moving focus), never for an echo.
 
 ## Stateful pages: one placement
 
@@ -268,7 +270,13 @@ const prepared = yield* Data.satisfy(there, active)
 ```
 
 Only the destination's query runs, once; the page navigation will then draw
-reads synchronously, already `Ready`. Satisfying over every Source would
+reads synchronously, already `Ready`. That is the shape for a render with no
+Model yet (SSR, a test). In a running application, write the same
+composition as a Command, `Data.preload(there, active)`, from the Message a
+hover or a focus sends: its reads land as one `Preloaded` Message in the
+Model as it is by then, rather than as a Model that would undo what happened
+while they were out. The CMS site does this for every link on its own origin
+(`examples/cms/src/content/siteConfig.ts`). Satisfying over every Source would
 fetch no more — off-chain Surfaces resolve to nothing under the target
 Model either way — so the subset is precision and inspection, not a
 different fetch. What the app still owns is the trigger: a hover
@@ -298,7 +306,7 @@ Three facts compose into it:
 The remaining round trip is the mutation-then-refetch: a mutation patches
 entities, but a query whose membership changed (archiving out of an active
 list) refetches in a second request. Single-flight — answering the affected
-requirements in the mutation's response — is designed (§31.10) but
+requirements in the mutation's response — is designed but
 explicitly last: it starts with a request-count benchmark, then the wire.
 
 ## Intents that wait for their owner
@@ -359,12 +367,12 @@ sitemap and robots derived from the generated pages. The browser takeover
   rendered pages with the data in them, plus sitemap and robots from the
   static plugin.
 - **Rich head metadata** (per-page descriptions, images, article dates,
-  JSON-LD) is the honest gap: `Site.meta` does not exist yet (§31.9). The
-  CMS prerender hand-writes it per page today, and SSR's head supports it —
-  but no route-level declaration feeds it. It waits for a Site + SSR
-  consumer, by design. Do not invent a second meta system in the meantime;
-  the template's canonical/`og:url` tags plus the SSR head are the current
-  path.
+  JSON-LD) is a node's `meta`, a function of its route and the Model, and
+  `indexed: false` marks a node and those below it `noindex`.
+  `Site.metaOf(site, route, model)` merges the chain into SSR's own `Meta`,
+  so it is an SSR plan's `meta` as it stands; there is no second meta
+  system. The template's canonical/`og:url` tags are still filled from the
+  `Document` the view returns.
 
 ## Comparison: TanStack Start
 
@@ -379,9 +387,9 @@ The other side, from its docs ([preloading](https://tanstack.com/router/latest/d
 | Waterfalls | Parallel loaders per depth; deferred data for the rest | No loader gate at all; `satisfy` fixed-point per data-dependence level; pending UI by convention |
 | Prefetch | Built in: intent/viewport/render strategies, freshness/retention windows, `preloadRoute` | Same composition as navigation (`sourcesFor` + `satisfy`), trigger app-owned; no windows or lanes — Remote policy + retention decide |
 | Guards | `beforeLoad` redirects; server functions enforce | Route access would be presentation policy only (unbuilt); authority stays at `RemoteServer`/audience — the split is explicit, not layered |
-| Head/SEO | Per-route `head()` meta; SSR + streaming; prerender crawls links | Titles from the tree; SSR/static HTML + sitemap; rich per-page meta is the open gap (§31.9) |
+| Head/SEO | Per-route `head()` meta; SSR + streaming; prerender crawls links | Titles and head metadata (`Site.metaOf`) from the tree; SSR/static HTML + sitemap |
 | Mutations + refresh | Router invalidation reruns loaders | Entity/connection patches apply directly; membership-changing queries refetch (single-flight designed, last) |
-| Server boundary | Server functions alongside routes | Separate by design: documents → SSR, semantic data → `RemoteServer`, HTTP → Effect HttpApi — the Site never becomes an HTTP router (§26) |
+| Server boundary | Server functions alongside routes | Separate by design: documents → SSR, semantic data → `RemoteServer`, HTTP → Effect HttpApi — the Site never becomes an HTTP router |
 
 The deepest difference is not a feature list. TanStack owns the runtime:
 its router schedules, caches, preloads, and renders. Foldkit Plus refuses
@@ -397,11 +405,11 @@ proven demand, never as framework.
 - A single-screen application has one node; the tree buys nothing.
 - Locales are route params when they arrive; themes are preferences, not
   routes. Neither is built.
-- Nodes do not know their document yet: links across applications are the
-  application's own full loads. Generated pages state no Navigate-vs-load
-  preference.
-- No `paths` enumeration: a node's addresses cannot yet be listed from a
-  query for builds and sitemaps.
+- A tree is one document: an address it does not hold is a full load, and
+  a generated page of the same application is navigated to, drawn from what
+  the browser holds. That is measured, not assumed: a Navigate Command was
+  1.3 to 4 times faster than the page's full load, and 3 to 6 after a hover
+  (`docs/benchmarks.md`).
 - No layout-spanning Surfaces, no per-node child models or route-local
   subscriptions — deliberately, until a real nested layout demands them.
 - Status caveat: the in-repo proof is tests plus the routing example
@@ -411,8 +419,10 @@ proven demand, never as framework.
 ## Where to read next
 
 - [`foldkit-site` README](../packages/site/README.md) — API reference.
-- [Router design, Status section](./design/router-DESIGN.md) — what is built,
-  what was refused, and the open questions.
+- [Site and Foldkit's Router](./site-and-router.md) — what the Site adds to
+  the Router, and how it works.
+- [Site, Remote and SSR together](./site-remote-ssr.md) — one application
+  built with all three, every snippet compiled and run.
 - [Routing example](../examples/foldkit/routing) — the third cut on Site
   placements and routing, the only app consumer so far.
 - [Server-derived state](./remote.md) — Remote's ownership and policies.

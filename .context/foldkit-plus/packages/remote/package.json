@@ -1,6 +1,6 @@
 {
   "name": "foldkit-remote",
-  "version": "0.14.1",
+  "version": "0.18.0",
   "description": "Normalized application-facing server state for Foldkit: entities, selections, and the pure remote core.",
   "keywords": [
     "foldkit",
@@ -21,7 +21,7 @@
     "url": "git+https://github.com/doeixd/foldkit-plus.git",
     "directory": "packages/remote"
   },
-  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/remote#readme",
+  "homepage": "https://foldkit-plus.pages.dev/remote",
   "bugs": {
     "url": "https://github.com/doeixd/foldkit-plus/issues"
   },
@@ -49,18 +49,19 @@
   },
   "dependencies": {
     "foldkit-entity": "workspace:*",
+    "foldkit-metadata": "workspace:*",
     "foldkit-surface": "workspace:*"
   },
   "peerDependencies": {
     "effect": "^4.0.0",
-    "foldkit": "^0.165.0"
+    "foldkit": "^0.168.0"
   },
   "devDependencies": {
-    "@effect/platform-browser": "4.0.0",
-    "effect": "4.0.0",
-    "foldkit": "0.165.0",
+    "@effect/platform-browser": "^4.0.4",
+    "effect": "^4.0.4",
+    "foldkit": "0.168.0",
     "foldkit-bundle": "workspace:*",
-    "tsdown": "^0.23.0",
-    "typescript": "5.9.3"
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2"
   }
 }

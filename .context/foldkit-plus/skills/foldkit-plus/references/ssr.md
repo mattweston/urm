@@ -73,6 +73,12 @@ served page stays in view while the fresh one draws hidden, and is swapped once 
 - `init`'s Commands never run on a resumed page. `SSR.render` fails with
   `ResumeUnsafe` `UndeclaredStartup` until the plan names them in `boot`. A
   `foldkit-bundle` app (`Mirror.kv` restore): `boot: model => assembly.init(model).commands ?? []`.
+- A reader's theme or scheme in the first frame: served per request, read a
+  cookie in `flags` into the Model and its `state`, with `vary: cookie`; the
+  view cannot draw `<html>`, so the template still carries
+  `Themes.script`/`Theme.schemeScript()`, the keeping Command writes both the
+  cookie and storage, and `boot` applies the Model's theme. Generated at build
+  time, only a head script (`head`) can: the Model catches up in `boot`.
 - A view that reads a field outside `state` fails with `ResumeUnsafe`
   `ViewDependsOnUnsentState`, in its body or its head (`title`, `lang`, `dir`,
   `canonical`, `ogUrl`). Add the field to `state` or stop reading it. Foldkit
@@ -150,6 +156,10 @@ served page stays in view while the fresh one draws hidden, and is swapped once 
   (`import type { ResumableBuilder } from 'foldkit-ssr'`); it is the only
   builder type the package exports.
 - `SSR.generate` returns pages as a tuple of `paths`: `const [home, about]`.
+- `staticSite` (`foldkit-ssr/vite`) takes `emit(pages)`: files made from the
+  generated pages, written beside them (`foldkit-media`'s `materialize` writes
+  the image variants the pages name). A path outside the output, or on a file
+  the build or the client build writes, is refused.
 - `SSR.page(template, result, { head? })` and `SSR.generate` take
   `head: rendered => string`, put before `</head>`: with `foldkit-mixins`,
   `` rendered => `<style>${Style.usedIn(rendered.html)}</style>` `` ships a
@@ -188,6 +198,11 @@ served page stays in view while the fresh one draws hidden, and is swapped once 
   Commands do not settle within 100 steps (a Command that reschedules itself,
   a poll, cannot run on the server); a Command yielding no Message folds
   nothing in.
+- `SSR.entry`'s `resources: request => Layer` gives a post's Commands its own
+  services (who posted: `AuthServer.resolver({ …, requests: 'browser' })`
+  from `foldkit-auth`). A plan with a server fallback requires `origins`: a
+  post whose `Origin` is not among them is `403`, since a form cannot carry a
+  CSRF header.
 - The route check compares path and query with the URL the server rendered.
   A page from `SSR.generate(config, plan, { buildId, template, origin, paths })`
   records its path alone, since a static host ignores the query: it resumes at

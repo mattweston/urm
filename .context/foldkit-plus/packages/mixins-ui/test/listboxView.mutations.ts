@@ -85,4 +85,48 @@ export default [
     ],
     tests,
   },
+  {
+    name: 'a horizontal panel reads the arrows physically right to left',
+    edits: [
+      {
+        file: '../src/listboxShared.ts',
+        find: 'h.OnKeyDownPreventDefault(key => handleItemsKeyDown(readingKey(key, direction))),',
+        replace: 'h.OnKeyDownPreventDefault(handleItemsKeyDown),',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the views drop the direction they are given',
+    edits: [
+      {
+        file: '../src/listboxShared.ts',
+        find: '    selectedValues,\n    direction,\n  } = viewInputs',
+        replace: "    selectedValues,\n  } = viewInputs\n  const direction = 'ltr'",
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a portaled listbox panel still claims the top layer',
+    edits: [
+      {
+        file: '../src/listboxShared.ts',
+        find: '...(anchor.portal === false',
+        replace: '...(anchor.portal !== false',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the panel never reaches the top layer',
+    edits: [
+      {
+        file: '../src/listboxShared.ts',
+        find: "    h.Attribute('popover', 'manual'),\n",
+        replace: '',
+      },
+    ],
+    tests,
+  },
 ]

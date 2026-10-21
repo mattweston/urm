@@ -16,7 +16,8 @@
  * and the rest are ordinary declarations. `HardBreak` is deliberately absent: it is
  * inline content, and the model has no inline atoms yet (§116, deferred).
  */
-import { Schema } from 'effect'
+import { Option, Schema } from 'effect'
+import { ImageAsset } from 'foldkit-media'
 import { markExtent } from './command.js'
 import { blockContent, rangeStart, textContent, type Document, type Selection } from './document.js'
 import { atom, block, blocksOf, node, type NodeDefinition } from './kit.js'
@@ -94,10 +95,26 @@ export const standardNodes: ReadonlyArray<NodeDefinition> = [
     Props: Schema.Struct({ language: Schema.optional(Schema.String) }),
     children: textContent,
     marks: 'none',
+    lineBreaks: true,
+    indents: true,
   }),
   atom('ThematicBreak'),
   atom('Image', {
-    Props: Schema.Struct({ src: Schema.String, alt: Schema.optional(Schema.String) }),
+    // What a figure needs beside its source: a caption under it, the width it is shown at in
+    // CSS pixels, and which way it sits. The standard rendering draws the `img` alone; a
+    // rendering that draws a figure reads the rest (`examples/richtext-playground`).
+    // `asset` is what `src` names, its size, hash and placeholder, kept as stored (`null` for
+    // what it lacks): known where the image entered (an upload, a file a reader added), it
+    // lets a page hold the image's box before the file arrives. Optional, so a document saved
+    // without it is as valid as ever.
+    Props: Schema.Struct({
+      src: Schema.String,
+      alt: Schema.optional(Schema.String),
+      caption: Schema.optional(Schema.String),
+      width: Schema.optional(Schema.Number.check(Schema.isGreaterThan(0))),
+      align: Schema.optional(Schema.Literals(['start', 'center', 'end'])),
+      asset: Schema.optional(ImageAsset),
+    }),
   }),
   node('Table', { children: blocksOf('TableRow') }),
   node('TableRow', {
@@ -110,6 +127,29 @@ export const standardNodes: ReadonlyArray<NodeDefinition> = [
   // A cell's content stays in the cell: Backspace at its start lifts nothing out of it.
   node('TableCell', { children: blockContent, isolating: true, within: ['TableRow'] }),
 ]
+
+const decodeAsset = Schema.decodeUnknownOption(ImageAsset)
+
+/**
+ * An `Image`'s `width` and `height` attributes from its props' `asset`, at its drawn `width`
+ * when it has one, so a page keeps the box before the file arrives; none without facts. The
+ * standard rendering writes them; a rendering of its own (a figure) spreads them on its `img`.
+ * The facts are trusted to be `src`'s: whatever changes `src` replaces or clears `asset`.
+ */
+export const imageBox = (
+  props: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, string>> =>
+  Option.match(decodeAsset(props['asset']), {
+    onNone: () => ({}),
+    onSome: ({ width, height }) => {
+      const drawn = props['width']
+      const shown = typeof drawn === 'number' && drawn > 0 ? drawn : width
+      return {
+        width: String(Math.round(shown)),
+        height: String(Math.round((shown * height) / width)),
+      }
+    },
+  })
 
 /**
  * A URL attribute, or none when the value fails the URL policy. Import already applies the
@@ -162,6 +202,7 @@ export const standardRendering: Rendering = rendering({
       attributes: {
         ...urlAttribute('src', block.props.src),
         alt: String(block.props.alt ?? ''),
+        ...imageBox(block.props),
       },
     }),
     Table: { tag: 'table', attributes: {}, inner: 'tbody' },

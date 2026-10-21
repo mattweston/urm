@@ -22,9 +22,9 @@
  * `null = null` is unknown in SQL and a row is not matched by it, where
  * JavaScript would happily call the two equal.
  */
-import { Option } from 'effect'
+import { Match, Option } from 'effect'
 import type { Collation } from './collation.js'
-import { Query, isPredicate } from './expr.js'
+import { Query, dependenciesOf, isPredicate } from './expr.js'
 import type { AnyExpr, AnyQuery, Operandish, Operation, OrderTerm, Predicate } from './expr.js'
 
 /** A row as this interpreter reads one: values by field key. */
@@ -138,7 +138,68 @@ const holds = (node: Predicate, row: Row, input: Row): Truth => {
       if (among.some(each => each === value)) return true
       return among.some(isNull) ? 'unknown' : false
     }
+    // Every operand is asked, with no short cut: SQL fixes no order, so one
+    // that refuses its value (a NUL) refuses here whichever operand decided.
+    case 'And': {
+      const truths = node.operands.map(operand => holds(operand, row, input))
+      if (truths.includes(false)) return false
+      return truths.includes('unknown') ? 'unknown' : true
+    }
+    case 'Or': {
+      const truths = node.operands.map(operand => holds(operand, row, input))
+      if (truths.includes(true)) return true
+      return truths.includes('unknown') ? 'unknown' : false
+    }
+    case 'Not': {
+      const truth = holds(node.operand, row, input)
+      return truth === 'unknown' ? 'unknown' : !truth
+    }
+    case 'Compare': {
+      const left = valueOf(node.left, row, input)
+      const right = valueOf(node.right, row, input)
+      if (isNull(left) || isNull(right)) return 'unknown'
+      if (holdsNul(left) || holdsNul(right)) {
+        throw new QueryEvaluateError(
+          'a comparison was given text holding a NUL character, which SQL text cannot hold portably',
+        )
+      }
+      // Numbers with numbers and text with text, as `orderBy` compares them,
+      // so a comparison and an ordering never disagree about what is first.
+      const kind = typeof left
+      if (kind !== typeof right || (kind !== 'number' && kind !== 'string')) {
+        throw new QueryEvaluateError('a comparison was given values that do not order together')
+      }
+      const order = compare(left, right, node.collation)
+      return Match.value(node.operator).pipe(
+        Match.when('lt', () => order < 0),
+        Match.when('lte', () => order <= 0),
+        Match.when('gt', () => order > 0),
+        Match.when('gte', () => order >= 0),
+        Match.exhaustive,
+      )
+    }
   }
+}
+
+/** What a predicate comes to: SQL's three values, of which a row is kept only on `true`. */
+export type PredicateTruth = Truth
+
+/** Whether a predicate reads a field, asked once per node: nodes are frozen. */
+const readsAField = new WeakMap<Predicate, boolean>()
+
+/**
+ * A predicate's truth from the input alone, when it reads no field; none when
+ * it reads one. An interpreter that runs per request decides such a predicate
+ * before it builds anything: `isNull($status)` is known before any row is.
+ * Refuses what `evaluate` refuses (text holding a NUL).
+ */
+export const decided = (node: Predicate, input: Row): Option.Option<PredicateTruth> => {
+  let reads = readsAField.get(node)
+  if (reads === undefined) {
+    reads = dependenciesOf(node).fields.length > 0
+    readsAField.set(node, reads)
+  }
+  return reads ? Option.none() : Option.some(holds(node, {}, input))
 }
 
 /** Every predicate must hold: the list is the conjunction, as it is in a `Query`. */
@@ -262,7 +323,17 @@ export const compareRows = (
  * interpreter that gains an operator and forgets to say so is exactly what
  * `Query.unsupported` exists to catch.
  */
-export const supported: ReadonlyArray<Operation> = ['eq', 'isNull', 'isNotNull', 'contains', 'in']
+export const supported: ReadonlyArray<Operation> = [
+  'eq',
+  'isNull',
+  'isNotNull',
+  'contains',
+  'in',
+  'and',
+  'or',
+  'not',
+  'compare',
+]
 
 /**
  * Refuses a body needing an operation this interpreter does not run, rather

@@ -1,0 +1,110 @@
+{
+  "name": "foldkit-media",
+  "version": "0.2.0",
+  "description": "Responsive images for Foldkit Plus: an image is a URL to write, through providers that share one width ladder.",
+  "keywords": [
+    "foldkit",
+    "images",
+    "responsive",
+    "srcset",
+    "effect"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Patrick Glenn <doeixd@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/foldkit-plus.git",
+    "directory": "packages/media"
+  },
+  "bugs": {
+    "url": "https://github.com/doeixd/foldkit-plus/issues"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "foldkit-plus:source": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./browser": {
+      "foldkit-plus:source": "./src/browser/index.ts",
+      "types": "./dist/browser/index.d.mts",
+      "import": "./dist/browser/index.mjs"
+    },
+    "./icons": {
+      "foldkit-plus:source": "./src/icons/index.ts",
+      "types": "./dist/icons/index.d.mts",
+      "import": "./dist/icons/index.mjs"
+    },
+    "./server": {
+      "foldkit-plus:source": "./src/server/index.ts",
+      "types": "./dist/server/index.d.mts",
+      "import": "./dist/server/index.mjs"
+    },
+    "./cloudflare": {
+      "foldkit-plus:source": "./src/cloudflare/index.ts",
+      "types": "./dist/cloudflare/index.d.mts",
+      "import": "./dist/cloudflare/index.mjs"
+    },
+    "./sharp": {
+      "foldkit-plus:source": "./src/sharp/index.ts",
+      "types": "./dist/sharp/index.d.mts",
+      "import": "./dist/sharp/index.mjs"
+    },
+    "./unpic": {
+      "foldkit-plus:source": "./src/unpic/index.ts",
+      "types": "./dist/unpic/index.d.mts",
+      "import": "./dist/unpic/index.mjs"
+    },
+    "./vite": {
+      "foldkit-plus:source": "./src/vite/index.ts",
+      "types": "./dist/vite/index.d.mts",
+      "import": "./dist/vite/index.mjs"
+    },
+    "./client": {
+      "foldkit-plus:source": "./client.d.ts",
+      "types": "./client.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "client.d.ts"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "thumbhash": "^0.1.1"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0",
+    "sharp": ">=0.34.0",
+    "unpic": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261013.1",
+    "@effect/platform-node": "^4.0.4",
+    "effect": "^4.0.4",
+    "miniflare": "4.20260730.0",
+    "sharp": "^0.35.4",
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2",
+    "unpic": "^4.2.2",
+    "vite": "8.3.4"
+  },
+  "peerDependenciesMeta": {
+    "sharp": {
+      "optional": true
+    },
+    "unpic": {
+      "optional": true
+    }
+  }
+}

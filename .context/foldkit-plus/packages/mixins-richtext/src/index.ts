@@ -67,7 +67,23 @@ export const markToolbar = <Message>(): SlotView.SlotView<
   })
 
 /** The block style picker's view and its slots (§134). */
-export { BlockStyleSlots, blockStyles, type BlockStyleInput } from './style.js'
+export {
+  BlockStyleMenuSlots,
+  BlockStyleSlots,
+  blockStyleMenu,
+  blockStyles,
+  type BlockStyleInput,
+  type BlockStyleMenuInput,
+} from './style.js'
+
+/** The find and replace bar's view and its slots. */
+export { FindReplaceSlots, findReplace, stepMatch, type FindReplaceInput } from './find.js'
+
+/** The table toolbar's view and its slots: rows and columns around the caret's cell. */
+export { TableToolbarSlots, tableToolbar, type TableToolbarInput } from './table.js'
+
+/** The code block toolbar's view and its slots: its language and Copy. */
+export { CodeToolbarSlots, codeToolbar, type CodeLanguage, type CodeToolbarInput } from './code.js'
 
 /** The block handle's view and its slots (§144). */
 export { BlockHandleSlots, blockHandle, type BlockHandleInput } from './handle.js'
@@ -89,7 +105,7 @@ export {
 } from './source.js'
 
 /** The link editor's view and its slots (§132). */
-export { LinkEditorSlots, linkEditor, type LinkEditorInput } from './link.js'
+export { LinkEditorSlots, linkEdit, linkEditor, type LinkEditorInput } from './link.js'
 
 /** The menu's view and its slots (§123), beside the vocabulary it renders. */
 export { SlashMenuSlots, slashMenuView, type SlashMenuInput } from './menu.js'
@@ -107,3 +123,9 @@ export {
   type SlashEntry,
   type SlashMenu,
 } from './slash.js'
+/** The chrome's icons, after Lucide: as inline SVG, or as a CSS `url(…)` to mask. */
+export { isRichTextIcon, richTextIcon, richTextIconUrl, type RichTextIconName } from './icons.js'
+/** The table of contents, from the document's headings, and its slots. */
+export { TableOfContentsSlots, tableOfContents, type TableOfContentsInput } from './contents.js'
+/** The footnote preview at a reference, and its slots. */
+export { FootnotePreviewSlots, footnotePreview, type FootnotePreviewInput } from './footnote.js'

@@ -45,9 +45,9 @@ export default [
     name: 'the backdrop never draws',
     edits: [
       {
-        file: '../src/menuView.ts',
-        find: '...(render.backdrop === undefined\n          ? []\n          : [h.keyed',
-        replace: '...([]\n          ? []\n          : [h.keyed',
+        file: '../src/popupView.ts',
+        find: '...(panel.backdrop === undefined\n      ? []\n      : [h.keyed',
+        replace: '...([]\n      ? []\n      : [h.keyed',
       },
     ],
     tests,
@@ -81,6 +81,17 @@ export default [
         file: '../src/menuView.ts',
         find: "h.Role('separator'),",
         replace: "h.Role('presentation'),",
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a portaled menu panel still claims the top layer',
+    edits: [
+      {
+        file: '../src/menuView.ts',
+        find: '...(anchor.portal === false',
+        replace: '...(anchor.portal !== false',
       },
     ],
     tests,

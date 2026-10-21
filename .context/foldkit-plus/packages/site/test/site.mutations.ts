@@ -9,10 +9,37 @@ const tests = [
   'packages/site/test/placement.test.ts',
   'packages/site/test/prefetch.test.ts',
   'packages/site/test/ssr.test.ts',
+  'packages/site/test/together.test.ts',
 ]
+/** The guide's whole application, alone: it must catch a break in what it composes. */
+const together = ['packages/site/test/together.test.ts']
 const file = '../src/index.ts'
 
 export default [
+  {
+    name: "the guide's application activates no page's reads",
+    edits: [
+      {
+        file,
+        find: '    for (const node of Site.nodesOf(site)) {\n      const entry = sourceOf(node, owner, place)',
+        replace:
+          '    for (const node of [] as Array<SiteNode<any>>) {\n      const entry = sourceOf(node, owner, place)',
+      },
+    ],
+    tests: together,
+  },
+  {
+    name: "the guide's application navigates to an address no node holds",
+    edits: [
+      {
+        file,
+        find: 'onNone: () => ({ model, commands: [Load({ href: Url.toString(url) })] }),',
+        replace:
+          "onNone: () => ({ model, commands: [Navigate({ url: Url.toString(url), history: 'push' })] }),",
+      },
+    ],
+    tests: together,
+  },
   {
     name: 'targets lose their route value',
     edits: [
@@ -84,9 +111,8 @@ export default [
     edits: [
       {
         file,
-        find: "                const intent =\n                  node === undefined\n                    ? ('push' as const)\n                    : Site.historyOf(currentTarget(model), {\n                        node,\n                        route: next,\n                        url: Url.toString(url),\n                      })",
-        replace:
-          "                void node\n                void next\n                const intent = 'push' as const",
+        find: 'const history = Site.historyOf(currentTarget(model), {',
+        replace: "const history = 'push' as const; void ({",
       },
     ],
     tests,
@@ -140,8 +166,9 @@ export default [
     edits: [
       {
         file,
-        find: '    for (const node of Site.chainOf(site, route)) {',
-        replace: '    for (const node of Site.nodesOf(site)) {',
+        find: '    for (const node of Site.chainOf(site, route)) {\n      const entry = sourceOf(node, owner, place)',
+        replace:
+          '    for (const node of Site.nodesOf(site)) {\n      const entry = sourceOf(node, owner, place)',
       },
     ],
     tests,
@@ -244,5 +271,168 @@ export default [
       },
     ],
     tests: ['packages/site/test/view.test.ts'],
+  },
+  {
+    name: 'an ancestor’s meta overrides its descendant’s',
+    edits: [
+      {
+        file,
+        find: 'meta = { ...meta, ...saidOf(node.meta({ route, model })) }',
+        replace: 'meta = { ...saidOf(node.meta({ route, model })), ...meta }',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a field left undefined erases the ancestor’s',
+    edits: [
+      {
+        file,
+        find: '...saidOf(node.meta({ route, model }))',
+        replace: '...node.meta({ route, model })',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the preview title ignores the route’s title',
+    edits: [
+      {
+        file,
+        find: 'const title = meta.title ?? Site.titleOf(site, route)',
+        replace: 'const title = meta.title',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a route’s own meta overrides the preview title it names',
+    edits: [
+      {
+        file,
+        find: 'const title = meta.title ?? Site.titleOf(site, route)',
+        replace: 'const title = Site.titleOf(site, route) ?? meta.title',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'an unindexed route says nothing of it',
+    edits: [
+      { file, find: "...(Site.indexedOf(site, route) ? {} : { robots: 'noindex' }),", replace: '' },
+    ],
+    tests,
+  },
+  {
+    name: 'a meta reindexes an unindexed route',
+    edits: [
+      {
+        file,
+        find: "...(Site.indexedOf(site, route) ? {} : { robots: 'noindex' }),",
+        replace:
+          "...(Site.indexedOf(site, route) || meta.robots !== undefined ? {} : { robots: 'noindex' }),",
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the farthest declaration of indexed wins',
+    edits: [
+      {
+        file,
+        find: '    for (let at = chain.length - 1; at >= 0; at--) {\n      const indexed',
+        replace: '    for (let at = 0; at < chain.length; at++) {\n      const indexed',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'an undeclared route is unindexed',
+    edits: [
+      {
+        file,
+        find: '      if (indexed !== undefined) return indexed\n    }\n    return true',
+        replace: '      if (indexed !== undefined) return indexed\n    }\n    return false',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'route options drop meta and indexed',
+    edits: [
+      {
+        file,
+        find: '    if (options?.meta !== undefined) built = built.meta(options.meta)\n',
+        replace: '',
+      },
+      {
+        file,
+        find: '    if (options?.indexed !== undefined) built = built.indexed(options.indexed)\n',
+        replace: '',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a link the tree does not hold navigates in place',
+    edits: [
+      {
+        file,
+        find: 'onNone: () => ({ model, commands: [Load({ href: Url.toString(url) })] }),',
+        replace:
+          "onNone: () => ({ model, commands: [Navigate({ url: Url.toString(url), history: 'push' })] }),",
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a shortcut with no landing is taken',
+    edits: [
+      {
+        file,
+        find: '      if (node.landing === undefined)\n        throw new Error(`Site.shortcuts:',
+        replace: '      if (false)\n        throw new Error(`Site.shortcuts:',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a shortcut used twice is taken',
+    edits: [{ file, find: '      if (other !== undefined)\n', replace: '      if (false)\n' }],
+    tests,
+  },
+  {
+    name: 'one press is bound as a sequence',
+    edits: [
+      {
+        file,
+        find: "typeof keys === 'string' ? { keys, mapEvent } :",
+        replace: "typeof keys === 'string' ? { keys: [keys, keys], mapEvent } :",
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a binding sends where the first shortcut goes',
+    edits: [
+      {
+        file,
+        find: '      const message = toMessage(Site.target(node, node.landing))\n',
+        replace:
+          '      const first = Site.nodesOf(site)[0]!\n      const message = toMessage(Site.target(first, first.landing))\n',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a new route arrives nowhere',
+    edits: [
+      {
+        file,
+        find: '            ...(arrived === undefined ? [] : [(model: Root) => arrived(model, next)]),',
+        replace: '',
+      },
+    ],
+    tests,
   },
 ]

@@ -1,6 +1,6 @@
 {
   "name": "foldkit-cms-drizzle",
-  "version": "0.6.1",
+  "version": "0.6.12",
   "description": "The server half of foldkit-cms over Drizzle: the entries, drafts and revisions tables, the draft operations with their conflict rule, the worklist query, and the audience boundary between a visitor and an author.",
   "keywords": [
     "foldkit",
@@ -21,7 +21,7 @@
     "url": "git+https://github.com/doeixd/foldkit-plus.git",
     "directory": "packages/cms-drizzle"
   },
-  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/cms-drizzle#readme",
+  "homepage": "https://foldkit-plus.pages.dev/cms/guides/cms-drizzle",
   "bugs": {
     "url": "https://github.com/doeixd/foldkit-plus/issues"
   },
@@ -56,13 +56,13 @@
   },
   "devDependencies": {
     "drizzle-orm": "1.0.0-rc.4",
-    "@effect/platform-browser": "4.0.0",
-    "effect": "4.0.0",
-    "foldkit": "0.165.0",
+    "@effect/platform-browser": "^4.0.4",
+    "effect": "^4.0.4",
+    "foldkit": "0.168.0",
     "foldkit-bundle": "workspace:*",
     "foldkit-form": "workspace:*",
     "foldkit-surface": "workspace:*",
-    "tsdown": "^0.23.0",
-    "typescript": "5.9.3"
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2"
   }
 }

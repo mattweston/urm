@@ -13,6 +13,7 @@ import { define } from 'foldkit/customElement'
 import { inertHtml as h, type Html } from 'foldkit/html'
 import * as RichText from 'foldkit-richtext'
 import { decorationAttributes, decorationSpans, piecesOf, type Spans } from './decorations.js'
+import { FILLER_ATTRIBUTE, needsFiller } from './filler.js'
 
 /** A rendered child is either an element or literal text. */
 type Child = Html | string
@@ -65,6 +66,24 @@ const renderElement = (
   return elementFor(element.tag)(attributes, children)
 }
 
+/**
+ * A block's adornments (`ElementRendering.adornments`). The editable subtree marks them
+ * `contenteditable="false"`, as `mount` does, so the two stay equal for `adopt`.
+ */
+const renderAdornment = (
+  element: RichText.ElementRendering,
+  editable: boolean,
+): ReadonlyArray<Html> =>
+  (element.adornments ?? []).map(adornment =>
+    elementFor(adornment.tag)(
+      [
+        ...RichText.adornmentAttributes(adornment).map(([name, value]) => h.Attribute(name, value)),
+        ...(editable ? [h.Attribute('contenteditable', 'false')] : []),
+      ],
+      adornment.text === undefined || adornment.text === '' ? [] : [adornment.text],
+    ),
+  )
+
 const renderRun = (
   renderer: RichText.Rendering,
   run: RichText.Text,
@@ -102,9 +121,12 @@ const renderBlock = (renderer: RichText.Rendering, block: RichText.Block, spans:
   const children: ReadonlyArray<Child> = [...runs, ...nested]
   const element = block.type === 'Node' ? RichText.nodeRendering(renderer, block) : undefined
   if (element !== undefined) {
+    const adornment = renderAdornment(element, false)
     return renderElement(
       element,
-      element.inner === undefined ? children : [...runs, elementFor(element.inner)([], nested)],
+      element.inner === undefined
+        ? [...adornment, ...children]
+        : [...adornment, ...runs, elementFor(element.inner)([], nested)],
     )
   }
   if (block.type === 'Node') {
@@ -192,11 +214,14 @@ const editableBlock = (renderer: RichText.Rendering, block: RichText.Block, span
       .map(([key, value]) => h.Attribute(key, value)),
     h.DataAttribute('block', block.id),
   ]
+  const adornment = renderAdornment(element, true)
+  // An empty line's `<br>`, as `mount` draws it, so this markup is still adopted.
+  const filler = needsFiller(block) ? [h.br([h.Attribute(FILLER_ATTRIBUTE, '')])] : []
   return elementFor(element.tag)(
     attributes,
     element.inner === undefined
-      ? [...runs, ...nested]
-      : [...runs, elementFor(element.inner)([], nested)],
+      ? [...adornment, ...runs, ...filler, ...nested]
+      : [...adornment, ...runs, elementFor(element.inner)([], nested)],
   )
 }
 

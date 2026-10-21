@@ -1,0 +1,81 @@
+/**
+ * The tabs' indicator and hover, broken in turn:
+ * `pnpm mutate packages/mixins-ui/test/tabsFluid.mutations.ts`.
+ */
+const tests = ['packages/mixins-ui/test/tabs.browser.test.ts']
+const adapter = '../src/tabs.ts'
+const recipe = '../src/recipes/tabs.ts'
+
+export default [
+  {
+    name: 'a chosen tab marks itself beside the indicator',
+    edits: [
+      {
+        file: recipe,
+        find: 'const unlit = \'[role="tablist"]:not([data-fluid-hover])\'',
+        replace: 'const unlit = \'[role="tablist"]\'',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the indicator never shows',
+    edits: [
+      {
+        file: recipe,
+        find: "const fluid = ':where([data-fluid-hover]) > &'",
+        replace: "const fluid = ':where([data-never]) > &'",
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the chosen tab is not measured',
+    edits: [
+      {
+        file: adapter,
+        find: "mount: () => Measure({ targets: { 'tabs-chosen': chosen } }),",
+        replace: "mount: () => Measure({ targets: { 'tabs-chosen': '[data-never]' } }),",
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the hover follows nothing',
+    edits: [{ file: adapter, find: 'item: \'[role="tab"]\',', replace: "item: '[data-never]'," }],
+    tests,
+  },
+  {
+    name: 'the rule under the chosen tab is a stub',
+    edits: [
+      {
+        file: recipe,
+        find: "            inlineSize: chosen('w'),\n            blockSize: ref.border.thick,",
+        replace: "            inlineSize: '4px',\n            blockSize: ref.border.thick,",
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the overlays anchor at the inline start, off their item right to left',
+    edits: [{ file: recipe, find: "left: '0',", replace: "insetInlineStart: '0'," }],
+    tests,
+  },
+  {
+    name: 'a direction flipped after mount leaves the indicator where it was',
+    // A Mount that does nothing here in its place, imported so the mutant still loads.
+    edits: [
+      {
+        file: adapter,
+        find: "import { FluidHover, Measure } from 'foldkit-primitives/dom'",
+        replace: "import { FluidHover, FollowTabStop, Measure } from 'foldkit-primitives/dom'",
+      },
+      {
+        file: adapter,
+        find: 'mount: () => FollowDirection(),',
+        replace: 'mount: () => FollowTabStop(),',
+      },
+    ],
+    tests,
+  },
+]

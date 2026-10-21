@@ -1,6 +1,6 @@
 {
   "name": "foldkit-richtext",
-  "version": "0.3.0",
+  "version": "0.5.1",
   "description": "Pure semantic documents and editing transactions for Foldkit.",
   "keywords": [
     "foldkit",
@@ -21,7 +21,7 @@
     "url": "git+https://github.com/doeixd/foldkit-plus.git",
     "directory": "packages/richtext"
   },
-  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/richtext#readme",
+  "homepage": "https://foldkit-plus.pages.dev/richtext",
   "bugs": {
     "url": "https://github.com/doeixd/foldkit-plus/issues"
   },
@@ -42,12 +42,15 @@
     "build": "tsdown",
     "typecheck": "tsc -b"
   },
+  "dependencies": {
+    "foldkit-media": "workspace:*"
+  },
   "peerDependencies": {
     "effect": "^4.0.0"
   },
   "devDependencies": {
-    "effect": "4.0.0",
-    "tsdown": "^0.23.0",
-    "typescript": "5.9.3"
+    "effect": "^4.0.4",
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2"
   }
 }

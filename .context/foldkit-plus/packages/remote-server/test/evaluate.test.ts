@@ -7,8 +7,8 @@
  * same order. A body that means two things is a bug in whichever is wrong, and
  * these say which.
  */
-import { Schema } from 'effect'
-import { Entity, Expr, Order, Query, isPredicate } from 'foldkit-entity'
+import { Option, Schema } from 'effect'
+import { Collation, Entity, Expr, Order, Query, isPredicate } from 'foldkit-entity'
 import type { Operandish, Predicate } from 'foldkit-entity'
 import { describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
@@ -87,6 +87,21 @@ const asSql = (body: ReturnType<typeof Query.from>, input: Row) => {
         if (list.length === 0) return 'false'
         params.push(...list)
         return `${side(node.value)} in (${list.map(() => '?').join(', ')})`
+      }
+      case 'And':
+        return `(${node.operands.map(predicate).join(' and ')})`
+      case 'Or':
+        return `(${node.operands.map(predicate).join(' or ')})`
+      case 'Not':
+        return `not (${predicate(node.operand)})`
+      case 'Compare': {
+        const symbol = { lt: '<', lte: '<=', gt: '>', gte: '>=' }[node.operator]
+        const collate = Option.match(node.collation, {
+          onNone: () => '',
+          onSome: collation =>
+            collation._tag === 'AsciiFold' ? ' collate nocase' : ' collate binary',
+        })
+        return `${side(node.left)}${collate} ${symbol} ${side(node.right)}${collate}`
       }
     }
   }
@@ -176,6 +191,89 @@ describe('One body, two interpreters, the same rows', () => {
   ])('agrees on $what', ({ body, input }) => {
     const { inMemory, inSql } = bothWays(body(), input)
 
+    expect(inMemory).toEqual(inSql)
+  })
+
+  // `archivedAt` is null on a, c and d, so a comparison of it is unknown there:
+  // each expected list is SQL's three-valued answer, worked out by hand, so a
+  // rule both interpreters got wrong still fails.
+  const archived = (at: string) => Expr.eq(Post.fields.archivedAt, at)
+  const slug = (to: string) => Expr.eq(Post.fields.slug, to)
+  it.each([
+    {
+      what: 'and, false beating unknown',
+      where: () => Expr.and(archived('2026-01-01'), Expr.eq(Post.fields.rank, 1)),
+      ids: ['b'],
+    },
+    {
+      what: 'or, true beating unknown',
+      where: () => Expr.or(archived('never'), slug('intro')),
+      ids: ['a', 'b'],
+    },
+    {
+      what: 'not of an unknown, which stays unknown',
+      where: () => Expr.not(archived('2026-01-01')),
+      ids: [],
+    },
+    {
+      what: 'not of an or that is unknown where nothing is true',
+      where: () => Expr.not(Expr.or(slug('intro'), archived('never'))),
+      ids: [],
+    },
+    {
+      what: 'not of an and that is false where any operand is',
+      where: () => Expr.not(Expr.and(slug('other'), archived('never'))),
+      ids: ['a', 'b', 'c'],
+    },
+    {
+      what: 'a comparison of a number, and of a null, which is unknown',
+      where: () =>
+        Expr.or(
+          Expr.lt(Post.fields.rank, 2),
+          Expr.gte(Post.fields.archivedAt, '2026', { collation: Collation.binary }),
+        ),
+      ids: ['b'],
+    },
+    {
+      what: 'text compared by code point under binary',
+      where: () => Expr.lt(Post.fields.slug, 'a', { collation: Collation.binary }),
+      ids: ['c'],
+    },
+    {
+      what: 'text compared with ASCII case folded',
+      where: () => Expr.gte(Post.fields.slug, 'o', { collation: Collation.asciiFold }),
+      ids: ['c', 'd'],
+    },
+    {
+      what: 'everything but one value, nulls included',
+      where: () => Expr.or(Expr.isNull(Post.fields.archivedAt), Expr.not(archived('2026-01-01'))),
+      ids: ['a', 'c', 'd'],
+    },
+  ])('agrees on $what', ({ where, ids }) => {
+    const body = Query.from(Post).pipe(
+      Query.where(where()),
+      Query.orderBy(Order.asc(Post.fields.id)),
+    )
+
+    const { inMemory, inSql } = bothWays(body)
+
+    expect(inSql).toEqual(ids)
+    expect(inMemory).toEqual(inSql)
+  })
+
+  it.each([
+    { status: null, ids: ['a', 'b', 'c', 'd'] },
+    { status: 'intro', ids: ['a', 'b'] },
+  ])('agrees on an optional filter with $status', ({ status, ids }) => {
+    const chosen = Expr.input('status', Schema.NullOr(Schema.String))
+    const body = Query.from(Post).pipe(
+      Query.where(Expr.whenGiven(chosen, given => Expr.eq(Post.fields.slug, given))),
+      Query.orderBy(Order.asc(Post.fields.id)),
+    )
+
+    const { inMemory, inSql } = bothWays(body, { status })
+
+    expect(inSql).toEqual(ids)
     expect(inMemory).toEqual(inSql)
   })
 
@@ -332,7 +430,17 @@ describe('What the reference interpreter will not answer for', () => {
 
 describe('An interpreter refuses what it does not run', () => {
   it('declares the operations it runs rather than leaving them implied', () => {
-    expect([...supported].sort()).toEqual(['contains', 'eq', 'in', 'isNotNull', 'isNull'])
+    expect([...supported].sort()).toEqual([
+      'and',
+      'compare',
+      'contains',
+      'eq',
+      'in',
+      'isNotNull',
+      'isNull',
+      'not',
+      'or',
+    ])
   })
 
   it('refuses a body needing an operation it does not run, naming it', () => {

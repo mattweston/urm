@@ -15,11 +15,13 @@ import {
   attachmentIn,
   decorationsFor,
   mountInto,
-  placeholderFor,
+  keymapFor,
+  placeholdersFor,
   releaseMount,
   renderingFor,
+  vocabularyFor,
 } from './host.js'
-import type { Decorate } from './events.js'
+import type { Decorate, KeyBinding } from './events.js'
 
 export const Message = defineMessageUnion({
   Typed: { text: Schema.String },
@@ -29,8 +31,11 @@ export const Message = defineMessageUnion({
   ToggledMark: { mark: Schema.String },
   /** Exactly this mark over the selection, or over the mark's extent at a caret: a link's new `href`. */
   AppliedMark: { mark: RichText.RunMark },
-  /** The named mark off the selection, or off the mark's extent at a caret: unlinking. */
-  ClearedMark: { mark: Schema.String },
+  /**
+   * The named mark off the selection, or off the mark's extent at a caret: unlinking. A mark
+   * value clears only the runs carrying exactly it.
+   */
+  ClearedMark: { mark: RichText.RunMark },
   RetypedBlock: { block: RichText.TextBlock },
   /** The caret's block, wrapped in containers listed outermost first: a quote, a list item. */
   WrappedBlock: { containers: Schema.Array(RichText.Container) },
@@ -40,6 +45,45 @@ export const Message = defineMessageUnion({
   LiftedBlock: {},
   /** A block moved before or after a sibling in its container: a block handle's up and down. */
   MovedBlock: { node: RichText.NodeId, to: RichText.Beside },
+  /** A block put beside another, under fresh identities: an insert menu's choice, a Duplicate. */
+  InsertedBlock: { block: RichText.Block, to: Schema.optionalKey(RichText.Beside) },
+  /** A block and what it holds, deleted: a block handle's Delete. */
+  DeletedBlock: { node: RichText.NodeId },
+  /** A row above or below the caret's table cell. */
+  InsertedRow: { where: Schema.Literals(['before', 'after']) },
+  /** A column before or after the caret's table cell. */
+  InsertedColumn: { where: Schema.Literals(['before', 'after']) },
+  /** The caret's table row, deleted. */
+  DeletedRow: {},
+  /** The caret's table column, deleted. */
+  DeletedColumn: {},
+  /** Tab: indentation in code, the next cell in a table. */
+  Indented: {},
+  /**
+   * Find and replace: the match at index `at` of `query`, or every match when `at` is absent,
+   * becomes `replacement`, as one undo step.
+   */
+  ReplacedText: {
+    query: Schema.String,
+    replacement: Schema.String,
+    caseSensitive: Schema.optionalKey(Schema.Boolean),
+    at: Schema.optionalKey(Schema.Number),
+  },
+  /** `InsertFootnote`: a reference at the caret, its definition last, the caret in it. */
+  InsertedFootnote: { text: Schema.optionalKey(Schema.String) },
+  /** `RenameFootnote`: a footnote's label, on its definition and every reference. */
+  RenamedFootnote: { from: Schema.String, to: Schema.String },
+  /** Shift+Tab: less indentation in code, the previous cell in a table. */
+  Outdented: {},
+  /**
+   * An adornment with an `action` was clicked: a code block's Copy, say. Not an edit, so the
+   * editor changes nothing; it is the application's to act on.
+   */
+  ActivatedAdornment: { node: RichText.NodeId, action: Schema.String },
+  /** Escape over a slash menu: it closes until its query ends, and Enter splits again. */
+  DismissedSlash: {},
+  /** Props of a node block, set: a task's checkbox, a toggle's arrow, an image's caption. */
+  ChangedProps: { node: RichText.NodeId, props: Schema.JsonObject },
   Selected: { selection: Schema.NullOr(RichText.Selection) },
   Pasted: { slice: RichText.Slice },
   Undone: {},
@@ -51,11 +95,11 @@ export const Message = defineMessageUnion({
 export type Message = typeof Message.Type
 
 /**
- * What the DOM can ask for: the vocabulary without the patch acknowledgement,
- * which only the Command produces. The adapter's stream is typed by this, so a
+ * What the DOM can ask for: the vocabulary without the patch acknowledgement, which only the
+ * Command produces, and a slash menu's dismissal, which the application's menu sends. The adapter's stream is typed by this, so a
  * mount's result union names every Message it can actually emit.
  */
-export type EditorEvent = Exclude<Message, { readonly _tag: 'Patched' }>
+export type EditorEvent = Exclude<Message, { readonly _tag: 'Patched' | 'DismissedSlash' }>
 
 /**
  * What a browser intent means to an editor. The adapter reports only plain
@@ -81,6 +125,12 @@ export const toMessage = (command: RichText.Command): EditorEvent | undefined =>
         : undefined
     case 'Paste':
       return Message.Pasted({ slice: command.slice })
+    case 'SetProps':
+      return Message.ChangedProps({ node: command.node, props: command.props })
+    case 'Indent':
+      return Message.Indented()
+    case 'Outdent':
+      return Message.Outdented()
     default:
       return undefined
   }
@@ -106,6 +156,12 @@ export interface SlashEntry<Payload> {
   readonly keywords: ReadonlyArray<string>
   /** What choosing this entry sends: an editor Message here, a caller's in a view. */
   readonly message: Payload
+  /** A line under the label saying what the entry makes. */
+  readonly description?: string | undefined
+  /** The heading the entry is listed under while no query narrows the menu. */
+  readonly group?: string | undefined
+  /** The icon a menu draws for it, by name; a view's own set says what names it knows. */
+  readonly icon?: string | undefined
 }
 
 /**
@@ -121,17 +177,20 @@ const HEADINGS: ReadonlyArray<{
   readonly level: 1 | 2 | 3
   readonly label: string
   readonly keywords: ReadonlyArray<string>
+  readonly description: string
 }> = [
-  { level: 1, label: 'Heading 1', keywords: ['h1', 'title'] },
-  { level: 2, label: 'Heading 2', keywords: ['h2', 'subtitle'] },
-  { level: 3, label: 'Heading 3', keywords: ['h3', 'section'] },
+  { level: 1, label: 'Heading 1', keywords: ['h1', 'title'], description: 'A title' },
+  { level: 2, label: 'Heading 2', keywords: ['h2', 'subtitle'], description: 'A section' },
+  { level: 3, label: 'Heading 3', keywords: ['h3', 'section'], description: 'A subsection' },
 ]
 
-/** What a mark is also searched by, so a query can name the element or the habit. */
-const MARK_KEYWORDS: Readonly<Record<string, ReadonlyArray<string>>> = {
-  Bold: ['strong', 'b'],
-  Italic: ['em', 'i'],
-  Code: ['monospace'],
+/** What a mark is also searched by, and what its entry says it does. */
+const MARK_ENTRIES: Readonly<
+  Record<string, { readonly keywords: ReadonlyArray<string>; readonly description: string }>
+> = {
+  Bold: { keywords: ['strong', 'b'], description: 'Strong emphasis' },
+  Italic: { keywords: ['em', 'i'], description: 'Emphasis' },
+  Code: { keywords: ['monospace'], description: 'Code within a line' },
 }
 
 /**
@@ -147,24 +206,36 @@ export const slashEntries: ReadonlyArray<SlashEntry<EditorEvent>> = [
     label: 'Paragraph',
     keywords: ['text', 'body'],
     message: Message.RetypedBlock({ block: { type: 'Paragraph' } }),
+    description: 'Plain text',
+    group: 'Text',
+    icon: 'paragraph',
   },
   ...HEADINGS.map(heading => ({
     id: `heading-${heading.level}`,
     label: heading.label,
     keywords: heading.keywords,
     message: Message.RetypedBlock({ block: { type: 'Heading', level: heading.level } }),
+    description: heading.description,
+    group: 'Text',
+    icon: `heading-${heading.level}`,
   })),
   {
     id: 'quote',
     label: 'Quote',
     keywords: ['blockquote', 'citation'],
     message: Message.WrappedBlock({ containers: [{ kind: 'Quote' }] }),
+    description: 'Words set apart',
+    group: 'Text',
+    icon: 'quote',
   },
   {
     id: 'bulleted-list',
     label: 'Bulleted list',
     keywords: ['ul', 'unordered', 'bullet'],
     message: Message.WrappedBlock({ containers: [{ kind: 'List' }, { kind: 'ListItem' }] }),
+    description: 'Points in no order',
+    group: 'Lists',
+    icon: 'bulleted-list',
   },
   {
     id: 'numbered-list',
@@ -173,6 +244,9 @@ export const slashEntries: ReadonlyArray<SlashEntry<EditorEvent>> = [
     message: Message.WrappedBlock({
       containers: [{ kind: 'List', props: { ordered: true } }, { kind: 'ListItem' }],
     }),
+    description: 'Steps in order',
+    group: 'Lists',
+    icon: 'numbered-list',
   },
   {
     // `code` is the Code mark's id; the block is a different entry.
@@ -180,29 +254,65 @@ export const slashEntries: ReadonlyArray<SlashEntry<EditorEvent>> = [
     label: 'Code block',
     keywords: ['pre', 'fence', 'snippet'],
     message: Message.ConvertedBlock({ to: { kind: 'CodeBlock' } }),
+    description: 'Code, kept as typed',
+    group: 'Blocks',
+    icon: 'code-block',
   },
   ...RichText.shippedMarks.map(definition => ({
     id: definition.name.toLowerCase(),
     label: definition.name,
-    keywords: MARK_KEYWORDS[definition.name] ?? [],
+    keywords: MARK_ENTRIES[definition.name]?.keywords ?? [],
     message: Message.ToggledMark({ mark: definition.name }),
+    description: MARK_ENTRIES[definition.name]?.description,
+    group: 'Formatting',
+    icon: definition.name.toLowerCase(),
   })),
 ]
 
+/** How well an entry answers a query: lower is better, `undefined` is no match. */
+const rank = (entry: SlashEntry<unknown>, needle: string): number | undefined => {
+  const label = entry.label.toLowerCase()
+  if (label.startsWith(needle)) return 0
+  if (label.split(/\s+/).some(word => word.startsWith(needle))) return 1
+  if (entry.keywords.some(word => word.toLowerCase().startsWith(needle))) return 2
+  if ([label, ...entry.keywords].some(word => word.toLowerCase().includes(needle))) return 3
+  return undefined
+}
+
 /**
- * The entries whose label or keywords contain the query, case-insensitively; every
- * entry when the query is empty, which is what `/` alone offers.
+ * What `/` alone offers: every entry, each group's together in the order its first entry comes,
+ * so the list a menu draws under its headings is the list the keys move through.
+ */
+const grouped = <Payload>(
+  entries: ReadonlyArray<SlashEntry<Payload>>,
+): ReadonlyArray<SlashEntry<Payload>> => {
+  const groups = new Map<string | undefined, Array<SlashEntry<Payload>>>()
+  for (const entry of entries) {
+    const group = groups.get(entry.group)
+    if (group === undefined) groups.set(entry.group, [entry])
+    else group.push(entry)
+  }
+  return [...groups.values()].flat()
+}
+
+/**
+ * The entries a query matches, case-insensitively, the best first: a label it starts, a word of
+ * a label it starts, a keyword it starts, then any it appears in, each in catalogue order.
+ * Every entry, grouped, when the query is empty, which is what `/` alone offers.
  */
 export const matchingEntries = <Payload>(
   entries: ReadonlyArray<SlashEntry<Payload>>,
   query: string,
 ): ReadonlyArray<SlashEntry<Payload>> => {
   const needle = query.trim().toLowerCase()
-  return needle.length === 0
-    ? entries
-    : entries.filter(entry =>
-        [entry.label, ...entry.keywords].some(word => word.toLowerCase().includes(needle)),
-      )
+  if (needle.length === 0) return grouped(entries)
+  return entries
+    .flatMap(entry => {
+      const score = rank(entry, needle)
+      return score === undefined ? [] : [{ entry, score }]
+    })
+    .sort((left, right) => left.score - right.score)
+    .map(({ entry }) => entry)
 }
 
 /** What a menu shows for one caret: its query, what matches, and what Enter would send. */
@@ -241,6 +351,12 @@ export interface EditorDrawing {
   readonly decorate?: Decorate | undefined
   /** What a blank document shows. */
   readonly placeholder?: string | undefined
+  /** What the empty paragraph the caret is in shows. */
+  readonly lineHint?: string | undefined
+  /** The node vocabulary, which says where Tab means something (`RichText.takesTab`). */
+  readonly nodes?: RichText.NodeRegistry | undefined
+  /** Chords beside the built-in ones, checked first (`AttachOptions.keymap`). */
+  readonly keymap?: ReadonlyArray<KeyBinding> | undefined
 }
 
 /**
@@ -264,8 +380,12 @@ export const attachEditor = (
       },
       onHistory: direction => emit(direction === 'undo' ? Message.Undone() : Message.Redone()),
       onSelection: selection => emit(Message.Selected({ selection })),
+      onAction: (node, action) => emit(Message.ActivatedAdornment({ node, action })),
       decorate: drawing.decorate,
+      nodes: drawing.nodes,
       placeholder: drawing.placeholder,
+      lineHint: drawing.lineHint,
+      keymap: drawing.keymap,
     },
     drawing.rendering,
   )
@@ -288,11 +408,28 @@ export const patchEditor = (
   return true
 }
 
+/** Tells the editor at `hostId` that an edit it asked for is drawn or refused (`Attachment.answered`). */
+export const answerEditor = (hostId: string): void => {
+  const host = document.getElementById(hostId)
+  if (host !== null) attachmentIn(host)?.answered()
+}
+
 /** Draws the decorations of the editor at `hostId` again; false when none is attached there. */
 export const redecorateEditor = (hostId: string): boolean => {
   const host = document.getElementById(hostId)
   const attachment = host === null ? undefined : attachmentIn(host)
   attachment?.redecorate()
+  return attachment !== undefined
+}
+
+/**
+ * Focuses the editor at `hostId` with `selection` in the browser (`Attachment.focus`); false
+ * when none is attached there.
+ */
+export const focusEditor = (hostId: string, selection: RichText.Selection): boolean => {
+  const host = document.getElementById(hostId)
+  const attachment = host === null ? undefined : attachmentIn(host)
+  attachment?.focus(selection)
   return attachment !== undefined
 }
 
@@ -323,6 +460,19 @@ export const events = Mount.defineStream('RichTextDomEvents', {
     Message.ConvertedBlock,
     Message.LiftedBlock,
     Message.MovedBlock,
+    Message.InsertedBlock,
+    Message.DeletedBlock,
+    Message.ChangedProps,
+    Message.InsertedRow,
+    Message.InsertedColumn,
+    Message.DeletedRow,
+    Message.DeletedColumn,
+    Message.Indented,
+    Message.Outdented,
+    Message.ReplacedText,
+    Message.InsertedFootnote,
+    Message.RenamedFootnote,
+    Message.ActivatedAdornment,
     Message.Selected,
     Message.Pasted,
     Message.Undone,
@@ -335,7 +485,9 @@ export const events = Mount.defineStream('RichTextDomEvents', {
           attachEditor(element, content, message => Queue.offerUnsafe(queue, message), {
             rendering: renderingFor(element.id),
             decorate: decorationsFor(element.id),
-            placeholder: placeholderFor(element.id),
+            ...placeholdersFor(element.id),
+            nodes: vocabularyFor(element.id).nodes,
+            keymap: keymapFor(element.id),
           }),
         ),
         () => Effect.sync(() => releaseMount(element)),

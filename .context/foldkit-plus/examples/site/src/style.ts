@@ -6,37 +6,49 @@
  * article, a sidebar) is reached through its container's slot by element.
  */
 import { Capability, Style, type Piece } from 'foldkit-mixins'
+import { CodeBlockSlots, DrawerSlots, Recipes, TabsSlots, TooltipSlots } from 'foldkit-mixins-ui'
 import { AppStyle } from 'foldkit-mixins/app'
 import { Prose } from 'foldkit-mixins/prose'
 import { Theme } from 'foldkit-mixins/theme'
 import { STATIC_ATTRIBUTE } from 'foldkit-ssr/client'
 
+import { declared } from './gallery/theme.js'
+
 const { t, slots, stylesheet } = AppStyle.make({
-  palette: Theme.compose(
-    Theme.oklch({
-      accent: { h: 270, c: 0, l: '14%', dark: { l: '96%', c: 0 } },
-      surfaceSaturation: 0,
-    }),
-    Theme.define({
-      // A white page, and a near-black one, as plain as the content.
-      knob: { 'base-l': '100%', 'base-l-dark': '14%' },
-      // Grey that steps back: the second half of a heading, a label's number.
-      site: { faint: Theme.lightDark('oklch(66% 0 0)', 'oklch(52% 0 0)') },
-      font: {
-        body: '"Geist", ui-sans-serif, system-ui, sans-serif',
-        heading: 'inherit',
-        mono: '"Geist Mono", ui-monospace, "SF Mono", Menlo, monospace',
-      },
-    }),
-  ),
+  theme: Theme.make({
+    accent: { hue: 270, chroma: { light: 0, dark: 0 }, lightness: { light: 14, dark: 96 } },
+    // A white page, and a near-black one, as plain as the content.
+    surface: { saturation: 0, lightness: { light: 100, dark: 14 } },
+    type: { body: '"Geist", ui-sans-serif, system-ui, sans-serif' },
+  }),
+  tokens: Theme.define({
+    // Grey that steps back: the second half of a heading, a label's number.
+    site: { faint: Theme.lightDark('oklch(66% 0 0)', 'oklch(52% 0 0)') },
+    font: { mono: '"Geist Mono", ui-monospace, "SF Mono", Menlo, monospace' },
+  }),
 })
 
 export { stylesheet }
+
+/** The site's code: the shipped recipe, colored from the theme's `syntax` group. */
+export const CodeStyle = Style.forSlots(CodeBlockSlots)(Recipes.CodeBlock({}))
+
+/**
+ * Below this width `/create` stacks its preview and docks its knobs to the
+ * bottom of the screen: the Drawer recipe's `below-xl`, read the same way.
+ */
+const ONE_COLUMN = '(max-width: 79.99rem)'
+/** At and above it, the knobs are a column beside the preview. */
+const COLUMNS = '(min-width: 80rem)'
+/** What of the docked drawer shows peeking: its handle and the pane names. */
+const DRAWER_PEEK = '6rem'
 
 /** Below this width the rail becomes a bar over the page. */
 const NARROW = '(max-width: 56rem)'
 /** Below this width a doc page drops its "On this page" column. */
 const NO_OUTLINE = '(max-width: 76rem)'
+/** A phone: one card across, and a table's rows stacked. */
+const PHONE = '(max-width: 36rem)'
 
 const focus = Style.pseudo(':focus-visible', {
   outline: `2px solid ${t.accent.default}`,
@@ -110,6 +122,9 @@ export const SiteStyle = slots(
         display: 'flex',
         flexDirection: 'column',
         gap: t.space.lg,
+        // Scrolling the rail to its end does not carry on into the page.
+        overscrollBehavior: 'contain',
+        scrollbarWidth: 'thin',
       },
       Style.media(NARROW, {
         height: 'auto',
@@ -160,7 +175,14 @@ export const SiteStyle = slots(
     railBody: [
       { display: 'flex', flexDirection: 'column', gap: t.space.lg },
       Style.nest('&[data-open="false"]', { display: 'var(--rail-closed, flex)' }),
-      Style.media(NARROW, { paddingBlock: t.space.sm, '--rail-closed': 'none' }),
+      // On a phone the open menu scrolls on its own, under the bar it opens from.
+      Style.media(NARROW, {
+        paddingBlock: t.space.sm,
+        '--rail-closed': 'none',
+        maxBlockSize: 'calc(100dvh - 3.75rem)',
+        overflowY: 'auto',
+        overscrollBehavior: 'contain',
+      }),
     ],
     nav: [
       { display: 'flex', flexDirection: 'column', gap: '0.125rem' },
@@ -183,6 +205,32 @@ export const SiteStyle = slots(
     ],
     railRule: { border: '0', borderBlockStart: rule, margin: '0' },
     railNote: [{ ...mono, color: t.text.subtle, margin: '0', lineHeight: '1.6' }],
+    // The page's light or dark: three buttons in one outline, the chosen one filled.
+    schemeChoice: [
+      {
+        display: 'flex',
+        alignSelf: 'flex-start',
+        border: rule,
+        borderRadius: t.radius.md,
+        overflow: 'hidden',
+      },
+      Style.nest('button', {
+        ...mono,
+        color: t.text.muted,
+        background: 'transparent',
+        border: '0',
+        padding: `0.25rem ${t.space.sm}`,
+        cursor: 'pointer',
+      }),
+      Style.nest('button[aria-pressed="true"]', {
+        color: t.text.overt,
+        background: t.surface.muted,
+      }),
+      Style.nest('button:focus-visible', {
+        outline: `2px solid ${t.accent.default}`,
+        outlineOffset: '-2px',
+      }),
+    ],
     // The home page's sections, numbered, in the mono voice.
     contents: [
       { listStyle: 'none', margin: '0', padding: '0', counterReset: 'section' },
@@ -230,18 +278,46 @@ export const SiteStyle = slots(
         minWidth: '0',
         boxSizing: 'border-box',
         padding: `${t.space['2xl']} clamp(1rem, 4vw, 4rem) ${t.space['3xl']}`,
+        // The hero's dot grid reaches past the gutter a phone has; clip makes
+        // no scroll container, so the outline column stays sticky.
+        overflowX: 'clip',
       },
       Style.media(NARROW, { padding: `${t.space.xl} ${t.space.md} ${t.space['2xl']}` }),
     ],
 
     // HOME
 
-    hero: {
-      display: 'flex',
-      flexDirection: 'column',
-      gap: t.space.lg,
-      maxWidth: '50rem',
-      paddingBlockEnd: t.space['2xl'],
+    // A faint dot grid behind the opening, fading out below it.
+    hero: [
+      {
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: t.space.lg,
+        maxWidth: '50rem',
+        paddingBlockEnd: t.space['2xl'],
+        isolation: 'isolate',
+      },
+      Style.pseudo('::before', {
+        content: '""',
+        position: 'absolute',
+        inset: `calc(-1 * ${t.space['2xl']}) calc(-1 * ${t.space['2xl']}) 0`,
+        zIndex: '-1',
+        backgroundImage: `radial-gradient(${t.outline.default} 1px, transparent 1px)`,
+        backgroundSize: '18px 18px',
+        maskImage: 'linear-gradient(to bottom, black 20%, transparent 95%)',
+        pointerEvents: 'none',
+      }),
+    ],
+    eyebrow: {
+      ...mono,
+      alignSelf: 'flex-start',
+      margin: '0',
+      padding: `0.25rem ${t.space.sm}`,
+      border: rule,
+      borderRadius: '999px',
+      background: t.surface.base,
+      color: t.text.muted,
     },
     heroTitle: {
       margin: '0',
@@ -253,13 +329,16 @@ export const SiteStyle = slots(
       textWrap: 'balance',
     },
     quiet: { color: t.site.faint },
-    lede: {
-      margin: '0',
-      fontSize: '1.125rem',
-      lineHeight: '1.6',
-      color: t.text.muted,
-      maxWidth: '38rem',
-    },
+    lede: [
+      {
+        margin: '0',
+        fontSize: '1.125rem',
+        lineHeight: '1.6',
+        color: t.text.muted,
+        maxWidth: '38rem',
+      },
+      Style.nest('a', { color: t.text.overt, textUnderlineOffset: '0.2em' }),
+    ],
     actions: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: t.space.sm },
     primary: Style.slot({ capability: Capability.Focusable }, [
       {
@@ -288,16 +367,88 @@ export const SiteStyle = slots(
         color: t.text.default,
         fontFamily: t.font.mono,
         fontSize: '0.8125rem',
+        // A sentence, which wraps on a phone: from its start, not centred.
+        textAlign: 'start',
         cursor: 'pointer',
       },
       Style.pseudo(':hover', { borderColor: t.text.muted }),
       focus,
     ]),
-    installHint: { color: t.text.subtle, fontFamily: t.font.body, fontSize: '0.75rem' },
-    note: [
-      { margin: '0', color: t.text.muted, fontSize: '0.9375rem' },
-      Style.nest('a', { color: t.text.default, textUnderlineOffset: '3px' }),
+    installHint: {
+      color: t.text.subtle,
+      fontFamily: t.font.body,
+      fontSize: '0.75rem',
+      flexShrink: '0',
+    },
+    setup: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'flex-start',
+      gap: t.space.xs,
+    },
+    setupLabel: { margin: '0', color: t.text.muted, fontSize: '0.9375rem' },
+    // Above previews drawn in a theme the reader made, with the way back. In the
+    // default it keeps its place, hidden, so making or dropping a theme moves nothing.
+    themeNotice: [
+      {
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: `${t.space.xs} ${t.space.md}`,
+        padding: `${t.space.xs} ${t.space.sm}`,
+        borderRadius: t.radius.md,
+        background: t.surface.muted,
+        color: t.text.muted,
+        fontSize: '0.875rem',
+      },
+      Style.nest('&[inert]', { visibility: 'hidden' }),
     ],
+    themeNoticeText: { margin: '0', marginInlineEnd: 'auto' },
+    themeAction: Style.slot({ capability: Capability.Focusable }, [
+      {
+        padding: '0',
+        border: 'none',
+        background: 'none',
+        color: t.text.overt,
+        font: 'inherit',
+        fontWeight: t.weight.medium,
+        textDecoration: 'underline',
+        textUnderlineOffset: '0.2em',
+        cursor: 'pointer',
+      },
+      focus,
+    ]),
+    // Primitives running in the page, between an article and its pager.
+    live: {
+      ...codeBox,
+      marginBlockStart: t.space['2xl'],
+      padding: t.space.lg,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: t.space.md,
+    },
+    liveRow: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: t.space['2xs'],
+      paddingBlockStart: t.space.md,
+      borderBlockStart: rule,
+    },
+    liveValue: { ...mono, color: t.text.subtle, overflowWrap: 'anywhere' },
+    liveButton: Style.slot({ capability: Capability.Interactive }, [
+      {
+        marginInlineStart: t.space.xs,
+        padding: `0.125rem ${t.space.sm}`,
+        borderRadius: t.radius.sm,
+        border: rule,
+        background: t.surface.base,
+        color: t.text.overt,
+        font: 'inherit',
+        cursor: 'pointer',
+      },
+      Style.pseudo(':hover', { borderColor: t.text.muted }),
+      focus,
+    ]),
     section: {
       display: 'flex',
       flexDirection: 'column',
@@ -306,6 +457,8 @@ export const SiteStyle = slots(
       borderBlockStart: rule,
       scrollMarginTop: t.space.lg,
     },
+    sectionHead: { display: 'flex', flexDirection: 'column', gap: t.space['2xs'] },
+    sectionNumber: { ...mono, margin: '0', color: t.text.subtle },
     sectionTitle: {
       margin: '0',
       fontSize: '1.5rem',
@@ -322,7 +475,7 @@ export const SiteStyle = slots(
     grid: [
       {
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))',
+        gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
         border: rule,
         borderRadius: t.radius.lg,
         overflow: 'hidden',
@@ -332,6 +485,13 @@ export const SiteStyle = slots(
         gap: t.border.thin,
         background: t.outline.subtle,
       },
+      // Five across while they fit, then two, the fifth spanning; one on a phone.
+      Style.media('(max-width: 80rem)', { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }),
+      Style.at(
+        '@media (max-width: 80rem)',
+        Style.nest('> :last-child:nth-child(odd)', { gridColumn: '1 / -1' }),
+      ),
+      Style.media(PHONE, { gridTemplateColumns: 'minmax(0, 1fr)' }),
     ],
     cell: {
       display: 'flex',
@@ -390,28 +550,33 @@ export const SiteStyle = slots(
       },
       Style.media('(max-width: 44rem)', { borderInlineEnd: '0', borderBlockEnd: rule }),
     ],
-    // The example's code block sits in the frame, which draws the border.
+    // The example's code block sits in the frame, which draws the border, and
+    // a long one scrolls within it rather than taking the page.
     code: [
       { minWidth: '0' },
       Style.nest('figure', { border: '0', borderRadius: '0', background: 'transparent' }),
+      Style.nest('pre', { maxBlockSize: '32rem', overflow: 'auto' }),
     ],
     // The packages, shelf by shelf, a card each.
-    shelf: { display: 'flex', flexDirection: 'column', gap: t.space.sm },
-    shelfHead: {
+    // Each shelf opens with a rule across and a heading of its own, so the
+    // four read as parts of the list rather than as labels on their cards.
+    shelf: {
       display: 'flex',
-      flexWrap: 'wrap',
-      alignItems: 'baseline',
-      gap: `0 ${t.space.sm}`,
+      flexDirection: 'column',
+      gap: t.space.md,
+      marginBlockStart: t.space.xl,
+      paddingBlockStart: t.space.lg,
+      borderBlockStart: rule,
     },
+    shelfHead: { display: 'flex', flexDirection: 'column', gap: '0.25rem' },
     shelfTitle: {
-      ...mono,
       margin: '0',
-      textTransform: 'uppercase',
-      letterSpacing: '0.08em',
-      color: t.text.default,
-      fontWeight: t.weight.medium,
+      fontSize: '1.25rem',
+      letterSpacing: '-0.01em',
+      fontWeight: t.weight.semibold,
+      color: t.text.overt,
     },
-    shelfAbout: { margin: '0', fontSize: '0.875rem', color: t.text.subtle },
+    shelfAbout: { margin: '0', fontSize: '0.9375rem', color: t.text.muted },
     cards: {
       display: 'grid',
       gridTemplateColumns: 'repeat(auto-fill, minmax(14.5rem, 1fr))',
@@ -466,12 +631,15 @@ export const SiteStyle = slots(
         paddingBlock: t.space.md,
         borderBlockStart: rule,
       },
-      Style.media('(max-width: 36rem)', { gridTemplateColumns: '1fr' }),
+      Style.media(PHONE, { gridTemplateColumns: '1fr' }),
     ],
     rowAbout: { display: 'flex', flexDirection: 'column', gap: '0.25rem' },
     rowTitle: { margin: '0', fontSize: '1rem', fontWeight: t.weight.medium, color: t.text.overt },
     titleLink: quiet('inherit'),
-    rowText: { margin: '0', color: t.text.muted, fontSize: '0.9375rem', maxWidth: '40rem' },
+    rowText: [
+      { margin: '0', color: t.text.muted, fontSize: '0.9375rem', maxWidth: '40rem' },
+      Style.nest('a', { color: t.text.overt, textUnderlineOffset: '0.2em' }),
+    ],
     packages: { ...mono, margin: '0', color: t.text.subtle },
     package: quiet(t.text.subtle),
     rowActions: { margin: '0', display: 'flex', gap: t.space.md, alignItems: 'center' },
@@ -561,25 +729,81 @@ export const SiteStyle = slots(
         textDecorationColor: t.outline.default,
       }),
       Style.nest('a:hover', { textDecorationColor: t.text.overt }),
+      // A tint, no border, and little padding: a name in a sentence sits close
+      // to the punctuation around it, `(Me)` reading as one thing.
       Style.nest(':not(pre) > code', {
         fontFamily: t.font.mono,
         fontSize: '0.85em',
-        padding: '0.1em 0.3em',
+        padding: '0.0625em 0.25em',
         borderRadius: t.radius.sm,
         background: t.surface.muted,
-        border: rule,
       }),
+      // Code that names something the site explains: the span keeps its look,
+      // with the link's underline under it.
+      Style.nest('a.code-link', { textDecorationColor: t.outline.default }),
+      Style.nest('a.code-link:hover code', { background: t.surface.default }),
+      Style.nest('.mentions', { listStyle: 'none', paddingInlineStart: '0' }),
+      Style.nest('.mentions li', {
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'baseline',
+        gap: `0 ${t.space.sm}`,
+      }),
+      Style.nest('.mentions small', { ...mono, color: t.text.subtle }),
       Style.nest('.table', { overflowX: 'auto', marginBlock: t.space.lg }),
       Style.nest('table', { minWidth: '100%' }),
       Style.nest(':is(th, td)', {
         textAlign: 'start',
-        padding: `0.5rem 0.75rem`,
+        padding: `0.625rem 0.75rem`,
         borderBlockEnd: rule,
         verticalAlign: 'top',
+        lineHeight: '1.5',
       }),
       Style.nest('th', { fontWeight: t.weight.medium, color: t.text.overt }),
+      // Each row's first cell names what the rest answer.
+      Style.nest('td:first-child', { color: t.text.overt }),
+      // Prose lets code break anywhere, which in a cell shrinks a column to a
+      // letter and splits a name mid-word; the table scrolls instead.
+      Style.nest(':is(th, td) code', { overflowWrap: 'normal', whiteSpace: 'nowrap' }),
       // An entry point's index: the name never breaks, the summary takes the rest.
-      Style.nest('td:first-child', { whiteSpace: 'nowrap' }),
+      Style.nest('.index :is(th, td):first-child', { whiteSpace: 'nowrap' }),
+      Style.nest('.full-type > summary', {
+        ...mono,
+        cursor: 'pointer',
+        color: t.text.subtle,
+      }),
+      // On a phone a table of prose is its rows, one under another: the first
+      // cell heads each, and every other cell is shown under its column's name,
+      // since its columns would each be a word wide.
+      Style.at(
+        `@media ${PHONE}`,
+        Style.compose(
+          Style.nest('.table:not(.index) :is(table, tbody, tr, td)', { display: 'block' }),
+          Style.nest('.table:not(.index) thead', {
+            position: 'absolute',
+            width: '1px',
+            height: '1px',
+            overflow: 'hidden',
+            clipPath: 'inset(50%)',
+            whiteSpace: 'nowrap',
+          }),
+          Style.nest('.table:not(.index) tr', {
+            paddingBlock: t.space.sm,
+            borderBlockEnd: rule,
+          }),
+          Style.nest('.table:not(.index) td', { padding: '0.125rem 0', borderBlockEnd: '0' }),
+          Style.nest('.table:not(.index) td:first-child', {
+            fontWeight: t.weight.medium,
+            color: t.text.overt,
+          }),
+          Style.nest('.table:not(.index) td:not(:first-child)[data-label]::before', {
+            ...mono,
+            content: 'attr(data-label)',
+            display: 'block',
+            color: t.text.subtle,
+          }),
+        ),
+      ),
       Style.nest('blockquote', { color: t.text.muted }),
       Style.nest('strong', { color: t.text.overt, fontWeight: t.weight.semibold }),
       Style.nest('.pager', {
@@ -646,6 +870,423 @@ export const SiteStyle = slots(
       Style.nest('p', { margin: `${t.space.md} 0 0`, color: t.text.subtle }),
       Style.media(NO_OUTLINE, { display: 'none' }),
     ],
+
+    // COMPONENTS
+
+    // The component theme, declared on the preview itself: a knob `/create`
+    // sets inline here re-derives every token below it, which it would not
+    // if the tokens were inherited from `:root` already resolved.
+    preview: [
+      Style.self(declared),
+      {
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: t.space.md,
+        boxSizing: 'border-box',
+        minBlockSize: '14rem',
+        padding: t.space.xl,
+        border: rule,
+        borderRadius: t.radius.lg,
+        background: t.surface.base,
+        color: t.text.default,
+        fontFamily: t.font.body,
+      },
+      // A gallery card's: smaller, and nothing in it takes a click or focus.
+      Style.nest('&[data-size="thumb"]', {
+        minBlockSize: '11rem',
+        padding: t.space.lg,
+        overflow: 'hidden',
+      }),
+      // `/create`'s: every component at once, in columns.
+      // `/create`'s type, palette and screen: one column, read down the page.
+      Style.nest('&[data-size="specimen"]', { display: 'block', padding: t.space.xl }),
+      Style.nest('&[data-size="canvas"]', {
+        display: 'block',
+        columns: '2 15rem',
+        columnGap: t.space.lg,
+        padding: t.space.lg,
+      }),
+    ],
+    gallery: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(16rem, 1fr))',
+      gap: t.space.lg,
+      listStyle: 'none',
+      margin: '0',
+      padding: '0',
+    },
+    galleryCard: {
+      position: 'relative',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: t.space.xs,
+    },
+    // The card's one link, stretched over the whole card.
+    galleryLink: quiet(
+      t.text.overt,
+      { fontWeight: t.weight.medium, fontSize: '0.9375rem' },
+      Style.pseudo('::after', { content: '""', position: 'absolute', inset: '0' }),
+    ),
+    galleryText: { margin: '0', fontSize: '0.875rem', color: t.text.muted },
+    // A component's pickers, its preview and the selection they make, as one block.
+    stage: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: t.space.md,
+      paddingBlockEnd: t.space['2xl'],
+    },
+    toolbar: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'flex-end',
+      gap: `${t.space.md} ${t.space.lg}`,
+    },
+    axis: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: t.space['2xs'],
+      margin: '0',
+      padding: '0',
+      border: '0',
+      minWidth: '0',
+    },
+    // A legend takes no flex gap: its room above the choices is its own padding.
+    axisName: { ...mono, padding: `0 0 ${t.space.xs}`, color: t.text.subtle },
+    choices: {
+      display: 'inline-flex',
+      flexWrap: 'wrap',
+      gap: '2px',
+      padding: '2px',
+      border: rule,
+      borderRadius: t.radius.md,
+    },
+    choice: Style.slot({ capability: Capability.Interactive }, [
+      {
+        font: 'inherit',
+        fontSize: '0.8125rem',
+        padding: `0.25rem 0.625rem`,
+        border: '0',
+        borderRadius: t.radius.sm,
+        background: 'transparent',
+        color: t.text.muted,
+        cursor: 'pointer',
+      },
+      Style.pseudo(':hover', { color: t.text.overt }),
+      Style.nest('&[aria-pressed="true"]', {
+        background: t.surface.muted,
+        color: t.text.overt,
+        fontWeight: t.weight.medium,
+      }),
+      focus,
+    ]),
+    selection: { ...mono, margin: '0', color: t.text.muted, overflowWrap: 'anywhere' },
+    studio: [
+      {
+        display: 'grid',
+        gridTemplateColumns: 'minmax(18rem, 22rem) minmax(0, 1fr)',
+        alignItems: 'start',
+        gap: t.space.xl,
+      },
+      Style.media(ONE_COLUMN, { display: 'flex', flexDirection: 'column', alignItems: 'stretch' }),
+    ],
+    // The tabs over the chosen pane, which scrolls on its own below them.
+    sections: [
+      {
+        display: 'flex',
+        flex: '1',
+        flexDirection: 'column',
+        gap: t.space.md,
+        minBlockSize: '0',
+      },
+      Style.media(ONE_COLUMN, { gap: t.space.sm }),
+    ],
+    // Room at the page's end for the docked drawer's peek, so nothing ends under it.
+    drawerRoom: [
+      { display: 'none' },
+      Style.media(ONE_COLUMN, { display: 'block', blockSize: DRAWER_PEEK }),
+    ],
+    pane: { display: 'flex', flexDirection: 'column', gap: t.space.md },
+    knob: { display: 'flex', flexDirection: 'column', gap: t.space.xs },
+    // A slider's name and its value, on one line above its track.
+    knobHead: {
+      display: 'flex',
+      alignItems: 'baseline',
+      justifyContent: 'space-between',
+      gap: t.space.xs,
+    },
+    knobValue: { ...mono, color: t.text.default, fontVariantNumeric: 'tabular-nums' },
+    presets: { display: 'flex', flexWrap: 'wrap', gap: t.space['2xs'] },
+    iconSpecimen: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: t.space.sm,
+      fontSize: '1.25rem',
+      color: t.text.default,
+    },
+    canvasColumn: { display: 'flex', flexDirection: 'column', gap: t.space.sm, minInlineSize: '0' },
+    // The preview's own settings: how it reads, not what the theme is.
+    previewBar: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'flex-end',
+      gap: `${t.space.sm} ${t.space.lg}`,
+    },
+    toCode: quiet(t.text.muted, { ...mono, paddingBlock: '0.375rem' }),
+    // At the end of the preview's bar: the code, and the two ways to take the theme away.
+    previewActions: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      gap: t.space.xs,
+      marginInlineStart: 'auto',
+    },
+    swatch: {
+      display: 'inline-block',
+      inlineSize: '0.75rem',
+      blockSize: '0.75rem',
+      borderRadius: '999px',
+    },
+    // One component of `/create`'s preview, kept whole within a column.
+    tile: [
+      {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: t.space.sm,
+        breakInside: 'avoid',
+        marginBlockEnd: t.space.lg,
+      },
+      // A menu shown open in a tile keeps room under its button for its rows,
+      // so what follows in the tile moves down rather than hide behind it.
+      // Its button only: a row that opens a submenu is a menu button too.
+      Style.nest(':not([role="menuitem"])[aria-haspopup="menu"][aria-expanded="true"]', {
+        marginBlockEnd: '10.5rem',
+      }),
+      // The gallery's menu stays shown until answered, so the backdrop its
+      // menu draws to catch a press elsewhere would cover the page for good:
+      // presses go through it while that menu is shown.
+      Style.global(
+        '@layer app { :root:has([id^="preview-page-menu"][aria-expanded="true"]) #foldkit-portal-root > * { pointer-events: none } }',
+      ),
+    ],
+    scaleGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'auto minmax(0, 10fr) minmax(0, 4fr)',
+      alignItems: 'center',
+      gap: `${t.space['2xs']} ${t.space.sm}`,
+    },
+    scaleName: { ...mono, color: t.text.subtle },
+    scaleRow: {
+      display: 'grid',
+      gridAutoFlow: 'column',
+      gridAutoColumns: 'minmax(0, 1fr)',
+      gap: '2px',
+    },
+    scaleCell: { blockSize: '2rem', borderRadius: t.radius.sm },
+    scaleNote: { margin: '0', color: t.text.muted, maxInlineSize: '60ch' },
+    tileName: {
+      ...mono,
+      margin: '0',
+      color: t.text.muted,
+      textDecoration: 'none',
+    },
+    // `/create`'s other previews: the type, the palette and an application's screen.
+    specimen: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: t.space.xl,
+      minInlineSize: '0',
+    },
+    specimenGroup: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: t.space.sm,
+      minInlineSize: '0',
+    },
+    specimenHeading: {
+      ...mono,
+      margin: '0',
+      color: t.text.muted,
+      textTransform: 'uppercase',
+      letterSpacing: '0.06em',
+      fontWeight: t.weight.normal,
+    },
+    specimenRow: [
+      {
+        display: 'grid',
+        gridTemplateColumns: '6rem minmax(0, 1fr)',
+        alignItems: 'baseline',
+        gap: t.space.md,
+      },
+      Style.media(PHONE, { gridTemplateColumns: 'minmax(0, 1fr)', gap: t.space['3xs'] }),
+    ],
+    specimenName: { ...mono, color: t.text.muted, overflowWrap: 'anywhere' },
+    swatchGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(8.5rem, 1fr))',
+      gap: t.space.sm,
+    },
+    swatchTile: [
+      {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: t.space['2xs'],
+        margin: '0',
+        minInlineSize: '0',
+      },
+    ],
+    // Each sample draws its token the way the token is used.
+    swatchSample: [
+      {
+        display: 'grid',
+        placeItems: 'center',
+        blockSize: '3.5rem',
+        border: `1px solid ${t.outline.subtle}`,
+        borderRadius: t.radius.md,
+        background: t.surface.base,
+        fontSize: '1.5rem',
+        fontWeight: t.weight.semibold,
+      },
+      Style.nest(':where([data-draw="line"]) > &', { borderWidth: t.border.thick }),
+      Style.nest(':where([data-draw="shadow"]) > &', {
+        borderColor: 'transparent',
+        background: t.surface.default,
+      }),
+      Style.nest(':where([data-draw="corner"]) > &', {
+        borderColor: t.outline.overt,
+        borderWidth: t.border.thick,
+        background: t.surface.subtle,
+      }),
+    ],
+    swatchName: {
+      display: 'flex',
+      flexDirection: 'column',
+      fontSize: '0.8125rem',
+      color: t.text.default,
+      minInlineSize: '0',
+    },
+    // A title, and beside it what the screen is about; below it where there is no room.
+    appHeader: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: t.space.md,
+    },
+    appGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(min(16rem, 100%), 1fr))',
+      alignItems: 'start',
+      gap: t.space.lg,
+    },
+    appForm: { display: 'flex', flexDirection: 'column', gap: t.space.md, minInlineSize: '0' },
+    // A screen's panels: two across where there is room, a wide one across both.
+    screenGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(min(22rem, 100%), 1fr))',
+      alignItems: 'start',
+      gap: t.space.lg,
+    },
+    screenWide: { gridColumn: '1 / -1', minInlineSize: '0' },
+    // A panel as wide as what it holds beside one taking the rest; stacked on a phone.
+    screenSplit: [
+      {
+        display: 'grid',
+        gridTemplateColumns: 'auto minmax(0, 1fr)',
+        alignItems: 'start',
+        gap: t.space.lg,
+      },
+      Style.media(PHONE, { gridTemplateColumns: 'minmax(0, 1fr)' }),
+    ],
+    appActions: { display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: t.space.xs },
+    themeCode: [
+      { display: 'flex', flexDirection: 'column', gap: t.space.sm, minWidth: '0' },
+      Style.nest('pre', { overflowX: 'auto' }),
+    ],
   },
   { name: 'SiteStyle' },
+)
+
+/**
+ * `/create`'s knobs: the Drawer recipe, docked below xl, and beside the
+ * preview a column of its own that scrolls on its own, its pane scrolling
+ * under the pane names.
+ */
+export const StudioDrawerStyle = Style.forSlots(DrawerSlots)(
+  Recipes.Drawer.extend({
+    base: {
+      // Wide only: the site's rules sit above the recipe's docked ones, so
+      // a sticky column written for every width would undock the drawer.
+      panel: Style.compose(
+        Style.self({ '--fk-drawer-peek': DRAWER_PEEK, '--fk-drawer-height': '62dvh' }),
+        Style.at(
+          `@media ${COLUMNS}`,
+          Style.self({
+            position: 'sticky',
+            top: t.space.lg,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: t.space.md,
+            boxSizing: 'border-box',
+            maxBlockSize: `calc(100dvh - 2 * ${t.space.lg})`,
+            padding: t.space.lg,
+            border: rule,
+            borderRadius: t.radius.lg,
+            background: t.surface.base,
+          }),
+        ),
+        // Docked, the pane names sit a little in from the edges under the handle.
+        Style.media(ONE_COLUMN, {
+          gap: t.space.sm,
+          paddingInline: t.space.md,
+          paddingBlockStart: t.space['2xs'],
+        }),
+      ),
+      body: Style.self({
+        flex: '1',
+        minBlockSize: '0',
+        overflowY: 'auto',
+        overscrollBehavior: 'contain',
+        scrollbarWidth: 'thin',
+        // Room for a focus ring at the edges of what scrolls.
+        padding: '3px',
+        margin: '-3px',
+      }),
+    },
+  })({ dock: 'below-xl' }),
+)
+
+/**
+ * `/create`'s pane names, across the whole knobs column and sharing what
+ * their words leave; past its width (a phone's drawer) they scroll.
+ */
+export const StudioTabsStyle = Style.forSlots(TabsSlots)(
+  Recipes.Tabs.extend({
+    base: {
+      tablist: Style.self({ inlineSize: '100%' }),
+      // The least room around each name, so five fit the column; the spare width is shared out.
+      tab: Style.self({ flexGrow: '1', paddingInline: t.space['2xs'] }),
+    },
+  })({ variant: 'pill', size: 'sm', overflow: 'scroll' }),
+)
+
+/**
+ * `/create`'s knob names: each a Tooltip's dotted trigger, set as the other
+ * axis names are, so a name says more when it is hovered or focused.
+ */
+export const HintStyle = Style.forSlots(TooltipSlots)(
+  Recipes.Tooltip.extend({
+    base: {
+      trigger: Style.self({
+        ...mono,
+        alignSelf: 'flex-start',
+        fontWeight: 'inherit',
+        lineHeight: 'inherit',
+        color: t.text.subtle,
+        textAlign: 'start',
+        cursor: 'help',
+      }),
+    },
+  })({}),
 )

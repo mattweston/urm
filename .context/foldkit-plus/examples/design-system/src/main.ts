@@ -7,7 +7,7 @@
  * drafts, toggles, a click counter); every control draws through a shipped
  * recipe, so the page is the documentation.
  */
-import { Match, Option, Schema } from 'effect'
+import { Option, Schema } from 'effect'
 import { Calendar as FoldkitCalendar, File, Update } from 'foldkit'
 import type { Document, Html, HtmlBuilder } from 'foldkit/html'
 import { childAttributes } from 'foldkit/html'
@@ -25,16 +25,14 @@ import {
   RadioGroup as UiRadioGroup,
   Tabs as UiTabs,
 } from '@foldkit/ui'
-import type { CalendarAttributes } from '@foldkit/ui/calendar'
 import type { EntryHandlers } from '@foldkit/ui/toast'
 import * as UiCheckbox from '@foldkit/ui/checkbox'
 import * as UiDisclosure from '@foldkit/ui/disclosure'
 import * as UiFieldset from '@foldkit/ui/fieldset'
 import * as UiSelect from '@foldkit/ui/select'
-import * as UiSlider from '@foldkit/ui/slider'
 import * as UiSwitch from '@foldkit/ui/switch'
 import * as UiTooltip from '@foldkit/ui/tooltip'
-import { SlotView, Style, type SlotAttributes, type SlotBuilders } from 'foldkit-mixins'
+import { SlotView, Style, type SlotBuilders } from 'foldkit-mixins'
 import {
   Alert,
   Anchor,
@@ -80,11 +78,6 @@ import {
   Toast,
   ToastView,
   Tooltip,
-} from 'foldkit-mixins-ui'
-import type {
-  ResolvedComboboxGroup,
-  ResolvedListboxGroup,
-  ResolvedMenuGroup,
 } from 'foldkit-mixins-ui'
 import {
   AlertSuccessStyle,
@@ -143,7 +136,6 @@ import {
   SecondaryButtonStyle,
   SelectStyle,
   SeparatorStyle,
-  SeparatorVerticalStyle,
   SkeletonCircleStyle,
   SkeletonStyle,
   SliderStyle,
@@ -249,7 +241,6 @@ export const Model = Schema.Struct({
   detailsOpen: Schema.Boolean,
   contact: Contact,
   volume: Schema.Number,
-  volumeSlider: UiSlider.Model,
   tooltip: UiTooltip.Model,
   contactGroup: UiRadioGroup.Model,
   sectionsTabs: UiTabs.Model,
@@ -288,7 +279,7 @@ export const Message = defineMessageUnion({
   UnderlineToggled: { value: Schema.Boolean },
   CountrySelected: { value: Schema.String },
   DetailsToggled: { value: Schema.Boolean },
-  VolumeSlider: { message: UiSlider.Message },
+  VolumeChanged: { value: Schema.Number },
   Tooltip: { message: UiTooltip.Message },
   ContactGroup: { message: UiRadioGroup.Message },
   SectionsTabs: { message: UiTabs.Message },
@@ -333,7 +324,6 @@ export const initModel = (today: CalendarDate): Model => ({
   detailsOpen: false,
   contact: 'email',
   volume: 60,
-  volumeSlider: UiSlider.init({ id: 'volume-slider', min: 0, max: 100, step: 5 }),
   tooltip: UiTooltip.init({ id: 'hint-tooltip' }),
   contactGroup: UiRadioGroup.init({ id: 'contact-group' }),
   sectionsTabs: UiTabs.init({ id: 'sections-tabs' }),
@@ -385,7 +375,7 @@ export const update = (model: Model, message: Message) =>
     DetailsToggled: ({ value }) => ({
       model: modifyFields(model, { detailsOpen: () => value }),
     }),
-    VolumeSlider: ({ message }) => foldVolumeSlider(model, message),
+    VolumeChanged: ({ value }) => ({ model: modifyFields(model, { volume: () => value }) }),
     Tooltip: ({ message }) => foldTooltip(model, message),
     ContactGroup: ({ message }) => foldContactGroup(model, message),
     SectionsTabs: ({ message }) => foldSectionsTabs(model, message),
@@ -439,24 +429,6 @@ const own = <K extends keyof Model, ChildMessage>(
   write: (model, child) =>
     modifyModel(model, { [field]: () => child } as { readonly [P in K]: () => Model[P] }),
   toParentMessage: message => wrap({ message }),
-})
-
-/**
- * The volume slider's interaction state lives beside the value it writes:
- * the child owns the drag, the parent owns the number, and each
- * `ChangedValue` the drag or keyboard produces becomes the value (already
- * snapped and clamped by the component).
- */
-const foldVolumeSlider = Update.foldChild({
-  ...own('volumeSlider', Message.VolumeSlider),
-  update: UiSlider.update,
-  foldOutMessage: UiSlider.OutMessage.match<Update.Step<Model, Message>>({
-    ChangedValue:
-      ({ value }) =>
-      model => ({
-        model: modifyFields(model, { volume: () => value }),
-      }),
-  }),
 })
 
 /** Visibility notifications need no parent state: showing is the child's own fact. */
@@ -890,64 +862,6 @@ const formatFileSize = (bytes: number): string =>
       ? `${(bytes / 1024).toFixed(1)} KB`
       : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 
-/** The option-group wire shape menu, listbox, and combobox share. */
-type OptionGroups = ReadonlyArray<
-  ResolvedMenuGroup<Message> | ResolvedListboxGroup<Message> | ResolvedComboboxGroup<Message>
->
-
-/**
- * One option group's rows: its items, or the headed group with its separator.
- * Menu, listbox, and combobox publish the same wire shape (keyed bundles with
- * content, headings by id), so one draw serves all three panels.
- */
-const drawOptionGroups = (groups: OptionGroups, h: HtmlBuilder<Message>): ReadonlyArray<Html> =>
-  groups.flatMap(group => {
-    const drawn = group.items.map(item => h.keyed('div')(item.key, item.attributes, [item.content]))
-    if (group.group === undefined) return drawn
-    const headed =
-      group.heading === undefined
-        ? []
-        : [h.keyed('div')(group.heading.id, group.heading.attributes, [group.heading.content])]
-    return [
-      ...(group.separator === undefined
-        ? []
-        : [h.keyed('div')(group.separator.key, group.separator.attributes)]),
-      h.keyed('div')(group.group.key, group.group.attributes, [...headed, ...drawn]),
-    ]
-  })
-
-/**
- * A popup panel's floating parts: the click-away behind it and the items card
- * with its rows, scrolled when the panel says so. Menu, listbox, and combobox
- * publish the same parts; only their triggers differ.
- */
-const drawPopupParts = (
-  panel: {
-    readonly backdrop:
-      { readonly key: string; readonly attributes: SlotAttributes<Message> } | undefined
-    readonly items:
-      { readonly key: string; readonly attributes: SlotAttributes<Message> } | undefined
-    readonly scroll: SlotAttributes<Message> | undefined
-    readonly groups: OptionGroups
-  },
-  h: HtmlBuilder<Message>,
-): ReadonlyArray<Html> => [
-  ...(panel.backdrop === undefined
-    ? []
-    : [h.keyed('div')(panel.backdrop.key, panel.backdrop.attributes)]),
-  ...(panel.items === undefined
-    ? []
-    : [
-        h.keyed('div')(
-          panel.items.key,
-          panel.items.attributes,
-          panel.scroll === undefined
-            ? drawOptionGroups(panel.groups, h)
-            : [h.div(panel.scroll, drawOptionGroups(panel.groups, h))],
-        ),
-      ]),
-]
-
 const contacts: ReadonlyArray<{ readonly value: Contact; readonly label: string }> = [
   { value: 'email', label: 'Email' },
   { value: 'phone', label: 'Phone' },
@@ -1028,29 +942,24 @@ const RadioDemo = (model: Pick<Model, 'contact' | 'contactGroup'>, h: HtmlBuilde
   })
 
 /**
- * The live volume slider: the component owns the drag and keyboard
- * interaction (through its drag subscriptions), the Model owns the value,
- * and the style attaches through the Slot contract in `toView`.
+ * The live volume slider: a native range input owns the drag and the keys,
+ * the Model owns the value, and each move arrives as `VolumeChanged`,
+ * already on the step.
  */
-const SliderDemo = (model: Pick<Model, 'volume' | 'volumeSlider'>, h: HtmlBuilder<Message>): Html =>
-  h.submodel({
-    slotId: model.volumeSlider.id,
-    model: model.volumeSlider,
-    view: UiSlider.view,
-    viewInputs: {
+const SliderDemo = (model: Pick<Model, 'volume'>, h: HtmlBuilder<Message>): Html =>
+  Slider.view(
+    {
+      id: 'volume-slider',
+      label: 'Volume',
       value: model.volume,
-      ariaLabel: 'Volume',
-      formatValue: (value: number) => `${Math.round(value)} percent`,
-      toView: attributes => {
-        const slider = Slider.resolve(attributes, [SliderStyle.mixin], { input: undefined, h })
-        return h.div(slider.root, [
-          h.label(slider.label, [`Volume: ${model.volume}`]),
-          h.div(slider.track, [h.div(slider.filledTrack, []), h.div(slider.thumb, [])]),
-        ])
-      },
+      step: 5,
+      format: value => `${value}%`,
+      showValue: true,
+      onChange: value => Message.VolumeChanged({ value }),
+      style: SliderStyle,
     },
-    toParentMessage: message => Message.VolumeSlider({ message }),
-  })
+    h,
+  )
 
 /**
  * A row-action menu: grouped items, one disabled, the choice reported back.
@@ -1070,12 +979,7 @@ const MenuDemo = (model: Pick<Model, 'menu' | 'menuChoice'>, h: HtmlBuilder<Mess
       itemGroupKey,
       groupToHeading: (groupKey: string) =>
         groupKey === 'Manage' ? { content: h.span([], ['Manage']) } : undefined,
-      toView: Menu.toView([MenuStyle.mixin], { h }, resolved =>
-        h.div(resolved.wrapper, [
-          h.keyed('button')(`${resolved.id}-button`, resolved.button, [resolved.buttonContent]),
-          ...drawPopupParts(resolved, h),
-        ]),
-      ),
+      toView: Menu.toView([MenuStyle.mixin], { h }),
     },
     toParentMessage: message => Message.Menu({ message }),
   })
@@ -1096,13 +1000,7 @@ const ListboxDemo = (
       maybeSelectedValue: model.maybeFrequency,
       itemToConfig: (frequency: Frequency) => ({ content: h.span([], [frequency]) }),
       buttonContent: h.span([], [label]),
-      toView: Listbox.toView([ListboxStyle.mixin], { h }, resolved =>
-        h.div(resolved.wrapper, [
-          h.keyed('button')(`${resolved.id}-button`, resolved.button, [resolved.buttonContent]),
-          ...drawPopupParts(resolved, h),
-          ...resolved.hiddenInputs,
-        ]),
-      ),
+      toView: Listbox.toView([ListboxStyle.mixin], { h }),
     },
     toParentMessage: message => Message.Listbox({ message }),
   })
@@ -1126,84 +1024,11 @@ const ComboboxDemo = (
       itemToDisplayText: (city: string) => city,
       buttonContent: h.span([], ['▾']),
       maybeSelectedValue: model.maybeCity,
-      toView: Combobox.toView([ComboBoxStyle.mixin], { h }, resolved =>
-        h.div(resolved.wrapper, [
-          h.div(resolved.inputWrapper, [
-            h.input([...resolved.input, h.Placeholder('Search cities…')]),
-            ...(resolved.toggleButton === undefined
-              ? []
-              : [
-                  h.keyed('button')(resolved.toggleButton.key, resolved.toggleButton.attributes, [
-                    resolved.toggleButton.content,
-                  ]),
-                ]),
-          ]),
-          ...drawPopupParts(resolved, h),
-          ...resolved.hiddenInputs,
-        ]),
-      ),
+      inputPlaceholder: 'Search cities…',
+      toView: Combobox.toView([ComboBoxStyle.mixin], { h }),
     },
     toParentMessage: message => Message.Combobox({ message }),
   })
-
-/** The month grid any calendar draws through, here in the picker's panel. */
-const drawCalendarGrid = (
-  attributes: CalendarAttributes,
-  chrome: SlotBuilders<typeof DateChromeSlots, Message>,
-  h: HtmlBuilder<Message>,
-): Html => {
-  const calendar = Calendar.resolve(attributes, [CalendarStyle.mixin], { input: undefined, h })
-  return Match.value(calendar).pipe(
-    Match.tagsExhaustive({
-      Days: days =>
-        h.div(days.root, [
-          h.div(chrome.header.attrs(), [
-            h.button(days.previousMonthButton, ['‹']),
-            h.button(days.headingButton, [days.heading.text]),
-            h.button(days.nextMonthButton, ['›']),
-          ]),
-          h.div(days.grid, [
-            h.div(days.headerRow, [
-              ...days.columnHeaders.map(header => h.div(header.attributes, [header.name])),
-            ]),
-            ...days.weeks.map(week =>
-              h.div(week.attributes, [
-                ...week.cells.map(cell =>
-                  h.div(cell.cellAttributes, [h.button(cell.buttonAttributes, [cell.label])]),
-                ),
-              ]),
-            ),
-          ]),
-        ]),
-      Months: months =>
-        h.div(months.root, [
-          h.div(chrome.monthHeader.attrs(), [
-            h.button(months.headingButton, [months.heading.text]),
-          ]),
-          h.div(
-            months.grid,
-            months.cells.map(cell =>
-              h.div(cell.cellAttributes, [h.button(cell.buttonAttributes, [cell.shortLabel])]),
-            ),
-          ),
-        ]),
-      Years: years =>
-        h.div(years.root, [
-          h.div(chrome.header.attrs(), [
-            h.button(years.previousPageButton, ['«']),
-            h.span([], [years.heading.text]),
-            h.button(years.nextPageButton, ['»']),
-          ]),
-          h.div(
-            years.grid,
-            years.cells.map(cell =>
-              h.div(cell.cellAttributes, [h.button(cell.buttonAttributes, [cell.label])]),
-            ),
-          ),
-        ]),
-    }),
-  )
-}
 
 /**
  * A due-date picker: the shell rides attribute bundles (the adapter resolves
@@ -1236,7 +1061,11 @@ const DatePickerDemo = (
       triggerAttributes: childAttributes(chrome.trigger.attrs()),
       panelAttributes: childAttributes(chrome.panel.attrs()),
       backdropAttributes: childAttributes(chrome.backdrop.attrs()),
-      toCalendarView: attributes => drawCalendarGrid(attributes, chrome, h),
+      toCalendarView: Calendar.toView(
+        Calendar.Selection.Single({ date: model.maybeDue }),
+        [CalendarStyle.mixin],
+        { h },
+      ),
     },
     toParentMessage: message => Message.DatePicker({ message }),
   })
@@ -1430,6 +1259,7 @@ const TooltipDemo = (model: Pick<Model, 'tooltip'>, h: HtmlBuilder<Message>): Ht
         const { trigger, panel, isVisible } = Tooltip.resolve(attributes, [TooltipStyle.mixin], {
           input: undefined,
           h,
+          id: model.tooltip.id,
         })
         return h.div(
           [],
@@ -1562,10 +1392,11 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => {
   const slots = SlotView.buildersFor(PageSlots, [PageStyle.style.mixin], { input: model, h })
   const rootOverride = rootOverrideOf(model)
   const tokensCode = [
-    'palette = Theme.oklch((',
-    '  accent: { h: 222, c: 0.09, l: 52% },',
-    '  surfaceSaturation: 0.003,',
-    ')) with radius-factor 1.4',
+    'theme = Theme.make((',
+    '  accent: { hue: 222, chroma: 0.09 },',
+    '  surface: { saturation: 0.003, contrast: 24 },',
+    '  shape: { radius: 1.4 },',
+    '))',
     '',
     'Default     -> Button variant primary',
     'Secondary   -> tone neutral, solid',
@@ -1588,7 +1419,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => {
           h.p(slots.eyebrow.attrs(), ['Foldkit Plus · Design system']),
           h.h1(slots.title.attrs(), ['Components in a shadcn skin']),
           h.p(slots.lede.attrs(), [
-            'Every control below draws through a shipped foldkit-mixins-ui recipe over Theme.oklch tokens. The shadcn look is two decisions: near-zero surfaceSaturation with a larger radius-factor, and one recipe selection per intent.',
+            'Every control below draws through a shipped foldkit-mixins-ui recipe over the shipped tokens. The shadcn look is two decisions: near-zero surface saturation with a larger radius, and one recipe selection per intent.',
           ]),
         ]),
         h.div(slots.controls.attrs(), [
@@ -1954,6 +1785,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => {
           BadgesView(undefined, h),
           Alert.view(
             {
+              layout: 'inline',
               title: 'Storage almost full',
               description: 'Only 2 GB left on this project.',
               icon: h.span([h.AriaHidden(true)], ['!']),
@@ -1964,6 +1796,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => {
           ),
           Alert.view(
             {
+              layout: 'inline',
               title: 'All checks passed',
               description: 'The deploy finished in 42 seconds.',
               icon: h.span([h.AriaHidden(true)], ['✓']),
@@ -2074,7 +1907,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => {
           h.p(slots.sectionText.attrs(), ['Archived']),
           h.div(slots.row.attrs(), [
             h.span([], ['Draft']),
-            Separator.view({ orientation: 'vertical', style: SeparatorVerticalStyle }, neverH),
+            Separator.view({ orientation: 'vertical', style: SeparatorStyle }, neverH),
             h.span([], ['Live']),
           ]),
           Skeleton.view({ label: 'Loading title', style: SkeletonStyle }, neverH),

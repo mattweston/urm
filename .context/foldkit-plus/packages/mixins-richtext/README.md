@@ -12,7 +12,7 @@ your application         every piece of state the chrome shows, and where it is 
 foldkit-mixins-richtext  nothing: each view is a function of what it is given  (this package)
 ```
 
-The editor renders its host and nothing else (§29 of the Rich Text design); the chrome beside
+The editor renders its host and nothing else; the chrome beside
 it is the application's. `foldkit-richtext-dom/toolbar` ships plain versions of some of it,
 such as `marksToolbar`. This package draws the same chrome as slot views. It cannot wrap the
 plain ones, because a slot's contributions resolve at the element the view creates, so a slot
@@ -105,6 +105,23 @@ quotes are not styles here: leaving one is a lift, not a retype.
 | `toolbar` | Collection | the row, `role="toolbar"` |
 | `button` | Interactive | one style, `data-style` (the entry's id) and `aria-pressed` |
 
+`blockStyleMenu<Message>()` offers the same styles in the space of one button, for a toolbar
+with other things to hold. Its input adds `open` and `toggled`, since whether a menu is open is
+the caller's. The trigger shows the current style's icon and label ("Text style" where none
+applies) and opens a `role="menu"` of every style, each a `menuitemradio`, the current one
+checked. A choice sends its `RetypedBlock` through `wrap`, which is where the caller closes the
+menu. The trigger is disabled without a text selection, and the menu draws nothing then.
+
+| Slot | Capability | Renders |
+| --- | --- | --- |
+| `root` | Container | the wrapper, to anchor the menu to |
+| `trigger` | Interactive | the button naming the style, `aria-haspopup="menu"`, `aria-expanded` |
+| `menu` | Collection | the open menu |
+| `item` | Interactive | one style, `data-style`, `aria-checked` |
+| `icon` | Container | a style's icon |
+| `label` | Container | a style's label |
+| `check` | Container | the check beside the current style |
+
 ## The link editor
 
 An address field with two buttons: link the selection (or change the link around the caret),
@@ -136,13 +153,21 @@ What it sends is `RichText.safeUrl(draft)`, so the address is cleaned and a `jav
 `data:` one is never sent. Applying needs such an address and something to link: a range of
 text, or a caret inside a link. Otherwise the apply button is disabled and Enter in the field
 falls through. The remove button is drawn only inside a link. Where the editor appears, and
-when it opens or closes, is the application's.
+when it opens or closes, is the application's; give it `closed` and Escape in the field sends
+it. Focusing the field as the editor opens, so a link can be pasted at once, is a Command the
+application runs (`Dom.focus('[data-link="address"]')`).
+
+The view decides what its button sends from the draft it was drawn with, which is a frame behind
+keys typed fast: Enter straight after the last character would apply the draft before it. Give
+it `submitted`, and Enter sends that instead, for `update` to apply
+`linkEdit(document, selection, draft)` to the draft the Model holds; `linkEdit` is the same
+decision the button makes, as an `Option` of the editor's Message.
 
 | Slot | Capability | Renders |
 | --- | --- | --- |
 | `root` | Container | the editor's wrapper, `role="group"` |
-| `input` | TextInput | the address field, `data-link="address"` |
-| `apply` | Interactive | the apply button, `data-link="apply"`, labelled Link or Update |
+| `input` | TextInput | the address field, `data-link="address"`, "Paste or type a link" |
+| `apply` | Interactive | the apply button, `data-link="apply"`, labelled Apply or Update |
 | `remove` | Interactive | the remove button, `data-link="remove"`, inside a link only |
 
 ## The slash menu
@@ -154,6 +179,7 @@ the two things the editor cannot: the keys that move the highlight, and the view
 
 ```ts
 import { slashEntries, slashMenuView, slashMove } from 'foldkit-mixins-richtext'
+import { menuTextOf } from 'foldkit-richtext-dom/editor-bundle'
 
 // The catalogue as the caller's Messages.
 const entries = slashEntries(message => edited(message))
@@ -163,7 +189,7 @@ const next = slashMove(entries, 'see /head', model.editor.menuIndex, 'ArrowDown'
 
 // The view, placed only while `slashMenu` says a query is open.
 slashMenuView<Message>()(
-  { entries, textBefore: RichText.textBefore(document, caret), index: model.editor.menuIndex },
+  { entries, textBefore: menuTextOf({ document, ...model.editor }), index: model.editor.menuIndex },
   h,
 )
 ```
@@ -171,19 +197,41 @@ slashMenuView<Message>()(
 `slashMove` returns the index a key moves the highlight to, or `undefined` for a key that moves
 nothing, and it starts from what the menu highlights now rather than a remembered index, so a
 query that narrowed past the old one does not move from a position no one can see. The keys
-are the application's to handle, because only it knows the caret: ArrowUp/Down, Home/End, and
-Escape in `OnKeyDownPreventDefault` while a query is open, writing the index to
-`editor.menuIndex`. Enter is not: the editor's `update` resolves it against that index (§123).
+are the application's to handle, because only it knows the caret: ArrowUp/Down and Home/End in
+`OnKeyDownPreventDefault` while a query is open, writing the index to `editor.menuIndex`, and
+Escape, sending the editor's `DismissedSlash`. Enter is not: the editor's `update` resolves it
+against that index, unless Escape closed the menu. Reading the menu's text through
+`menuTextOf` (from `foldkit-richtext-dom/editor-bundle`) is what keeps a view shut while Enter
+splits.
 
 Each item carries `data-entry` (its id), `role="menuitem"`, `aria-current="true"` on the
-highlighted one, and its entry's Message on click. Outside a query the view draws an empty
-list.
+highlighted one, and its entry's Message on click, and draws the entry's icon (when the set
+below has it), label and description. Under `/` alone the entries sit under their groups'
+headings; a query lists the best matches first, without headings, and one that matches nothing
+says "No matches". Outside a query the view draws nothing.
 
 | Slot | Capability | Renders |
 | --- | --- | --- |
 | `root` | Container | the menu's wrapper |
 | `list` | Collection | the list of matches |
+| `heading` | Container | a group's name, before its first entry |
 | `item` | Interactive | one entry, per match |
+| `icon` | Container | the entry's icon |
+| `label` | Container | the entry's label |
+| `description` | Container | the line under the label |
+| `empty` | Container | "No matches" |
+
+## Icons
+
+`richTextIcon(h, name, { size })` draws one of the chrome's icons as inline SVG, stroked in the
+text's color and hidden from assistive technology, so the control it sits in names it.
+`richTextIconUrl(name)` is the same drawing as a CSS `url(…)` for a stylesheet to mask, where a
+rendering's adornment cannot hold an element. The set covers the editor's slash entries (by
+their `icon`), the marks, the blocks an application inserts (table, image, video, audio, file,
+callout, toggle, divider, footnote), and the actions around them (undo, redo, search, replace,
+match-case, download, copy, trash, plus, more, grip, close, check, chevrons, back, contents,
+reset). `isRichTextIcon(name)` says whether a name has a drawing. The drawings are Lucide's,
+under its ISC license, whose notice is in `src/icons.ts`.
 
 ## The block handle
 
@@ -227,6 +275,115 @@ outermost === undefined
 | `grip` | Interactive | what it is dragged by, `data-handle="grip"` |
 | `up` | Interactive | `data-handle="up"` |
 | `down` | Interactive | `data-handle="down"` |
+
+## The table and code toolbars
+
+Toolbars for a block, drawn above it in an element `blockAnchor({ side: 'above' })` places. The
+table toolbar edits the table around the caret's cell; the code toolbar picks a code block's
+language and copies it.
+
+```ts
+import * as RichText from 'foldkit-richtext'
+import { blockAnchor } from 'foldkit-richtext-dom/toolbar'
+import { codeToolbar, tableToolbar } from 'foldkit-mixins-richtext'
+
+const table = RichText.tableAt(model.document, model.editor.selection)
+
+table === undefined
+  ? h.empty
+  : h.div(
+      [
+        h.Key(table.table.id),
+        h.OnMount(blockAnchor({ hostId: 'body', node: table.table.id, gap: 6, side: 'above' })),
+      ],
+      [
+        tableToolbar<Message>()(
+          { document: model.document, selection: model.editor.selection, wrap: edited },
+          h,
+        ),
+      ],
+    )
+
+codeToolbar<Message>()(
+  {
+    document: model.document,
+    node: code.id,
+    languages: [{ id: 'typescript', label: 'TypeScript' }, { id: '', label: 'Plain text' }],
+    wrap: edited,
+    copied: Message.CopiedCode({ node: code.id }),
+  },
+  h,
+)
+```
+
+- **The table toolbar** sends the editor's `InsertedRow` and `InsertedColumn` (`before`,
+  `after`), `DeletedRow`, `DeletedColumn`, `DeletedBlock` for the whole table, and `ChangedProps`
+  on the first row's `header`, which its button shows pressed. Every button is disabled outside a
+  table (`RichText.tableAt` finds none), so it can be drawn always or only there. The editor
+  takes Tab and Shift+Tab in a cell to move between cells, and Tab in the last adds a row.
+- **The code toolbar** shows the block's `language` in a picker and sets it with
+  `ChangedProps`, so it is saved and undone with the text; a language the list does not name is
+  offered as itself. Copy sends the caller's Message, since the clipboard is a Command: copy
+  `RichText.toText([block])`.
+
+| Slot | Capability | Renders |
+| --- | --- | --- |
+| `TableToolbarSlots.root` | Container | the wrapper |
+| `TableToolbarSlots.toolbar` | Collection | `role="toolbar"` |
+| `TableToolbarSlots.button` | Interactive | one per change, `data-table` (`row-above`, …) |
+| `CodeToolbarSlots.root` | Container | `role="toolbar"` |
+| `CodeToolbarSlots.language` | Interactive | the `select` |
+| `CodeToolbarSlots.copy` | Interactive | `data-code="copy"` |
+
+## Find and replace
+
+`findReplace<Message>()` is the find bar. The query, the replacement, which match is current
+and whether case counts are the caller's Model; the matches are `RichText.findMatches` of the
+document, and replacing is the editor's `ReplacedText`, an edit with its undo step.
+
+- Enter in the find field goes to the next match and Shift+Enter to the previous, wrapping at
+  either end. The bar sends `stepped(1)` or `stepped(-1)`, and the caller's `update` moves its
+  current match with `stepMatch(current, count, step)`: two keys can arrive before the bar is
+  drawn again, so the step is applied to the Model, not to the index the bar last showed. Escape in either
+  field sends `closed`.
+- The count reads `2 of 5`, or `No matches`; Replace and Replace all are disabled without one.
+- To show the matches, overlay `RichText.searchDecorations(document, query, { current })` on the
+  editor (`overlay(hostId, decorations)`), and set it again when the document changes.
+
+| Slot | Capability | Renders |
+| --- | --- | --- |
+| `root` | Container | `role="search"` |
+| `field` | TextInput | the find and replacement fields, `data-find="query"` and `"replacement"` |
+| `count` | Container | the count, `aria-live` |
+| `button` | Interactive | `data-find`: `previous`, `next`, `case`, `replace`, `replace-all`, `close`; the first three and `close` draw an icon, named by `aria-label` and `title` |
+
+## The table of contents
+
+`tableOfContents<Message>()` draws `RichText.outlineOf(document)` as a `nav` of buttons, the
+section the selection is in (`RichText.sectionAt`) marked `aria-current="location"`. Choosing an
+entry sends `chosen(node)`; going there is the caller's, usually the editor's `focus(hostId,
+selection)` Command with a caret at the heading's start. Nothing is drawn without headings.
+
+| Slot | Capability | Renders |
+| --- | --- | --- |
+| `root` | Container | the `nav`, labelled Contents |
+| `list` | Container | the `ul` |
+| `entry` | Interactive | a heading's button, its depth as `--fk-toc-level` (1 for the shallowest level used) |
+
+## The footnote preview
+
+`footnotePreview<Message>()` is drawn while the caret is in a footnote reference
+(`RichText.footnoteAt`), and is empty everywhere else, so a caller can anchor it at the selection
+and draw it always. It shows the note's text ("No note yet" when there is none), Go to note, which
+sends `opened(definition)` (the caller usually gives the editor the focus there with `focus`), and
+the label as a field that sends the editor's `RenamedFootnote` when it changes.
+
+| Slot | Capability | Renders |
+| --- | --- | --- |
+| `root` | Container | `role="group"`, labelled with the footnote |
+| `label` | TextInput | the label field |
+| `text` | Container | the note's text |
+| `button` | Interactive | Go to note, disabled with no definition |
 
 ## The command palette
 

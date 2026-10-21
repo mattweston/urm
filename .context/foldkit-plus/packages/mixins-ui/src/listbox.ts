@@ -1,5 +1,17 @@
-import { Attr, Capability, Event, Slot, Slots, type SlotAttributes } from 'foldkit-mixins'
-import type { Html } from 'foldkit/html'
+import { Option } from 'effect'
+import {
+  Attr,
+  Behavior,
+  Capability,
+  Event,
+  Slot,
+  Slots,
+  type SlotAttributes,
+  type SlotBuilder,
+} from 'foldkit-mixins'
+import type { Html, HtmlBuilder } from 'foldkit/html'
+import { FluidHover, Measure, ScrollBars } from 'foldkit-primitives/dom'
+import { scrollBarOf } from './popupScroll.js'
 import { buildersOf, type MixinList, type ResolveContext } from './resolve.js'
 import type {
   ListboxGroupRender,
@@ -7,6 +19,7 @@ import type {
   ListboxItemRender,
   ListboxRenderInfo,
 } from './listboxView.js'
+import { drawListbox } from './popupView.js'
 
 /**
  * Listbox is a nested Submodel: one `button`/`backdrop`/`items` group plus
@@ -20,6 +33,10 @@ import type {
  * item owns `click` while interactive. A Behavior adding its own handler to
  * one of those is a conflict, not a second silent owner. Disabled buttons
  * and items publish no click, so the contract still lists it as allowed.
+ *
+ * The slots from `itemContent` on are the parts of a select drawn over the
+ * listbox, which `parts` draws: an option's icon, label, description and
+ * check, and the trigger's value (or placeholder) and chevron.
  */
 export const ListboxSlots = Slots.define({
   wrapper: Slot.make({ capability: Capability.Container }),
@@ -43,7 +60,124 @@ export const ListboxSlots = Slots.define({
   group: Slot.make({ capability: Capability.Container, attributes: [Attr.Role] }),
   heading: Slot.make({ capability: Capability.Container }),
   separator: Slot.make({ capability: Capability.Container, attributes: [Attr.Role] }),
+  rows: Slot.make({ capability: Capability.Container }),
+  highlight: Slot.make({ capability: Capability.Container }),
+  indicator: Slot.make({ capability: Capability.Container }),
+  scrollBar: Slot.make({ capability: Capability.Container }),
+  scrollThumb: Slot.make({ capability: Capability.Container }),
+  itemContent: Slot.make({ capability: Capability.Container }),
+  itemIcon: Slot.make({ capability: Capability.Container }),
+  itemText: Slot.make({ capability: Capability.Container }),
+  itemLabel: Slot.make({ capability: Capability.Container }),
+  itemDescription: Slot.make({ capability: Capability.Container }),
+  itemCheck: Slot.make({ capability: Capability.Container }),
+  value: Slot.make({ capability: Capability.Container }),
+  valueText: Slot.make({ capability: Capability.Container }),
+  chevron: Slot.make({ capability: Capability.Container }),
 })
+
+/** What an option shows, in the list and, once chosen, on the trigger. */
+export interface OptionContent {
+  readonly label: string
+  /** A line under the label, in the list only. */
+  readonly description?: string | undefined
+  /** Drawn before the label, in the list and on the trigger. */
+  readonly icon?: Html | undefined
+}
+
+type OptionSlot =
+  | 'itemContent'
+  | 'itemIcon'
+  | 'itemText'
+  | 'itemLabel'
+  | 'itemDescription'
+  | 'itemCheck'
+
+/** `label` with each stretch that matches `query`, ignoring case, in the `match` builder's mark. */
+const marked = <Message>(
+  label: string,
+  query: string,
+  match: SlotBuilder<Message>,
+  h: HtmlBuilder<Message>,
+): ReadonlyArray<Html | string> => {
+  const needle = query.trim().toLowerCase()
+  if (needle === '') return [label]
+  const hay = label.toLowerCase()
+  const out: Array<Html | string> = []
+  let from = 0
+  for (let at = hay.indexOf(needle); at !== -1; at = hay.indexOf(needle, from)) {
+    if (at > from) out.push(label.slice(from, at))
+    out.push(h.mark(match.attrs(), [label.slice(at, at + needle.length)]))
+    from = at + needle.length
+  }
+  if (from < label.length) out.push(label.slice(from))
+  return out
+}
+
+/**
+ * An option's content in the slots Listbox and Combobox share: its icon,
+ * its label (the stretches matching `query` marked, where a `match` slot is
+ * given), its description, and the check the chosen row shows.
+ */
+export const drawOption = <Message>(
+  builders: { readonly [K in OptionSlot]: SlotBuilder<Message> } & {
+    readonly match?: SlotBuilder<Message>
+  },
+  h: HtmlBuilder<Message>,
+  content: OptionContent,
+  query = '',
+): Html =>
+  h.span(builders.itemContent.attrs(), [
+    ...iconOf(builders.itemIcon, h, content.icon),
+    h.span(builders.itemText.attrs(), [
+      h.span(
+        builders.itemLabel.attrs(),
+        builders.match === undefined
+          ? [content.label]
+          : marked(content.label, query, builders.match, h),
+      ),
+      ...(content.description === undefined
+        ? []
+        : [h.span(builders.itemDescription.attrs(), [content.description])]),
+    ]),
+    // The row's `aria-selected` says it is chosen; the check is drawn for the eye.
+    h.span(builders.itemCheck.attrs([h.AriaHidden(true)]), []),
+  ])
+
+const iconOf = <Message>(
+  builder: SlotBuilder<Message>,
+  h: HtmlBuilder<Message>,
+  drawn: Html | undefined,
+) => (drawn === undefined ? [] : [h.span(builder.attrs([h.AriaHidden(true)]), [drawn])])
+
+/**
+ * The parts of a select over this listbox, in its slots: `option` is an
+ * item's content (`itemToConfig`), and `trigger` the button's
+ * (`buttonContent`), the chosen option's icon and label or the placeholder,
+ * then the chevron. Pass the mixins the listbox's `toView` gets.
+ */
+export const parts = <Message>(
+  mixins: MixinList<Message>,
+  context: ResolveContext<unknown, Message>,
+) => {
+  const builders = buildersOf(ListboxSlots, mixins, context)
+  const { h } = context
+  return {
+    option: (content: OptionContent): Html => drawOption(builders, h, content),
+    trigger: (chosen: Option.Option<OptionContent>, placeholder: string): Html =>
+      h.span(builders.value.attrs(), [
+        ...Option.match(chosen, {
+          onNone: () => [],
+          onSome: content => iconOf(builders.itemIcon, h, content.icon),
+        }),
+        h.span(
+          builders.valueText.attrs([h.DataAttribute('placeholder', String(Option.isNone(chosen)))]),
+          [Option.match(chosen, { onNone: () => placeholder, onSome: content => content.label })],
+        ),
+        h.span(builders.chevron.attrs([h.AriaHidden(true)]), []),
+      ]),
+  }
+}
 
 export type ResolvedListboxItem<Message> = Omit<ListboxItemRender, 'attributes'> & {
   readonly attributes: SlotAttributes<Message>
@@ -74,6 +208,18 @@ export type ResolvedListbox<Message> = Omit<
   readonly backdrop: { key: string; attributes: SlotAttributes<Message> } | undefined
   readonly items: { key: string; attributes: SlotAttributes<Message> } | undefined
   readonly scroll: SlotAttributes<Message> | undefined
+  /**
+   * The box of the open panel's rows, which `fluid` runs on, and the hover it
+   * moves, drawn first in it: this package's, with no upstream bundle (the
+   * panel itself carries upstream's anchor, and an element holds one Mount).
+   */
+  readonly rows: SlotAttributes<Message> | undefined
+  readonly highlight: SlotAttributes<Message> | undefined
+  /** The marker `fluid` moves to the chosen row, drawn beside the highlight. */
+  readonly indicator: SlotAttributes<Message> | undefined
+  /** The overlay bar `overlayBars` drives, beside `scroll` in the panel, and its thumb: only with `scroll`. */
+  readonly scrollBar: SlotAttributes<Message> | undefined
+  readonly scrollThumb: SlotAttributes<Message> | undefined
   readonly groups: ReadonlyArray<ResolvedListboxGroup<Message>>
 }
 
@@ -106,6 +252,16 @@ export const resolve = <Input, Message>(
             attributes: builders.items.attrs(render.items.attributes),
           },
     scroll: render.scroll === undefined ? undefined : builders.scroll.attrs(render.scroll),
+    rows: render.items === undefined ? undefined : builders.rows.attrs(),
+    highlight:
+      render.items === undefined
+        ? undefined
+        : builders.highlight.attrs([context.h.AriaHidden(true)]),
+    indicator:
+      render.items === undefined
+        ? undefined
+        : builders.indicator.attrs([context.h.AriaHidden(true)]),
+    ...scrollBarOf(render.scroll !== undefined, builders, context.h),
     groups: render.groups.map(group => ({
       key: group.key,
       heading:
@@ -139,12 +295,72 @@ export const resolve = <Input, Message>(
   }
 }
 
-/** The listbox's `toView`: `draw` receives its bundles with `mixins` applied. */
+/**
+ * The listbox's `toView`: `draw` receives its bundles with `mixins` applied.
+ * Without one, it draws upstream's markup from them.
+ */
 export const toView =
   <Message>(
     mixins: MixinList<Message>,
     context: ResolveContext<unknown, Message>,
-    draw: (resolved: ResolvedListbox<Message>) => Html,
+    draw: (resolved: ResolvedListbox<Message>) => Html = resolved =>
+      drawListbox(resolved, context.h),
   ) =>
   (render: ListboxRenderInfo): Html =>
     draw(resolve(render, mixins, context))
+
+const chosen = '[aria-selected="true"]'
+
+/**
+ * What moves the open panel's `highlight` and `indicator`: on its rows,
+ * the chosen row is measured (`--fk-popup-chosen-*`) and one highlight
+ * follows the pointer to the nearest row (`--fk-popup-hover-*`),
+ * and to the row the keys mark (`data-active`) while the pointer is away.
+ * Pass them beside the style; until they run, each row marks itself.
+ */
+export const fluid = [
+  Behavior.forSlots(ListboxSlots)<unknown, never>(
+    {
+      rows: Behavior.slot({
+        requires: { capability: Capability.Container },
+        mount: () => Measure({ targets: { 'popup-chosen': chosen } }),
+      }),
+    },
+    { name: 'ListboxChosen' },
+  ).mixin,
+  Behavior.forSlots(ListboxSlots)<unknown, never>(
+    {
+      rows: Behavior.slot({
+        requires: { capability: Capability.Container },
+        mount: () =>
+          FluidHover({
+            name: 'popup-hover',
+            item: '[role="option"]',
+            axis: 'y',
+            gapClick: true,
+            follows: '[data-active]',
+            from: chosen,
+          }),
+      }),
+    },
+    { name: 'ListboxHover' },
+  ).mixin,
+] as const
+
+/**
+ * What draws the open panel's `scrollBar` over its `scroll` (`ScrollBars`),
+ * in place of the browser's bar, on a pointer that can hover. Pass it beside
+ * the style when the listbox scrolls (`itemsScrollAttributes`); without a
+ * `scroll` there is no bar.
+ */
+export const overlayBars = [
+  Behavior.forSlots(ListboxSlots)<unknown, never>(
+    {
+      scroll: Behavior.slot({
+        requires: { capability: Capability.Container },
+        mount: () => ScrollBars({}),
+      }),
+    },
+    { name: 'ListboxScrollBars' },
+  ).mixin,
+] as const

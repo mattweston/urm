@@ -2,15 +2,20 @@
  * The controlled-Bundle proof (§27). Each case drives one parent transition and
  * asserts what that single step committed, or deliberately did not.
  */
+import { Option } from 'effect'
 import { describe, expect, it } from 'vitest'
 import * as RichText from 'foldkit-richtext'
 import {
   application,
   Editor,
   applied,
+  changedProps,
   cleared,
   converted,
+  deleted,
+  edited,
   editorAt,
+  inserted,
   lifted,
   moved,
   patched,
@@ -21,12 +26,19 @@ import {
   toggled,
   typed,
   undone,
+  menuTextOf,
   update,
   wrapped,
   type Model,
   type ParentMessage,
 } from '../src/editor-bundle.js'
-import { decorationsFor, placeholderFor, placeOverlay, renderingFor } from '../src/host.js'
+import {
+  decorationsFor,
+  keymapFor,
+  placeholdersFor,
+  placeOverlay,
+  renderingFor,
+} from '../src/host.js'
 import { Message } from '../src/editor.js'
 
 const id = RichText.NodeId.make
@@ -82,6 +94,7 @@ describe('one transition commits document and interaction state', () => {
       'menuIndex',
       'nextId',
       'selection',
+      'slashDismissed',
       'storedMarks',
     ])
   })
@@ -250,6 +263,7 @@ describe('rejection and external replacement', () => {
         history: RichText.emptyHistory,
         storedMarks: null,
         menuIndex: 0,
+        slashDismissed: Option.none(),
         hostId: before.editor.hostId,
       },
     }
@@ -448,6 +462,67 @@ describe('Enter in a live slash query (§123)', () => {
     const after = step(asked('plain text'), pressed('Entered'))
     expect(after.document.children).toHaveLength(2)
   })
+  describe('after Escape', () => {
+    const dismiss = (model: Model): Model => step(model, edited(Message.DismissedSlash()))
+    const view = (model: Model) => ({ document: model.document, ...model.editor })
+
+    it('splits on Enter, and the menu reads no query', () => {
+      const closed = dismiss(asked('/h2'))
+      expect(menuTextOf(view(closed))).toBe('')
+      const after = step(closed, pressed('Entered'))
+      expect(after.document.children).toHaveLength(2)
+      expect(after.document.children[0]?.children[0]?.text).toBe('/h2')
+    })
+
+    it('stays closed while the query is typed on', () => {
+      const typedOn = step(dismiss(asked('/h')), typed('2'))
+      expect(menuTextOf(view(typedOn))).toBe('')
+      expect(step(typedOn, pressed('Entered')).document.children).toHaveLength(2)
+    })
+
+    it('ends with its query, so a slash typed again opens a menu', () => {
+      const ended = step(dismiss(asked('/h2')), typed(' '))
+      expect(ended.editor.slashDismissed).toEqual(Option.none())
+      const again = step(ended, typed('/h1'))
+      expect(menuTextOf(view(again))).toBe('/h2 /h1')
+      expect(step(again, pressed('Entered')).document.children[0]).toMatchObject({
+        type: 'Heading',
+        level: 1,
+      })
+    })
+
+    it('keeps the Model when there is no query to close, or it is closed already', () => {
+      // The editor's own update, which the parent's write would otherwise hide.
+      const keeps = (model: Model) => {
+        const before = view(model)
+        const after = Editor.update(before, Message.DismissedSlash(), { hostId: before.hostId })
+        expect(after.model).toBe(before)
+      }
+      keeps(asked('plain'))
+      keeps(dismiss(asked('/h2')))
+    })
+
+    it('closes only its own query: another the caret moves to opens', () => {
+      const document = RichText.decodeDocument({
+        version: 1,
+        children: [
+          {
+            type: 'Paragraph',
+            id: 'p',
+            children: [{ type: 'Text', id: 'a', text: '/h2', marks: [] }],
+          },
+          {
+            type: 'Paragraph',
+            id: 'q',
+            children: [{ type: 'Text', id: 'b', text: '/h1', marks: [] }],
+          },
+        ],
+      })
+      const model = application.initial({ document }).model
+      const closed = dismiss({ ...model, editor: { ...model.editor, selection: caret('a', 3) } })
+      expect(menuTextOf(view(step(closed, selected(caret('b', 3)))))).toBe('/h1')
+    })
+  })
 })
 
 describe('the block Messages an application sends', () => {
@@ -471,6 +546,104 @@ describe('the block Messages an application sends', () => {
   it('moves a block with no selection, since a handle names its block', () => {
     const after = step(start(null), moved(id('q'), { before: id('p') }))
     expect(after.document.children.map(block => block.id)).toEqual(['q', 'p'])
+  })
+
+  it('inserts a block beside the caret’s, or where it names, as one undoable step', () => {
+    const rule = {
+      type: 'Node',
+      kind: 'ThematicBreak',
+      id: id('x'),
+      props: {},
+      children: [],
+    } as const
+    const atCaret = step(start(caret('a', 1)), inserted(rule))
+    expect(
+      atCaret.document.children.map(block => (block.type === 'Node' ? block.kind : block.id)),
+    ).toEqual(['p', 'ThematicBreak', 'q'])
+    const named = step(start(null), inserted(rule, { before: id('p') }))
+    expect(named.document.children[0]).toMatchObject({ kind: 'ThematicBreak' })
+    const back = step(atCaret, undone())
+    expect(back.document.children.map(block => block.id)).toEqual(['p', 'q'])
+  })
+
+  it('deletes a block it names, as one undoable step', () => {
+    const after = step(start(caret('a', 1)), deleted(id('p')))
+    expect(after.document.children.map(block => block.id)).toEqual(['q'])
+    expect(after.editor.selection).toEqual(caret('b', 0))
+    expect(step(after, undone()).document.children.map(block => block.id)).toEqual(['p', 'q'])
+  })
+
+  it('edits a table around the caret’s cell, and Tab moves to the next cell', () => {
+    const cell = (name: string) => ({
+      type: 'Node',
+      kind: 'TableCell',
+      id: `c${name}`,
+      props: {},
+      children: [],
+      blocks: [
+        {
+          type: 'Paragraph',
+          id: `p${name}`,
+          children: [{ type: 'Text', id: name, text: name, marks: [] }],
+        },
+      ],
+    })
+    const grid = RichText.decodeDocument({
+      version: 1,
+      children: [
+        {
+          type: 'Node',
+          kind: 'Table',
+          id: 't',
+          props: {},
+          children: [],
+          blocks: [
+            {
+              type: 'Node',
+              kind: 'TableRow',
+              id: 'r',
+              props: {},
+              children: [],
+              blocks: [cell('a'), cell('b')],
+            },
+          ],
+        },
+      ],
+    })
+    const initial = application.initial({ document: grid }).model
+    const model: Model = { ...initial, editor: { ...initial.editor, selection: caret('a', 0) } }
+    const rows = (next: Model) => {
+      const table = next.document.children[0]
+      return table?.type === 'Node' ? (table.blocks ?? []).length : 0
+    }
+    expect(rows(step(model, edited(Message.InsertedRow({ where: 'after' }))))).toBe(2)
+    const tabbed = step(model, edited(Message.Indented()))
+    expect(tabbed.editor.selection).toEqual(caret('b', 0))
+  })
+
+  it('reports an adornment’s action and changes nothing', () => {
+    const model = start(caret('a', 1))
+    expect(step(model, edited(Message.ActivatedAdornment({ node: id('p'), action: 'copy' })))).toBe(
+      model,
+    )
+  })
+
+  it('sets a node block’s props, as a checkbox does', () => {
+    const tasks = RichText.decodeDocument({
+      version: 1,
+      children: [
+        {
+          type: 'Node',
+          kind: 'TaskItem',
+          id: 't',
+          props: { checked: false },
+          children: [{ type: 'Text', id: 'r', text: 'x', marks: [] }],
+        },
+      ],
+    } as never)
+    const model = application.initial({ document: tasks }).model
+    const after = step(model, changedProps(id('t'), { checked: true }))
+    expect(after.document.children[0]).toMatchObject({ props: { checked: true } })
   })
 
   it('converts the caret’s block to a kind that holds text', () => {
@@ -613,12 +786,88 @@ describe('decorations placed for the editor (§129)', () => {
   })
 })
 
-describe('a placeholder placed for the editor', () => {
-  it('records the placeholder, and forgets it when the id is placed again without one', () => {
-    editorAt('hinting-editor', { placeholder: 'Write something…' })
-    expect(placeholderFor('hinting-editor')).toBe('Write something…')
+describe('the chords placed for the editor', () => {
+  it('records them, and forgets them when the id is placed again without', () => {
+    const keymap = [{ chord: 'Mod-u', command: { type: 'ToggleMark', mark: 'Underline' } }] as const
+    editorAt('chorded-editor', { keymap })
+    expect(keymapFor('chorded-editor')).toEqual(keymap)
+    editorAt('chorded-editor')
+    expect(keymapFor('chorded-editor')).toEqual([])
+  })
+})
+
+describe('the placeholders placed for the editor', () => {
+  it('records them, and forgets them when the id is placed again without', () => {
+    editorAt('hinting-editor', { placeholder: 'Write something…', lineHint: 'Type /' })
+    expect(placeholdersFor('hinting-editor')).toEqual({
+      placeholder: 'Write something…',
+      lineHint: 'Type /',
+    })
     editorAt('hinting-editor')
-    expect(placeholderFor('hinting-editor')).toBeUndefined()
+    expect(placeholdersFor('hinting-editor')).toEqual({
+      placeholder: undefined,
+      lineHint: undefined,
+    })
+  })
+})
+
+describe('slash entries placed for the editor', () => {
+  it('are what Enter in a query resolves against', () => {
+    editorAt('slashing-editor', {
+      slashEntries: [
+        {
+          id: 'divider',
+          label: 'Divider',
+          keywords: ['hr'],
+          message: Message.InsertedBlock({
+            block: { type: 'Node', kind: 'ThematicBreak', id: id('d'), props: {}, children: [] },
+          }),
+        },
+      ],
+    })
+    const asked = RichText.decodeDocument({
+      version: 1,
+      children: [
+        {
+          type: 'Paragraph',
+          id: 'p',
+          children: [{ type: 'Text', id: 'a', text: '/hr', marks: [] }],
+        },
+      ],
+    })
+    const initial = application.initial({ document: asked }).model
+    const placed: Model = {
+      ...initial,
+      editor: { ...initial.editor, hostId: 'slashing-editor', selection: caret('a', 3) },
+    }
+    const after = step(placed, pressed('Entered'))
+    // The query is gone, and the blank line it leaves stays below the divider to type on.
+    expect(
+      after.document.children.map(block => (block.type === 'Node' ? block.kind : block.id)),
+    ).toEqual(['ThematicBreak', 'p'])
+  })
+
+  it('default to the editor’s own when a placement names none', () => {
+    editorAt('slashing-editor')
+    const asked = RichText.decodeDocument({
+      version: 1,
+      children: [
+        {
+          type: 'Paragraph',
+          id: 'p',
+          children: [{ type: 'Text', id: 'a', text: '/h2', marks: [] }],
+        },
+      ],
+    })
+    const initial = application.initial({ document: asked }).model
+    const placed: Model = {
+      ...initial,
+      editor: { ...initial.editor, hostId: 'slashing-editor', selection: caret('a', 3) },
+    }
+    expect(step(placed, pressed('Entered')).document.children[0]).toMatchObject({
+      type: 'Heading',
+      level: 2,
+    })
   })
 })
 
@@ -631,6 +880,23 @@ describe('an input rule placed for the editor (§124 §4)', () => {
         ? { remove: 2, commands: [{ type: 'RetypeBlock', to: { type: 'Heading', level: 1 } }] }
         : undefined,
   }
+
+  it('takes the marks a rule says the next text carries, unless the rule is refused', () => {
+    // `!` ends the bold the caret would otherwise carry on.
+    const ending: RichText.InputRule = {
+      name: 'ending',
+      match: textBefore =>
+        textBefore.endsWith('!') ? { remove: 0, commands: [], storedMarks: [] } : undefined,
+    }
+    editorAt('rule-editor', { inputRules: [ending] })
+    const initial = start(caret('b', 2))
+    const placed: Model = {
+      ...initial,
+      editor: { ...initial.editor, hostId: 'rule-editor', storedMarks: ['Italic'] },
+    }
+    expect(step(placed, typed('!')).editor.storedMarks).toEqual([])
+    expect(step(placed, typed('?')).editor.storedMarks).toEqual(['Italic'])
+  })
 
   it('runs the rule as the marker is completed, in the same transition', () => {
     editorAt('rule-editor', { inputRules: [heading] })
@@ -767,24 +1033,26 @@ describe('an input rule placed for the editor (§124 §4)', () => {
 })
 
 describe('a Message that changes nothing keeps the Model', () => {
-  // A fresh selection equal by value: what `selectionchange` reports back.
-  it.each<[string, RichText.Selection | null, ParentMessage]>([
-    ['the patch Command’s completion', caret('a', 1), patched()],
-    ['the same caret, reported again', caret('a', 1), selected(caret('a', 1))],
+  // A fresh selection equal by value: what `selectionchange` reports back. An edit the
+  // editor asked for is answered though it changed nothing, so the input held behind it goes.
+  it.each<[string, RichText.Selection | null, ParentMessage, ReadonlyArray<string>]>([
+    ['the patch Command’s completion', caret('a', 1), patched(), []],
+    ['the same caret, reported again', caret('a', 1), selected(caret('a', 1)), []],
     [
       'the same range, reported again',
       range(['a', 0], ['b', 1]),
       selected(range(['a', 0], ['b', 1])),
+      [],
     ],
-    ['no selection, reported again', null, selected(null)],
-    ['Backspace at the document’s start', caret('a', 0), pressed('Backspace')],
-    ['undo with nothing to undo', caret('a', 1), undone()],
-    ['a refused command', caret('a', 1), toggled('Nope')],
-  ])('%s', (_, selection, message) => {
+    ['no selection, reported again', null, selected(null), []],
+    ['Backspace at the document’s start', caret('a', 0), pressed('Backspace'), ['RichText.answer']],
+    ['undo with nothing to undo', caret('a', 1), undone(), []],
+    ['a refused command', caret('a', 1), toggled('Nope'), ['RichText.answer']],
+  ])('%s', (_, selection, message, commands) => {
     const model = start(selection)
     const result = update(model, message)
     expect(result.model).toBe(model)
-    expect(result.commands ?? []).toEqual([])
+    expect((result.commands ?? []).map(command => command.name)).toEqual(commands)
   })
 
   it('keeps the caret’s stored marks when the caret is reported where it is', () => {

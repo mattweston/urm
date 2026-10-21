@@ -79,8 +79,10 @@ item is one step of [ssr-PLAN.md](./ssr-PLAN.md) Phase S, with its test.
   module through a server so the config names a file; `foundations` in
   `foldkit-mixins` compiles the sheet module into the head. The CMS example
   builds through both and deletes its script and local plugin.
-- [ ] **S8. A chosen theme before the first paint:** `local` in the plan, and a
-  head script from `foldkit-mixins`' `Theme` that sets it from storage.
+- [x] **S8. A chosen theme before the first paint:** `local` in the plan, and a
+  head script from `foldkit-mixins`' `Theme` that sets it from storage. Built
+  2026-10-13: `Theme.schemeScript`, `chooseScheme` and `currentScheme`; the
+  docs site's Auto/Light/Dark choice is `local`, read back in its plan's `boot`.
 - [ ] **S9. Localized pages:** the locale in the route, `lang` from the Model,
   `hreflang` alternates in the head and sitemap, words and formats by explicit
   locale.
@@ -115,35 +117,53 @@ item is one step of [ssr-PLAN.md](./ssr-PLAN.md) Phase S, with its test.
   [richtext-DESIGN.md](./richtext-DESIGN.md) status
 - [ ] Renderers per kind, and metadata, for a Kit's content contract.
   [richtext-DESIGN.md](./richtext-DESIGN.md) "Not yet"
-- [ ] Release the six rich-text packages. They are public at 0.1.0 but not
-  published yet. [richtext-DESIGN.md](./richtext-DESIGN.md) status
+- [x] Release the six rich-text packages. Published; at v0.19.0 they are 0.2.0
+  to 0.4.0. [richtext-DESIGN.md](./richtext-DESIGN.md) status
 
 ## Page builder
 
 - [ ] **7c-2:** edit rich text on the canvas.
   [pagebuilder-DESIGN.md](./pagebuilder-DESIGN.md) §28
-- [ ] Publish `foldkit-composition`, `foldkit-builder` and
-  `foldkit-mixins-builder`. They are private at 0.0.0.
+- [x] Publish `foldkit-composition`, `foldkit-builder` and
+  `foldkit-mixins-builder`. Published since 2026-10-06; 0.3.0 in v0.19.0.
   [pagebuilder-DESIGN.md](./pagebuilder-DESIGN.md)
 
 ## Data, query and Remote
 
 - [ ] **Query Phase 13:** joins and aggregates.
+- [x] **`and`, `or` and `not` in a query body,** through the evaluator, the
+  Drizzle compiler (settling field-free operands per request), Remote's
+  matching and the memory server; comparisons after, as their own design.
+  [query-logic-DESIGN.md](./query-logic-DESIGN.md) Built 2026-10-12 with
+  `Expr.whenGiven`, and the registry's search over description or UPC.
+  Comparisons (`lt`, `lte`, `gt`, `gte`) built 2026-10-13; Guard keeps its own
+  `Condition`, which holds `Inherit` too (see the design's phase 5).
   [data-query-DESIGN.md](./data-query-DESIGN.md) §32
 - [ ] **Local execution Phase 4:** position placement (only the decidable half
   is built). [local-execution-DESIGN.md](./local-execution-DESIGN.md) §13
-- [ ] **Remote-drizzle against a live Postgres.** Revision Phase 14's acceptance
+- [x] **Remote-drizzle against a live Postgres.** Revision Phase 14's acceptance
   has not run; tests cover SQLite and the Pg compiler only. That decides open
-  question 7. [REVISION_PLAN.md](./REVISION_PLAN.md) §20
-- [ ] **Entity DX item 10:** a branded "put the field on the left" error for a
-  reversed operand, plus documentation of operand orientation.
+  question 7. Done 2026-10-13 on PGlite (Postgres itself, as WebAssembly): the
+  query semantics, paging, writes, and now the batched relation graph and the
+  ranked nested pages (`test/nested.test.ts` runs each case on both). The
+  package shipped. [REVISION_PLAN.md](./REVISION_PLAN.md) §20
+- [x] **Entity DX item 10:** a branded "put the field on the left" error for a
+  reversed operand, plus documentation of operand orientation. Done
+  2026-10-13: a plain value on the left types the right side as an `Invalid`
+  naming the order. The plan's workaround, `Expr.literal`, is not public, and
+  would not type a field on the right either.
   [entity-DX-PLAN.md](./entity-DX-PLAN.md)
-- [ ] **Entity DX item 12:** a predicate over the wrong Entity is a runtime error;
-  an owner type parameter on `FieldExpr` would make it a type error.
+- [x] **Entity DX item 12:** a predicate over the wrong Entity is a runtime error;
+  an owner type parameter on `FieldExpr` would make it a type error. Done
+  2026-10-13 another way: a type-only `Reads<Names>` on every predicate
+  constructor's result, checked by `Query.where`, and on ordering terms by
+  `Query.orderBy`.
   [entity-DX-PLAN.md](./entity-DX-PLAN.md)
-- [ ] **Entity DX item 13:** a query body with no ordering fails when it is
+- [x] **Entity DX item 13:** a query body with no ordering fails when it is
   registered, through remote-drizzle's runtime throw; make it a compile-time
-  error. [entity-DX-PLAN.md](./entity-DX-PLAN.md)
+  error. Declined 2026-10-13, as the plan itself weighs it: an `Ordered` type
+  parameter through `from`, `where` and `orderBy` costs more inference noise
+  than a refusal at boot, which already names the query. [entity-DX-PLAN.md](./entity-DX-PLAN.md)
 - [ ] **Entity §54:** Remote integration beyond its first slice
   (`Entity.from`/`Selection.from`). [entity-DESIGN.md](./entity-DESIGN.md) §54
 - [x] **Query native findings** ([query-native-FINDINGS.md](./query-native-FINDINGS.md),
@@ -200,10 +220,74 @@ questions still open.
 - [x] **11. Docs.** `packages/guard/README.md` (type-checked by
   `test/readme.test-d.ts`), the skill's row and `references/guard.md`,
   `CHANGELOG.md` per slice.
-- [ ] **Routing's `Me` Entity.** One row per principal with route-level
-  interactions, read with `Guards.may`; navigation and `Surface.when` derive
-  from it. Belongs with the third routing cut. §8a,
+- [x] **The `Me` Entity:** `Guards.me` and `GuardServer.me`, one row with
+  `signedIn`, `key` and `may` for named interactions. §8a,
+  [auth-DESIGN.md](./auth-DESIGN.md) §6.1 (slice 7)
+- [ ] **Navigation and `Surface.when` from `Me`.** Derive link visibility and
+  presentation from `Me.may`. Belongs with the third routing cut.
   [router-DESIGN.md](./router-DESIGN.md) §34.4
+
+## Authentication
+
+Who is asking, through Yielded Auth. [auth-DESIGN.md](./auth-DESIGN.md) §9
+orders the slices; step 0 and slices 1–10 are built.
+
+- [x] **0. Effect ≥ 4.0.4.** Yielded's peer is `^4.0.3`, Foldkit's exactly
+  `4.0.0`: Foldkit's peers allowed and one override, `randomUUIDv4()` in two
+  Foldkit examples, the `mixins-builder` tests given a `ResizeObserver`. §3
+- [ ] **Ask Foldkit to widen its `effect` peer** to `^4.0.0`, so applications
+  need no override. The maintainer's to send. §3
+- [x] **1. One principal resolver.** An Effect refusing with
+  `RemoteUnauthenticated` in `serveFetch` and `defineDocumentHost`. §5.1
+- [x] **agent-mcp's `authenticate` as an Effect,** refusing with
+  `Unauthenticated` (structurally Remote's), a 401 with its reason. §5.1
+- [ ] **A Yielded bearer resolver for agents.** MCP clients send a bearer
+  token, not a cookie; with Yielded's `OAuthServer` (§9, later, on demand).
+- [x] **2. `RemoteUnauthenticated`** for every Remote call kind. §5.3
+- [x] **3. Services for read rules:** `Policy.provide`, which the read seams
+  take; `Guards.declare` requires `unguarded`. §5.2, §10
+- [x] **4. Revalidating live streams and Sync sockets,** on `serveFetch` and
+  `defineDocumentHost`. §5.5
+- [x] **5. SSR's per-request resources,** for the fallback's Commands. §5.4
+- [x] **6a. `AuthServer.resolver`:** the session cookie, Origin and CSRF,
+  the subject header, `principal`; for `serveFetch`. §6.2
+- [x] **6b. The socket resolver:** `requests: 'browser'`, Origin only, as a
+  browser `WebSocket` sends no header; `defineDocumentHost` takes a `layer`
+  for it, kept while the socket is open. §6.2
+- [x] **6c. SSR's posted-form Origin check:** `SSR.entry`'s `origins`,
+  required by a plan with a server fallback. §5.4
+- [ ] **A posted form whose session ended** is a 500: `resources` cannot
+  fail. Decided: the host's, as `access`'s 303 is (resolve before calling
+  `renderPage`, as `examples/auth`'s `page.ts` does for a `GET`); no plan
+  there posts a form yet to show it. §6.5
+- [x] **A typed refusal:** `RemoteData.denied`. §5.3
+- [ ] **Stopping after a refusal that holds.** Sync's transport and a live
+  stream reopen after a refusal, as Yielded's renewal makes a 4401 routine;
+  stopping needs to tell a refused fresh upgrade from a dropped one, which a
+  browser `WebSocket` does not expose. Today the application's `forget`, on a
+  read's `Unauthenticated`, stops a stream. §5.3, §7
+- [ ] **Left from §6.2's sketch, undecided:** a 415 for a body that is not
+  `application/json`; `Auth.ssr`, a render's principal; Presence's `peerId`
+  as the principal's key; §5.1's Context-key option for `serveFetch`. Each
+  waits for a consumer.
+- [x] **7. `Me`:** in `foldkit-guard` (`Guards.me`, `GuardServer.me`,
+  `Guards.anyone`, `Policy.key`); the resolver's `key` compares the subject
+  header with it. §6.1
+- [x] **8. The client:** `RemoteData.denied`; sign-in, sign-out, the
+  cross-tab channel and the persistence scope are application code over
+  Yielded's client, `Remote.forget` and `foldkit-primitives`. §6.4
+- [x] **The client's `x-foldkit-subject`.** `serveFetch`'s `headers`,
+  `AuthServer.answered` and `believing()`; wired in `examples/auth`. §6.4
+- [x] **9. An example, with an e2e test:** `examples/auth`. §9
+- [x] **The example's SSR.** `examples/auth` renders each page from a read
+  made with the request's cookie. §9
+- [x] **The example's Sync socket.** `PinBoard` over
+  `AuthServer.resolver({ requests: 'browser' })`, served on Node through
+  `documentHost`, tested with replicas over real sockets; no page draws it. §9
+- [x] **10. `Site.access`:** `access` on a node, `Site.accessOf`. §6.5
+- [x] **`access` in the example.** `Notes` sends a visitor home with a
+  `returnTo`: the host's 303 before rendering, `update`'s replace after,
+  both asking one `accessOf`. §6.5, §9
 
 ## CMS
 
@@ -220,8 +304,11 @@ Each item says how it would attach; none is started.
 
 ## Wiring and Bundle
 
-- [ ] Make removing a wiring from `assemble` a type error. Today it compiles and
-  silently drops routing, init and Subscriptions.
+- [x] Make removing a wiring from `assemble` a type error. Today it compiles and
+  silently drops routing, init and Subscriptions. Done 2026-10-13 for a wiring
+  that claims tags (Remote's): its tags leave `own`'s Message, and come back
+  unmatched without it. A wiring of shared tags only (the mirrors) cannot be
+  caught this way.
   [wiring-DESIGN.md](./wiring-DESIGN.md) Deviations
 - [ ] Decide whether Wiring lives in `foldkit-surface` or its own package.
   [wiring-DESIGN.md](./wiring-DESIGN.md) Open questions
@@ -274,7 +361,7 @@ explicit code it replaces stays clearer; elimination (§34.5) is the test.
   settles, entries keyed by the Navigation API. `foldkit-primitives`, or
   upstream in Foldkit's navigation. §33.5 Built 2026-09-29 as
   `keepScroll(options)` in `foldkit-primitives/dom` — a stream lifted with
-  `Subscription.persistent`, sending no Messages — adopted by the studio's
+  `Subscription.persistentEntry`, sending no Messages — adopted by the studio's
   and the site's subscriptions, with the three browser tests moved beside
   it, each killing its rule.
 - [ ] **A delayed busy reveal in `foldkit-mixins`:** `aria-busy` lines shown
@@ -288,36 +375,60 @@ explicit code it replaces stays clearer; elimination (§34.5) is the test.
   Built 2026-09-30 as `foundations` in `foldkit-mixins/foundations` (the
   sheet module compiled through a server into the head), adopted by the CMS
   example's config with its local plugin deleted.
-- [ ] **Targets that know their document,** so a link to another application
-  is a full load and one within it is a Navigate Command. §33.7
-- [ ] **Prefetch a target's data before navigating,** which removes the waits
+- [x] **Targets that know their document,** so a link to another application
+  is a full load and one within it is a Navigate Command. §33.7 Built: a
+  tree is one document; `Site.routeAt(site, url)` is `None` for an address
+  no node takes, and `Site.routing` loads it. The CMS site decides its links
+  and preloads by its tree instead of a `/site` prefix. A generated page of
+  the same application is navigated to, measured 1.3 to 4 times faster
+  than its full load (`docs/benchmarks.md`, `bench:navigation`).
+- [x] **Prefetch a target's data before navigating,** which removes the waits
   the demo still shows between screens. §16, §33.6 The mechanism is built:
   `Site.sourcesFor` is the target chain as Sources, prepared caller-side with
   `Data.satisfy` over a target Model (proved in
-  `packages/site/test/prefetch.test.ts`); deliberately no `SitePlan` object
-  until head/access need carriers. Open: hover/programmatic prefetch in a
-  Remote-backed app.
+  `packages/site/test/prefetch.test.ts`). Built for a running app:
+  `Data.preload`, satisfy as a Command whose reads land as one `Preloaded`
+  Message in the live Model; the CMS site preloads the page a reader points
+  at or tabs to (`examples/cms/e2e/cms.e2e.ts`), and the studio reads a
+  section ahead the same way, into the hidden section's Model, both from
+  `pointedLinks` in `foldkit-primitives/dom`.
 - [x] **The studio's one blank frame between sections:** one application with
   lazily loaded sections, or rendered first paints as the public site now has.
   §33.7 Built as one studio application (`examples/cms/src/apps/studioApp.ts`)
   with section-gated subscriptions; see [cms-demo-PLAN.md](./cms-demo-PLAN.md)
   §1b. Prefetch (the item above) is what removes the remaining waits.
-- [ ] **Site paths and targets:** `Site.paths(node, source)` enumerating a
+- [x] **Site paths and targets:** `Site.paths(node, source)` enumerating a
   node's addresses from a query, `Site.targets(site)` for a build, a sitemap
   and prefetch, and one declaration giving both `routeOf` and `pathOf`. §33.9
-- [ ] **Site metadata:** `Site.meta` as a function of the Model feeding SSR's
-  head, and whether a node is indexed. §23, §33.9
+  Built: `Site.paths(node, list)` and `Site.targets(site, paths)`, and a
+  tree typed by its routes, so `Site.parse` and `Site.hrefOf` are the two
+  directions (`packages/site/test/targets.test.ts`).
+- [x] **Site metadata:** `Site.meta` as a function of the Model feeding SSR's
+  head, and whether a node is indexed. §23, §33.9 Built: a node's `meta` and
+  `indexed`, merged by `Site.metaOf` into an SSR plan's `meta`
+  (`packages/site/test/ssr.test.ts`). The CMS site still has its own routing
+  and its own `metaOf`; moving it onto a Site tree is the routing item's.
 - [ ] **Locales in the route graph:** a top-level locale parameter, targets
   with alternates, and data sources that take the locale. §33.11
-- [ ] **Route lifecycle as a reusable wiring,** not app-owned update branches:
+- [x] **Route lifecycle as a reusable wiring,** not app-owned update branches:
   `ClickedLink`/`ChangedUrl` handling, internal-vs-external dispatch
   (`pushUrl` vs `load`, Navigate vs load Commands), and shortcut mapping, as a
   semantic bundle/wiring. §34.1. After the placement slice: the wiring should
-  compose placements, not replace them.
-- [ ] **Annotatable routes:** title, nav section, shortcut (and href source)
+  compose placements, not replace them. Built: `Site.routing` (with `pages`,
+  the routed placements), loading what the tree does not hold
+  (`Site.routeAt`); shortcuts are `Site.shortcuts`; `arrived` for what a new
+  route does (the CMS site's focus move, which put it on `Site.routing`).
+  The studio's sections are a Site tree too (`routing/studioRoutes.ts`), but
+  it keeps its own two branches: most of its address is query state each
+  section reads (an open entry, `new`), which `Site.routing` would take for
+  an echo of the shown route. Moving those onto the tree means modelling
+  each section's query as route params.
+- [x] **Annotatable routes:** title, nav section, shortcut (and href source)
   declared once per route, with navigation rendering, active-section
   derivation, shortcut handling, href generation and titles derived. §34.4.
-  With the graph, not before it: annotations need nodes to hang on.
+  Built: `title`, `section`, `landing`, `shortcut` on a node, read with
+  `Site.titleOf`, `Site.sectionOf`, `Site.landing`, `Site.shortcuts` and
+  `Site.hrefOf` (`examples/foldkit/routing`).
 - [ ] **Genuine nested route nodes:** layout, child routes, child models and
   route-local subscriptions/effects per node, not a flat match arm over a
   nested URL. §34.2. Last: flat routes plus section tags scale further than
@@ -350,8 +461,8 @@ and server/SSR sequences.
   shape into server/local-execution designs. The SSG half is built: S1
   browser entry (client boundary + import walk), S5 takeover decision
   (`when`/`otherwise`/`fresh`), S6 determinism check, S7 build step
-  (`staticSite` plugin + `foundations`, example script deleted). S8/S9 wait
-  for a theme choice and a second language; §19.5–19.8 wait for a real
+  (`staticSite` plugin + `foundations`, example script deleted), and S8. S9
+  waits for a second language; §19.5–19.8 wait for a real
   deployment (see Server).
 - [x] **3. `mixins-ui` gaps:** `Badge`, `Loading`/`Empty`/`Failure`,
   Button variants, icon machinery, touch targets; `historyCard`/`moreCard`
@@ -469,7 +580,8 @@ asked of a server graph. [server-DESIGN.md](./server-DESIGN.md) §19
   S7's `staticSite` plugin (paths, per-host layout, sitemap, robots) rather
   than reinventing static emission beside it.
 - [ ] **Principal and CSRF middleware** per host, for cookie-authenticated
-  mutations and SSR fallback posts. §19.5
+  mutations and SSR fallback posts. §19.5; planned as
+  [auth-DESIGN.md](./auth-DESIGN.md) §5.1 and §6.2–6.3.
 - [ ] **A content security policy** the document node emits: hashes for the
   inline envelope, JSON-LD and styles of a generated page, a nonce per request.
   §19.7
@@ -639,6 +751,173 @@ both.
   conditions as data, element handles, and a React Native host through codegen.
   None is built, and nothing blocks it. [platform-DESIGN.md](./platform-DESIGN.md)
 
+## UI parity and the shared systems
+
+[ui-parity-DESIGN.md](./ui-parity-DESIGN.md) orders the components;
+[ui-systems-DESIGN.md](./ui-systems-DESIGN.md) is its step 3b, the systems
+they stand on, from Fluid Functionalism's craft reference. Systems steps 1-4
+come before parity step 4, so the islands are built on the ladder. Every step
+keeps what the systems plan's "What we keep" lists.
+
+**The bar.** The UI work is measured against the best of each source at once:
+
+- the robustness, composability, flexibility and range of components of
+  [Zag.js](https://zagjs.com);
+- the standards, accessibility and patterns of the
+  [WAI-ARIA APG](https://www.w3.org/WAI/ARIA/apg/patterns/);
+- the usefulness and robustness of [Base UI](https://base-ui.com);
+- the beauty, components, options and variants, and out-of-the-box usefulness
+  of [Fluid Functionalism](https://www.fluidfunctionalism.com/);
+- the completeness of [shadcn/ui](https://ui.shadcn.com);
+- the customizability of [CSS-Tags](https://doeixd.github.io/CSS-Tags);
+
+while keeping the best of what this project already has:
+
+- primitives are reused, never copied;
+- everything can be used unstyled;
+- options, defaults, knobs, design tokens, layers and composition let an
+  application make any of it its own;
+- every part is synergistic and works with the others.
+
+- [x] **Parity 1-3:** gallery pages, fluid hover in lists and tabs, `/create`
+  at shadcn's level. [ui-parity-DESIGN.md](./ui-parity-DESIGN.md)
+- [ ] **FileDrop's page.** `File.File`'s decoding services are `unknown`, which
+  `Bundle.parent` refuses. [ui-parity-DESIGN.md](./ui-parity-DESIGN.md) step 1
+- [ ] **Separators in a styled menu.** Upstream draws them only through
+  `ChildAttribute`s an application's builder cannot draw.
+  [ui-parity-DESIGN.md](./ui-parity-DESIGN.md) step 1
+- [x] **Systems 1, motion.** Tiers of 80, 160 and 240ms with exits a tier
+  quicker, and a `travel` knob that reduced motion zeroes while fades stay.
+  Popups and dialogs enter and leave through upstream's `data-closed` and
+  `data-leave` (`presence` in `design.ts`); the `0fr`-`1fr` collapse lands
+  with Accordion (parity 4).
+  [ui-systems-DESIGN.md](./ui-systems-DESIGN.md) §1
+- [x] **Systems 2, the size ladder.** A `step` knob and a `control` group
+  (height, padding, gap, icon, radius) that rows and controls share, times
+  `density`; `sm`/`md`/`lg` map onto it, and recipes drop `size` from their
+  defaults so regions take effect (breaking); `/create`'s size writes `step`.
+  This is the control-size knob UI Phase 4 left unbuilt.
+  [ui-systems-DESIGN.md](./ui-systems-DESIGN.md) §2
+- [x] **Systems 3, type roles.** Six roles on the ladder, recipes by role,
+  `text-box` trim on fixed-height labels, 16px fields on coarse pointers;
+  Prose already spaces only above. [ui-systems-DESIGN.md](./ui-systems-DESIGN.md) §3
+- [x] **Systems 3b, weight without reflow.** `Utilities.steady(weight)` over a
+  `data-label`: Card writes its title there, an application its segmented
+  options'. The `weight` axes for optical size wait for a theme with Inter
+  (its `opsz`); with Geist or the system font they would set nothing.
+- [x] **Chat's streamed text unwrapped.** The reset gives every `p`
+  `text-wrap: pretty`, which re-wraps earlier lines as words arrive;
+  `ChatMessage`'s body sets `text-wrap: wrap`, and a browser test streams 30
+  words and checks every earlier line stays.
+- [x] **Systems 4, state tints and concentric radii.** A `state` group (hover,
+  tint, tint-hover, edge) of the element's own text color, `Theme.nested`, and
+  an image edge. `selected` and `pressed` wait for a recipe that reads them
+  (the Card's selected fill sits beside its `surface` variants).
+  [ui-systems-DESIGN.md](./ui-systems-DESIGN.md) §4
+- [x] **Systems 5, the surface ladder.** `Theme.raise` and `Theme.raisedSurface`,
+  nesting by eight depth rules (Chrome 156 has no `inherit()`); popups raise 2
+  with their shadow pinned, dialogs 4; menu looks hold over their level.
+  The shadows stay the named ones: pinned, a ladder of eight had no reader.
+  [ui-systems-DESIGN.md](./ui-systems-DESIGN.md) §4
+- [x] **Systems 6a, scroll edges.** `Utilities.scrollFade(axis)`, in ScrollArea and
+  the popups' lists. [ui-systems-DESIGN.md](./ui-systems-DESIGN.md) §5
+- [x] **Systems 6b, the scroll divider and an overlay bar.** `ScrollBars` in
+  `foldkit-primitives/dom` (a thumb that rests 4px, widens to 6px, fades when
+  idle, native on a coarse pointer), opt-in as `overlayBars` on ScrollArea,
+  Command and VirtualList and `Menu`/`Listbox`/`Combobox.overlayBars`, with
+  `Utilities.scrollDivider`/`scrollTimeline` for the edge hairline where
+  `timeline-scope` exists. [ui-systems-DESIGN.md](./ui-systems-DESIGN.md) §5
+- [x] **Systems 7, fluid hover's remaining rules.** `gapReach` (Card.group at
+  16px), no zero rects (a three-frame retry); the tabs' chosen marker already
+  dims while another tab is hovered. [ui-systems-DESIGN.md](./ui-systems-DESIGN.md) §6
+- [x] **Table rows under fluid hover.** `Table.view({ fluid: true })`, a `frame`
+  and `highlight` slot, and `FluidHover`'s `data-fluid-lit` for the lines
+  beside the lit row.
+- [ ] **Systems 8, component craft.** Done: the button's 1px press, merged
+  selection runs, popup and dialog entrances. Our checkbox and radio fill
+  when checked, so Fluid's clearing border is already their look. Icons stand
+  on the ladder; dialogs narrow a notch when compact; tooltips slide toward
+  their trigger. Tooltip's delay is upstream's (`showDelay`), and a skip
+  window between neighbours is the application's (`reflectShowDelay`).
+  Not taken: thickening icon strokes on hover, which would restyle every
+  application's icon set. Toggles stand on the ladder, and the Switch has
+  Fluid's 34×20 geometry and hover pill. Open: dragging the Switch's thumb
+  (a `PointerDrag` on the button), Select's pause after a pick (upstream's). [ui-systems-DESIGN.md](./ui-systems-DESIGN.md) §7
+- [x] **Parity 4, the islands into the package.** Done: Accordion (arrow keys
+  between its triggers, optional in the APG, are left to a later pass over
+  `foldkit-primitives/interaction`'s navigation); Toggle, as Button's
+  `pressed`, and Toggle Group, as Segmented's `multiple` with `view` and
+  `toggled`, rather than second components; Alert Dialog, as the Dialog with
+  `Dialog.isDismissal`; Number Input, as `NumberField`; Input OTP, as `OtpField`; Hover Card, as HoverIntent with `Recipes.HoverCard`.
+  Context Menu, as the Menu at a point (`ContextMenu`). Command, as `Command`.
+  Resizable, as `Resizable`; Sidebar, as `Sidebar`; Navigation Menu, as
+  the adapted `Nav` (without shadcn's dropdown panels yet); Menubar, as
+  `Menubar`; Checkbox Group, as `CheckboxGroup`.
+  An island stays in `examples/widgets` as the Behaviors example until the
+  package's own has a page.
+- [x] **Parity 5, upstream wrappers.** Done: nav, as `Nav`; Progress and
+  Circular Progress, as `Progress` and its `shape: 'ring'`. Meter, as `Meter`; the virtual
+  list, as `VirtualList`.
+- [x] **Parity 6, the missing everyday pieces.** Done: Drawer and Sheet, as
+  `Recipes.Drawer` and `Recipes.Sheet` over the Dialog; Tags Input, Rating,
+  Password Input, Steps, Banner, Input Copy, Carousel, the date range (as
+  `DateRange` over the Calendar), the range slider, Tree View and Color
+  Picker, and Nested Menu (one level deep). Their tests, unit and browser, were written
+  without being run. Carousel does not yet hear a swipe (a `scrollend` Mount
+  in primitives would report the slide in view).
+- [ ] **UI polish: bugs, merges and depth.** A review of the gallery found
+  shared faults (hovers that lay grey on coloured surfaces, corners that are
+  not concentric, collapses that overshoot, popups stacked inside their
+  triggers, the scrollbars), broken pages (Input OTP, Hover Card, Nested
+  Menu, Radio Group's labels, Skeleton, the Switch in RTL), pairs to merge
+  (Alert and Banner, the dialogs, Sheet and Drawer, the dates, the sliders,
+  the menus), and depth per component. Phases 0–5 and the merges have
+  landed; a review of that pass (Part E) found claims without proof and
+  docs ahead of the code, and most of it is now fixed and ticked there.
+  Still open in Part E: the Calendar's month buttons right to left, an RTL
+  browser test per component, the measuring tests 50a7ef0f skipped, A3's and
+  the radio press tests, the checkbox recipe's mutation spec, a popup's
+  overlay-bar browser test, the breadcrumb "…" menu, Steps' markers, the
+  custom Select, and the rest of Checkbox Group.
+  [ui-polish-DESIGN.md](./ui-polish-DESIGN.md)
+- [ ] **Carousel dots** after Fluid Functionalism's
+  ([carousel-dots](https://www.fluidfunctionalism.com/docs/carousel-dots)).
+  [ui-polish-DESIGN.md](./ui-polish-DESIGN.md) Part C, Carousel
+- [x] **Parity 7, chat.** `ChatMessage` (with `ChatMessage.group`),
+  `MessageScroller`, `ThinkingIndicator`, `ThinkingSteps` and
+  `Questionnaire`, exported, in the catalog and on the site. Skipped, each
+  recorded in its brief: branches (n of m), attachments and editing in
+  place of a message; incomplete-Markdown repair while streaming; a
+  scroller's "load older on reaching the top"; approval as a Thinking Steps
+  state (it is a Questionnaire question); a questionnaire's skip and its
+  min/max selections. The site's chat page has no Markdown example: it
+  would bring `foldkit-richtext-dom` (with its `foldkit-form` peer) and
+  `foldkit-richtext-markdown`'s parser into the site's bundle for one
+  example.
+- [x] **Parity 8, Zag's long tail.** Angle Slider, Cascade Select, Image
+  Cropper, Signature Pad, QR Code, Tour, Floating Panel, Marquee, Timer and
+  Chart, exported, in the catalog and on the site; the color area, the dial
+  and the pad read the pointer through `PointerPosition`. Skipped, each
+  recorded in its brief: the Image Cropper's pinch zoom (a two-pointer
+  primitive), flip and fixed crop area; a Signature Pad's redo and hidden
+  input; the QR code's `boostEcc` and an overlay in the downloaded file;
+  stacked bars and areas, horizontal bars, radar and radial charts, a brush
+  and zoom; a Cascade Select's `multiple` and its fluid hover; a Floating
+  Panel's aspect lock, `absolute` strategy and double-click to maximize; a
+  Tour's wait steps, focus trap and dots; a Marquee's round-end events.
+- [x] **Follow-ups from parity 7 and 8.** Seen in the gallery's
+  screenshots: the Image Cropper's image never shows (its recipe hides it
+  under `:not([data-ready]) &`, which any ancestor without the attribute
+  matches, `body` included); the Angle Slider's needle crosses its value
+  shown inside; a Cascade Select's columns run past a phone's width (its
+  drill layout is the narrow one, chosen by the application). Spotlight as
+  a primitive: `Tour.Spotlight` follows an element named by its
+  `data-target` and writes its box as custom properties, which a coach mark
+  or a measuring overlay would reuse from `foldkit-primitives/dom` (done
+  2026-10-17: `TrackBox`, which the Tour draws with). The
+  Sidebar's and Tree View's chevrons draw the recipes' shared
+  `turningChevron` (done 2026-10-17).
+
 ## React
 
 - [ ] A `Resource` → Suspense bridge (`useResource`). `readAsyncData` covers
@@ -712,12 +991,15 @@ its README the details.
   Done: the empty future is kept; `History.goTo` / `GoTo`. `foldkit-pixel-art`
 - [x] **Form: no "valid right now" query, no validate-all.** Done:
   `form.isValid`, `Message.ValidatedAll()`.
-- [ ] **Form: no Command definition for a check that tests can match** (still
+- [x] **Form: no Command definition for a check that tests can match** (still
   an inline `{ name: '<form>.check', args: { key } }`), and `Form.make`
-  requires an Entity for a plain form. `foldkit-form`
-- [ ] **Form: `engine.value` drops a filled but invalid optional key** that is
+  requires an Entity for a plain form. `foldkit-form` Done 2026-10-13:
+  `form.Check` is a definition the ports resolve, and `Form.input(schema)`
+  is a plain form's input.
+- [x] **Form: `engine.value` drops a filled but invalid optional key** that is
   not validated yet, instead of refusing, reached by `fill` then
-  `engine.value` (a submit validates first; `isValid` is right).
+  `engine.value` (a submit validates first; `isValid` is right). Fixed
+  2026-10-13: a draft not checked yet must pass its own check.
 - [x] **Form: `Schema.optionalKey` is treated as required,** and `Blurred` on
   an empty optional key returns an equal copy of the Model. Fixed; an
   `Option`-typed key is also drawn now.
@@ -728,8 +1010,10 @@ its README the details.
   to `foldkit-ssr/client`.
 - [x] **Mixins: no helper installs the stylesheet in the browser.** Done:
   `Style.install`, with `AppStyle.make` for the page sheet.
-- [ ] **Mixins: `Theme.oklch` tints success and error with the accent's hue,**
-  so under a blue accent they read blue. `foldkit-job-application`
+- [x] **Mixins: `Theme.oklch` tints success and error with the accent's hue,**
+  so under a blue accent they read blue. Fixed 2026-10-06 (tints mix in OKLab,
+  with a browser test of the computed hue); job-application's sRGB workaround is
+  gone. `foldkit-job-application`
 - [x] **Mixins: `Recipes.Dialog` did not undo `Defaults.reset`'s `margin: 0`.**
   Built: the recipe restores `margin: auto`, so a modal opens centered rather
   than in the top corner; removing it fails the recipe test.
@@ -848,26 +1132,27 @@ then the lifecycle and host-integration design work.
 
 ## Stale passages inside the design documents
 
-Each document now carries a dated status note, but these passages still
-describe an earlier state and would mislead someone reading the body:
+Each document now carries a dated status note, and these passages, which
+still described an earlier state, were corrected or annotated on 2026-10-13:
 
-- [ ] [REVISION_PLAN.md](./REVISION_PLAN.md) §1.1–1.2: the package versions,
+- [x] [REVISION_PLAN.md](./REVISION_PLAN.md) §1.1–1.2: the package versions,
   private packages and example list; §20's pre-Phase-1 open questions.
-- [ ] [agent-DESIGN.md](./agent-DESIGN.md): its package table (Surface
+- [x] [agent-DESIGN.md](./agent-DESIGN.md): its package table (Surface
   "proposed", `context` in the contract, `agent-native` "private").
-- [ ] [mixins-DESIGN.md](./mixins-DESIGN.md): "private `0.0.0`" and old peer
+- [x] [mixins-DESIGN.md](./mixins-DESIGN.md): "private `0.0.0`" and old peer
   versions. It calls SLOT_MIXIN_STYLE_BRAINSTORM "authoritative", and around its
   line 325 says the Phase 11 example "remains", though Phase 11 is done.
-- [ ] [remote-drizzle-DESIGN.md](./remote-drizzle-DESIGN.md): the "SQL window
+- [x] [remote-drizzle-DESIGN.md](./remote-drizzle-DESIGN.md): the "SQL window
   optimization — measured, deferred" section and sequence item 7. The window
   query is built.
-- [ ] [data-query-DESIGN.md](./data-query-DESIGN.md): the head's "Phases 9–13
+- [x] [data-query-DESIGN.md](./data-query-DESIGN.md): the head's "Phases 9–13
   deferred", and the claim that `foldkit-remote-server` exports the conformance
   suite (it is `foldkit-entity/conformance`).
-- [ ] [entity-DESIGN.md](./entity-DESIGN.md) §50–51: "CMS not started / do not
+- [x] [entity-DESIGN.md](./entity-DESIGN.md) §50–51: "CMS not started / do not
   build CMS yet".
-- [ ] [react-DESIGN.md](./react-DESIGN.md): the banner's "codegen not started".
-- [ ] [bundle-spike.md](./bundle-spike.md): "the workspace stays on 0.158.2" (it
+- [x] [react-DESIGN.md](./react-DESIGN.md): the banner's "codegen not started".
+- [x] [bundle-spike.md](./bundle-spike.md): "the workspace stays on 0.158.2" (it
   is on 0.163.0).
-- [ ] [richtext-REVIEW.md](./richtext-REVIEW.md): the disposition cites a commit
-  (`d442415`) that is not in the current history.
+- [x] [richtext-REVIEW.md](./richtext-REVIEW.md): the disposition cites a commit
+  (`d442415`) that is not in the current history. It is: `d4424159d`, "fix the
+  R15-R21 findings"; the citation was right.

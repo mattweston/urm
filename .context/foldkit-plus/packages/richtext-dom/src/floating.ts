@@ -41,6 +41,55 @@ export const placeOver = (
   }
 }
 
+/**
+ * Where a box goes under a caret, in viewport coordinates: `gap` below it, or above it when there
+ * is no room below; kept inside the viewport's width. What a slash menu opens at.
+ */
+export const placeUnder = (
+  target: Box,
+  floating: Pick<Box, 'width' | 'height'>,
+  viewport: Pick<Box, 'width' | 'height'>,
+  gap: number,
+): { readonly top: number; readonly left: number; readonly placement: 'top' | 'bottom' } => {
+  const below = target.top + target.height + gap
+  const fits = below + floating.height <= viewport.height
+  return {
+    top: fits ? below : Math.max(0, target.top - gap - floating.height),
+    left: Math.max(0, Math.min(target.left, viewport.width - floating.width)),
+    placement: fits ? 'bottom' : 'top',
+  }
+}
+
+/**
+ * The box a range occupies. A caret in an empty text node has no box of its own (every
+ * browser reports zeros), so it is read from the element the caret is in.
+ */
+const rangeBox = (range: Range): Box => {
+  const box = range.getBoundingClientRect()
+  if (box.width !== 0 || box.height !== 0 || box.top !== 0 || box.left !== 0) return box
+  const container = range.startContainer
+  const element = container instanceof Element ? container : container.parentElement
+  return element === null ? box : element.getBoundingClientRect()
+}
+
+/**
+ * Where a block's toolbar goes: `gap` above the block's top, aligned with its left edge, or just
+ * inside its top when there is no room above (a block at the top of the window).
+ */
+export const placeAbove = (
+  target: Box,
+  floating: Pick<Box, 'width' | 'height'>,
+  viewport: Pick<Box, 'width'>,
+  gap: number,
+): { readonly top: number; readonly left: number; readonly placement: 'top' | 'inside' } => {
+  const above = target.top - gap - floating.height
+  return {
+    top: above >= 0 ? above : Math.max(0, target.top + gap),
+    left: Math.max(0, Math.min(target.left, viewport.width - floating.width)),
+    placement: above >= 0 ? 'top' : 'inside',
+  }
+}
+
 /** Where a handle goes: level with the block's top, `gap` to its left, never past the left edge. */
 export const placeBeside = (
   target: Box,
@@ -50,6 +99,24 @@ export const placeBeside = (
   top: target.top,
   left: Math.max(0, target.left - gap - floating.width),
   placement: 'left',
+})
+
+/** Where a block's floating element goes: `blockAnchor`'s `side`. */
+const BlockSide = Schema.Literals(['left', 'above', 'inside-end'])
+type BlockSide = typeof BlockSide.Type
+
+/**
+ * Where a block's own toolbar goes when it should cover nothing around the block: inside its top
+ * right corner, `gap` in from both edges, and never past the block's left edge.
+ */
+export const placeInsideEnd = (
+  target: Box,
+  floating: Pick<Box, 'width'>,
+  gap: number,
+): { readonly top: number; readonly left: number; readonly placement: 'inside' } => ({
+  top: target.top + gap,
+  left: Math.max(target.left, target.left + target.width - gap - floating.width),
+  placement: 'inside',
 })
 
 type Styled = Element & ElementCSSInlineStyle
@@ -64,18 +131,27 @@ const write = (
 }
 
 /** Calls `place` on any scroll and on resize, until the returned release. */
-const onLayout = (view: Window, place: () => void) => {
+const onLayout = (view: Window, place: () => void, element: Styled) => {
+  // The element's own size too: it is measured where it is placed, and one drawn before its
+  // styles or content settle (a menu a query narrows) would stay where its first size put it.
+  const sizes = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(place)
   // Capture: a scrolling container's scroll does not bubble, but it passes the window first.
   view.addEventListener('scroll', place, true)
   view.addEventListener('resize', place)
+  sizes?.observe(element)
   return () => {
     view.removeEventListener('scroll', place, true)
     view.removeEventListener('resize', place)
+    sizes?.disconnect()
   }
 }
 
-/** Places `element` over the selection in `hostId` now and on each change, until released. */
-export const anchorToSelection = (element: Styled, hostId: string, gap: number) => {
+/**
+ * Places `element` over the selection in `hostId` now and on each change, until released. With
+ * `caret`, it follows a collapsed selection too, under it, as a slash menu does; otherwise a
+ * caret leaves it where it is, as a toolbar for selected text wants.
+ */
+export const anchorToSelection = (element: Styled, hostId: string, gap: number, caret = false) => {
   const owner = element.ownerDocument
   const view = owner.defaultView
   if (view === null) return () => {}
@@ -86,20 +162,23 @@ export const anchorToSelection = (element: Styled, hostId: string, gap: number) 
     const host = owner.getElementById(hostId)
     if (selection === null || selection.rangeCount === 0 || host === null) return
     const range = selection.getRangeAt(0)
-    if (range.collapsed || !host.contains(range.commonAncestorContainer)) return
+    if ((range.collapsed && !caret) || !host.contains(range.commonAncestorContainer)) return
+    const floating = element.getBoundingClientRect()
     write(
       element,
-      placeOver(
-        range.getBoundingClientRect(),
-        element.getBoundingClientRect(),
-        { width: view.innerWidth },
-        gap,
-      ),
+      caret
+        ? placeUnder(
+            rangeBox(range),
+            floating,
+            { width: view.innerWidth, height: view.innerHeight },
+            gap,
+          )
+        : placeOver(rangeBox(range), floating, { width: view.innerWidth }, gap),
     )
   }
   place()
   owner.addEventListener('selectionchange', place)
-  const release = onLayout(view, place)
+  const release = onLayout(view, place, element)
   return () => {
     owner.removeEventListener('selectionchange', place)
     release()
@@ -115,6 +194,7 @@ export const anchorToBlock = (
   hostId: string,
   node: RichText.NodeId,
   gap: number,
+  side: BlockSide = 'left',
 ) => {
   const owner = element.ownerDocument
   const view = owner.defaultView
@@ -140,10 +220,17 @@ export const anchorToBlock = (
     if (host === null) return
     const block = attachmentIn(host)?.current().elements.get(node)
     if (block === undefined) return
-    write(element, placeBeside(block.getBoundingClientRect(), element.getBoundingClientRect(), gap))
+    const box = block.getBoundingClientRect()
+    const floating = element.getBoundingClientRect()
+    const placed = {
+      left: () => placeBeside(box, floating, gap),
+      above: () => placeAbove(box, floating, { width: view.innerWidth }, gap),
+      'inside-end': () => placeInsideEnd(box, floating, gap),
+    } satisfies Record<BlockSide, () => unknown>
+    write(element, placed[side]())
   }
   place()
-  const release = onLayout(view, place)
+  const release = onLayout(view, place, element)
   return () => {
     observer.disconnect()
     release()
@@ -157,13 +244,15 @@ export const selectionAnchor = Mount.defineStream('RichTextSelectionAnchor', {
     hostId: Schema.String,
     /** Pixels between the selection and the element. */
     gap: Schema.Number,
+    /** Follow a caret as well, under it: a slash menu's place. Absent, only selected text. */
+    caret: Schema.optionalKey(Schema.Boolean),
   },
   messages: [Schema.Never],
-  execute: ({ element, hostId, gap }) =>
+  execute: ({ element, hostId, gap, caret }) =>
     Stream.callback<never>(() =>
       Effect.acquireRelease(
         // A Mount's element is one the view drew, an HTML or SVG element, and both carry `style`.
-        Effect.sync(() => anchorToSelection(element as Styled, hostId, gap)),
+        Effect.sync(() => anchorToSelection(element as Styled, hostId, gap, caret === true)),
         release => Effect.sync(release),
       ),
     ),
@@ -178,12 +267,17 @@ export const blockAnchor = Mount.defineStream('RichTextBlockAnchor', {
     node: RichText.NodeId,
     /** Pixels between the handle and the block. */
     gap: Schema.Number,
+    /**
+     * Beside the block's left edge (a handle), above it (a block's toolbar), or inside its top
+     * right corner (a toolbar that should cover nothing around the block). Default left.
+     */
+    side: Schema.optionalKey(BlockSide),
   },
   messages: [Schema.Never],
-  execute: ({ element, hostId, node, gap }) =>
+  execute: ({ element, hostId, node, gap, side }) =>
     Stream.callback<never>(() =>
       Effect.acquireRelease(
-        Effect.sync(() => anchorToBlock(element as Styled, hostId, node, gap)),
+        Effect.sync(() => anchorToBlock(element as Styled, hostId, node, gap, side ?? 'left')),
         release => Effect.sync(release),
       ),
     ),

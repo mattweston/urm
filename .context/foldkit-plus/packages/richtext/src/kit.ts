@@ -68,6 +68,10 @@ export type NodeDefinition =
        * them never stands at the top level, as a `ListItem` stands only in a `List`.
        */
       readonly within?: ReadonlyArray<string> | undefined
+      /** Its text keeps line breaks: Enter inserts one rather than splitting, as in code. */
+      readonly lineBreaks?: boolean | undefined
+      /** Tab indents its lines, and a new line starts as indented as the last, as in code. */
+      readonly indents?: boolean | undefined
     }
 
 /**
@@ -88,6 +92,8 @@ export interface NodeDefinitionOf<
   readonly isolating: boolean
   readonly splitProps: NodeBlock['props'] | undefined
   readonly within: ReadonlyArray<string> | undefined
+  readonly lineBreaks: boolean
+  readonly indents: boolean
 }
 
 /** Declares a block node kind: a top-level node containing text runs. */
@@ -135,6 +141,17 @@ export const node = <
       : NodeBlock['props']
     /** The kinds this one may stand in; it then never stands at the top level (§149). */
     readonly within?: ReadonlyArray<string>
+    /**
+     * Its text keeps line breaks, as code does: Enter inserts a newline instead of splitting
+     * the block, and Enter on an empty last line leaves it for a paragraph after. A callout's
+     * text can keep them too, for a note of several lines.
+     */
+    readonly lineBreaks?: boolean
+    /**
+     * Its lines are indented, as code's are: Tab and Shift+Tab indent and outdent them, and a
+     * line broken with Enter starts as indented as the one before.
+     */
+    readonly indents?: boolean
   } = {},
 ): NodeDefinitionOf<Name, Props, Children> => ({
   name,
@@ -145,6 +162,8 @@ export const node = <
   isolating: options.isolating ?? false,
   splitProps: options.splitProps,
   within: options.within,
+  lineBreaks: options.lineBreaks ?? false,
+  indents: options.indents ?? false,
 })
 
 /**

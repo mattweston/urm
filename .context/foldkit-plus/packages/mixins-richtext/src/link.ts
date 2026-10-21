@@ -31,13 +31,40 @@ export interface LinkEditorInput<Message> {
   readonly drafted: (href: string) => Message
   /** An editor Message as this caller's, usually its `edited(...)` wrapper. */
   readonly wrap: (message: EditorEvent) => Message
+  /** What Escape in the field sends: usually closing the editor. Without it, Escape does nothing. */
+  readonly closed?: Message | undefined
+  /**
+   * What Enter in the field sends, for the caller's `update` to apply `linkEdit` to its own
+   * draft. Without it, Enter sends the edit the view last drew, which is a frame behind keys
+   * typed fast: Enter right after the last character would apply the draft before it.
+   */
+  readonly submitted?: Message | undefined
+}
+
+/**
+ * The edit applying a draft makes: the selection linked, or the link around the caret changed, to
+ * `RichText.safeUrl(draft)`. None when the policy refuses the address, or when there is neither
+ * a range nor a caret inside a link to put it on. The view's button sends it; a caller handling
+ * `submitted` sends it from its own draft.
+ */
+export const linkEdit = (
+  document: RichText.Document,
+  selection: RichText.Selection | null,
+  draft: string,
+): Option.Option<EditorEvent> => {
+  const href = RichText.safeUrl(draft)
+  if (href === undefined) return Option.none()
+  if (RichText.linkAt(document, selection) === undefined && !RichText.coversText(selection)) {
+    return Option.none()
+  }
+  return Option.some(EditorMessage.AppliedMark({ mark: { name: 'Link', props: { href } } }))
 }
 
 /**
  * The link editor as a slot view. Applying needs an address the URL policy accepts
  * (`RichText.safeUrl`), which is what it sends, and something to link: a range, or a caret
  * inside a link. Otherwise the apply button is disabled and Enter in the field does nothing.
- * The remove button is drawn only inside a link.
+ * The remove button is drawn only inside a link. Escape in the field sends `closed`.
  */
 export const linkEditor = <Message>(): SlotView.SlotView<
   typeof LinkEditorSlots,
@@ -46,22 +73,24 @@ export const linkEditor = <Message>(): SlotView.SlotView<
 > =>
   SlotView.forMessages<Message>().define(LinkEditorSlots, (input, slots, h): Html => {
     const link = RichText.linkAt(input.document, input.selection)
-    const href = RichText.safeUrl(input.draft)
-    const apply =
-      href === undefined || (link === undefined && !RichText.coversText(input.selection))
-        ? undefined
-        : input.wrap(EditorMessage.AppliedMark({ mark: { name: 'Link', props: { href } } }))
+    const apply = Option.getOrUndefined(
+      Option.map(linkEdit(input.document, input.selection, input.draft), input.wrap),
+    )
     return h.div(slots.root.attrs([h.Role('group'), h.AriaLabel('Link')]), [
       h.input(
         slots.input.attrs([
           h.Type('url'),
           h.DataAttribute('link', 'address'),
           h.AriaLabel('Link address'),
+          h.Placeholder('Paste or type a link'),
           h.Value(input.draft),
           h.OnInput(input.drafted),
-          h.OnKeyDownPreventDefault(key =>
-            key === 'Enter' && apply !== undefined ? Option.some(apply) : Option.none(),
-          ),
+          h.OnKeyDownPreventDefault(key => {
+            if (key === 'Escape' && input.closed !== undefined) return Option.some(input.closed)
+            if (key !== 'Enter') return Option.none()
+            if (input.submitted !== undefined) return Option.some(input.submitted)
+            return apply === undefined ? Option.none() : Option.some(apply)
+          }),
         ]),
       ),
       h.button(
@@ -71,7 +100,7 @@ export const linkEditor = <Message>(): SlotView.SlotView<
           h.Disabled(apply === undefined),
           ...(apply === undefined ? [] : [h.OnClick(apply)]),
         ]),
-        [link === undefined ? 'Link' : 'Update'],
+        [link === undefined ? 'Apply' : 'Update'],
       ),
       ...(link === undefined
         ? []

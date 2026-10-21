@@ -1,9 +1,13 @@
 /**
  * Set type: headings stepping down the scale, body copy at the base size,
- * and quieter voices for asides. The recipe sets each level outright; it
- * does not inherit a prose container, so one voice reads the same anywhere.
+ * and quieter voices for asides, for reading; and the interface's roles
+ * (`display`, `title`, `subtitle`, `caption`, `micro`), each a size and a
+ * leading that step with the size ladder. The recipe sets each level
+ * outright; it does not inherit a prose container, so one voice reads the
+ * same anywhere.
  */
 import { Style } from 'foldkit-mixins'
+import { role } from 'foldkit-mixins/theme'
 import { TypographySlots } from '../typography.js'
 import { component, ref, variant } from './design.js'
 
@@ -11,10 +15,11 @@ const heading = (size: string): ReturnType<typeof variant> =>
   variant(
     Style.self({
       margin: '0',
+      fontFamily: ref.font.heading,
       fontSize: size,
-      fontWeight: ref.weight.semibold,
+      fontWeight: ref.weight.heading,
       lineHeight: ref.leading.tight,
-      letterSpacing: '-0.01em',
+      letterSpacing: ref.tracking.heading,
       color: ref.text.overt,
     }),
   )
@@ -61,6 +66,38 @@ export const Typography = Style.recipeFor(TypographySlots)({
           }),
         ),
       },
+      // The interface's headings are set as the reading ones are: the heading
+      // font, its weight (display a step bolder) and its tracking.
+      display: {
+        text: variant(
+          Style.self({
+            ...role('display'),
+            fontFamily: ref.font.heading,
+            fontWeight: `calc(${ref.weight.heading} + 100)`,
+            letterSpacing: ref.tracking.heading,
+          }),
+        ),
+      },
+      title: {
+        text: variant(
+          Style.self({
+            ...role('title'),
+            fontFamily: ref.font.heading,
+            fontWeight: ref.weight.heading,
+          }),
+        ),
+      },
+      subtitle: {
+        text: variant(
+          Style.self({
+            ...role('subtitle'),
+            fontFamily: ref.font.heading,
+            fontWeight: ref.weight.heading,
+          }),
+        ),
+      },
+      caption: { text: variant(Style.self({ ...role('caption'), color: ref.text.muted })) },
+      micro: { text: variant(Style.self(role('micro'))) },
       code: {
         text: variant(
           Style.self({

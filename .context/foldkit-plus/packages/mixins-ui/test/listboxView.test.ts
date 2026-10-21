@@ -270,6 +270,35 @@ describe('forked listbox seam', () => {
     expect(render.hiddenInputs).toEqual([])
   })
 
+  it('draws the panel for the top layer only when the anchor stays in place', () => {
+    Scene.scene<SingleModel, Message, UpstreamListbox.OutMessage<Fruit>>(
+      {
+        update: upstreamSingle.update,
+        view: (current, h) => forkSingle.view(current, singleInputs(h), h),
+      },
+      Scene.given(openSingle()),
+      anchoredSingle(),
+      Scene.expect(Scene.selector(panel)).not.toHaveAttr('popover', 'manual'),
+    )
+    Scene.scene<SingleModel, Message, UpstreamListbox.OutMessage<Fruit>>(
+      {
+        update: upstreamSingle.update,
+        view: (current, h) =>
+          forkSingle.view(
+            current,
+            {
+              ...singleInputs(h),
+              anchor: { placement: 'bottom-start', gap: 4, padding: 8, portal: false },
+            },
+            h,
+          ),
+      },
+      Scene.given(openSingle()),
+      anchoredSingle(),
+      Scene.expect(Scene.selector(panel)).toHaveAttr('popover', 'manual'),
+    )
+  })
+
   it('single pointer-select closes with the value', () => {
     Scene.scene<SingleModel, Message, UpstreamListbox.OutMessage<Fruit>>(
       {
@@ -295,6 +324,28 @@ describe('forked listbox seam', () => {
       ),
       Scene.Mount.expectEnded(UpstreamListbox.AnchorListbox, UpstreamListbox.PortalListboxBackdrop),
       expectExpanded(false),
+    )
+  })
+
+  it.each([
+    ['ltr', 'ArrowRight', 1],
+    ['ltr', 'ArrowLeft', 2],
+    ['rtl', 'ArrowLeft', 1],
+    ['rtl', 'ArrowRight', 2],
+  ] as const)('a horizontal listbox, %s, moves on %s to item %i', (direction, key, to) => {
+    Scene.scene<SingleModel, Message, UpstreamListbox.OutMessage<Fruit>>(
+      {
+        update: upstreamSingle.update,
+        view: (current, h) => forkSingle.view(current, { ...singleInputs(h), direction }, h),
+      },
+      Scene.given(singleModel({ ...openSingle(), orientation: 'Horizontal' })),
+      anchoredSingle(),
+      Scene.keydown(Scene.selector(panel), key),
+      Scene.Command.resolve(
+        UpstreamListbox.ScrollIntoView,
+        UpstreamListbox.Message.CompletedScrollIntoView(),
+      ),
+      Scene.expect(Scene.selector(panel)).toHaveAttr('aria-activedescendant', `${id}-item-${to}`),
     )
   })
 

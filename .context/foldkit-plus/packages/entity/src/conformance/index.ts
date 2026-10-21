@@ -102,6 +102,12 @@ const tag = Expr.input('tag', Schema.String)
 const present = Expr.input('present', Schema.Boolean)
 const labels = Expr.input('labels', Schema.Array(Schema.String))
 const at = Expr.input('at', Timestamp)
+/** An optional filter's input: none chosen is null. */
+const maybeTag = Expr.input('maybeTag', Schema.NullOr(Schema.String))
+const below = Expr.input('below', Schema.Number)
+const from_ = Expr.input('from', Timestamp)
+const until = Expr.input('until', Timestamp)
+const binary = { collation: Collation.binary }
 /** A list sorted by what its reader picked: `Order.chosen`'s input. */
 const sort = Expr.input(
   'sort',
@@ -317,6 +323,155 @@ export const cases: ReadonlyArray<ConformanceCase> = [
     expected: ['a', 'b', 'c', 'd', 'e'],
   },
 
+  // ---- and, or, not: SQL's three values -----------------------------------
+  // `tag` is null on a and c, so a comparison of it is unknown there, and a
+  // row is kept only on true.
+  {
+    what: 'or holds where one operand does, true beating unknown',
+    body: from.pipe(
+      Query.where(Expr.or(Expr.eq(Subject.fields.tag, 'x'), Expr.eq(Subject.fields.rank, 2))),
+      byId,
+    ),
+    input: {},
+    expected: ['a', 'b', 'd'],
+  },
+  {
+    what: 'an and inside an or groups as written',
+    body: from.pipe(
+      Query.where(
+        Expr.or(
+          Expr.and(Expr.eq(Subject.fields.rank, 3), Expr.eq(Subject.fields.tag, 'x')),
+          Expr.eq(Subject.fields.label, 'Intro'),
+        ),
+      ),
+      byId,
+    ),
+    input: {},
+    expected: ['a', 'd'],
+  },
+  {
+    what: 'not of an unknown stays unknown, so a null matches neither side',
+    body: from.pipe(Query.where(Expr.not(Expr.eq(Subject.fields.tag, 'x'))), byId),
+    input: {},
+    expected: ['e'],
+  },
+  {
+    what: 'not of an and that is false, false beating unknown, holds',
+    body: from.pipe(
+      Query.where(
+        Expr.not(Expr.and(Expr.eq(Subject.fields.tag, 'x'), Expr.eq(Subject.fields.rank, 1))),
+      ),
+      byId,
+    ),
+    input: {},
+    expected: ['a', 'c', 'd', 'e'],
+  },
+  {
+    what: 'everything but one value, nulls included, is said with isNull',
+    body: from.pipe(
+      Query.where(
+        Expr.or(Expr.isNull(Subject.fields.tag), Expr.not(Expr.eq(Subject.fields.tag, 'x'))),
+      ),
+      byId,
+    ),
+    input: {},
+    expected: ['a', 'c', 'e'],
+  },
+  {
+    what: 'an optional filter with nothing chosen matches every row',
+    body: from.pipe(
+      Query.where(Expr.whenGiven(maybeTag, given => Expr.eq(Subject.fields.tag, given))),
+      byId,
+    ),
+    input: { maybeTag: null },
+    expected: ['a', 'b', 'c', 'd', 'e'],
+  },
+  {
+    what: 'an optional filter with a value chosen is that filter',
+    body: from.pipe(
+      Query.where(Expr.whenGiven(maybeTag, given => Expr.eq(Subject.fields.tag, given))),
+      byId,
+    ),
+    input: { maybeTag: 'x' },
+    expected: ['b', 'd'],
+  },
+  {
+    what: 'an operand decided by the input alone settles an or either way',
+    body: from.pipe(
+      Query.where(Expr.or(Expr.eq(present, true), Expr.eq(Subject.fields.rank, 1))),
+      byId,
+    ),
+    input: { present: false },
+    expected: ['b'],
+  },
+  // ---- comparisons -----------------------------------------------------------
+  // Ranks are a 2, b 1, c 3, d 3, e 4; text only under a collation every
+  // interpreter agrees on, and a date by its encoded ISO string.
+  {
+    what: 'lt holds where a number orders before the other',
+    body: from.pipe(Query.where(Expr.lt(Subject.fields.rank, 3)), byId),
+    input: {},
+    expected: ['a', 'b'],
+  },
+  {
+    what: 'gte holds where a number orders after the other, or with it',
+    body: from.pipe(Query.where(Expr.gte(Subject.fields.rank, 3)), byId),
+    input: {},
+    expected: ['c', 'd', 'e'],
+  },
+  {
+    what: 'a field written second compares the same: the input is above the rank',
+    body: from.pipe(Query.where(Expr.gt(below, Expr.field(Subject.fields.rank))), byId),
+    input: { below: 3 },
+    expected: ['a', 'b'],
+  },
+  {
+    what: 'a comparison that reads no field orders numbers as numbers: 9 is below 10',
+    body: from.pipe(Query.where(Expr.lt(below, 10)), byId),
+    input: { below: 9 },
+    expected: ['a', 'b', 'c', 'd', 'e'],
+  },
+  {
+    what: 'a range of dates compares their encoded ISO strings under binary',
+    body: from.pipe(
+      Query.where(
+        Expr.and(
+          Expr.gte(Subject.fields.at, from_, binary),
+          Expr.lt(Subject.fields.at, until, binary),
+        ),
+      ),
+      byId,
+    ),
+    input: { from: '2026-01-02T00:00:00.000Z', until: '2026-01-04T00:00:00.000Z' },
+    expected: ['b', 'c', 'd'],
+  },
+  {
+    what: 'text under binary orders by code point: capitals and digits before lower case',
+    body: from.pipe(Query.where(Expr.lt(Subject.fields.label, 'a', binary)), byId),
+    input: {},
+    expected: ['a', 'c', 'd'],
+  },
+  {
+    what: 'text under asciiFold orders with ASCII case folded',
+    body: from.pipe(
+      Query.where(Expr.lt(Subject.fields.label, 'j', { collation: Collation.asciiFold })),
+      byId,
+    ),
+    input: {},
+    expected: ['a', 'b', 'd'],
+  },
+  {
+    what: 'a null compared is unknown, so it matches neither the comparison nor its not',
+    body: from.pipe(Query.where(Expr.gte(Subject.fields.tag, 'x', binary)), byId),
+    input: {},
+    expected: ['b', 'd', 'e'],
+  },
+  {
+    what: 'not of a comparison leaves a null out too',
+    body: from.pipe(Query.where(Expr.not(Expr.gte(Subject.fields.tag, 'x', binary))), byId),
+    input: {},
+    expected: [],
+  },
   // ---- encoded values ------------------------------------------------------
   // The body's types say `Date`; a store's rows and a request's inputs are ISO
   // strings. An interpreter compares in the **encoded** space, and these are the
@@ -451,6 +606,14 @@ export const refusals: ReadonlyArray<ConformanceRefusal> = [
     what: 'contains refuses a search holding NUL',
     body: from.pipe(Query.where(Expr.contains(Subject.fields.label, label)), byId),
     input: { label: `in${NUL}` },
+  },
+  {
+    what: 'a comparison refuses text holding NUL',
+    body: from.pipe(
+      Query.where(Expr.lt(Subject.fields.label, label, { collation: Collation.binary })),
+      byId,
+    ),
+    input: { label: `b${NUL}` },
   },
   {
     what: 'contains refuses searched text holding NUL',

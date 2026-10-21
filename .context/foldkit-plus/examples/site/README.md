@@ -18,7 +18,7 @@ catalog.ts ─┬─ READMEs, docs/*.md ──▶ guides.ts (cut at ## headings,
                      │
                      ▼
             content/library.ts ──▶ static regions ──▶ HTML at build time
-main.ts: Model { path, page, menuOpen, example, copied } ──▶ the browser
+main.ts: Model { path, page, and what the browser changes } ──▶ the browser
 ```
 
 - **The catalog owns the map.** [`src/catalog.ts`](src/catalog.ts) names each
@@ -36,6 +36,49 @@ main.ts: Model { path, page, menuOpen, example, copied } ──▶ the browser
 A guide page is one `##` section of its file; a section shorter than about 700
 characters stays on the page before it. A link to another file that is on the
 site goes to the page holding its target, and anything else to GitHub.
+
+Code in prose links to what it names (`src/content/links.ts`): `` `Remote.make` ``
+to the member on its API page, `` `foldkit-sync` `` to the package's guides. It
+links only a name that names one thing: a re-export yields to the declaration,
+a name two packages declare links only from a page of one of them, and a
+lowercase word, a name every application has (`Model`, `Schema`) or a plain
+word that is not a namespace stays text outside its own family. Each export's
+page lists the guide pages that name it, under "In the guides".
+
+### Moving between pages
+
+Each page is a new document, so the build makes that fast rather than avoiding
+it. Pages are written as `remote.html`, which the host serves at `/remote` with
+no redirect. `index.html` asks the browser to prerender a link the pointer rests
+on (speculation rules), so a click shows it at once, with no animation between
+the two. A small script in `index.html` keeps the
+sidebar's scroll from page to page, or brings the current entry into view; it
+places the rail again whenever the application draws a new one.
+
+## Components and the theme creator
+
+`/components` is a gallery of the recipes `foldkit-mixins-ui` ships, a page per
+component, and `/create` a theme creator. Three files hold it:
+
+- [`src/gallery/theme.ts`](src/gallery/theme.ts): the knobs, the presets, and
+  the theme module `/create` hands out (`codeOf`; for the defaults it is
+  [`src/snippets/theme.ts`](src/snippets/theme.ts), which the typecheck
+  compiles and `test/theme.test.ts` compares).
+- [`src/snippets/components.ts`](src/snippets/components.ts): each component
+  drawn as an application draws it, one `// #region <slug>` each. A
+  component's page shows its region, coloured at build time, and its previews
+  call the function the region defines, so the code is what drew them.
+- [`src/gallery/showcases.ts`](src/gallery/showcases.ts): the list. A
+  showcase's variant axes are read from its recipe (`recipe.def.variants`),
+  and a value reaches the recipe only if the recipe has it.
+
+A preview declares the whole component theme on its own element, and `/create`
+sets its knobs inline there. A custom property resolves where it is declared:
+tokens on `:root` would reach the preview already resolved, and a knob set on
+it would change nothing. So the site's own look never moves, and every token
+in the preview re-derives from the knobs in the browser. The variant picked,
+the knobs and the previews' controls are browser-only Model fields
+(`local`), fresh on every page.
 
 ## One list of demos
 
@@ -70,8 +113,8 @@ renamed heading or a moved file fails the test rather than a reader.
 - `src/catalog.ts`: the subsites, their packages and their documents.
 - `src/main.ts`: the Model, the Messages, `update`, the resume plan and the
   document's head.
-- `src/view/`: the frame and rail (`layout.ts`), the home page, the demos, and a
-  doc page's two regions.
+- `src/view/`: the frame and rail (`layout.ts`), the home page, the demos, the
+  component pages and the theme creator, and a doc page's two regions.
 - `src/content/`: the build-time half: Markdown cut into guide pages, drawn with
   the inert builder, code tokenized by `foldkit-richtext-code-shiki` into the
   `syntax-*` kinds and drawn by `foldkit-mixins-ui`'s `CodeBlock`, colored by

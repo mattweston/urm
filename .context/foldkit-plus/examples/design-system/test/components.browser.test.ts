@@ -152,6 +152,19 @@ test('navigation trails a breadcrumb', async () => {
   await seen('Launch checklist')
 })
 
+test('the plan picker spans its column, its plans in equal shares', async () => {
+  mount()
+  await seen('Team plans')
+  await vi.waitFor(() => {
+    const plans = document.querySelector('[role="group"][aria-label="Plan"]')
+    if (!(plans instanceof HTMLElement) || plans.parentElement === null) throw new Error('no plans')
+    expect(plans.getBoundingClientRect().width).toBeCloseTo(plans.parentElement.clientWidth, 0)
+    const widths = Array.from(plans.children, plan => plan.getBoundingClientRect().width)
+    expect(widths).toHaveLength(3)
+    widths.forEach(width => expect(width).toBeCloseTo(widths[0]!, 0))
+  })
+})
+
 test('display shows people, keys, rules, placeholders, and a spinner', async () => {
   mount()
   await seen('Loading projects')
@@ -220,12 +233,22 @@ test('scroll area chains instead of paging', async () => {
   expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight)
 })
 
-test('slider offers the pointer over its bar and thumb', async () => {
+test('slider offers the pointer over its whole bar', async () => {
   mount()
-  await seen('Volume: 60')
-  const thumb = document.querySelector('[role="slider"]') as HTMLElement
-  const track = thumb.parentElement as HTMLElement
-  expect(getComputedStyle(track).cursor).toBe('pointer')
+  await seen('60%')
+  const thumb = document.getElementById('volume-slider-value') as HTMLInputElement
+  const track = (thumb.parentElement as HTMLElement).firstElementChild as HTMLElement
+  // In view: a point outside the viewport hits nothing.
+  track.scrollIntoView({ block: 'center' })
+  await vi.waitFor(() => {
+    const box = track.getBoundingClientRect()
+    expect(box.top).toBeGreaterThanOrEqual(0)
+    expect(box.bottom).toBeLessThanOrEqual(window.innerHeight)
+  })
+  const box = track.getBoundingClientRect()
+  // Far from the thumb at 60: the input spans the bar, so a press there reaches it.
+  const near = document.elementFromPoint(box.left + box.width * 0.1, box.top + box.height / 2)
+  expect(near).toBe(thumb)
   expect(getComputedStyle(thumb).cursor).toBe('pointer')
 })
 

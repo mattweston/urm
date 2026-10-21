@@ -4,10 +4,24 @@
 import type { CalendarAttributes } from '@foldkit/ui/calendar'
 import * as UiButton from '@foldkit/ui/button'
 import * as UiInput from '@foldkit/ui/input'
-import type { HtmlBuilder } from 'foldkit/html'
+import type { RenderInfo } from '@foldkit/ui/tabs'
+import type { MenuRenderInfo } from '../src/index.js'
+import type { Html, HtmlBuilder } from 'foldkit/html'
 import { defineMessageUnion } from 'foldkit/message'
 import { Style } from 'foldkit-mixins'
-import { Button, ButtonSlots, Calendar, CalendarSlots, Input, InputSlots } from '../src/index.js'
+import {
+  Button,
+  ButtonSlots,
+  Calendar,
+  CalendarSlots,
+  Input,
+  InputSlots,
+  Menu,
+  MenuSlots,
+  Recipes,
+  Tabs,
+  TabsSlots,
+} from '../src/index.js'
 
 const Message = defineMessageUnion({ Saved: {} })
 type Message = typeof Message.Type
@@ -44,3 +58,19 @@ const CalendarStyle = Style.forSlots(CalendarSlots)({
 
 export const resolveCalendar = (attributes: CalendarAttributes, h: HtmlBuilder<Message>) =>
   Calendar.resolve(attributes, [CalendarStyle.mixin], { input: attributes._tag, h })
+
+const TabsStyle = Style.forSlots(TabsSlots)(Recipes.Tabs({}))
+
+export const glidingTabs = (h: HtmlBuilder<Message>): ((render: RenderInfo) => Html) =>
+  Tabs.toView([TabsStyle.mixin, ...Tabs.fluid], { h }, ({ tablist, indicator, highlight, tabs }) =>
+    h.div(tablist, [
+      h.div(indicator),
+      h.div(highlight),
+      ...tabs.map(tab => h.button(tab.tab, [tab.value])),
+    ]),
+  )
+
+const MenuStyle = Style.forSlots(MenuSlots)(Recipes.Menu({}))
+
+export const glidingMenu = (h: HtmlBuilder<Message>): ((render: MenuRenderInfo) => Html) =>
+  Menu.toView([MenuStyle.mixin, ...Menu.fluid], { h })

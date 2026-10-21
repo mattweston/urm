@@ -263,18 +263,22 @@ you must understand before using mixins.
 bundles to `toView`. `foldkit-mixins-ui` turns those bundles into named slots so the same Style and
 Behavior model can apply.
 
-Button, Input, Checkbox, Disclosure, Dialog, Popover, Tooltip, Slider, Tabs, RadioGroup, Calendar
-and more are adapted.
+Button, Input, Checkbox, Disclosure, Dialog, Popover, Tooltip, Tabs, RadioGroup, Calendar,
+HoverIntent, FileDrop, VirtualList, Meter, Progress, Nav and more are adapted, and `Anchor` is a
+Mount and a Behavior.
 
-There are two reasons a component may not be covered:
+A component reaches its slots in one of three ways:
 
-1. `Menu`, `Listbox`, `ComboBox` and `DatePicker` build their full element tree internally and
-   expose no `toView`/attribute bundle seam. There is nowhere for a mixin to attach without a
-   component API change.
-2. `Toast`, `FileDrop`, `VirtualList`, `DragAndDrop`, `Anchor`, `HoverIntent` and `Animation` simply
-   do not have adapters yet. `FileDrop`, for example, exposes the seam an adapter would need.
+1. Most hand typed attribute bundles to `toView`, and the adapter names them.
+2. `Menu`, `Listbox`, `ComboBox`, `DatePicker` and `Toast` build (parts of) their element tree
+   internally and expose no `toView` seam, so each is adapted over a small fork of its view,
+   transcribed from the pinned `@foldkit/ui` source with the seam added; state, Messages,
+   `update` and Mounts stay upstream. The forks go when upstream gains the seams.
+3. `Slider` is drawn by `foldkit-mixins-ui` itself (`Slider.view`), because a range of two thumbs
+   cannot be built on the upstream Slider's one, and one control should have one recipe.
 
-That distinction matters: one is an architectural boundary, the other is unfinished coverage.
+`DragAndDrop` and `Animation` have no adapter yet. The first way is the normal one, the second
+works around a missing upstream seam, and the third is a choice.
 
 ## Accessibility contracts
 
@@ -344,4 +348,3 @@ Use the examples in increasing order of scope:
 - [`foldkit-mixins`](../packages/mixins) — Slots, resolver, Style, Behavior, Theme and A11y.
 - [`foldkit-mixins-ui`](../packages/mixins-ui) — `@foldkit/ui` adapters.
 - [`foldkit-mixins-surface`](../packages/mixins-surface) — Surface → SlotView bridge.
-- [`docs/design/mixins-DESIGN.md`](./design/mixins-DESIGN.md) — substrate probes and implementation decisions.

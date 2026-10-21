@@ -5,9 +5,2401 @@ All notable changes to this project are recorded here. The project follows
 released from a version tag (`vX.Y.Z`). A release only republishes packages whose
 version changed; `pnpm` skips versions already in the registry.
 
-## Unreleased
+## 0.30.1
+
+The skill's greenfield guide for a new application. Its plan settles mobile
+beside performance and security; the agent tells the user that ending the
+domain rounds is their call; the mapping shows how Schema, Entity, Remote, Form
+and Crud stack, with Guard, Auth, Site and Composition at their seams; and
+deployment prefers the CAFE stack (Cloudflare, Alchemy, Foldkit, Effect) with
+Yielded Auth, asking the user first. No package changed: the skill ships from
+`main`, and this tag names it.
+
+## 0.30.0
+
+One owner for every interactive state. `foldkit-mixins` 0.18.0 adds `surface.hoverStrength` (how
+strongly a hover tints, 4% to 24% around the shipped 12%) and `state.disabledOpacity` (how far a
+disabled control fades), so a theme moves every hover and every disabled control at once.
+`foldkit-mixins-ui` 0.19.0 makes a press its own state: `state.press` is the hover's film at 1.75,
+`hover()` lays it on a held row, tab or menu item, and `FluidHover` marks the container so a held
+fluid highlight deepens too; every tinted hover — Table's, Segmented's, pill Tabs' — now follows
+`surface.hover`. Packages that pin either republish with a patch, and `foldkit-plus` is 0.12.0.
+
+### Changed
+
+- `foldkit-mixins-ui`: every tinted hover follows the theme's `surface.hover`, fluid highlights
+  included. Table's highlight and its expand toggle, a filled Segmented's highlight and pill
+  Tabs' highlight painted with the text (Table) or the accent's subtle fill whatever the theme
+  chose; they now paint with `unfilledHover`, as Nav, Sidebar and TreeView do. The accent's
+  "trying the tab on" look is `surface: { hover: 'accent' }`. A Segmented without `fluid` tints
+  its option under the pointer, as a fluid tray's highlight does. A Dialog's or Sheet's close
+  button hovered with a surface step; it now hovers as every icon button does.
+- `foldkit-media/server`: `UploadPolicy.admit(request, route)` is told which route it guards,
+  `'Upload'` or `'DescribeUrl'` (the facts route), so a policy may admit uploads and refuse URL
+  lookups. A hand-written policy gains the parameter. `UploadUnauthenticated` is a `401`, for a
+  request whose session the policy cannot tell, beside `UploadForbidden`'s `403`.
+- `foldkit-media/server`: `Uploads.put(hash, bytes, facts)` keeps the facts the route read
+  beside the bytes; an `Uploads` of your own gains the parameter.
 
 ### Added
+
+- `foldkit-mixins` / `foldkit-mixins-ui`: a press is its own state. `state.press` is the
+  hover's film at 1.75, and `hover()` lays it while a row, tab, accordion trigger or menu item
+  is held, so a press no longer looks like the hover it followed. `FluidHover` marks its
+  container `data-fluid-held` while the lit item is pressed, and every fluid highlight (Table,
+  Segmented, Tabs, Nav, Sidebar, TreeView) and the popups' own deepen with it. One knob,
+  `surface.hoverStrength`, sets both strengths.
+- `foldkit-mixins`: `state.disabledOpacity` (`Disabled`, 0.3 to 0.7, half by default), how far a
+  disabled control fades. Every recipe that draws the state reads it, so a page no longer shows
+  `0.4` on a calendar day and `0.5` on the button beside it, and a theme sets them all.
+- `foldkit-mixins`: `surface.hoverStrength`, how strongly a hovered row or button is tinted
+  (4% to 24%); the palette's `state-hover` was a fixed 12%, which stays the default, so a theme
+  that does not set it draws as before.
+- `examples/site`: `/create` turns the two new knobs, **Hover strength** in the Color pane beside
+  Hover and **Disabled** in Shape after Outlines, so a reader sees each change beside the knob it
+  belongs with; its end-to-end test hovers the canvas's Segmented preview and measures the film.
+  Its Icons pane draws the chosen pack at the **Glyph stroke** the theme sets
+  (`Icons.tokens(pack, { width })`), the specimen and every preview with it, and writes
+  that width into the code.
+- `foldkit-media/server`: `uploadPolicyAny(a, b, …)` tries upload policies in turn, the first to
+  admit winning, so a deployment's secret and sessions can both upload; when every one refuses,
+  the last refusal is the answer. Each is built once, with the combined layer.
+- `foldkit-guard/media`: `GuardMedia.uploadPolicy(Policy, { resolve, Upload, DescribeUrl })` is
+  `foldkit-media`'s `UploadPolicy` decided by principal guards per route, for who `resolve` says
+  is asking (Remote's resolver; `AuthServer.resolver` has the shape). The resolver gets the
+  request's URL, method and headers, never its body, so a refused upload still reads no byte. A
+  route admits when any of its guards allows, a route given none admits nobody, and a row guard
+  is a type error. A resolver failure is a `401`, a refusal a `403`. `foldkit-media` is a new
+  optional peer of `foldkit-guard`.
+- `foldkit-media/server`: `StoredFacts.get(hash)` reads back the facts the upload route read, so
+  a mutation registering an upload takes a hash and never a client's facts; none for a hash
+  nobody uploaded, or one kept before facts were. `storedFactsKeyValueStore()` over the
+  application's store, `storedFactsR2(bucket)` on Cloudflare.
+
+- The `foldkit-plus` skill has `references/greenfield.md`: how an agent starts a new
+  application. The brief, the look (a theme the user designs at foldkit-plus.pages.dev/create,
+  its code saved as the app's style module), then a scaffold with the matching
+  `create-foldkit-app`, then rounds of
+  domain questions recorded in `docs/domain/` until the user stops, a mapping of the domain to
+  the packages agreed with them, a plan (`plan.md`) for architecture, performance budgets, SEO,
+  accessibility, design, testing, CI, deployment, security, operations and milestones, and only
+  then the build, in slices, CI and deployment first. `npx foldkit-plus setup`
+  run where there is no `package.json` sends an agent there and prints the non-interactive
+  scaffold command (`create-foldkit-app@0.39.1`, which installs Foldkit 0.168.0); in a project it
+  names the guide too.
+
+### Fixed
+
+- The skill said it targets Foldkit 0.165; it is 0.168.
+- `foldkit-media`'s README and the skill no longer promise more than the code keeps: a variant's
+  URL names the variant, not its bytes, so a change to how variants are made is a revision the
+  application bumps; anyone holding a variant's URL can read it; a Worker cannot coalesce two
+  misses for one variant, so both transform; and `HashedAsset` checks the shape of facts, not
+  that they are true, so a server stores the facts it read, not ones a client sends back.
+
+## 0.29.0
+
+Images with fewer ways to go wrong. `foldkit-media` 0.2.0: a provider says which facts it takes,
+so an image without a content hash given `Provider.hosted` is a type error, not an empty box; the
+server reads its space from that same provider; `serveFetch` is the whole Worker, with
+`uploadPolicyBearer` for a deployment's secret and `variantsR2({ cache: true })`.
+`foldkit-mixins-ui` 0.18.0: `Icon.view({ icon })` takes the icon itself, and `alt` takes plain
+words. `foldkit-plus` is 0.11.0. Packages that pin one of them republish with a patch
+(`foldkit-mixins-form`, `foldkit-mixins-builder`, `foldkit-mixins-richtext`, `foldkit-richtext`,
+`foldkit-richtext-code`, `foldkit-richtext-code-shiki`, `foldkit-richtext-dom`,
+`foldkit-richtext-markdown`). Code that calls `serveFetch({ layer })`, `serveUploadFetch`,
+`serveFetch({ space })`, or `Icon.view({ content })` needs changing (see Changed).
+
+### Changed
+
+- `foldkit-media`: a `Provider` says which facts it takes (`Provider<Asset>`), and
+  `Provider.hosted` takes a `HashedAsset`, facts with a content hash, since it names an original
+  by it. Facts without one are a type error where the view is written (`Picture.derive`,
+  `Image.view`, `Avatar.view`), where they were drawn as an unavailable image. `HashedAsset` is
+  also the Schema that decodes them (an upload's answer), and `isHashed` narrows; a `?image`
+  import's `asset` is one.
+- `foldkit-media/server`: `serveFetch` is the whole Worker: `serveFetch({ images?, uploads?,
+  otherwise? })` owns `/_image/` and `/_media/`, answers anything else under them (a preflight
+  included) with a 404, and hands every other path to `otherwise`. `serveUploadFetch` is
+  removed; `images: { layer }` is what `serveFetch({ layer })` was, and `images` takes no
+  `coalesce`, which a Worker cannot use.
+- `foldkit-media/server`: the server reads its space from the provider the pages write URLs
+  with: `images: { provider: Provider.hosted({ space }) }` (and `layer({ provider })`) in place
+  of `space`, so the two cannot differ. `Provider.hosted` returns a `Provider.Hosted`, which
+  carries its `space`.
+- `foldkit-media/cloudflare`: `variantsR2(bucket, { cache: true })` puts the Worker's
+  `caches.default` in front, with no cast of the DOM's `caches`; outside a Worker it throws
+  where the layer is made.
+- `foldkit-mixins-ui`: `Icon.view` takes the icon itself, `Icon.view({ icon, label?, key? })`,
+  and draws it with `foldkit-media`'s `Icon.draw`, so a view imports one `Icon`. `content` is
+  removed: `Icon.view({ content: MediaIcon.draw(check, h) })` is `Icon.view({ icon: check })`.
+- `foldkit-mixins-ui`: `Image.view`'s `alt` takes plain words, `alt: 'The finals'`, as
+  `Image.described('The finals')`; ornament is still `Image.decorative`, never left out.
+
+### Added
+
+- `foldkit-media/server`: `uploadPolicyBearer(secret)`, the `UploadPolicy` for a deployment's
+  secret: `Authorization: Bearer <secret>`, compared by digest in constant time, and nobody
+  while the secret is unset or empty. The README's upload example compared with `===`.
+
+## 0.28.0
+
+Images and icons. `foldkit-media` 0.1.0 is its first release: an image's facts, a provider and a
+layout give every attribute of its markup, a server (`/server`, `/cloudflare`, `/sharp`) or a
+build (`/vite`) makes and keeps each variant, and icons are data a build reads from an Iconify set
+or an SVG file. `foldkit-mixins-ui` 0.17.0 draws them (`Image`, `Figure`, `Icon.view`, an
+`Avatar` picture), and `foldkit-mixins` 0.17.0 adds the theme's `icon` tokens and keeps a
+reader's theme and knobs before the first paint. `foldkit-richtext` 0.5.0 lets an `Image` carry its
+facts, `foldkit-primitives` 0.15.0 adds `decodeImage`, `foldkit-ssr` 0.8.0 adds `emit`,
+`foldkit-mixins-richtext` 0.5.0 draws its icons from Lucide's data, and `foldkit-plus` is 0.10.0.
+Packages that pin one of them republish with a patch so their ranges cover the new versions
+(`foldkit-builder`, `foldkit-cms`, `foldkit-cms-drizzle`, `foldkit-composition`,
+`foldkit-mixins-builder`, `foldkit-mixins-crud`, `foldkit-mixins-data-grid`,
+`foldkit-mixins-form`, `foldkit-mixins-surface`, `foldkit-richtext-code`,
+`foldkit-richtext-code-shiki`, `foldkit-richtext-dom`, `foldkit-richtext-markdown`,
+`foldkit-site`). One change needs code: `ColorPicker.popover` now draws the whole Popover and takes
+its Model and Messages (see Changed).
+
+### Added
+
+- `foldkit-richtext`: a standard `Image` may carry its `asset`, `foldkit-media`'s `ImageAsset` of
+  what its `src` names, as stored; with it, the standard rendering writes the `img`'s `width` and
+  `height` (at the drawn `width` when set), so a page holds the image's box before the file
+  arrives, and `imageBox(props)` gives a rendering of its own the same. Optional: a document
+  without it is as valid as before. `foldkit-media` is a new dependency.
+- `examples/cms`: the site's `Image` block may carry its `asset`, the facts of the file its `src`
+  names, hidden from the inspector; with them the image's box is its own shape before the file
+  arrives, while the facts' key is still the `src` (an edited address falls back to 4:3).
+- `foldkit-primitives`: `decodeImage(source)` fetches and decodes a picture before it is shown,
+  yielding `Decoded` or `DecodeFailed`; given candidates, the one the browser would draw.
+- `foldkit-ssr`: a static site's `emit(pages)` adds files made from the generated pages, written
+  beside them; a path outside the output, or on a file the build or the client build writes, is
+  refused. `writeEmitted` writes them without the plugin.
+- `foldkit-mixins`: `Theme.knobScript({ key?, selector? })` and `Theme.chooseKnobs(theme, { base,
+  key?, selector? })` keep a reader's knob values and apply them before the first paint, as
+  `schemeScript` and `chooseScheme` do for the scheme: the head script applies the kept knob
+  variables to one unlayered rule, and the Command rewrites that rule and keeps those that differ
+  from `base`. See `docs/design/theme-robustness-DESIGN.md`.
+- `foldkit-mixins`: `Themes.choose(themes, name, key?)` shows a named theme and keeps it, and
+  `Themes.script(themes, key?)` is a head script that shows the kept one before the first paint,
+  on the attribute `Themes.apply` writes; a name no theme has is ignored.
+- `foldkit-media` 0.1.0, its first release: responsive images as URLs to write. `Picture.derive` turns
+  an `ImageAsset`'s facts, a `Provider` and a `Layout` (`Fixed`, `Constrained`, `FullWidth`) into
+  every attribute of an image's markup: `srcset` and a `source` per format from one `Widths`
+  ladder, `sizes`, the reserved box, loading priority, and a placeholder background (a color, a
+  ThumbHash, or the smallest width; none behind a transparent image). Providers: `cdnCgi`
+  (Cloudflare's `/cdn-cgi/image/`), `fromFiles` (a build's variants) and `hosted` (its own server,
+  whose route, `/_image/<hash>/w640.avif`, `foldkit-media/server`'s `MediaApi` declares with the same
+  Schema). `Variant.space({ widths, formats, qualities, revision })` bounds every variant a server makes; a
+  changed output is a new `revision`, written into the URL (`w640.r1.avif`; none at 0), and a
+  server answers an earlier revision while it keeps the variant, else with a `302` to the current
+  URL, kept briefly, since a rollback answers the old URL again. `Picture.preload` writes
+  the page's largest image's `<link rel="preload">` for an SSR `head`. `Picture.ogImage` gives an absolute
+  `og:image` URL at least 1200 wide, never AVIF.
+  `foldkit-media/server` serves `Provider.hosted`'s route over three services, `Originals`,
+  `Transformer` and `Variants`: a variant is made once and kept, served immutable, and a failure is
+  its own status (400, 404, 413, 502, 503), never the original (only a variant is kept long; every
+  refusal is kept a minute at the edge and not by a browser, since a later release in a rollout, or
+  the same one configured otherwise, may answer it), with headers decided in one place
+  (`headersFor`): an `ETag` and 304, a cache lifetime for each answer, CORS, `nosniff`, `Server-Timing`. `serveFetch` hosts it in a Worker,
+  `layer` in an Effect `HttpRouter`. `foldkit-media/cloudflare` gives its services from a Worker's bindings:
+  `originalsR2`, `transformerImages` (the Images binding) and `variantsR2` (R2 behind the Cache API).
+  `examples/cloudflare` serves `/_image/` with them, and takes an upload only with its `UPLOAD_TOKEN` secret. `Originals` and `Variants` are kept in
+  any Effect `KeyValueStore` (`originalsKeyValueStore`, `variantsKeyValueStore`), and
+  `keyValueStoreR2` is an R2 bucket as one. `foldkit-media/sharp`'s `transformerSharp` serves a Node server: it
+  refuses an original above its pixel limit with a 413 before decoding it, and runs at most
+  `concurrency` transforms (`limitTransforms`); `layer` coalesces concurrent misses for a variant (`serveFetch` does not: a Worker request cannot wait on another's work), and sharp reads an original as its EXIF orientation shows it. Rate limits apply to misses only:
+  `admissionRateLimiter` (Effect's `RateLimiter`) or `admissionRateLimit` (a Workers rate-limit
+  binding) answers a 429 with `Retry-After`. `materialize` writes the hosted variants a static site's pages
+  name, as `foldkit-ssr`'s `emit`, and `headersRule()` is the `_headers` rule they need.
+  `describe` (in the core) derives an original's facts through an `Inspector` (`foldkit-media/browser`'s
+  `inspectorBrowser`, the browser's own decoder, so an editor describes a file where it is chosen;
+  `inspectorSharp`,
+  `inspectorImages`), and `factsOf(url)` describes an image named only by URL, from allowed hosts at their default port,
+  kept and revalidated with its `ETag`. `Icon` holds an icon as data (`IconData`: its `viewBox`,
+  what its root paints, its drawing): `Icon.serialize` writes it as one SVG document and
+  `Icon.maskUrl` as a CSS `url()` for a mask. `foldkit-media/icons`, for builds, reads an SVG file
+  (`parse`) or an Iconify set's icon (`fromIconify`, through its aliases) into it, and refuses,
+  naming the icon, any element or attribute outside a presentational allowlist, a link or
+  `url()` outside the icon or to an id it does not define, a CSS function other than a colour, a
+  transform or `url()`, an Iconify icon or alias that rotates or flips, and a CSS escape. `Icon.key(icon)` names an icon by its content, and
+  `Icon.prefixIds(icon, prefix)` renames the ids it defines and every reference to them.
+  `Icon.withStroke(icon, { width?, corners? })` redraws an icon's strokes, for a mask CSS cannot
+  reach, and `Icon.maskUrl` escapes only what a quoted CSS `url()` cannot hold, a fifth shorter.
+  `foldkit-media/vite`'s `icons({ iconify, folders, dts })` makes icons imports:
+  `import { arrowLeft } from 'virtual:foldkit-icons/lucide'` reads an installed Iconify set or a
+  folder of the application's SVGs, the bundle holds only what is imported, and a written
+  declaration names every icon, so a misspelt one is a type error. A refused SVG in a folder fails
+  the build; a refused Iconify icon is left out, and the declaration says why.
+  `foldkit-media/vite`'s `images({ widths?, sources?, fallback?, quality? })` makes an image in the
+  repository an import: `import hero from './hero.jpg?image'` is `{ asset, provider }`, its facts
+  read once through sharp and a file written for each ladder width up to its own in each format,
+  named by content and kept whole in Vite's cache by the original's hash, at most one original read
+  per core at once; the development server makes
+  the same variants on request. `foldkit-media/client` types the import.
+  `foldkit-media/unpic`'s `detect(url, options?)` is the provider of an image on a host that resizes
+  it (Shopify, Cloudinary, imgix and the rest unpic knows, an optional peer), or none: the `img`
+  asks for `auto`, a format the host ignores is never offered as a `source`, and an asset on another
+  host gets no URL.
+  `foldkit-media/server`'s upload route (`uploadLayer`, `serveUploadFetch`): `POST /_media/upload`
+  takes an `image/*` body under a byte cap, keeps it by its SHA-256 in `Uploads`
+  (`uploadsKeyValueStore`, `foldkit-media/cloudflare`'s `uploadsR2`), and answers its facts as an
+  `ImageAsset`; who may upload is a required `UploadPolicy`, asked before the body is read. `GET
+  /_media/facts?url=`, behind the same policy, answers the facts of an image named by URL through
+  `factsOf`, from the hosts `facts: { allow }` names (none by default), or a `422`.
+- `foldkit-media`: `Icon.draw(icon, h, { key?, size? })` draws an `IconData` as inline SVG through
+  any view builder of its shape (`SvgBuilder`; Foldkit's `h` is one), every attribute in the
+  server's markup, `1em` square unless `size` is given and kept so in a squeezed flex row,
+  `aria-hidden`, its ids prefixed by the
+  icon's content so two icons sharing an id each paint their own; `key` sets two copies of one icon
+  apart. `foldkit-mixins-ui`'s `Icon.view` fills its glyph with the drawing.
+- `foldkit-mixins-richtext`: the chrome's icons are generated from `@iconify-json/lucide` (`pnpm
+  icons`, from the package's `icons.json`) and drawn with `foldkit-media`'s `Icon.draw` and
+  `Icon.maskUrl`, in place of hand-copied paths, so they are today's Lucide drawings. A drawn
+  icon's size is now written in pixels (`width="16px"`), and its stroke sits on each path.
+  `foldkit-media` is a new dependency.
+- `foldkit-mixins`: the theme's `icon` tokens are the masks of the icons the components draw
+  themselves (`search`, `eye`, `eye-off`, `pipette`, `rotate-ccw`, `rotate-cw`, `success`, `warning`,
+  `error`, `info`, `lock`, `close`; their names are `ChromeIcon`), Lucide's by default, written by
+  `pnpm icons`. Command, PasswordInput, ColorPicker, ImageCropper, Toast and the data grid draw from
+  them in place of their hand-written masks, so the toast's marks are Lucide's stroked drawings now.
+  `foldkit-mixins-ui`'s `Icons.tokens(pack, { width?, corners? })` is an application's own pack as
+  its own tokens, a pack missing a name being a type error. Two knobs: `icon.size` multiplies every
+  icon box (the `icon` rung of `ladder`), and `icon.stroke` is `border.glyph`, the stroke of the
+  checks, chevrons and guides recipes draw in CSS, until now a fixed `2px`.
+- `foldkit-mixins-ui`: `Image`, a `picture` drawn from `foldkit-media`: a `source` per format, the
+  `img`'s candidates and `sizes`, its box held before the file arrives, lazy unless `priority`,
+  and the placeholder painted behind it. `alt` is `Image.described(text)` or `Image.decorative`,
+  never omitted. `Recipes.Image` has `fit` (`cover`, `contain`), `edge` (`none`, `line`), `ratio`
+  (`auto`, `square`, `video`, `portrait`, cropped at the focal point) and `radius`.
+  `Image.watchLoad`, beside the style, marks its load state and hides a failed image. `Image.preloadsIn`
+  is a `foldkit-ssr` `Head` that preloads each image the rendered page drew with `priority`. `Image.audit`
+  warns, in a development build, of a blurry or wasteful image and of two drawn with `priority`. An image with no
+  variant keeps its box and its alt text. An asset's `focus` places a crop (`--fk-image-focus`), and a
+  ThumbHash paints its picture for the `priority` image and its average color for the rest.
+- `foldkit-mixins-ui`: `Figure`, a `figure` holding its content and a `figcaption` in the caption
+  role; `Recipes.Figure` has `align` (`start`, `center`).
+- `foldkit-mixins-ui`: an `Avatar`'s `src` may be an `AvatarPicture` (`{ asset, provider, width }`),
+  drawn with the candidates `foldkit-media` derives for that width, so a small avatar fetches a
+  small variant. `Avatar.widthOf(size)` gives that width from the recipe's own sizes.
+  `foldkit-media` is a new peer dependency. See `docs/design/media-DESIGN.md`.
+
+### Changed
+
+- `foldkit-mixins-ui`: `ColorPicker.popover` draws the whole Popover, not a `toView` for one:
+  it takes the Popover's Model and Messages (`popover`, `onPopover`, and `anchor`;
+  `popoverMixins` is the old `popover` option) and requires the Popover made with
+  `contentFocus: true`, throwing for one without. The panel opens on the area's thumb, and
+  focus leaving it closes one the keys or a finger opened. A popover opened by touch, a pen or the keys closed at the
+  first press inside it, so the area and the tracks could not be dragged.
+- `foldkit-mixins-ui`: a CardGroup's highlight is a film over the card the pointer is on, the
+  card's size, whatever its `surface`. Under cards with a surface it showed only as a rim in the
+  gap around them, beside the card's own hover; a card in a group with a highlight now draws no
+  hover of its own.
+
+### Fixed
+
+- `foldkit-mixins-ui`: a Card's `media` is an accent tile only around a bare icon (`svg`,
+  `img`); an Avatar or anything else leads at its own size, at the card's start. The docs site's
+  profile card passed its Avatar as `image`, which bleeds to the edges in a 16:9 band, and the
+  avatar sat in the band's corner with the band empty beside it.
+- `foldkit-mixins-ui`: a ColorPicker's hue and alpha tracks stay in their channel: a Slider is
+  at least 12rem wide, which ran the tracks under the swatch in a narrow picker, as in a
+  popover; a holder lays one narrower with `--fk-slider-min-length`. The popover's trigger keeps
+  the width of its format's widest text, so it no longer resizes, and moves its panel, as the
+  color's text changes length.
+- `foldkit-mixins-ui`: a Sidebar's icon is centred in its slot, and its content on the column
+  with its edge, so a rail's icons sit in its middle; an icon smaller than its slot sat at the
+  slot's start, and the default variant's edge took a pixel from the content's side.
+- `foldkit-mixins-ui`: a Checkbox's check is centered in its box at every size; it stood low and a
+  little left, by about 8% of the box.
+- `foldkit-mixins-ui`: a mixed Checkbox's dash is the check's stroke, 2px, on whole pixel rows
+  across the box's middle; it was a tenth of the box, 1.4px at 16px, blurred off its rows.
+- `foldkit-mixins-ui`: the AngleSlider's dial, thumb and markers stay round in a theme whose
+  `radius-factor` is 0; they read the radius scale before, which squared them off.
+
+## 0.27.0
+
+Sheets and Drawers swipe from anywhere on their panels, as vaul's do: a finger drags the panel,
+content that can still scroll its way scrolls first, and `swipe: { from, flickSpeed, closeShare }`
+customizes it. `foldkit-mixins-ui` 0.16.0 and `foldkit-primitives` 0.14.0 change, and
+`foldkit-plus` is 0.9.0. Packages that pin one of them republish with a patch so their ranges cover
+the new versions (`foldkit-builder`, `foldkit-mixins-builder`, `foldkit-mixins-data-grid`,
+`foldkit-mixins-form`, `foldkit-mixins-richtext`). Nothing written for 0.26 needs changing; a
+finger on a sheet's content now drags it, which `swipe: { from: 'handle' }` turns back.
+
+### Changed
+
+- `foldkit-mixins-ui`: a finger swipes a Sheet or a Drawer from anywhere on its panel, not only its
+  handle, as vaul's does: content that can still scroll the way the finger moves scrolls, so a
+  long sheet scrolls back to its top and then goes, and a field, a slider or `data-no-swipe` starts
+  no drag. Resting below its highest point a sheet's content holds still, so a swipe up raises it.
+  A mouse still drags by the handle, where text stays selectable. `Sheet.init` and `Drawer.init`
+  take `swipe: { from, flickSpeed, closeShare }`: `from: 'handle'` keeps every pointer on the
+  handle, and the thresholds default to vaul's (0.4px/ms, a quarter of the panel).
+
+### Added
+
+- `foldkit-primitives`: `Swipe` takes `scrolls: 'x' | 'y'`, for an element whose content scrolls:
+  it follows a touch by touch events, which can still refuse the browser's scroll, and swipes
+  only where nothing under the finger can scroll further its way; a touch inside an element with
+  a Swipe of its own is that one's. `touchOnly` leaves a mouse or a pen to the page. `canScroll`
+  and `NO_SWIPE` are what it decides by.
+
+## 0.26.0
+
+Themes are typed knob values: `Theme.make({ accent: { hue: 235 }, shape: { radius: 1.8 } })` is
+checked against `Knobs.standard`, every look (the relief, the fonts, the easing) is a knob that
+switches at runtime, `Themes.make` installs several by name, and `/create` is drawn from the same
+knobs. `Theme.oklch`, `Theme.relief` and `Theme.hardShadows` are removed for them, and
+`AppStyle.make` takes `theme` in place of `palette` (below: how to move). Also new: a vertical
+ButtonGroup, Calendar day details, a resizable and collapsing Sidebar, a Textarea that grows with
+its text, `TreeView.fluid`, color scales and the divider and width tokens. `foldkit-mixins` 0.16.0,
+`foldkit-mixins-ui` 0.15.0 and `foldkit-primitives` 0.13.0 change, and `foldkit-plus` is 0.8.0.
+Packages that pin one of them, or a package that does, republish with a patch so their ranges
+cover the new versions (`foldkit-builder`, `foldkit-cms`, `foldkit-cms-drizzle`,
+`foldkit-composition`, `foldkit-mixins-builder`, `foldkit-mixins-crud`,
+`foldkit-mixins-data-grid`, `foldkit-mixins-form`, `foldkit-mixins-richtext`,
+`foldkit-mixins-surface`).
+
+### Added
+
+- `foldkit-mixins-ui`: a ButtonGroup takes `orientation: 'vertical'`, stacking its items joined
+  top to bottom, and `separated`, a rule on every seam (a new `separator` slot) for solid buttons
+  whose fills meet. A string item is drawn in a new `text` box, a count or a field's prefix. The
+  recipe squares the joining corners in either orientation and on the face a wrapper holds (a
+  Menu's trigger, for a split button), lifts a hovered or focused item over its neighbour, and
+  gains `size` and `width: 'fill'` axes. `Recipes.Button({ shape: 'square' })` draws any variant
+  as the icon variant's square, the icon alone. The site's Button group page adds icon, toolbar,
+  split button, separated, input, text, vertical, sizes and pagination examples.
+- `foldkit-mixins-ui`: a Calendar day can carry a detail, `toView`'s `detail: date =>
+  Option<string>`, drawn in a new `dayDetail` slot under its number and describing the day's
+  button (`aria-describedby`), as a price calendar or an events calendar shows. The recipe's
+  `detail` axis gives each day a taller rounded cell for it (`text`) or draws it as a dot (`dot`).
+  The site's Calendar page adds examples for closed and booked days with bounds, several days, a
+  price on each day, events with a Today button, and a day with a time.
+- `foldkit-mixins`: `outline.divider`, a line between two parts of one surface a step past
+  `subtle`, which a dark page all but hid; the Command menu parts its groups with it. `width.field`
+  (a text field's least width, the content-sized Textarea's) and `width.column-sm|md|lg` (the
+  Card group's least columns) take what those recipes wrote as literals.
+- `foldkit-mixins-ui`: `TreeView.fluid`, the fluid hover the menus, listbox, tabs and sidebar
+  have: one `highlight`, a new slot drawn first in the tree, glides to the showing row nearest
+  the pointer and to the row the keys focus, in place of each row's own hover. `FluidHover`
+  (`foldkit-primitives`) takes `focused`, the selector of the item a focused element that is no
+  item lights, since a focused `treeitem` holds its row and the rows beneath it.
+- `foldkit-mixins-ui`: a Textarea grows with its text. The recipe's `resize` is `auto` (the
+  default: from `rows` lines, two unless given, to the view's new `maxRows`, then it scrolls, by
+  CSS `field-sizing`), `vertical` (stays `rows` lines, dragged) or `none`. `rows` had no effect
+  before: the reset's `field-sizing: content` sized every textarea by its text, without a limit.
+  `Textarea.view` and `Textarea.field` take a `maxLength`, and a `count` drawn in the new `count`
+  slot (`Textarea.countOf`), describing the textarea and carrying `data-limit` (`under`, `near`,
+  `at`), which the recipe inks; `field` counts by default with a `maxLength`. `field`'s `footer`
+  draws the field as one box (`frame`) with a row of controls under the text (`footer`), and its
+  count shares a row (`meta`) with the description. `view` takes `readOnly` and `name` too.
+- `foldkit-mixins-ui`: `Button.view` takes an `icon`, drawn before the label in the new `icon` slot
+  of `ButtonSlots` at the ladder's icon size. The recipe's `icon` variant showed nothing before:
+  the view had no way to draw an icon, and the variant's zero font size hid any drawn in `em`.
+- `foldkit-mixins`: a theme as typed knob values. `Theme.make({ shape: { radius: 1.8 } })` checks
+  each value against `Knobs.standard` (grouped: `accent`, `surface`, `shape`, `type`, `motion`,
+  `shadow`, `menu`, `feedback`, `code`, `chart`, `scales`); a misspelt knob or a choice outside
+  its options is a type error, a number out of range throws. Every look is a knob, the border
+  width, the fonts, the heading weight and tracking, the easing, the shadow style, the relief, the
+  outlines and the hover among them: a choice writes the CSS its option holds, so each switches at
+  runtime as a number does. Themes pipe (`Theme.set`, `Theme.describe`); `Theme.print` writes a
+  theme's `Theme.make({ … })` source, `Theme.fonts` names the shipped font stacks,
+  `Knobs.schema(knobs)` is the Schema of a theme's values, and `Knobs.paths`, `Knobs.at`,
+  `Knobs.valueAt` and `Knobs.withValue` reach a knob by its typed path; each knob carries a
+  `title`, a `description` and its `default`, which `/create` draws its controls from.
+  `Themes.make({ iris, cobalt }, { initial: 'iris' })` installs themes by name: the root declares
+  the initial one, each other writes its knobs under `:root[data-theme="name"]`, `themes.Name` is
+  the Schema of the Model field that holds the active one, and `Themes.apply` is the Command's
+  effect that shows it. `Theme.scope(theme, selector)` themes a subtree, declaring the derivations
+  again there. `Knob.number`, `percent`, `length`, `angle`, `choice`, `font` and `schemed` make
+  knobs of an application's own. The design is `docs/theme-knobs.md`.
+- `foldkit-mixins`: `border.glyph` (2px), the stroke of what a recipe draws in CSS as an icon.
+  Checks, chevrons and the Accordion's plus read it, so thicker borders no longer blot them.
+- `foldkit-mixins-ui`: Steps' `number` slot, the figure in a marker, trimmed to its digits so it
+  sits in the middle of its marker in any face; it sat low in a serif one. A complete marker's
+  check grows with the marker.
+- `foldkit-mixins`: the palette ships seven color scales, `red`, `orange`, `yellow`, `green`,
+  `teal`, `blue` and `purple`: steps `1` (near white) to `10` (near black) on one lightness
+  ladder for every hue, so a step means the same contrast in each, and `wash-1` to `wash-4`, step
+  6 mixed into the page. Each hue is a knob (`red-h`); `scale-c` scales their chroma.
+- `foldkit-primitives`: `Swipe` takes a `slop`, the pixels a press moves before it is a swipe.
+  Until then it captures nothing and reports nothing, so a press that stays put is a click on
+  what is under it.
+- `foldkit-primitives`: `Measure` writes `--fk-<name>-moving`, `1` for the measure that finds the
+  mark on another element and `0` while it stays on one, for an overlay to glide only to a new
+  mark.
+
+### Changed
+
+- `foldkit-mixins`: a theme is its knob values alone. `Theme.standard(theme)` is every shipped
+  token with a theme's knobs, for `Theme.root`, and `AppStyle.make({ theme })` takes one theme
+  (`Theme.make({ … })`), with `tokens` for an application's own groups, in place of `palette`.
+  `Theme.oklch`, its config object and `OklchKnobs` are removed. To move,
+  `Theme.compose(Theme.tokens, Theme.oklch(config))` becomes `Theme.standard(Theme.make(values))`
+  and `AppStyle.make({ palette: Theme.oklch(config) })` becomes `AppStyle.make({ theme:
+  Theme.make(values) })`, the config's fields going to knobs: `accent: { h, c, l, dark }` to
+  `accent: { hue, chroma, lightness }` (a number, or `{ light, dark }`; `l: '52%'` is `52`),
+  `neutral.h` to `surface.hue`, `surfaceSaturation` to `surface.saturation`, `surfaceContrast:
+  '24%'` to `surface.contrast: 24`, `contrastFactor` to `surface.textContrast`, `stateHue` to
+  `surface.hover`, `secondaryHueShift` and `tertiaryHueShift` to `accent.secondaryShift` and
+  `tertiaryShift`, `shadow: { h, c }` to `shadow: { hue, chroma }`, `syntaxChroma` to
+  `code.chroma`, `menu: { accent, color }` to `menu: { highlight, panel }`, and `feedback` stays.
+  `Theme.relief.*` and `Theme.hardShadows` are removed for the `shadow.relief` and `shadow.style`
+  knobs, and a knob string for its knob: `Theme.define({ knob: { 'base-l': '100%' } })` is
+  `surface: { lightness: 100 }`, `'radius-factor': '1.4'` is `shape: { radius: 1.4 }`. Tokens of an
+  application's own move from the palette to `AppStyle.make`'s `tokens`. The accent's lightness reaches 5 to 98, for a black or white
+  accent. A page declares `Theme.root(Theme.standard(theme))` as one rule: `omit: Theme.tokens`
+  would leave out a theme's own `density`, which `Theme.tokens` names too.
+- `foldkit-mixins-ui`: `Recipes.Separator` has no `orientation` axis. The view writes
+  `data-orientation` on the rule and a label's frame, and the recipe reads it, so one style draws
+  a separator either way and the style and the view can no longer disagree: drop `orientation`
+  from the recipe call and keep it on `Separator.view`. A vertical rule stands as tall as the
+  letters where nothing stretches it (running text, a block), where it was drawn with no height,
+  and a vertical label's rules give way to its words in a short row.
+
+### Fixed
+
+- `foldkit-mixins-ui`: a top or bottom Sheet with a point below 1 is its `size`'s full height
+  (`data-snaps` on the panel), so a point is a share of that. A short sheet was as tall as its
+  content, so at 0.4 a sliver showed and the button at its end stood below the screen.
+- `foldkit-mixins-ui`: a toast whose card holds one child the application drew (`Toast.toView`
+  with an `entryToView`) has that child fill the card; it kept its own width, and a short notice
+  left an empty strip before the card's end.
+- `foldkit-mixins`: `Theme.scoped`'s documentation no longer offers a subtree (`.marketing`): a
+  token resolves where it is declared, so a knob overridden below the root changed nothing
+  derived from it there. `Theme.scope` is the subtree theme.
+- `foldkit-primitives`: `Measure` measures a change of size as it is observed, in the frame it is
+  drawn in; it waited a frame, and a popup whose width settled as it opened showed its marker at
+  the old width for that frame, past its edge.
+- `foldkit-mixins-ui`: a Popover's, Tooltip's or Hover Card's arrow stands in the middle of a
+  side too short to keep clear of both corners. Beside its trigger, a one-line Tooltip with
+  rounder corners drew it below the middle, on the rounded corner.
+- `foldkit-mixins-ui`: a Cascade Select's column fills a panel wider than it. Drilled in, one
+  11rem column stood in the panel's 14rem and left an empty strip at the end.
+- `foldkit-mixins-ui`: a Card group's grid wraps. `columns` is now the most it lays, and the
+  recipe's new `minColumn` (`none`, `sm`, `md` default, `lg`) the narrowest a column may be, so
+  a phone shows one column where it showed two cramped ones; in a centred box the group keeps
+  room for its columns. Divided cards draw their hairlines between cards wherever the row
+  wraps, and items no longer carry `data-row` and `data-column`; `--fk-card-columns` is on the
+  root, beside the new `data-card-fluid`. Between separated cards the highlight shows half the
+  gap around the card, where under an opaque card it showed nothing; an outlined card's hover
+  also darkens its border, and a plain card outside a group with a highlight tints on hover.
+- `foldkit-mixins-ui`: the Command card is 32rem wide unless its parent is narrower; in a
+  parent that shrinks to its content it shrank to its longest row. Its field is led by a
+  magnifier (set `--icon` on the `search` slot for another), a hairline parts two groups, and a
+  row's icon takes the ladder's icon size whatever size it was drawn at.
+- `foldkit-mixins-ui`: a custom select (`Listbox.fluid`, `width: 'trigger'`) no longer scrolls
+  sideways as it opens. The panel is 14rem wide until its anchor reads the trigger, and the
+  chosen row's marker glided from that width down to the row's, wider than the panel; it now
+  glides only to a new choice (the Combobox's marker too).
+- `foldkit-mixins-ui`: a Sidebar's rail centres its header and footer. `header` and `footer` are
+  now `{ content, mark? }`; a rail shows the `mark` (a logo, an avatar) centred over the icons,
+  in the new `mark` slot, and hides the `content`, in `detail`. It showed the start of the words,
+  clipped (`Acm`).
+- `foldkit-mixins-ui`: Sidebar actions and variants, after shadcn's sidebar blocks. A link and
+  a titled group take an `action` (`SidebarAction`: `{ label, icon, message }`), a button drawn
+  in the new `action` slot: a link's beside it, taking its badge's place while the row is hovered
+  or holds focus (a touch screen shows both), a group's at its heading's end. The recipe's
+  `variant` axis draws the column flush with the page's edge (`sidebar`, the default), lifted off
+  it as a card (`floating`), or with no edge on the surface it stands on (`inset`), for a page
+  drawn as a card beside it. On a phone a sidebar with a Sheet is its opener alone, where it was
+  a full-height strip of the column's surface. `SidebarLink`, `SidebarRow` and `SidebarGroup`
+  take the Message their actions send (default `never`).
+- `foldkit-mixins-ui`: a resizable Sidebar collapses. Drawn as a Resizable's `first` panel with
+  `width: 'fill'`, a collapsed sidebar emptied its navigation and left the panel at its dragged
+  width, an empty 192px column that every later drag kept, since the split and the sidebar each
+  held a width. The width is the sidebar's own now:
+  `Sidebar.init({ width: { size?, min?, max? } })` draws a `resize` handle (a `separator`) on
+  the column's edge, dragged, stepped by the arrows, Home and End, and collapsed by Enter or a
+  double-click; dragged below half `min` it collapses (to its rail with `collapse: 'icons'`),
+  and expanding brings back the width the drag began at. The Model holds it (`width`, `drag`;
+  Messages `ResizeStarted`, `Resized`, `ResizeEnded`, `SetWidth`). The recipe's `width: 'fill'`
+  is gone.
+- `foldkit-mixins-ui`: a dismissed Toast fades in place while the cards behind it come forward
+  at once; they waited until it had gone, then moved, about a third of a second in all. A
+  card's `--fk-toast-index` is its place among the toasts staying. The stack restacks on the
+  `moderate` duration and `settle` curve, and a card enters on the `slow` `spring`; every
+  movement was `slow` and `ease-out`.
+- `foldkit-mixins-ui`: a vertical Marquee is no taller than a container with a height; it kept
+  its 16rem and stood out past a shorter one. Its fade takes at most a quarter of each end, so a
+  short one keeps its middle in full.
+- `foldkit-mixins`: the bevelled relief draws a raised control's outer ring outside its border.
+  A button's border carries its fill, and the ring lay inside it, so its darkest edge sat within
+  a line of the button's own color.
+- `foldkit-mixins-ui`: a Thinking Indicator held by a still theme or reduced motion still reads
+  as at work, its dots a fading trail and its band resting across the words; a zero-length loop
+  showed three faint dots and plain words.
+- `foldkit-mixins-ui`: a ring Progress and a ring or orbit Spinner stay round in a square
+  theme (radius factor 0); they spun as squares.
+- `foldkit-mixins-ui`: a Skeleton's bones are the palette's `state.tint`, the text's film at the
+  scheme's own `state-tint` knob; they used the light scheme's in both, and stood barely off a
+  dark page.
+- `foldkit-mixins-ui`: a scrolling Tabs row shows a mouse a thin bar whose thumb appears while
+  the row is hovered or focused, and a `line` row's rule meets the chosen tab's over it.
+- `foldkit-mixins-ui`: a row of Steps narrower than 32rem keeps its markers evenly spaced; the
+  one label shown wraps inside its step's share, and a word longer than 40% of the row is cut.
+  The other steps no longer shrink to nothing, which left the last marker far from the rest.
+- `foldkit-mixins-ui`: a click on a control inside a Drawer's `grip` (a row of tabs) reaches it.
+  The grip captured the pointer on the press, so the browser sent the click to the grip; it now
+  starts a drag only once the press moves `PRESS_SLOP` pixels.
+
+## 0.25.0
+
+Concentric corners: buttons and fields round with the Card, Dialog, Toast or Alert holding them
+(`Theme.concentric`), the Drawer gains a `grip` to drag it by, and a Calendar, a Slider and
+Steps no longer spill a phone's card. `foldkit-mixins` 0.15.0 and `foldkit-mixins-ui` 0.14.0
+change, and `foldkit-plus` is 0.7.0. Packages that pin one of them, or a package that does,
+republish with a patch so their ranges cover the new versions (`foldkit-builder`, `foldkit-cms`,
+`foldkit-cms-drizzle`, `foldkit-composition`, `foldkit-mixins-builder`, `foldkit-mixins-crud`,
+`foldkit-mixins-data-grid`, `foldkit-mixins-form`, `foldkit-mixins-richtext`,
+`foldkit-mixins-surface`, `foldkit-primitives`). Nothing written for 0.24 needs changing; a
+control in a card is drawn with a smaller corner (below).
+
+### Added
+
+- `foldkit-mixins/theme`'s `Theme.concentric({ min, max })`: a control's corner, concentric with
+  the nearest container that `nests` (its corner less its inset), kept between `min` and `max`,
+  and `max` outside any. `Theme.nests` now also publishes `--fk-control-corner` for it.
+- In `foldkit-mixins-ui`, buttons, the segmented tray and every field's chrome take
+  `concentric({ min: sm, max: md })`, and the Card, Dialog panel, Toast and Alert `nests`, so the
+  buttons and fields in them round with their corner (`sm` where the padding is deeper than the
+  corner, as in the default theme's cards). `control-round` still makes a button a pill.
+
+- `foldkit-mixins-ui`'s Drawer has a `grip` slot: more of the panel to drag it by, such as its
+  row of tabs, where a vertical swipe drags and a sideways one still scrolls. A drag that starts
+  there ends with no click to pass over, so the next press on the handle toggles it.
+
+### Changed
+
+- A button or a field inside a Card, Dialog, Toast or Alert is drawn with a corner concentric with
+  the container's instead of `radius-md`: with the shipped scale, `radius-sm`.
+- The Drawer's handle is a 44px target, drawn tight to its bar by negative margins, and the
+  peek stays above a phone's home indicator (`safe-bottom`).
+- A Slider's mark labels at either end sit flush with the track's ends instead of centered on
+  their dots, hanging half past the track.
+- A horizontal Steps row narrower than 17rem draws the current step's title and description on
+  a line of their own under the markers, the lines between them even, instead of squeezing them
+  beside the current marker.
+
+### Fixed
+
+- A Calendar's month in a container narrower than seven cells shrinks its days, which stay round,
+  instead of spilling past the container.
+
+## 0.24.0
+
+Themes: hard shadows and a relief for buttons and fields (`Theme.hardShadows`, `Theme.relief`),
+type knobs (`text-scale`, `heading-scale`, `leading`, the heading's weight and tracking), a pill
+control corner, and a `Drawer` docked to the bottom of the screen. `foldkit-mixins` 0.14.0 and
+`foldkit-mixins-ui` 0.13.0 change, and `foldkit-plus` is 0.6.0. Packages that pin one of them, or
+peer on it, republish with a patch so their ranges cover the new versions (`foldkit-cms`,
+`foldkit-cms-drizzle`, `foldkit-composition`, `foldkit-mixins-builder`, `foldkit-mixins-crud`,
+`foldkit-mixins-data-grid`, `foldkit-mixins-form`, `foldkit-mixins-richtext`,
+`foldkit-mixins-surface`, `foldkit-primitives`). Nothing written for 0.23 needs changing; a
+Typography `display` is set a hair tighter (below).
+
+### Added
+
+- `foldkit-mixins/theme`'s `Theme.hardShadows`: the shadow scale drawn as solid offset copies
+  with no blur, for retro and brutalist themes. Compose it over `Theme.tokens`;
+  `shadow-strength` still fades it.
+- A control's relief: `Theme.tokens` gains `shadow-raised`, `shadow-pressed` and
+  `shadow-field`, flat by default, and `foldkit-mixins/theme`'s `Theme.relief` gives them depth
+  (`soft`, `hard`, or `bevel`'s lit and shaded edges). In `foldkit-mixins-ui`, a solid, outline
+  or primary Button stands out by `raised` and is pressed in by `pressed` while held or on; ghost
+  and icon buttons stay flat; and every field's chrome (Input, Textarea, Select, Listbox,
+  Combobox, DatePicker, NumberField, TagsInput, OtpField, CascadeSelect, InputCopy, the
+  pagination's page size, Checkbox and RadioGroup) sinks by `field`.
+- Type knobs in `Theme.tokens`: `text-scale` scales every size of the type scale,
+  `heading-scale` how far the headings stand above the body, and `leading` the line heights;
+  `weight-heading` and `tracking-heading` set what a heading is drawn in. At their shipped values
+  every size, line height and weight draws as before. `foldkit-mixins-ui`'s Typography headings and interface roles, the Dialog's title and
+  the Empty title now read `font-heading`, `weight-heading` and `tracking-heading`, so a theme's
+  heading font reaches them.
+- `foldkit-mixins-ui`'s `Drawer` and `Recipes.Drawer`: a panel docked to the bottom of the
+  screen that peeks or opens beside the page, not over it, as a tool tray. Its handle drags it
+  (a flick or a quarter of the way settles it) and a click or Enter toggles it; the handle's bar
+  bends into a chevron pointing up as it goes down, with the finger while dragged. `dock: 'always'`,
+  or `below-lg` / `below-xl`, above which it is the column it sits in.
+- `radius-control` and the `control-round` knob: a Button and a Segmented tray round to a pill at
+  1, whatever the radius factor, while fields keep `radius-md`.
+
+### Changed
+
+- `foldkit-mixins-ui`: Typography's `display` takes the heading tracking (`-0.01em` by default),
+  as the other headings already did.
+
+### Fixed
+
+- `foldkit-composition` and `foldkit-mixins-surface` declared their `foldkit-mixins` peer as
+  `^0.11.0`, which no release since 0.11 satisfies; they now peer on the version they ship with.
+- `foldkit-mixins`: an element holding several Mounts no longer logs "unhandled failure" for each
+  as it is removed; a Mount that ends interrupted is torn down, not failing.
+
+## 0.23.0
+
+Mobile and touch: hover that no longer sticks after a tap, a pressed state for every control,
+44px targets on a touch screen, safe areas, the on-screen keyboard, holds and pinches, and
+fixes for the Sheet's drag and the editor's caret keys. `foldkit-mixins` 0.13.0,
+`foldkit-mixins-ui` 0.12.0, `foldkit-primitives` 0.12.0, `foldkit-richtext-dom` 0.6.0 and
+`foldkit-mixins-form` 0.7.0 change; `foldkit-mixins-data-grid` 0.2.4 is fixes. Packages that
+pin one of them republish with a patch to re-pin (`foldkit-builder`, `foldkit-cms`,
+`foldkit-cms-drizzle`, `foldkit-mixins-builder`, `foldkit-mixins-crud`,
+`foldkit-mixins-richtext`), and `foldkit-plus` is 0.5.0. Changes that can break code written
+for 0.22: a Table without `fluid` is wrapped in its frame; the ImageCropper's zoom Mount is
+`ImageCropperZoom`; the Menu's and the Toast's Models gain fields; and an editor edit that
+changes nothing returns a `RichText.answer` Command, which a Scene test resolves.
+
+### Added
+
+- `foldkit-richtext-dom/editor`'s `answerEditor(hostId)` and the attachment's `answered()`:
+  the editor bundle answers every edit its editor asks for, once drawn or refused, with a
+  `RichText.answer` Command. A Scene test that sends an edit which changes nothing now
+  resolves that Command, and an application that replaces the editor's `RichText.patch`
+  with its own runs its patch before the editor's other Commands.
+- `foldkit-primitives/dom`'s `KeyboardInset` Mount (and `keyboardInset`, `KEYBOARD_INSET`): the
+  on-screen keyboard's height as `--fk-keyboard-inset` on its element, from the visual
+  viewport. `foldkit-mixins-ui`'s `Dialog.keyboard` mixin runs it on a dialog's or sheet's
+  panel, and the Dialog and Sheet recipes keep the panel above the keys: iOS Safari, and
+  Chrome on Android, leave a fixed panel under them when a field in it takes focus.
+- `foldkit-mixins-form`: `FieldAttrs` takes `autocomplete`, `inputMode`, `enterKeyHint`,
+  `autocapitalize` and `spellcheck`, for text, multiline and number fields; an `email`, `tel` or
+  `url` type turns capitalizing and spellchecking off by default.
+- `foldkit-mixins`: a `safe` token group, `Theme.ref.safe.top` / `right` / `bottom` / `left`:
+  what a notch, rounded corners or the home indicator take from each screen edge
+  (`env(safe-area-inset-*)`, 0 unless the page's viewport meta says `viewport-fit=cover`).
+
+### Changed
+
+- `foldkit-mixins`: a rule whose selector hovers is written for a pointer that can hover
+  (`@media (hover: hover)`), with a copy for one that cannot that keeps every other branch
+  (`:is(:hover, :focus-within)` still shows on focus there). A touch screen keeps `:hover` on
+  what was tapped last, so a hover fill stayed behind after the finger left. Class names do
+  not change.
+- `foldkit-mixins`: `Defaults.reset` draws no tap highlight of the browser's own, sets
+  `touch-action: manipulation` on interactive elements (a second quick tap is not a zoom),
+  and `text-size-adjust: 100%` in place of `none`, which also turned off the reader's own
+  text size. `Defaults.links` and `Defaults.controls` hover only where the pointer can, and
+  show `:active`.
+
+### Fixed
+
+- `foldkit-mixins`: a control's words are no text to select: `Defaults.reset` sets
+  `user-select: none` on buttons, `summary`, and the button, tab, option, menu item, switch,
+  checkbox and radio roles, so a long press on one no longer selects its label and offers to
+  copy it on a phone, nor a double tap a word of it. A tree's rows and a grid's cells keep
+  theirs.
+- `foldkit-mixins-ui`: a Toast stack under a finger holds its countdown without spreading out
+  (a new `touch` holder in its Model): a stack spread as a tap landed, or as a swipe began,
+  moved what the finger was on, and the focus Android gives a tapped action spread it too. Its
+  close and action buttons have a finger's target where the pointer is coarse.
+- `foldkit-mixins-ui`: an ImageCropper zooms by two fingers, spread or pinched (`Pinched`): its
+  viewport took the page's own pinch away and gave none back. Its zoom Mount is now
+  `ImageCropperZoom`, for the wheel and the fingers both.
+- `foldkit-primitives`: `PointerDrag` drags by touch. A finger's press is a drag once held
+  still `HOLD_TO_DRAG_MS` (400ms), and one that moves `HOLD_SLOP` (8px) first is a scroll, so a
+  list of draggable rows still scrolls; once the drag is on, the page is kept still and
+  Android's own menu shut. Before, the browser took every finger's drag for a scroll and
+  cancelled it, so the Builder's palette, layers and canvas could not be dragged on a phone.
+- `foldkit-mixins-ui`: a context menu opens on a touch screen. A finger or a pen held on
+  `Menu.target`'s area for `Menu.HOLD_MS` (500ms) opens it under the finger, since iOS fires
+  no `contextmenu`, while a finger that moves 10px is a scroll and opens nothing; Android's
+  own `contextmenu` for the hold opens it once, under the finger, as `pointTarget` now records a
+  finger's press. The Menu's Model gains `holding` and `hold`.
+- `foldkit-mixins-data-grid`: the fill handle takes its drag on a touch screen (`touch-action:
+  none`), where a finger panned the grid instead, and it and the column resize grip have a
+  finger's target there (44px and 24px) around what they draw.
+- `foldkit-mixins-ui`: a Carousel's autoplay pauses while a finger is on it and goes on when
+  it lifts; a tap's emulated `mouseenter` held it paused until something else was tapped.
+- `foldkit-richtext-dom`: a press on a block's handle is a drag only once it moves 5px
+  (`DRAG_THRESHOLD`): a tap's wander, or the page scrolling under a still finger, dropped the
+  block.
+- `foldkit-mixins-ui`: a Combobox's and the Command's field ask a phone's keyboard not to
+  capitalize or correct what filters, and to show a search key (`autocapitalize`,
+  `autocorrect`, `spellcheck`, `enterkeyhint`).
+- `foldkit-mixins-ui`: a Table always stands in its `frame`, which scrolls sideways when the
+  table is wider than the screen (the default static header; a sticky one keeps sticking to
+  the application's scroller). Breaking for markup: a Table without `fluid` is now wrapped
+  in the frame's `div`.
+- `foldkit-mixins-ui`: scrolled to its end, a swipe on a Dialog or Sheet panel, a popup list,
+  the Command list or the Sidebar's nav no longer moves the page behind
+  (`overscroll-behavior: contain`); a popup list is at most 40% of the screen a phone's
+  keyboard leaves; menu, listbox and HoverCard panels are never wider than the screen.
+- `foldkit-mixins`: `user-select` is written with `-webkit-user-select` beside it, which iOS
+  Safari still reads alone, so a long press on a drag surface no longer selects its text there.
+  The recipes' drag surfaces (sliders' dials, the colour area, the cropper, the signature pad,
+  splitters, the toast's body, the Sheet's handle, the FloatingPanel's grips) also set
+  `-webkit-touch-callout: none`.
+- `foldkit-mixins-ui`, `foldkit-mixins-data-grid`: the OTP input, the colour picker's fields
+  and the grid's cell editor are 16px or more on a touch screen, where iOS zoomed the page into
+  them.
+- `foldkit-mixins-ui`: on a touch screen the recipes' controls are as large as a finger
+  needs, 44px: `Defaults.reset` sets `--fk-touch-floor` where the pointer is coarse, and a
+  control's height on the size ladder is at least that (buttons, icon buttons square, fields,
+  selects, tabs, segmented items, menu and list rows, accordion triggers, calendar days,
+  carousel, alert and chat actions). A desktop keeps the ladder's density, and a region that
+  must stay dense sets the floor to `0px`.
+- `foldkit-mixins-ui`: Toast stacks and Dialog panels keep clear of the notch and the home
+  indicator: each edge a stack sits at is held off by the screen's inset there, and a panel's
+  margins and largest size leave every inset out.
+- `foldkit-mixins-ui`: a tap shows. The recipes' hover is also their pressed state
+  (`:is(:hover, :active)`), as are the hover fills of menu, listbox and tree rows, nav and
+  sidebar items, accordion triggers, table sort buttons, steppers, tag removers and pressable
+  cards and items: with hover written only where a pointer can, a finger on one of them
+  shows it, and lifting takes it away.
+- `foldkit-mixins-ui`: a Sheet grabbed while its Dialog was still opening (an animation
+  ending, a `SucceededShowDialog`) lost the drag, and its handle took no new press until the
+  pointer was let go. A drag now ends only when the Dialog opens or closes. (#186)
+- `foldkit-richtext-dom`: a caret key pressed before an edit was drawn moved the caret
+  through the page as it was: three fast Enters and an ArrowUp went two lines up. Caret keys,
+  and edits typed behind them, wait until the edits before them are drawn. (#187)
+
+## 0.22.0
+
+A component library worth building on, and a richer rich-text editor.
+`foldkit-mixins-ui` 0.11.0 grows from the parity components to the whole UI
+plan: the polish pass over every component (state colour, concentric corners,
+the top layer, overlay scroll bars, right to left), the merges into one Alert,
+Dialog, Sheet, Menu, Slider and date system, and chat (ChatMessage,
+MessageScroller, Thinking Indicator, Thinking Steps, Questionnaire) and Zag's
+long tail (Angle Slider, Timer, Marquee, Image Cropper, Signature Pad, QR Code,
+Chart, Cascade Select, Floating Panel, Tour). `foldkit-mixins` 0.12.0 for the
+state ink, `nests`/`nested()`, `surface.field`, the shadow and chart tokens;
+`foldkit-primitives` 0.11.0 for `ScrollBars`, `Swipe`, `ScrollSettle`,
+`PointerPosition` and `TrackBox`; `foldkit-richtext` 0.4.0,
+`foldkit-richtext-dom` 0.5.0, `foldkit-mixins-richtext` 0.4.0 and
+`foldkit-richtext-markdown` 0.3.0 for the editor's changes below;
+`foldkit-remote-server` 0.15.0 for `RemoteServer.memory`'s entities and
+optional principal; `foldkit-auth` 0.1.1 and `foldkit-ssr` 0.7.1 for Fetch
+Metadata on a request with no `Origin`; `foldkit-mixins-data-grid` 0.2.3 for
+the motion tiers; and `foldkit-plus` 0.4.0. Every package that pins one of
+them republishes with a patch to re-pin: `foldkit-builder` 0.3.3,
+`foldkit-cms` 0.7.3, `foldkit-cms-drizzle` 0.6.6, `foldkit-mixins-builder`
+0.3.3, `foldkit-mixins-crud` 0.7.3, `foldkit-mixins-form` 0.6.2,
+`foldkit-remote-drizzle` 0.12.3, `foldkit-richtext-code` 0.2.1,
+`foldkit-richtext-code-shiki` 0.2.1 and `foldkit-site` 0.4.1.
+
+Changes that can break code written for 0.21 are marked "Breaking" in the
+entries below; most are in `foldkit-mixins-ui` and the rich-text packages.
+
+### Added
+
+- **`foldkit-primitives/dom`: `TrackBox`.** A Mount that follows the element
+  named by its `data-target` and writes its viewport box (and, asked, its
+  corner radius) as `--fk-<name>-x`, `-y`, `-w`, `-h` and `-radius`, telling
+  `TrackedTarget { target, found }`; the Tour's cutout now draws with it
+  (its `Spotlight` Mount is gone, its properties are `--fk-tour-w` and `-h`,
+  and its ring follows the target's corner).
+- **`foldkit-mixins-ui`: Calendar options, presets and a locale.** The
+  fourth argument of `Calendar.toView`, `inputs` and `resolve`
+  (`CalendarOptions`) takes `weekNumbers` (ISO weeks), `caption: 'label'` or
+  month and year selects (`dropdowns`, answered by `Calendar.show`),
+  `paging` with `Calendar.alongside` for two months side by side, and a
+  range's `preview` under the pointer. Presets are `Calendar.lastDays`,
+  `nextDays`, `monthOf`, `day` and `presetsView`; `Calendar.localeOf(tag)`
+  reads upstream's `locale` from Intl; the recipe takes `outside: 'hidden'`.
+- **`foldkit-mixins-ui`: Tabs, Segmented, Breadcrumb and a navigation menu
+  with panels.** Tabs take icons and counts (`label` and `icon` slots, a
+  Badge after the words), `overflow: 'scroll'` (one line, its edges
+  fading), `size: 'lg'`, a vertical tablist's rule at its inline end, and
+  closable tabs (`TabsContext.close`: a close button and Delete; answer with
+  `Tabs.closing`). A Segmented option takes an `icon`, alone with
+  `iconOnly`; the recipe adds `tray: 'underline'`, `width: 'fill'` and `size:
+  'lg'`. Breadcrumb's `collapse: { max, menu }` makes the ellipsis open a
+  Menu of the hidden steps (`Breadcrumb.menuRows`, `Breadcrumb.chosen`).
+  `Nav.view` draws a navigation menu whose triggers open panels of link
+  columns in the top layer, with the APG's disclosure-navigation keys, its
+  open panel in `Nav.init`/`Nav.update`; the recipe adds `indicator: 'pill'`
+  and a column.
+- **`foldkit-mixins-ui`: Steps, Accordion, Table, Progress, Rating and
+  Resizable grow.** Steps take `marker: 'dot'`, `connector: 'progress'` with
+  the view's `progress`, and `size` on the Avatar's steps. The Accordion
+  takes `variant` (`plain`, `bordered`, `separated`, `filled`, `ghost`),
+  `separators`, `indicator: 'plus'`, `indicatorPosition: 'start'`, `active`
+  and its own `icon`. Table sorts (`sortKey`, `sort: { by, onSort }`,
+  `aria-sort`, `Table.nextSort`), chooses rows with checkboxes
+  (`selection`), opens a row's detail below it (`expansion`) and stands an
+  `empty` state across itself, all the application's; the recipe adds
+  `rows`, `density` and `header: 'sticky'`. Progress takes `showValue`, a
+  value of stacked `sections`, a `buffer` and `segments`, and the recipe
+  `tone`, `stripes` and `size`. Rating takes `precision: 0.5`, a read-only
+  fraction, `onClear`, `showValue`, and Home and End (`Rating.Ends`); a
+  read-only rating takes no `onChange`; the recipe adds `glyph` and an
+  `error` tone. Resizable collapses a panel (`collapsible`, `collapsedTo`)
+  on Enter or a double-click, nests either way, and `handle: 'grip'` shows
+  a pill of dots.
+- **`foldkit-primitives/dom`: `ScrollSettle`,** a Mount that reports the
+  item nearest a scroller's start once a scroll rests (`scrollend`, or a
+  quiet scroll where it is missing), right to left from the right edge.
+- **`foldkit-mixins-ui`: a custom Select, and Combobox chips, clearing and an
+  empty panel.** A select drawn over Listbox: `Listbox.parts` draws an
+  option's icon, label, description and check, and the trigger's value (or
+  its placeholder, muted) and chevron; `Recipes.Listbox` gains `check`
+  (`end`, `start`, `none`), `trigger` (`outline`, `filled`, `ghost`) and size
+  `lg`. The Combobox takes `chips` (each chosen value a chip in the field,
+  its remove button choosing it again, which a multiple combobox toggles
+  off), `clearContent` and `clearLabel` (a clear button while the field has
+  text) and `empty` (a polite panel in the list's place with nothing to list,
+  a loading line too); `Combobox.parts` draws an option with the typed text
+  marked. `ComboboxChipRender` and `ComboboxExtraInputs` are exported.
+- **`foldkit-mixins-ui`: TagsInput's `max` and refusals, PasswordInput's
+  strength and rules, InputCopy's reset.** `TagsInput.init({ max })` holds at
+  most `max` tags; a commit that adds nothing, or not all of the draft, is a
+  `Refusal` (`Repeat`, `Empty`, `Full`), said in a polite `message` slot
+  (`refusalText` words it) with a one-time shake that `travel` stills.
+  `PasswordInput` takes `strength` (a `Meter`), `requirements`
+  (`PasswordRequirement`s listed under the field, each read as met or not)
+  and `capsLock: { on, onKey }`, a polite hint while Caps Lock is on, read
+  from each key by `capsLockOf`. `InputCopy` gains a `Model` (`init({
+  resetAfter })`, default 2000ms) and `update`: `Copied` shows the value as
+  copied and starts `Reset`, which sets it back to "Copy" unless a later copy
+  came first.
+- **`foldkit-mixins/theme`: shadows tinted by `shadow-h` and `shadow-c`.**
+  `Theme.oklch({ shadow: { h, c } })` sets two knobs every shadow reads,
+  defaulting to the neutrals' hue at twice their chroma, so shadows take the
+  page's hue rather than a neutral black.
+- **`foldkit-mixins-ui`: Card, Avatar, Separator, Skeleton, Spinner, Item and
+  Empty grow their looks.** Card takes `elevation` (`0` to `3`, a step of
+  the surface ladder: lighter in a dark scheme, a contact and an ambient
+  shadow in a light one) and `lift: 'hover'` (a lift under the pointer,
+  times `travel`); `Card.overlay` is the one stretched press control a
+  pressable card or Item draws. Avatar takes `src`, `initials`, `status`
+  and `statusLabel`; `Avatar.group({ people, max, label, moreLabel })` draws
+  overlapping avatars and counts the rest as one more (`AvatarGroupSlots`,
+  `Recipes.AvatarGroup({ overlap: 'tight' | 'loose' | 'none' })`), and
+  `Recipes.Avatar` gains sizes `xs` and `xl`, `shape` (`circle`, `rounded`,
+  `square`), `color: 'name'` (a hue from the name) and `ring`. Separator
+  takes `label` and `decorative`, and the recipe `line` (`solid`, `dashed`,
+  `dotted`), `thickness`, `spacing` and `inset`. Skeleton gains `lines`,
+  `avatarRow`, `card` and `tableRow({ columns })`, and `animation` (`pulse`,
+  `shimmer`, `none`). Spinner takes `showLabel`, and the recipe `kind`
+  (`ring`, `dots`, `bars`, `pulse`, `orbit`), `size` and `tone` (`accent`,
+  `neutral`, `current`). Item is the row primitive: `press`, `label`,
+  `selected` and `disabled`, `Item.group` for a list (`ItemGroupSlots`,
+  `Recipes.ItemGroup({ layout: 'divided' | 'separated' })`), and the recipe's
+  `variant` (`plain`, `outline`, `muted`) and `media` (`plain`, `icon`,
+  `image`). Empty takes `media` (`icon`, `illustration`), `frame` (`none`,
+  `dashed`, `filled`), `tone` (`neutral`, `danger`) and `size`.
+- **`foldkit-mixins-ui`: menu check rows, groups and shortcuts; Command pages
+  and hints; a Toast component.** A Menu row may be a `CheckRow` (`check:
+  'checkbox' | 'radio'`, `checked`): choosing it sends `Selected` and leaves
+  the menu open, the application keeping `checked`. Any row may name a
+  `group` (a heading, and a separator between groups), a `shortcut` (keys
+  drawn as Kbd with `kbd`, named in `aria-keyshortcuts`) and `tone:
+  'destructive'`. A Menubar's menus take the same rows, and `Menubar.init(ids,
+  { isAnimated, isModal })` passes both to every menu. A Command row takes
+  `icon`, `description` (matched by the query) and `opensPage`; the view
+  takes `page: { trail, onBack }` (Backspace in an empty field goes back),
+  `loading`, `hints` for a footer of keys and `kbd`; `Command.hotkey(message)`
+  is ⌘K or Ctrl+K anywhere, and `Recipes.Command({ frame: 'bare' })` sits in
+  a dialog. `Toast` is now a component: `init`, `show`, `settle`, `dismiss`,
+  `update` and `view`. Toasts stack after Sonner's, spread out when held,
+  pause while the pointer or focus is on the stack or the page is hidden
+  (keeping the time left), show three at most, swipe away toward their
+  edge, and are spoken in a polite or, for an error, an assertive region.
+  `settle` turns a `loading` toast into its outcome, a promise toast; an
+  `action` sends `Acted` with its value. `Recipes.Toast({ tone: 'rich' })`
+  tints each type. `ToastView` stays for toasts that carry their own payload.
+- **`foldkit-mixins-ui`: popovers, tooltips and hover cards in the top layer,
+  and the Sheet.** `Anchor.layer` around a panel shows it in the browser's
+  top layer, above every stacking context and outside every `overflow` box,
+  with upstream's anchor placing it (the new `layer` slots), and an `arrow`
+  slot points at the trigger. `Popover.anchor()`, `Tooltip.anchor()` and
+  `HoverIntent.anchor()` are the placements: off the trigger (the Popover
+  12px, room for its larger arrow; the others 8px), 8px inside the viewport,
+  flipping and shifting to stay there. A Hover Card is placed
+  by `HoverIntent.toView`'s `anchored: { id, anchor? }`. The Popover and
+  Tooltip recipes take `arrow: 'none'`. The Dialog gains `body`, `scroll`,
+  `scrollBar`, `scrollThumb` and `footer` slots (a long body scrolls under a
+  footer that stays), `Dialog.overlayBars`, sizes `xl` and `full`, `covered`
+  (a dialog that another was opened from steps back) and
+  `DialogContext.attributes`. `Sheet` is a component over the Dialog: its
+  handle drags it between `points` and, unless `dismissible: false`, away,
+  with vaul's thresholds; `Sheet.view({ scalesPage })` with
+  `Recipes.sheetPage` on the page beside it steps the page back. `Swipe` is
+  in `foldkit-primitives/dom`.
+- **`foldkit-mixins-ui`: a visible press and a filled toggle on buttons, four
+  badge looks, key combinations, richer breadcrumbs, pagination and steps.**
+  A held button scales to 98% (the 2% multiplied by `travel`, so reduced
+  motion holds its size); a solid or primary one also deepens to its
+  family's `active` fill (a new tone, `fill-active`) and clears the 1px border
+  of its own color its fill stands in, so the fill draws in by 1px a side.
+  A pressed toggle rests on its tone's fill (a solid one on the `active`
+  fill), keeps it hovered (an unfilled one takes the hover fill), deepens to
+  the `active` fill while held, and keeps its text on the fill throughout.
+  `Badge` takes `appearance`: `tinted` (default), `dot`, `outline` or
+  `solid`. `Kbd.combo({ keys, joiner? })` draws several keys in one `kbd`.
+  Breadcrumb steps take `icon`s, the view takes a custom `separator` and
+  `collapse: { max, onExpand }` (with `collapsedOf` as the pure split), and
+  the recipe takes a `separator` axis: `slash` (default), `chevron` or
+  `dot`, a separator midway between its steps. Pagination takes `siblings?`,
+  `boundaries?`, `numbered?`, `ends?` and `range?` (with `summaryOf` for
+  `"1–10 of 97"`, and `range.choose: { sizes, onPerPage, label? }` for a
+  rows-per-page select), with new `summary`, `first`, `last`, `perPage`,
+  `perPageSelect` and `pageCount` slots; the current stop holds `" / 12"`,
+  which the recipe's `compact` axis (`narrow`, the default, below a 30rem
+  window; `always`; `never`) shows while it hides the other numbers. Steps
+  take per-step `icon`s and vertical `content`, whose line reaches both
+  markers.
+- **`foldkit-mixins-ui`: radio cards, and a wrapping row.** `RadioGroupSlots`
+  gains `card`, an option's whole row, which the application draws around
+  its radio and words (`h.label(option.card, …)`) and which is
+  `data-checked` while its option is; `Recipes.RadioGroup` takes `variant:
+  'card'`, which frames each card and fills the chosen one. A horizontal
+  group (`aria-orientation="horizontal"`) wraps. The gallery shows
+  descriptions, a row, and cards.
+- **`foldkit-mixins-ui`: a checkbox group in a row, with an error.**
+  `CheckboxGroup` takes `error` (the group is `aria-invalid` and described by
+  it) and `orientation`: `vertical` (default) or `horizontal`. The rows sit
+  in an `options` slot, spaced on the ladder; a vertical `list` keeps them
+  flush so checked rows stay one block. `selectAll: { label, onSet }` draws
+  a first row whose checkbox is checked, `mixed` or unchecked by
+  `coverage(options, checked)` (a disabled option counts for neither) and
+  controls every option; a press sends `onSet` with `setEnabled(options,
+  checked, on)`, every enabled option or none, a disabled option keeping the
+  state `checked` gives it. The checkbox sits on the label's row, so a
+  description does not pull it down.
+- **`foldkit-mixins-ui`: a checkbox check that wipes in.** The mark is drawn
+  clipped away and wipes on over the fast tier, travel-aware, so reduced
+  motion shows it at once. The mixed dash clears the check's box, borders
+  and turn. The gallery shows basic, indeterminate and a card checkbox.
+- **An overlay scrollbar, after Fluid Functionalism's.** `ScrollBars` in
+  `foldkit-primitives/dom`; `ScrollArea.overlayBars`, `Command.overlayBars`,
+  `VirtualList.overlayBars`, `Menu.overlayBars`, `Listbox.overlayBars` and
+  `Combobox.overlayBars`, each a mixin list passed beside the style;
+  `Utilities.scrollDivider` and
+  `scrollTimeline` for a hairline at a scrolled edge. A browser's bar is
+  thick, always shown and different on every system; this thumb rests at
+  4px, widens to 6px under the pointer and fades when idle, its widening
+  travelling so reduced motion keeps only the fades. A coarse pointer keeps
+  its native bar. The bar sits beside the scroller, not in it, so the edge
+  fade does not erase it: ScrollArea, Command and VirtualList always draw
+  it, a popup whenever its panel has a `scroll`, and the recipe draws it only
+  once `ScrollBars` marks it scrollable. It is opt-in, since its Mount sends
+  no Message for a Scene test to resolve. ScrollArea's markup gains a `root`
+  around `viewport` and a bar per axis: a width set on the area goes on
+  `root`.
+- **`foldkit-mixins`: `Theme.nests` and `Theme.nested()`.** A container that
+  pads its children spreads `Theme.nests(radius, inset, border?)`, and any
+  descendant's `borderRadius: Theme.nested()` is concentric with it, without
+  repeating the container's arithmetic. `Theme.nested(outer, inset, border?)`
+  is unchanged.
+- **`foldkit-mixins`: a `surface.field` token for filled controls.** The
+  filled Input, Textarea and Select read `var(--fk-surface-field)` — the
+  `default` step, so it tracks the `surface-contrast` knob — instead of the
+  page-adjacent `surface.subtle`.
+- **`foldkit-mixins-ui`: a `label` Slot on Segmented**, the option's words,
+  which hold the `text-box` trim.
+- **`foldkit-richtext-dom`: arrows stop on an image, and a checkbox keeps the
+  caret.** An arrow leaving a block for an atom beside it selects the atom,
+  where the browser stepped over it, and a press on an adornment no longer
+  takes the caret away from the text.
+- **`foldkit-richtext-dom`: a triple click selects its block's text, and Ctrl+A
+  in code selects the code.** The browser's triple-click selection ran on to the
+  start of the next block, so typing over it swallowed that block's first line
+  too. In code, a second Ctrl+A selects the document.
+- **`foldkit-richtext`: a paste joins the line it lands in.** The first pasted
+  block joins the text before the caret and the last the text after it, so a
+  copied word lands inside the sentence instead of splitting it onto a line of
+  its own; an image or table stands between the halves, and a paste into code
+  is its text. Breaking: `Paste` no longer puts content above a block at its
+  start or below it at its end as separate blocks.
+- **`foldkit-richtext-dom`: a press below the last block writes after it.** The
+  caret goes to the end of a last paragraph or heading; after a table, code or
+  an image a new paragraph opens, where no caret could get below them.
+- **`foldkit-richtext`: Backspace and Delete beside a list, a quote, a table or
+  code.** They reach the nearest line on that side: a list's or a quote's last or
+  first line joins the caret's, and Delete at the end of a list item reaches the
+  next item; a table or code is stepped into, and an empty line beside one is
+  removed. All were refused, so an empty line after a table could not be
+  removed. Backspace at the start of a heading now makes it a paragraph before a
+  second press joins it.
+- **`foldkit-richtext-dom`: a placement's `keymap`, and Mod+Shift+S.** `editorAt`
+  takes chords beside the built-in ones, and Strikethrough has a chord of its
+  own. The playground binds Ctrl+U (underline), Ctrl+Shift+H (highlight) and
+  Ctrl+K (the link editor), and its toolbar names them.
+- **`foldkit-richtext`: `node(…, { indents })`, split from `lineBreaks`.** A kind
+  can keep line breaks (Enter breaks the line, Enter on an empty last line
+  leaves it) without Tab indenting it, as a callout of several lines does in
+  the playground, where Enter used to start a second callout. Breaking: Tab and
+  a broken line's indentation now follow `indents`, which the standard
+  `CodeBlock` declares beside `lineBreaks`; declare it on a code kind of your own.
+- **`foldkit-richtext-dom`: Escape closes the slash menu.** `Message.DismissedSlash`
+  keeps `EditorState.slashDismissed`, the slash of the query it closed, so the
+  menu stays shut while that query is typed on and Enter splits the line; it
+  ends with the query. `menuTextOf(view)` is what a menu reads, so a view and
+  Enter agree. `EditorState` and `EditorView` gain the field.
+- **`foldkit-richtext`: an atom is selected whole.** A press on an image or a
+  divider selects it (outlined through `data-selected`), as does Backspace from
+  the block after it or Delete from the block before; a second press deletes
+  it, Enter opens a paragraph after it, typing replaces it, and an arrow leaves
+  it for the text beside it. `isAtom(nodes, block)` is the test. Deleting a
+  block now lands the caret where the block was even when it held no text,
+  where it went to the top of the document.
+- **`foldkit-mixins-ui`: `Carousel`, the APG carousel.** A scroll-snap track
+  of slides named "N of M", previous and next buttons, dots and a polite
+  status. Its slide and rotation are a Model (`Carousel.init({ id, slide?,
+  autoplay?, delay? })`) folded with `Carousel.update({ count, perView?,
+  loop? })`, which returns `Carousel.ShowSlide`, the Command that scrolls the
+  track, smoothly only without reduced motion; a swipe comes back through
+  `ScrollSettle`, so the dots follow the finger. With `autoplay` it moves on
+  every `delay` (4s), pauses under the pointer, stops when focus arrives by
+  the keys, quiets its status while it rotates and draws the APG's rotation
+  button first; the current dot is Fluid's pill, filling over the delay.
+  `thumbnails` stand in for the dots, and `perView` shows several slides at
+  once, a dot per place the track can rest. Recipe axis `peek`.
+  `Recipes.Carousel`, `Patterns.Carousel` and a gallery page.
+- **`foldkit-mixins-ui`: `TreeView`, the APG tree view.** Nested rows with
+  one tab stop: the arrows move through the rows showing and open, shut,
+  enter or leave a row; Home and End; a character moves to the next row it
+  starts; Enter, Space or a click chooses a row. Its Model (`current`,
+  `open`, `selected`, `checked`) is folded with `TreeView.update(nodes)`,
+  which decides each key from its own Model, so keys faster than a frame
+  still move on. It reuses `TreeNavigation`'s `shown`, `move` and `tabStop`
+  and `Typeahead.match`. Each item carries its depth as `--fk-tree-level`.
+  A node takes an `icon` and an `openIcon`; `Recipes.TreeView({ guides:
+  'lines' })` draws a guide down each open branch; `checkable` (on the view
+  and `update`) gives every row a tri-state box, the Model's `checked`
+  holding the leaves and a branch reading checked, mixed or not from them
+  (`TreeView.checksOf`), Space checking in `update`. `Recipes.TreeView`,
+  `Patterns.TreeView` and a gallery page.
+- **`foldkit-mixins-ui`: `ColorPicker`, after ReUI's:** a saturation and
+  brightness area (the pointer and the keys), hue and alpha Sliders painted
+  from the color (`Recipes.Slider({ track: 'paint', label: 'hidden' })`), the
+  browser's `EyeDropper` where there is one (`ColorPicker.Eyedrop`,
+  `canEyedrop`), text in hex, rgb, hsl or oklch that parses to an `Option`
+  (`format`, `parse`, and `color('#3b82f6')` for a literal in code), and
+  presets as a radio group of swatches. The color, its format and a draft
+  being typed are `ColorPicker.Model` (`init({ id, color?, format? })`),
+  folded with `ColorPicker.update`, so fast keys each step from the last
+  color; `toOklch` reads a color for a theme. `ColorPicker.popover` draws it
+  as a Popover's `toView`. `Patterns.ColorPicker` and a gallery page.
+- **`foldkit-mixins-ui`: `Recipes.Sheet`, the Dialog from an edge.**
+  shadcn's Sheet and vaul's Drawer as one recipe over `DialogSlots`: the
+  panel stands on the edge its `data-side` names (`top`, `right`, `bottom`,
+  `left`, written by `Sheet.view` from `Sheet.init({ side })`) and slides in
+  from there, the fade kept under reduced motion. `handle: 'bar'`, the
+  default, shows the handle, a Slot (`handle` on `DialogSlots`, `aria-hidden`,
+  drawn as `h.div(dialog.handle)` in the panel), and rounds the inner
+  corners: from the top or bottom it is the panel's last or first row, and
+  from the left or right a bar standing on the edge facing the page, so a
+  bottom sheet with its handle is a drawer as on a phone. One gallery
+  page.
+- **`foldkit-mixins-ui`: `InputCopy`, a value with a copy button.** A
+  read-only field and a button named after its label; `InputCopy.Copy` is
+  the Command that writes the clipboard and reports `Copied` or `CopyFailed`
+  as `foldkit-primitives/dom`'s `ClipboardMessage`. The `copied` flag is the
+  application's; copied, the button reads "Copied" and a status region
+  announces it. `Recipes.InputCopy`, `Patterns.InputCopy` and a gallery page.
+- **`foldkit-mixins-ui`: `TagsInput`,** Zag's tags input: the tags as a
+  list of chips named by the field's label, each with a `Remove <tag>`
+  button, and a text input. Enter or the delimiter adds the draft, split at
+  the delimiter and trimmed, refusing empty and repeated parts; Backspace on
+  an empty draft removes the last tag; a removal sends focus back to the
+  input. The tags and the draft are its own small Model (`init`, `Message`,
+  `update`), and the keys reach `update`, so it decides from the current
+  draft, not the last frame's. A recipe, a pattern and a gallery page.
+- **`foldkit-mixins-ui`: `PasswordInput`,** a password field whose toggle
+  (`aria-pressed`, `aria-controls`) shows it as text, `autocomplete` kept as
+  `current-password` or `new-password`. `Recipes.PasswordInput` reuses
+  Input's pieces in InputGroup's box, draws the eye with `Icons.glyph` and
+  hides the browser's own reveal button. `Patterns.PasswordInput` and a
+  gallery page.
+- **`foldkit-mixins-ui`: `Rating`,** a row of stars as the APG's radio group
+  of native radios: the application keeps `value` (an `Option`, none before
+  anyone rates) and receives `onChange` with the star chosen. The arrows move
+  the choice natively, `readOnly` draws one `img` that names the rating, and
+  `disabled` stills it. The recipe cuts each star with `clip-path` on the
+  radio's `::before`, keeping its focus ring whole, and previews the rating
+  under the pointer in CSS alone. `Patterns.Rating` and a gallery page.
+- **`foldkit-mixins-ui`: `Steps`, a stepper.** A named ordered list whose
+  step at `current` is `aria-current="step"`, those before it complete (a
+  check in the marker) and those after upcoming, as `data-state`, joined by
+  a connector. The application owns `current`; given `onSelect`, completed
+  steps are buttons that go back. Recipe axis `orientation`. `Recipes.Steps`,
+  `Patterns.Steps` and a gallery page.
+- **`foldkit-mixins-ui`: `VirtualList`, `@foldkit/ui`'s virtual list
+  adapted.** It draws only the rows in view; its Model stays upstream's,
+  folded with that module's `update`. The `root` slot is the box it scrolls
+  within and `row` each row's content; the box fills its container's width
+  and, where the container takes its width from the box, offers 20rem, so
+  the rows drawn as it scrolls never resize it. `Recipes.VirtualList`,
+  `Patterns.VirtualList` and a gallery page of ten thousand rows.
+- **`foldkit-mixins-ui`: `Meter`, `@foldkit/ui`'s Meter adapted.** A
+  measurement within a range, its root's `data-level` (`good`, `fair`,
+  `poor`) the HTML meter's judgment of the value against `low`, `high` and
+  `optimum` (`Meter.levelOf`), which the recipe colours success, warning or
+  error. `Recipes.Meter`, `Patterns.Meter` and a gallery page.
+- **`foldkit-mixins-ui`: `Progress`, `@foldkit/ui`'s Progress adapted,**
+  with Circular Progress as its recipe's `shape: 'ring'`. `value` is an
+  `Option`, none for work whose end is not known, which the bar shows
+  sliding and the ring turning, still under reduced motion. The root carries
+  the share done as `--fk-progress`. `Recipes.Progress`, `Patterns.Progress`
+  and a gallery page.
+- **`foldkit-mixins-ui`: `Menubar`, a row of `@foldkit/ui` Menus.** Its
+  Model holds the menus and the bar's one tab stop, folded with
+  `Menubar.update`, whose `Selected` OutMessage names the menu and the row.
+  The arrows move the stop while the menus are shut and open the next menu
+  while one is open; pointing at another trigger while one is open opens it,
+  and opening any menu shuts the rest without sending focus back to its
+  button. `Recipes.Menubar`, `Recipes.MenubarMenu`, `Patterns.Menubar` and a
+  gallery page.
+- **`foldkit-mixins-ui`: `Nav`, `@foldkit/ui`'s Nav adapted,** and with it
+  the navigation menu: `Nav.toView` draws the landmark's links in a list,
+  the current one `aria-current="page"`, and `Nav.fluid` glides a line to
+  the current link and a faint pill to the one the pointer nears, as Tabs'
+  do. The keys stay the browser's (no roving tab stop for a landmark).
+  `Recipes.Nav`, `Patterns.Nav` and a gallery page. shadcn's dropdown
+  panels in a navigation menu are not here yet.
+- **`foldkit-mixins-ui`: `Sidebar`,** from the widgets island into the
+  package: shadcn's sidebar with Fluid Functionalism's collapse. A named
+  navigation landmark with a header and a footer, groups with or without a
+  heading that open on the accordion's grid row (several at once), rows with
+  icons and counts, branches of nested links, the current page marked
+  `aria-current` with a marker that glides to it (`Sidebar.fluid`), and a
+  toggle that collapses it off the page (`collapse: 'offcanvas'`) or to a
+  rail of icons named in Tooltips (`'icons'`); on a phone an opener shows it
+  in a Sheet. Its Model (`Sidebar.init({ id, rows, open?, collapsed? })`,
+  `Sidebar.update`) holds what is open and collapsed, the rail's Tooltips
+  and the Sheet. `width: 'fill'` sizes it to a Resizable's panel. A recipe,
+  a pattern and a gallery page.
+- **`foldkit-mixins-ui`: `Resizable`,** from the widgets island into the
+  package: shadcn's Resizable and the APG's window splitter, two panels with
+  a handle that is a `separator` with its value, stepped by the arrows and
+  sent to the bounds by Home and End, and dragged, following the `Move`
+  Mount from where the drag began over the group the `Resize` Mount
+  measured. The split is a small Model of its own (`init`, `Message`,
+  `update`) the application keeps; side by side or one over the other. A
+  recipe, a pattern and a gallery page.
+- **`foldkit-mixins-ui`: `Command`,** the widgets island's command palette as
+  shadcn's Command with Fluid Functionalism's CommandMenu behaviour: a field
+  that points at the highlighted row through `aria-activedescendant`, ↑ and
+  ↓ wrapping through enabled rows, Enter running the highlighted one, rows
+  in groups with shortcuts, and an empty state. The filter (`filtered`)
+  matches every query word against a row's label and keywords and never
+  re-sorts; a highlight filtered away moves to the first enabled row. The
+  query and highlight are the application's. A shortcut reads left to right
+  on a right-to-left page. A recipe, a pattern and a page.
+- **`foldkit-mixins-ui`: `Recipes.HoverCard`,** the widgets island's hover
+  card as `@foldkit/ui`'s HoverIntent with a look: a trigger read as a link
+  and a raised panel that fades in as it is drawn (`@starting-style`),
+  placed against its trigger in the top layer by `HoverIntent.toView`'s
+  `anchored`. The delays stay HoverIntent's. A gallery
+  page draws it.
+- **`foldkit-mixins-ui`: `OtpField`, Input OTP,** after shadcn's input-otp
+  rather than the widgets island's cell per input: one real `<input>` over
+  cells that only mirror it, so paste, Backspace, the caret and a phone's
+  `one-time-code` autofill are the browser's and no Command moves focus.
+  The code is the application's, kept to its pattern and length
+  (`OtpField.kept`); `groups` draws runs with a separator, and the next cell
+  draws a blinking caret while the field has focus. A recipe, a pattern and
+  a gallery page.
+- **`foldkit-mixins-ui`: `NumberField`,** from the widgets island into the
+  package: the APG's editable spinbutton and Zag's number input. The arrows,
+  PageUp and PageDown, Home and End step it through `SpinValue`'s `spin`, a
+  typed number commits on change (text that is no number leaves the value),
+  and steppers out of the tab order disable at their bound; every value is
+  clamped onto its step (`NumberField.settled`), a decimal step kept exact.
+  The value is the application's. `Recipes.NumberField`,
+  `Patterns.NumberField` and a gallery page.
+- **`foldkit-mixins-ui`: `CheckboxGroup`,** from the widgets island into the
+  package, as Zag's checkbox group with Fluid Functionalism's rows: a
+  `fieldset` named by its `legend`, each option the APG's checkbox named by a
+  `label` for it, the checked values the application's (`toggled` is the
+  transition). Drawn as a `list`, checked rows fill and merge where they
+  stand together. `Recipes.CheckboxGroup` reuses the Checkbox recipe's
+  pieces; `Patterns.CheckboxGroup` and a gallery page. Accordion, Segmented
+  and CheckboxGroup now share one step for a multiple choice.
+- **`foldkit-mixins-ui`: an alert dialog is the Dialog with
+  `role: 'alertdialog'`.** `Dialog.toView(mixins, { h, role: 'alertdialog' },
+  draw)` (and `Dialog.resolve`) puts `role="alertdialog"` on the `dialog`
+  bundle; `'dialog'`, the default, writes none, as the `<dialog>` element has
+  it. `Dialog.isDismissal(message)` names upstream's own dismissal (Escape, a
+  press on the backdrop, its close button): an application that drops those
+  in `update`, draws no close button, and closes from its own buttons with
+  `@foldkit/ui`'s `close` has the APG's alert dialog. One recipe and one
+  gallery page, Dialog, show both.
+- **`foldkit-mixins-ui`: Toggle and Toggle Group, from the widgets islands,
+  as what was already here.** A toggle is a Button with `pressed`, which
+  writes `aria-pressed`; every variant has its on look. A toggle group is a
+  segmented control: `Segmented.view` draws the options from the
+  application's pressed values, and `Segmented.toggled(pressed, value, {
+  multiple, optional })` is the transition, one at a time (kept pressed
+  unless `optional`) or several. The gallery's segmented control is drawn
+  with `Segmented.view`.
+- **`foldkit-mixins-ui`: `Accordion`,** from the `examples/widgets` island into
+  the package, after the APG pattern, shadcn's and Zag's options and Fluid
+  Functionalism's craft. `Accordion.view` draws the application's open ids,
+  each trigger a button in a heading naming its region; `Accordion.toggled`
+  is the transition, single or `multiple`, `collapsible` by default. A panel
+  opens on a `0fr`-`1fr` grid row (no measured height), clipped on its
+  container, a shut one stays drawn and `inert`, the chevron turns 90°, and
+  the open title turns semibold in its own width. `Recipes.Accordion`,
+  `Patterns.Accordion` and a gallery page.
+- **`foldkit-mixins-ui`: a table under fluid hover.** `Table.view({ …, fluid:
+  true })` stands the table in a `frame` with one `highlight` behind the body
+  rows, following the pointer to the nearest one, after Fluid
+  Functionalism's: the lines above and below the lit row clear over 80ms, the
+  header's too when the first row is lit, and the lit row's text lifts.
+  `FluidHover` marks the item it is shown on `data-fluid-lit` for this.
+- **`foldkit-mixins-ui`: merged choices.** In a multiple listbox or
+  combobox, chosen rows next to each other square the corners between them,
+  so a run reads as one block.
+- **`foldkit-mixins-ui`: popups and dialogs enter and leave.** Drawn with
+  `@foldkit/ui`'s `isAnimated`, a menu, listbox or combobox panel fades in
+  on the fast tier from a little smaller, sliding 4px from the side the
+  anchor placed it on, and a dialog and its veil on the slow tier from 0.97;
+  each leaves on its tier's quicker exit, and reduced motion keeps the fade
+  alone. The Menu component passes it with `Menu.init(id, rows, {
+  isAnimated: true })`. The gallery's widgets animate.
+- **`foldkit-mixins/utilities`: `steady(weight)`, weight without reflow.**
+  The element's `data-label` holds its text, which a hidden, zero-height
+  `::after` sets at `weight`, so a label that turns heavier when chosen
+  moves nothing beside it; the element stays a block, so a `text-box` trim
+  still works on it. A pressed segmented option and a chosen card title use
+  it, and the card writes its title into `data-label` itself.
+- **`foldkit-mixins/theme`: a surface ladder that nests by itself.**
+  `Theme.raise(offset)` sets an element `offset` levels above the raised
+  element holding it, or the page (capped at 8), and `Theme.raisedSurface()`
+  paints it for its level, after Fluid Functionalism's ladder: in a light
+  scheme two steps toward white and then flat, so shadow carries elevation,
+  and in a dark scheme an even step lighter per level (`knob.raise-dark`).
+  Popups, popovers, date picker panels and toasts raise by 2 and dialogs by
+  4, so a popover opened in a dialog lands above it instead of melting into
+  a surface it shares. A popup keeps its menu look (`popup.inverted`, new,
+  and the translucency) over its level.
+- **`foldkit-mixins/utilities`: `scrollFade(axis)`**, after shadcn's and Fluid
+  Functionalism's `scroll-fade`: a scroller's content dissolves toward an edge
+  with more to scroll, its true start and end crisp until something is past
+  them, by a mask a scroll timeline moves; no JavaScript, and no fade where
+  scroll timelines are missing. ScrollArea and the popups' lists use it.
+- **`foldkit-primitives/dom`: `FluidHover`'s `gapReach`,** the farthest a
+  click in a gap may land from the highlighted item and still press it;
+  `Card.group` uses 16px, after Fluid Functionalism's card grid. An item with
+  no layout box yet keeps the highlight's last place and is measured again
+  for three frames, rather than drawing the highlight at zero.
+- **`foldkit-richtext`: `InsertBlock` and `DeleteBlock`.** `InsertBlock` puts a
+  block beside another under fresh identities (without a place, beside the
+  caret's block); `DeleteBlock` deletes one with any container it empties and
+  moves a caret inside it to the nearest text that stays. The editor sends them
+  as `InsertedBlock` and `DeletedBlock`, and `SetProps` as `ChangedProps`.
+- **`foldkit-richtext`: a rendering entry's `adornments`**, elements drawn
+  before a block's content that are not content (a checkbox, a figure's picture
+  and caption, an icon). They hold no position and an HTML import drops them; a
+  click on one with `toggles` flips that boolean prop through the document.
+- **`foldkit-richtext`: the standard `Image` takes `caption`, `width` and
+  `align`**, all optional; the standard rendering still draws the `img` alone.
+- **`foldkit-richtext`: deleting a selection across kinds of block.** Select
+  all and Delete did nothing, and so did any range over an image, a table, a
+  list or a quote: the command refused a range it could not join. Such a range
+  is now cleared (blocks wholly inside go, the ends are trimmed and joined where
+  they can be, emptied containers go), and typing, Enter or pasting over it
+  clears it first. A range that leaves a table cell only loses its text.
+- **`foldkit-richtext-dom`: `blockAnchor`'s `side: 'inside-end'`.** A block's
+  toolbar inside its top right corner, covering nothing around the block.
+- **`foldkit-mixins-richtext`: `linkEdit`, and Enter that keeps up with typing.**
+  The link editor's Enter sent the edit its last drawing decided, a frame
+  behind fast keys, so Enter straight after typing applied the address before
+  the last character, or nothing. Its new optional `submitted` is sent instead,
+  for `update` to apply `linkEdit(document, selection, draft)` to the Model's
+  own draft.
+- **`foldkit-mixins-richtext`: the link editor asks for a link and closes on
+  Escape.** Its field says "Paste or type a link", Escape in it sends the new
+  optional `closed`, and its button reads Apply rather than Link.
+- **`foldkit-mixins-richtext`: the find bar's Previous, Next, Match case and
+  Close are icons**, named by `aria-label` and `title`.
+- **`foldkit-richtext-dom`: a floating element follows its own size.** A
+  toolbar measured before its styles settled was placed below the selection
+  for good, covering the next line; `selectionAnchor` and `blockAnchor` now
+  place it again when its size changes, as a slash menu's does while a query
+  narrows it.
+- **`foldkit-mixins-richtext`: `blockStyleMenu`.** The block styles as one
+  trigger naming the current style and a menu of them, the current one
+  checked, for a toolbar with other things to hold.
+- **A slash menu worth reading, and an icon set.** `foldkit-richtext-dom`'s
+  `SlashEntry` gains `description`, `group` and `icon`, and the editor's entries
+  have all three; `matchingEntries` groups the catalogue under `/` and ranks a
+  query's matches, best first. `foldkit-mixins-richtext`'s `slashMenuView` draws
+  group headings, each entry's icon, label and description, and "No matches",
+  through new slots, and `richTextIcon`/`richTextIconUrl` are the chrome's icons
+  (after Lucide, ISC).
+- **`foldkit-richtext`: video, audio and attachments.** `mediaNodes`
+  (`Video`, `Audio`, `Attachment`) are opt-in vocabulary, `mediaRendering`
+  draws them with the browser's controls and a download link, and
+  `mediaBlock(file)` makes the block a file's type calls for. A `data:` source
+  is accepted only of the kind's own family, and an attachment's never as HTML,
+  SVG or XML.
+- **`foldkit-richtext-markdown`: footnotes.** `parse(markdown, { footnotes: true })`
+  reads `[^label]` and `[^label]: …` as `FootnoteRef` and `FootnoteDefinition`,
+  and `print` writes them back; without the option they are reported and
+  skipped, as before.
+- **`foldkit-richtext`: typing at a block's edge leaves a mark that does not
+  extend.** Text typed after a link, inline code or footnote reference that ends
+  a paragraph (or before one that starts it) used to join it, since there was
+  no neighbouring run to move to; it now gets a run with only the marks that
+  extend. `resolveInsertion` also reaches nested blocks, where it found nothing
+  before, so a list item or table cell kept extending such marks.
+- **Footnotes.** `foldkit-richtext` declares `FootnoteRef` and
+  `FootnoteDefinition` for a kit to opt into, reads them with `footnotesOf`,
+  `footnoteAt` and `nextFootnoteLabel`, and inserts and renames them with
+  `InsertFootnote` and `RenameFootnote` (the editor's `InsertedFootnote`,
+  `RenamedFootnote`); `foldkit-mixins-richtext`'s `footnotePreview` is the card
+  at a reference.
+- **`foldkit-richtext-dom`: a hint on the empty line.** `lineHint` ("Type /
+  for blocks") marks the empty paragraph the caret is in with `data-hint`, for
+  a stylesheet to draw as it draws the placeholder. **Changed:** the host
+  registry's `placePlaceholder`/`placeholderFor` are `placePlaceholders` and
+  `placeholdersFor`, holding both strings.
+- **A table of contents.** `foldkit-richtext`'s `outlineOf` lists a document's
+  headings and `sectionAt` the section a selection is in;
+  `foldkit-mixins-richtext`'s `tableOfContents` draws them; and
+  `foldkit-richtext-dom`'s `focus(hostId, selection)` Command sends the reader
+  into the text with that selection, scrolled into view.
+- **Find and replace.** `foldkit-richtext`'s `findMatches` lists a query's
+  matches (case not counting unless asked), `searchDecorations` takes a
+  `current` match drawn as `search-current`, and `Replace` replaces one match or
+  every one as a single undo step; the editor sends it as `ReplacedText`, and
+  `foldkit-mixins-richtext`'s `findReplace` is the bar. **Changed:** search
+  ignores case by default; pass `caseSensitive: true` for the old exact match.
+- **`foldkit-richtext-markdown`: inline markers close as they are typed.**
+  `**bold**`, `*italic*`, `_italic_`, `` `code` `` and `~~struck~~` become
+  marked text when the closing marker is typed, and typing on is plain
+  (`markdownInlineRules`, part of `markdownInputRules`). An input rule can say
+  what the next text carries (`InputMatch.storedMarks`, read by
+  `resolveInputRules`), which the editor keeps.
+- **`foldkit-mixins-richtext`: `tableToolbar` and `codeToolbar`.** The table
+  toolbar adds and deletes rows and columns around the caret's cell, switches
+  the header row and deletes the table; the code toolbar picks a code block's
+  language and sends the caller's Copy Message. Both draw through slots.
+- **`foldkit-richtext-dom`: Tab, table Messages, adornment actions, a toolbar's
+  place.** Tab and Shift+Tab send `Indented` and `Outdented` where
+  `RichText.takesTab` says they mean something, and move focus elsewhere;
+  `InsertedRow`, `InsertedColumn`, `DeletedRow` and `DeletedColumn` carry the
+  table commands. An adornment with an `action` is reported as
+  `ActivatedAdornment`, which edits nothing. `blockAnchor({ side: 'above' })`
+  places a block's toolbar.
+- **`foldkit-richtext`: tables as a grid, and Tab.** `InsertRow`, `InsertColumn`,
+  `DeleteRow` and `DeleteColumn` edit the table around the caret's cell, each as
+  one undo step (`tableAt` reads where the caret is). `Indent` and `Outdent` are
+  Tab and Shift+Tab: indentation in code (and Enter keeps a line's), the next or
+  previous cell in a table, a new row after the last, and in a list item, nesting
+  it under the item before it or moving it back out. `takesTab` says where Tab
+  means something.
+- **`foldkit-richtext-dom`: an empty line can be reached.** It holds a
+  `<br data-richtext-filler>`, where the caret stands, so it has a line's height
+  and the arrow keys and a click land on it; before, a new line made with Enter
+  had no height and the caret could not get to it. A caret restored onto an
+  element, not only into text, is put back.
+- **`foldkit-richtext-dom`: a drag shows itself and scrolls the page.** The
+  dragged block carries `data-richtext-dragging` once the pointer moves (and the
+  page's root `data-richtext-drag`, for a `grabbing` cursor), and a
+  pointer held near the window's top or bottom scrolls the page, so a block can
+  be dragged past what the window shows.
+- **`foldkit-richtext`: `node(…, { lineBreaks: true })`**, a kind whose text
+  keeps line breaks: Enter inserts a newline instead of splitting the block,
+  and Enter on an empty last line leaves it for a paragraph after. The
+  standard `CodeBlock` declares it, so Enter in code no longer makes a second
+  code block.
+- **`foldkit-richtext`: `ClearMark` takes a mark value**, clearing only the
+  runs carrying exactly it, so one discussion's highlight goes without
+  another's inside it; the editor's `ClearedMark` carries either. `eachBlock`
+  and `siblingsOf` are exported, for an application walking its document.
+- **`foldkit-richtext-dom`: `selectionAnchor({ caret: true })`** follows a
+  caret too, opening under it, which is where a slash menu goes.
+- **`foldkit-richtext-dom`: `editorAt(hostId, { slashEntries })`**, the slash
+  catalogue Enter in a query resolves against, so an application's own entries
+  (an image, a table) choose as the editor's do.
+
+- **`foldkit-remote-server`: `RemoteServer.memory` takes `entities`,** Sources
+  for entities no row backs (`foldkit-guard`'s `GuardServer.me`), served
+  beside the rows. One naming an entity the rows' domain declares, or a second
+  for the same entity, is refused when the backend is made.
+
+- **`foldkit-primitives/dom`: `FluidHover`**, a Mount that moves one highlight
+  across a container's items: the item nearest the pointer, gaps included, on
+  the `x`, `y` or `xy` axis, skipping disabled items and following keyboard
+  focus. It writes the item's place as custom properties and sends no Message;
+  with `gapClick`, a click in a gap presses the highlighted item. `follows`
+  lights the item a menu's keys marked, and `from` names the item a fresh
+  highlight grows out of and returns to.
+- **`foldkit-mixins/theme`: `Theme.oklch({ neutral: { h } })`**, a hue for the
+  neutrals (surfaces, text, outlines, the shadow) apart from the accent's, as
+  shadcn's base colors are; without it they take the accent's and follow its
+  knob, as before. The hue is the `neutral-h` knob.
+- **`foldkit-mixins/theme`: a menu's look, `Theme.oklch({ menu: { accent, color } })`**,
+  as shadcn's menu options: the lit row in a tint of the text or the
+  accent's fill (`bold`), and the panel in the page's surface, the other
+  scheme's (`inverted`), or either over a blur (`translucent`). The `popup`
+  tokens carry it, and the menu, listbox and combobox recipes read them.
+- **`foldkit-mixins/theme`: `motion.settle` and `motion.spring`**, easings
+  sampled from springs, for CSS transitions that spring with no JavaScript:
+  `settle` critically damped, landing exactly, and `spring` at a damping ratio
+  of 0.88 for large surfaces.
+- **`foldkit-mixins-ui`: `Card.group` and `Recipes.CardGroup`**, cards as one
+  keyed list in one column or a grid, divided or apart, with one highlight that
+  follows the pointer to the nearest card (`FluidHover`); a press in a gap
+  presses the highlighted card.
+- **`foldkit-mixins-ui`: `Recipes.Calendar`**, the month grid in every mode,
+  sized `sm` or `md` on the size ladder, for a calendar alone or in a date
+  picker's panel. The design-system example uses it in place of its own.
+- **`foldkit-mixins-ui`: `Menu`, `Listbox` and `Combobox` draw themselves.**
+  Their `toView` takes `draw` optionally; without it, upstream's markup is
+  drawn from the styled bundles, so a styled menu is
+  `Menu.toView([MenuStyle.mixin], { h })` instead of forty lines of panel and
+  option groups. The forks' default views share the same drawing.
+- **`foldkit-mixins-ui`: `Calendar` draws itself too.** `CalendarSlots` gains
+  `header`, the row of the heading and its paging buttons, which no upstream
+  bundle holds; `Calendar.toView(selection, mixins, { h })` draws every mode
+  through the slots, and `Calendar.draw` is that drawing for a `toView` of
+  your own.
+  `DatePicker.toView`'s `draw` is optional the same way.
+- **`foldkit-mixins-ui`: tabs glide.** `TabsSlots` gains `indicator` and
+  `highlight`, and `Tabs.fluid` measures the chosen tab and moves one hover
+  to the tab nearest the pointer, born at the chosen tab; drawn, the recipe's
+  rule or pill springs to a new choice. Until it runs, each tab marks itself.
+  `FluidHover` sets `data-fluid-hover` on its container while it runs, which
+  a recipe reads to draw a highlight in place of each item's own hover.
+- **`foldkit-mixins-ui`: menus, listboxes and comboboxes glide.** `Menu.fluid`,
+  `Listbox.fluid` and `Combobox.fluid` move one highlight over the open
+  panel's rows, for the pointer and the keys alike, and a listbox's or
+  combobox's chosen-row marker glides to a new choice. Their slots gain
+  `rows`, `highlight` and (listbox, combobox) `indicator`, which the default
+  draw places. `Segmented.fluid` does the same for a segmented control's
+  pressed pill, through its new `indicator` and `highlight` slots.
+- **`foldkit-mixins-ui`: `Item`'s `content` is optional**, for a row its
+  title and description say all of, such as a notification.
+- **`foldkit-mixins-ui`: `ChatMessage` and `MessageScroller`.** A chat
+  message with an author, avatar, time, a sending/sent/failed status with a
+  retry and named actions, the user's at the end in a bubble;
+  `ChatMessage.group` draws a sender's following messages as continued. Its
+  body wraps with `text-wrap: wrap`, so a streamed answer never moves a word
+  off an earlier line, and a streaming message is `aria-busy`. Recipe axes
+  `layout` (`chat`, `thread`), `bubble` and `content` (`text`, `markdown`,
+  spaced as Prose). `MessageScroller` is a `role="log"` in a `ScrollArea`
+  that follows the newest message while the reader is at the end, stops when
+  they scroll up, offers a jump button counting what arrived (`Appended`),
+  and holds the message in view as older ones load above; its `FollowEnd`
+  Mount is exported for Scene tests.
+- **`foldkit-mixins-ui`: `ThinkingIndicator`, `ThinkingSteps` and
+  `Questionnaire`.** The indicator is an assistant at work: dots, a pulse or
+  the view's icon beside words a band of light sweeps, and a detail line, in
+  a polite status drawn always (`active: false` draws it empty); recipe axes
+  `mark`, `label`, `tone`. Thinking Steps is a trace of reasoning and tool
+  calls under a button saying the running step or "Thought for 4s", each step
+  pending, running, done or failed, in words too, with a duration, detail
+  and steps of its own (`onToggleStep`); its openness is an `Option` the
+  application keeps, none following the work. `ThinkingSteps.stateOf`,
+  `shown`, `elapsed`; axes `variant`, `connector`. The Questionnaire asks
+  single choice, multiple choice and free text questions, with an "Other"
+  field, all at once or one at a time; `update` says what is missing and
+  focuses it, and returns `OutMessage.Answered` once all are answered.
+  `Question` is a Schema, so an assistant's tool input decodes into it; axes
+  `variant`, `actions`.
+- **`foldkit-mixins-ui`: `AngleSlider`, `Timer` and `Marquee`, after Zag's.**
+  A dial in degrees dragged round or stepped by the APG's slider keys, which
+  go round past 0, with `step`, `largeStep`, labelled `marks`,
+  `restrictToMarks`, read-only, invalid and a hidden input (recipe `tone`,
+  `track`, `value`, `size`). A countdown or stopwatch started, paused,
+  resumed, reset and restarted, its clock read by Commands on Effect's
+  `Clock` so TestClock drives a run, a `role="timer"` with each unit in a
+  Slot; `Timer.phase`, `Timer.partsOf` (recipe `tone`, `look`, `progress`,
+  `size`). Content that scrolls on without a seam: measured copies filling
+  the viewport, a speed in pixels a second, four sides, a delay and a round
+  count, held by a pointer, by focus or by its pause press (WCAG 2.2.2), its
+  copies `inert`, and still under reduced motion (recipe `spacing`,
+  `edges`).
+- **`foldkit-mixins-ui`: `ImageCropper` and `SignaturePad`, after Zag's.** A
+  crop of an image that a drag moves and eight handles resize, zoomed by a
+  Slider, the wheel and `+`/`-` with the selection kept on screen, panned,
+  turned by quarters, locked to an aspect or round; the crop is the Model's
+  in the turned image's pixels (`ImageCropper.crop`), and `RequestedExport`
+  returns the `Export` Command answering `Exported({ url, width, height })`
+  or `FailedExport` (recipe `guides`, `handles`, `viewport`). Strokes drawn
+  by one pointer, a pen's pressure used and a mouse's simulated from speed,
+  kept as data and drawn as smoothed variable-width outlines (`pathOf`),
+  with undo, clear, "Sign here" and a typed name instead; `toSvg` is pure
+  and `RequestedPng` returns `ExportPng` (recipe `surface`, `size`).
+- **`foldkit-mixins`: a `chart` group in `Theme.oklch`.** `chart-1` to
+  `chart-5`, as shadcn names them: the dataviz reference palette's first five
+  slots in its order, each a fixed turn from the `chart-h` knob at a
+  lightness and chroma set per hue and per scheme.
+- **`foldkit-mixins-ui`: `QrCode` and `Chart`.** `QrCode.view` draws text as
+  one SVG path in a quiet zone, one image named by what it encodes, with an
+  overlay (a logo) that raises the level from M to H; `QrCode.encode` and
+  `pathOf` are pure, `QrCode.Download` saves the drawn code as PNG or SVG
+  in its colors, and the recipe draws it dark on light on any page
+  (`scheme`, `size`). Encoded by `uqr`, now a dependency. `Chart.view` draws
+  bars, a line, an area or a donut with round ticks, gridlines, a legend and
+  a tooltip, in percentages, so it fills any width with nothing measured and
+  renders the same on a server; `Chart.Model` holds the lit point, the
+  arrows, Home and End step through the points while a status says each,
+  and the data is a table, hidden unless `table: 'shown'`. Series take
+  `chart-1` to `chart-5`; recipe axes `height`, `grid`, `indicator`.
+- **`foldkit-mixins-ui`: `CascadeSelect`, `FloatingPanel` and `Tour`.** One
+  value chosen as a path through nested options (`CascadeSelect.update({
+  nodes })`) from a top-layer APG tree with a column per level or one level
+  at a time (`layout: 'drill'`), the arrows within and between levels,
+  Home, End and a letter, `expandOn: 'hover'`, `parents`, `clearable`,
+  `levels` and a hidden input (recipe `size`, `trigger`, `width`). A
+  non-modal window whose rect and stage are its Model: dragged, resized
+  from eight edges within the viewport, `min`, `max` and a `grid`, moved and
+  resized by the arrows, minimized, maximized, restored and closed, stacked
+  by an `order` its `Raised` OutMessage updates (`FloatingPanel.raise`;
+  recipe `header`). A tour of steps beside their targets in the top layer,
+  over a dim with a cutout the target's presses reach, the target scrolled
+  into view, Next, Back, the arrows, Skip and Escape, focus back to the
+  opener and `Ended { completed }` at the end; a step without a target, or
+  with a missing one, stands in the middle.
+- **`foldkit-mixins-ui`: `Anchor.layerBox`**, the top-layer box `layer`
+  draws, without its `TopLayer` Mount, for a box whose own Mount shows it
+  through `topLayer`.
+- **`foldkit-primitives/dom`: `PointerPosition({ focus? })`**, a Mount
+  reporting one pointer's press, moves (with coalesced points and pressure)
+  and release in the element's padding box, captured, with move listeners
+  only during a press; `paddingBoxOf({ rect, border })` and
+  `measurePaddingBox(element)`. In `foldkit-mixins-ui` the color picker's
+  area, the angle slider's dial and the signature pad read the pointer
+  through it (no API change).
+- **Site: pages for every component above.**
+
+### Changed
+
+- **`foldkit-mixins-ui`: the Calendar's resolved days and a Segmented tray
+  (breaking).** `ResolvedDays`' paging buttons are `Option`s and its heading
+  is a `caption` (`Grid`, `Label` or `Dropdowns`); `toView`, `inputs` and
+  `resolve` take an options object fourth, `render` among them. A Segmented
+  `tray` is as wide as its options, not its container (`width: 'fill'` for
+  the old strip). A tab is a flex row: draw its words in the `label` slot to
+  keep their trim.
+- **`foldkit-mixins-ui`: the Tooltip takes its id; the Toast recipe drops its
+  accent edge (breaking).** `Tooltip.toView` and `Tooltip.resolve` take the
+  Tooltip's `id`, which the arrow points from.
+- **`foldkit-mixins-ui`: Select's chevron and the display slots (breaking
+  for hand-drawn slots).** The native Select draws its own chevron and
+  mutes a chosen placeholder. `AvatarSlots` gains `status`, and the
+  avatar's root is one `role="img"` named by the person, its picture's alt
+  empty. `SeparatorSlots` gains `root` and `label`, the line a border in
+  `outline.default`. `SkeletonSlots` gains `group`, a bar a film of the
+  text. `SpinnerSlots` gains `part`, `root` and `text`, a turn about 720ms
+  times `travel`. `ItemSlots` gains `overlay`. Empty's title takes the
+  `subtitle` role and its icon is `aria-hidden`.
+- **`foldkit-mixins`, `foldkit-mixins-ui`: hovers take their surface’s paint,
+  not grey.** `unfilledHover` films the state ink instead of the text: the
+  theme's `--fk-state-ink` (`state.ink`), unless a surface painted in a hue
+  writes its paint in the local `--_fk-state-ink`, so a hover on a painted
+  surface deepens the paint. The accent and danger tones name their fills, a
+  subtle alert band its ink (its tint would film the band over itself) and a
+  bold one its fill; the neutral and ink tones name the theme's ink back, so
+  a neutral control on a band keeps the theme's hover. New
+  `OklchKnobs.stateHue` sets the theme's ink, and one override reaches every
+  component, neutral ghost and outline buttons, radios, sliders and toggles
+  included: `neutral` (today: the text, with painted surfaces naming the text
+  too through the derived `surface-ink` knob, which a scoped override also
+  switches at runtime), `surface` (the default: the text, and surfaces name
+  their paint), `accent` (the accent's ink, so hovers lean on the accent). A
+  `var()` substitutes where the token is declared, so the state tokens
+  themselves stay text-based; the ink travels as its own property, read where
+  the film is drawn.
+- **`foldkit-mixins-ui`: in-place menu, listbox and combobox panels draw in the
+  top layer.** `Anchor.topLayer` wraps an upstream anchor Mount when its config
+  says `portal: false`: it shows the panel as a manual popover around the
+  Mount’s own acquire and hides it once that Mount releases, keeping the
+  Mount’s name, args and Messages, and does nothing on an element without the
+  `popover` attribute or where the popover API is missing. Those panels carry
+  `popover="manual"` and `inset: auto` (the anchor writes only `left` and
+  `top`, and the browser's `inset: 0` opened them at the viewport's far edge
+  right to left); no stacking context or ancestor `overflow` reaches them,
+  and the anchor positions them as before. The Menu's submenus and the
+  Menubar's menus are drawn this way too. An unstyled panel keeps the
+  browser's popover border, padding and `Canvas` fill, which every recipe
+  replaces. Panels that relocate through an upstream portal keep upstream’s
+  behavior, since moving a shown popover hides it again. The popup recipes
+  take a `width` axis: `trigger` replaces the panel's 14rem minimum with its
+  trigger's width (`min-inline-size: var(--button-width, 14rem)`), the
+  default for Combobox, and `auto` keeps it, Listbox's default. Popover,
+  Tooltip, Hover Card and DatePicker panels, modal `<dialog>` and arrows stay
+  where upstream draws them until upstream owns top-layer mounting (their
+  Mounts attach inside upstream views).
+- **`foldkit-mixins-ui`: a `Menu` component, by a button, at a point, or
+  down a submenu, over the Menu adapter.** `Menu.init(id, rows, {
+  isAnimated?, isModal? })` (a row with `items` hosts a submenu, one level
+  deep; `isAnimated` marks the menu's and its submenus' panels for the
+  recipe's fade), folded with `Menu.update`, drawn with `Menu.view({ model,
+  rows, buttonContent, onMessage, opensAt?, direction?, isRowDisabled?,
+  mixins, submenuMixins? }, h)`, the style one of its `mixins`. `opensAt:
+  'point'` with `Menu.target(onMessage, h)` on the area is the context menu:
+  a right press records its point and the `contextmenu` after it opens the
+  menu there. `Selected` names the value and the submenu it came from.
+  `Menu.fluid` glides the highlight; `Menu.overlayBars` draws the overlay
+  bar. The panel adapter (`Menu.toView`, `Menu.resolve`) stays for a
+  `@foldkit/ui` Menu the application folds itself, for typed items or
+  groups, and `Menu.drawAtPoint(point, h)` as its `draw` with
+  `Menu.pointTarget({ onPress, onOpen }, h)` on the area opens one at a
+  point (give its anchor `gap: 0`). `MenuSlots` gains `label`, `sub` and
+  `chevron`, and `scrollBar` and `scrollThumb` drawn while a panel has a
+  `scroll`. One recipe, one pattern, one gallery page.
+- **`foldkit-mixins-ui`: one date system: `Calendar.Selection`.**
+  `Single`, `Range` or `Multiple`, owned by the application
+  (`Calendar.empty(mode)`; fold each `SelectedDate` through
+  `Calendar.picked`, which orders a range's ends; `Calendar.isComplete`
+  says when a picker may close). Draw inline by spreading
+  `Calendar.inputs(selection, mixins, { h })` into upstream's view inputs:
+  its `toView` (`Calendar.toView(selection, mixins, { h })`) marks each
+  chosen day (`data-range-start`, `data-range-end`, `data-in-range` on a
+  range's band), the grid of a Range or Multiple selection is
+  `aria-multiselectable`, and its `maybeSelectedDate` agrees with the marks.
+  In a popover, `DatePicker.update(selection)` keeps the panel open while
+  the day leaves the selection unfinished, and `DatePickerView.view` takes
+  `selection` and `triggerContent(selection)` in place of
+  `maybeSelectedDate`; under `name` each chosen day is a hidden input of its
+  own, so `FormData.getAll(name)` reads a range's `[start, end]`. The
+  gallery's Calendar and Date picker pages show one day and a range.
+  Breaking: `Calendar.toView` takes the selection first.
+- **`foldkit-mixins-ui`: one `Slider`, for a number or a `{ low, high }`
+  range.** `Slider.view({ id, label, value, onChange, … }, h)` takes either
+  kind, and `onChange` is handed the same kind. Both are native
+  `input type="range"` thumbs, so the drag, the keys, right to left and the
+  form value are the browser's: one number is a thumb across the whole
+  track, named by the label; a range is two thumbs in a group, each bounded
+  by the other (`Slider.moved` snaps, bounds and orders a range, as the APG's
+  multi-thumb slider). `marks` dot values on the track (`data-filled` where
+  the fill covers them) and `showValue` draws each value, both hidden from
+  assistive technology. `Recipes.Slider` serves both, in Fluid
+  Functionalism's look: `track: 'thick'` (the default, the fill reaching
+  each thumb's far edge) or `'thin'`, and `value: 'above'` or `'inside'` (a
+  pill thumb). `Patterns.Slider` is the pattern. Breaking: `@foldkit/ui`'s
+  Slider is no longer adapted (`Slider.resolve`, `Slider.toView` and
+  `ResolvedSlider` are gone, and `SliderSlots` is the new view's, with slots
+  `root`, `label`, `control`, `track`, `fill`, `mark`, `value` and
+  `thumb`); an application hosting that Submodel draws it with Slots of its
+  own. `orientation: 'vertical'`, `ticks`, labelled `marks` (`{ value, label
+  }`) and the recipe's `value: 'end'`, `track: 'paint'` and `label: 'hidden'`
+  are the view's too; upstream's Escape-to-cancel and read-only mode are
+  lost.
+- **`foldkit-mixins-ui`: one `Alert`, inline or a banner.** `Alert.view` takes
+  `layout: 'inline'` (a live region for something that just happened:
+  `role="alert"` when `assertive`, `role="status"` otherwise) or
+  `layout: 'banner'` (a full-width strip there on load: a `section` landmark
+  named by `label`, never a live region). Both take an optional icon, now
+  `aria-hidden`, a title and description, `actions` (each a link or a button
+  that sends a Message) and a dismiss button (`onDismiss`, `dismissLabel`).
+  The root writes `data-layout` and `data-dismissible`, and the banner keeps
+  room for the dismiss button only when it has one. `Recipes.Alert` gains
+  an `emphasis` axis (`subtle`, the default, or `bold`) and the slots
+  `actions`, `action` and `dismiss`; `Patterns.Alert` is the pattern, and
+  the gallery's Alert page shows both layouts. Breaking: `layout` is
+  required (write `layout: 'inline'` where an alert stood alone).
+- **`foldkit-mixins-ui`: Menubar, Menu, TreeView, Resizable and a
+  horizontal Listbox take `direction?: 'ltr' | 'rtl'`, and under `'rtl'`
+  ArrowLeft and ArrowRight swap.** A view cannot read the page's direction,
+  so these components moved the wrong way right to left: a submenu opened on
+  ArrowRight away from where it was drawn, and a split's handle grew the
+  panel the arrow pointed away from. Each view now translates the two arrows
+  before building its Message (as Zag's `getEventKey` does), so Messages and
+  `update` stay in reading order, and draws the direction as its root's
+  `dir`, so the CSS reads what the keys read; the Menu's submenu opens on
+  the left with its chevron pointing there, and Resizable reverses a drag's
+  horizontal movement. Tabs, RadioGroup and Calendar, whose arrows upstream
+  bundles handle, take `Tabs.readingKeys`, `RadioGroup.readingKeys` and
+  `Calendar.readingKeys` beside the style: a Mount that reads each arrow by
+  the element's `:dir()` before upstream's handler does, opt-in because a
+  Scene test must resolve every Mount with a Message. `Segmented.fluid`,
+  `Tabs.fluid` and `Nav.fluid` measure their indicator again when a `dir`
+  changes.
+- **`foldkit-auth`, `foldkit-ssr`: a request with no `Origin` is taken by
+  Fetch Metadata.** `AuthServer.resolver` and `SSR.entry`'s `origins` read
+  `Sec-Fetch-Site: same-origin` in place of a missing `Origin` (a
+  same-origin `GET`), as they already did for `Origin: null`, and still
+  refuse a request with neither. The auth README says why the check rests on
+  the origin rather than on `SameSite` or a token.
+- **`foldkit-mixins-ui`: toggles on the ladder, and Fluid's switch.** A
+  checkbox, radio or switch with no size stands on the ladder's icon rung
+  (16px, 14px compact) instead of defaulting to `md`. The switch is a 34×20
+  track with a 16px thumb (its height a quarter over the toggle's edge, its
+  track 1.7 of that), and its thumb stretches 2px into a pill under the
+  pointer, growing back from the far end when on. Breaking: an unsized toggle
+  no longer means `md`, and the switch is larger than its old 29×16.
+- **`foldkit-mixins-ui`: an icon, a dialog and a tooltip on the systems.** An
+  Icon with no size stands on the size ladder (16px, 14px compact) instead of
+  defaulting to `md`; a dialog is one notch narrower in a compact region (10%,
+  as Fluid Functionalism's 400px to 360px); and a tooltip drawn with
+  `isAnimated` fades in on the fast tier, sliding 4px toward its trigger from
+  the side it opens on. Breaking: `Recipes.Icon({})` no longer means `md`.
+- **`foldkit-mixins/theme`, `foldkit-mixins-ui`: states as tints, and
+  concentric corners.** `Theme.oklch` gains a `state` group, what a state lays
+  over the surface under it as a mix of the element's own text color
+  (`hover`, the see-through `tint` and `tint-hover`, and `edge`, a hairline
+  inside an image), with its amounts as knobs; and `Theme.nested(outer,
+  inset, border?)` gives the radius of a surface inset in another. The menu,
+  popover, pagination and calendar hovers read `state.hover` instead of the
+  muted surface, which vanished on a page of that surface; the neutral button
+  is see-through; avatar and card images carry the edge; and a popup's rows,
+  a segmented option and a pill tab round concentrically inside their
+  container. Breaking: a popup's panel has the `xl` radius, and the recipes
+  read `state.*`, which a palette made without `Theme.oklch` must define.
+- **`foldkit-mixins/theme`, `foldkit-mixins-ui`: six type roles.** A `type`
+  token group and `Theme.role(name)`: `display`, `title`, `subtitle`, `body`,
+  `caption` and `micro`, each a size and a whole-pixel leading that step with
+  the size ladder, after Fluid Functionalism's (body at 14px on 20). The
+  recipes set text by role (controls `body`, badges and tooltips `caption`,
+  keycaps `micro`, dialog titles `title`), tab and segmented labels are
+  trimmed to their capitals, a field's text is 16px on a coarse pointer
+  so iOS does not zoom into it, and Typography takes the roles as levels.
+  Breaking: `control.text` is gone (read `Theme.role('body')`), and dialog,
+  empty-state and card titles are smaller.
+- **`foldkit-mixins/theme`, `foldkit-mixins-ui`: one size ladder.** After
+  Fluid Functionalism's: a `control` token group holds the two ends (36px and
+  28px controls, with their padding, gap, inset and icon), a `step` knob
+  chooses between them, and `Theme.ladder(name)` writes the blend, read on the
+  element that uses it, so `--fk-knob-step: 1` on a toolbar makes everything
+  in it compact, a menu it opens included while the panel stays in the page
+  (`portal: false`). Buttons, fields, selects, tabs,
+  segmented controls, table rows, calendar cells and the rows of a menu,
+  listbox or combobox all stand one rung tall, so a popup's row lines up with
+  its trigger. Breaking: a recipe's `size` only sets the step on its own
+  element (`sm` compact, `md` default, `lg` a half step up at 40px), and no
+  recipe defaults it any more, so an unset size follows the region. The
+  popups' `size` sets it on their `wrapper` and their panel (which upstream
+  portals by default), Tabs' on the `tablist`.
+  Segmented's sizes are `md`, `sm` and `xs` (24px).
+- **`foldkit-mixins/theme`: three motion tiers, and reduced motion keeps the
+  fades.** `motion.fast`, `moderate` and `slow` are 80, 160 and 240ms, each with
+  an exit a tier quicker (`fast-exit`, `moderate-exit`, `slow-exit`, eased by
+  `ease-exit`), after Fluid Functionalism's springs. A `travel` knob multiplies
+  the durations of what moves or resizes, and `Defaults.reset` sets it to 0
+  under `prefers-reduced-motion` instead of zeroing every transition, so a
+  highlight snaps to its row while its fade still plays. The recipes' gliding
+  overlays share one transition (hover on `fast`, a chosen marker on
+  `moderate`), and the switch's thumb travels on `moderate`. Breaking:
+  `motion.normal` is gone (read `moderate`, or `slow` for a loop's period), and
+  a transition of a transform written outside the recipes no longer snaps
+  under reduced motion unless it multiplies by `knob.travel`.
+- **`foldkit-mixins/theme`: the surface contrast knob reaches 2.5 times as
+  far, and defaults to 26%.** At its top it moved a muted surface four points
+  of lightness, which read as doing nothing; the default look is the one 65%
+  drew. Breaking: a theme that sets `surfaceContrast` divides it by 2.5 to keep
+  its look (`'60%'` is `'24%'`).
+- **`foldkit-mixins/theme`: `radius.full` squares off where `radius-factor` is
+  0**, as a boxy theme's pills should; at any other factor it is a pill.
+  `Recipes.Badge` rounds by `radius.xl`, so the radius knob reaches it, and
+  `Recipes.Avatar` is a disc at the default factor, rounder squares below it.
+- **`foldkit-remote-server`: `RemoteServer.memory`'s `principal` is optional
+  for every principal type.** It is only who `layer` answers as: without it,
+  and with a principal type that does not admit `undefined`, the backend is a
+  `MemoryServed` (its store and `server`, no `layer`), for serving through
+  `serveFetch` or `handlers` as each request's principal. Code that omitted it
+  for such a type used to fail to compile; it now has no `layer` to call.
+
+- **`foldkit-mixins-ui`: `Card` is pressable, selectable and dismissible.**
+  `press` (`{ onClick }` or `{ href, external? }`) stretches one button or link
+  over the card, named by `label` or the title; `selected`, `disabled`,
+  `dismiss`, an `image` and a `media` tile are new, `content` is optional, and
+  the view takes the application's Message. Breaking: `action` sits at the end
+  of the header rather than the footer, so a card that put its button in
+  `action` puts it in `footer`. The recipe adds `orientation` (`stacked`,
+  `inline`) and `surface` (`outlined`, `elevated`, `filled`, `plain`) axes and a
+  `compact` padding, and its padding is one private `--_fk-card-pad`.
+- **`foldkit-mixins-ui`: `DatePicker.toView(mixins, draw)` hands `draw` the
+  date picker's builder.** Breaking: it took a context with a builder, which an
+  application had no way to give for the date picker's own Message;
+  `DatePickerView`'s `toView` input is called with that builder too.
+- **`foldkit-mixins-ui` peers on `foldkit-primitives`**, for `Card.group`'s
+  highlight.
+- **`foldkit-mixins-ui`'s stateless views take the application's builder.**
+  `Alert`, `AspectRatio`, `Avatar`, `Badge`, `Breadcrumb`, `ButtonGroup`,
+  `Empty`, `Icon`, `Item`, `Kbd`, `Label`, `ScrollArea`, `Separator`,
+  `Skeleton`, `Spinner`, `Table` and `Typography` are generic in the Message,
+  where they took `HtmlBuilder<never>`, so what they hold can send one: an empty
+  state's button, a badge in a pressable card. A call with no Message is
+  unchanged.
+
+### Fixed
+
+- **`foldkit-mixins-ui`: an unknown Progress holds still under reduced
+  motion.** The reset runs every animation for 0.01ms there, so the ring's
+  quarter arc stood at a random angle each frame, and the bar's sweeping
+  fill stopped near its last frame, mostly outside the track. The ring now
+  stands still, as a Spinner's does, and the bar's fill rests faint across
+  the track, as it does with no `travel`. Moving stripes, which slid at
+  random the same way, stand still too.
+- **`foldkit-mixins-ui`: a loading Toast's ring holds still under reduced
+  motion.** It breathed instead, and the reset's 0.01ms made the breath
+  flicker; it now stands still, as every loading ring does.
+- **`foldkit-mixins-ui`: the Questionnaire's "Other" label reads as an
+  option.** The other field's label was the Input's, which a text answer's
+  question also uses, so it looked like a question heading. Its words are now
+  in a new `otherLabel` Slot, which the recipe draws as the options' labels.
+- **`foldkit-mixins-ui`: Cascade Select's columns stay on a phone's screen.**
+  At 390px the popup's columns ran past the window's edge. When the popup
+  opens, `PlaceCascade` measures whether a column per level of the deepest
+  path fits the window, and the columns layout drills in when it does not
+  (the Model's new `cramped`, sent as `Placed({ cramped })`). The panel is
+  capped to the window too, so one narrowed while open scrolls its columns.
+- **`foldkit-mixins-ui`: the Angle Slider's needle clears the value in the
+  middle.** It ran from the center to the thumb, straight through "45°" or
+  "1 of 4"; it now stops 2em of the value's type short of the center, and
+  runs to the center only when the value is drawn below the dial.
+- **`foldkit-mixins-ui`: the Image Cropper shows its image.** The recipe hid
+  the image under any ancestor without `data-ready`, `body` included, so it
+  stayed hidden after loading; the image now carries the mark itself.
+- **`foldkit-mixins-ui`: Steps and the Navigation menu at a phone's width.**
+  In a narrow Steps row the current title ran over the next connector; it
+  is now cut with an ellipsis, and the connectors shorten so a short word
+  stays whole. A dot marker's dot sat above its connector, pushed up by the
+  hidden number's row. A Navigation menu trigger's chevron, squeezed in a
+  narrow row, drew as a slanted tick; it keeps its size. A panel's groups,
+  a fixed row of 12rem columns, ran off a phone's screen; they wrap.
+- **`foldkit-mixins-ui`: the Popover's arrow can be seen.** It was drawn,
+  but as an 8px square in the panel's own fill and faint line, half of it
+  showing in the gap: a nub too slight to see. The Popover's arrow is now
+  `space.sm` across (`arrow`'s new `size`) and its panel 12px off the
+  trigger, so the arrow crosses most of the gap.
+- **`foldkit-mixins-ui`: TagsInput keeps keys typed fast out of the tag just
+  added.** Keys typed before the emptied input was drawn joined the tag
+  Enter had just added.
+- **`foldkit-mixins-ui`: display fixes in a dark scheme.** A chosen card and
+  a Card Group's highlight no longer read as sunken; a card's "New" badge
+  sits on its title's line; a Separator and a Skeleton show on a dark page.
+- **`foldkit-mixins-ui`: rows, pills and highlights follow their container's
+  corner.** A menu's, listbox's or combobox's highlight and chosen marker,
+  a Command's rows, a Menubar's triggers, a Segmented option's pill and
+  hover, and a pill Tabs' chosen pill and hover kept a fixed radius that did
+  not meet the panel or tray around them. Each container now publishes its
+  corner with `Theme.nests`, and they read `Theme.nested()`.
+- **`foldkit-mixins-ui`: InputCopy's focus rings follow the group's corners.**
+  The input's and button's inset rings were square inside a rounded group
+  that clips, so their outer corners were cut off; they now round those
+  corners to the group's inner radius.
+- **`foldkit-mixins-ui`: Steps line up, and fit a phone.** Each step's text
+  was centered on its marker, so a step with a description stood its title
+  higher; titles now start on the marker's middle line, and the connectors
+  sit on that line too. A horizontal row takes its container's width and,
+  below 32rem of it, shows only the current step's label (the others stay
+  for a screen reader), where every label had overlapped the markers.
+- **`foldkit-mixins-ui`: Pagination fits a narrow row.** At 390px "Previous"
+  ran into the "1" beside it; the row now wraps and centers, and Previous
+  and Next have room either side.
+- **`foldkit-mixins-ui`: an Alert stacks its title over its description.**
+  Side by side, a narrow alert squeezed its title into a column of single
+  words. The icon keeps its own column beside both.
+- **`foldkit-mixins-ui`: a Hover Card no longer moves its trigger.** The
+  Anchor writes `top` and `left` but no `position`, so an unportaled card
+  stood in the line beside its trigger and the centered row shifted; the
+  anchored placement now takes the panel out of the flow.
+- **`foldkit-mixins-ui`: a Segmented option's words sit centered.** The
+  `text-box` trim on the option ended at the hidden semibold copy after the
+  words, its last line, so only their top was trimmed and they stood 2.5px
+  high. `Segmented.view` now draws the words in a new `label` Slot that
+  holds the trim; an option drawn by hand with a `data-label` should do the
+  same.
+- **`foldkit-mixins-ui`: smaller centering fixes.** The Checkbox's check
+  sits a pixel lower, on center, and is placed physically like its sides;
+  a Kbd's line is trimmed to its capitals with the height given back as
+  padding; a radio centers on the first line of a label beside it in a row
+  aligned to its top (`calc((1lh - edge) / 2)`).
+- **`foldkit-mixins-ui`: Progress's indeterminate bar sweeps right to left
+  under `dir="rtl"`.** The fill starts at the inline start but moved by a
+  physical `translate`, so right to left it appeared mid-track and slid off
+  the wrong side; a mirrored keyframe now runs under `:dir(rtl)`, with the
+  same timing, so reduced motion still holds it still.
+- **`foldkit-mixins-ui`: the Switch works right to left.** Its thumb starts
+  at the inline start but moved by a physical `translate`, so right to left
+  it slid off the far side; it now moves left there.
+- **`foldkit-mixins-ui`: the RadioGroup recipe stacks a vertical group.** The
+  group was a row whatever its `aria-orientation`, and upstream's groups are
+  vertical by default; it is now a column unless `aria-orientation` is
+  `horizontal`. The README and the skill now say to draw each option as a
+  `label` around its radio, since upstream's label bundle carries only an id
+  and a bare label took no press (the gallery's did not).
+- **`foldkit-mixins-ui`: a Skeleton bar shows in a container that sizes to
+  its content.** Its `inline-size: 100%` resolved to nothing there (a
+  centered column, a flex item), so the bar computed 0px wide and the
+  gallery's skeleton showed nothing. A bar now has a `4rem` floor.
+- **`foldkit-mixins-ui`: chevrons point the right way right to left.** The
+  Accordion's, Sidebar's, TreeView's and Menu submenu rows' chevrons and the
+  Carousel's arrows drew their two sides with logical borders, which mirror
+  under `dir="rtl"`, so a shut row's chevron pointed up and the arrows
+  pointed up and down. They and the Steps check now share `cornerSides`
+  (physical sides), and the Sidebar gains the right-to-left turn it lacked.
+- **`foldkit-mixins-ui`: a Sidebar section's links and a TreeView group's
+  rows hold still while they open.** The heading row stretched into the room
+  the opening grid left mid-transition, so the rows below it dropped (about
+  16px in the Sidebar) and rose back.
+  Sidebar and TreeView now share one `opensBelow` piece that keeps rows at
+  the top (`align-content: start`).
+- **`foldkit-mixins`: injected styles keep the page's layer order.** The
+  `<style>` a draw injects carries the page's own `@layer` order first. It
+  carried none where the page had one, so once it stood ahead of the page's
+  sheet (a test's or an application's sheet put in after it), its
+  `@layer components { … }` made `components` the first layer, under the
+  reset, and a button's text fell back to the reset's 16px.
+- **`foldkit-mixins-ui`: a badge squeezed in a row keeps its words inside it.**
+  The page reset floors every element's `min-width` at 0, so a badge in a
+  narrow row shrank under its unwrapped text, which ran into the next one.
+- **`foldkit-mixins-ui`: `Recipes.Dialog` centers the open panel.** `@foldkit/ui`
+  draws the open dialog over the whole viewport, so the panel sat at its top.
+- **`foldkit-mixins-ui`: `Recipes.Slider` keeps a track wide enough to drag**
+  (12rem at least) in a row or a centered box, where it shrank to its label.
+- **`foldkit-mixins-ui`: a menu, listbox or combobox marks the row the keys
+  are on.** The shared popup row styled only `:hover`, so moving by the keys
+  showed nothing; it now reads upstream's `data-active`, and the focused panel
+  draws no browser ring around itself. A row's hover is a tint of its text, which
+  reads in a dark scheme, where the muted surface was all but the panel's own.
+
+## 0.21.0
+
+Authentication through Yielded Auth. `foldkit-auth` 0.1.0 is new;
+`foldkit-remote` 0.18.0, `foldkit-remote-server` 0.14.0, `foldkit-sync`
+0.12.0, `foldkit-guard` 0.3.0, `foldkit-agent-mcp` 0.7.0, `foldkit-ssr` 0.7.0,
+`foldkit-site` 0.4.0 and `foldkit-plus` 0.3.0 for the changes below, and
+`foldkit-primitives` 0.10.2 for a corrected doc comment; every package that
+pins one of them republishes with a patch to re-pin.
+
+Five changes can break code written for 0.20:
+
+- `serveFetch`'s and `defineDocumentHost`'s `resolvePrincipal` returns an
+  Effect, refusing with `RemoteUnauthenticated`; a resolver that throws is a
+  500, where it was a 401 carrying its message.
+- `foldkit-agent-mcp`'s `authenticate` returns an Effect refusing with
+  `AgentMcp.unauthenticated()`, where it returned the principal or `undefined`.
+- `Guards.declare` requires `unguarded: 'allow' | 'deny'`.
+- `SSR.entry` throws for a plan with a server fallback and no `origins`.
+- `Remote.http` reads every 401 as `Unauthenticated` and every 403 as
+  `Forbidden`, whatever the body says, so a view that compared other tags for
+  them sees these instead.
+
+### Added
+
+- **`foldkit-sync/journal`: `documentHost`, a document's Sync host for any
+  runtime.** It answers an upgrade request before a socket opens: refused
+  with the `Response` to send (401 for a refused principal, 500 for a
+  resolver, layer or journal that broke), or accepted with `serve` for the
+  opened socket and `abandon` for one that never opens, with `revalidate`,
+  `opens`, `admit` and `settle` as `defineDocumentHost` has them, and
+  `layer` required exactly when the resolver needs a service. `defineDocumentHost` is now built on it,
+  and a runtime without `WebSocketPair` is a 500 that resolves no one.
+
+- **`foldkit-auth`: the client repeats whom it was answered as.**
+  `AuthServer.answered(config)` (the resolver's config, with its `key`) is
+  `serveFetch`'s `headers`, naming each answer's principal in
+  `x-foldkit-subject`; `believing()` from `foldkit-auth` is a `fetch` for
+  `Remote.http`/`httpWithLive` that repeats it, so once another tab switches
+  account a read is refused with `SUBJECT_CHANGED` rather than answered as
+  the new account. Any 401 makes it believe no one, and an answer to a
+  request sent before it (or before `forget()`, for this tab's own sign-in
+  and sign-out) is not believed. The subject is URI-encoded.
+
+- **`foldkit-remote-server`: `serveFetch` takes `headers: principal => …`,**
+  added to every answer to that principal, a live stream's included.
+
+- **`foldkit-auth` (early, 0.1.0): a Yielded Auth session as the principal.**
+  `AuthServer.resolver({ auth, http, principal })` from `foldkit-auth/server`
+  is a `resolvePrincipal` for `serveFetch`: it reads the session cookie Yielded
+  set (named from the same `Http.make` options), verifies it with the
+  application's `Auth` service, and builds the principal with the
+  application's `principal`. No cookie is a visitor; a cookie on a request
+  without a trusted `Origin` and Yielded's CSRF header, a cookie that no
+  longer verifies, two session cookies, or an `x-foldkit-subject` header
+  naming someone else is a 401 `Unauthenticated`; `http` naming something
+  that is not an origin throws at once. With `requests: 'browser'` it serves
+  what a browser sends on the page's behalf, `defineDocumentHost`'s upgrade
+  or a posted form, where a trusted `Origin` alone vouches for the cookie,
+  since neither carries a CSRF header; `SUBJECT_HEADER` and `subjectSaid`,
+  from `foldkit-auth`, are what a client sends. Also re-exported as
+  `foldkit-plus/auth` and `foldkit-plus/auth/server`, an optional peer.
+
+- **`foldkit-sync`: `defineDocumentHost` takes `layer: env => Layer` for its resolver.**
+  `resolvePrincipal` may need a service (a session store), which `layer`
+  provides; it is required exactly when the resolver needs one, built per
+  upgrade, kept while the socket is open for `revalidate`, and closed at once
+  for a refused upgrade.
+
+- **`foldkit-site`: `access`, who may be shown a page.** A node's `access:
+  { allow, otherwise }` covers it and the nodes below it;
+  `Site.accessOf(site, route, who)` answers `Access.Allowed`, `Pending`
+  while `who` is unknown, or `Denied({ url })` with `otherwise`'s address for
+  what was asked. Presentation for the client and a server's 303; the server
+  guards the data regardless. An `otherwise` whose target the same rule
+  covers throws (a sign-in page mounted under it would loop with a growing
+  `returnTo`), and a rule in a node's options names its reader's type.
+
+- **`examples/auth`: Yielded Auth end to end.** Password sign-in and
+  sign-out through Yielded's own client and routes, a guarded notes list
+  (an admin reads every note, a member their own, a visitor none), `Me` for
+  "signed in as" and an admin line, and a change of principal carried to the
+  other tabs; a notes page `Site.access` sends a visitor away from, server
+  rendered as the request's reader; a Sync board whose socket is opened
+  with the session cookie, served on Node by `documentHost`; unit, mutation
+  and Chromium e2e tests, the e2e across two tabs and a server restart.
+
+- **`foldkit-remote`: `RemoteData.denied(error)`,** the denial a failure
+  was, a `Denied` (`Unauthenticated` or `Forbidden`, with the server's
+  `reason`; not a mutation's `refusal`), typed,
+  or none for any other failure: a `RemoteError`'s `_tag` is open, so a view
+  had to compare strings to tell "sign in again" from "could not load".
+
+- **`foldkit-guard`: `Me`, the visitor as an Entity.** `Guards.me(G, {
+  interactions })` declares one row, `me`, that everyone reads and no one
+  writes: `signedIn`, `key` (the principal's declared `key`) and `may` for the
+  named interactions; `GuardServer.me(Me, Policy)` serves it, counts for
+  `validate` as applying its rules, and refuses a Policy of another set when
+  it is made. `Guards.anyone` is the rule everyone passes, a visitor
+  included, for a public surface under `unguarded: 'deny'`: a surface naming
+  it restricts no one, for Sync documents and shared fields too, and
+  `Guards.all` now takes at least one rule. `Policy.key` is `declare`'s `key`
+  (`G.key`), for a seam holding the Policy. `AuthServer.resolver` takes
+  `key: Policy.key` to compare `x-foldkit-subject` with it.
+
+- **`foldkit-ssr`: a posted form's own resources.** `SSR.entry` takes
+  `resources: request => Layer` and `SSR.handle` `resources: Layer`, built
+  once for the post and provided to the Commands its fallback runs beside the
+  config's `resources`; where both provide a service, the post's is used, so
+  a Command reads as who posted. `SSR.entry`'s `origins` names where a form
+  may be posted from: any other `Origin` is a 403 before the body is read or
+  `flags` and `resources` run (`Origin: null` counts as the site's own when
+  `Sec-Fetch-Site` says `same-origin`), and a plan with a server fallback
+  made into an entry without `origins` throws, since a post runs `flags` and
+  every `resources` as whoever posted.
+
+- **`serveFetch` and `defineDocumentHost` take `revalidate: { every, key?
+  }`.** While a live stream or a socket is open, the resolver is asked again,
+  of the request it opened with: a refusal ends the stream with
+  `Unauthenticated` (an `event: error` frame the client reads back as it) or
+  closes the socket with 4401, and a principal whose `key` (as `liveHub`'s,
+  `Policy.keyOf` with guards) changed ends the
+  stream as a live error, or closes the socket with 1012, to be opened again
+  as the new principal. A revoked session stops being served within one
+  interval; the clients do not yet tell these closes apart, so a replica
+  reconnects after a 4401 too, and is refused at the upgrade.
+
+- **`foldkit-guard`: `Policy.provide(context)`,** a Policy whose bodies have
+  the services they need provided, for the read seams
+  (`GuardDrizzle.visible`, `GuardServer.memory`, `GuardSync`), which take a
+  Policy needing nothing more. A seam built from it counts as built from the
+  Policy it came from, for `GuardServer.validate`.
+
+- **`foldkit-remote`: `RemoteUnauthenticated`** (`_tag: 'Unauthenticated'`,
+  with an optional `reason`), the refusal of a caller who could not be told,
+  beside `RemoteForbidden`; `RemoteJsonAnswer` carries it as
+  `unauthenticated: { reason? }`. `foldkit-remote-server`'s
+  `RemoteServer.unauthenticated(reason?)` makes one.
+
+- **`foldkit-remote`: every call kind fails with `Unauthenticated` on a
+  401.** Reads, queries, mutations and live streams declare it in their RPC
+  errors and `RemoteClient`'s types; `Remote.http` and `liveFetch` read a 401,
+  Remote's own (with its `reason`) or one from middleware in front of it, as
+  it, and `Data.mutation`, `ReadFailed` and `QueryFailed` carry
+  `error._tag: 'Unauthenticated'`. `Data.satisfy` and `prefetch` can fail with
+  it, for a server render to answer as it answers a lost session.
+  `foldkit-remote-server`'s `answer` sends a handler's as a 401, and
+  `serveFetch` ends a live stream with it as an `event: error` frame the
+  client reads back.
+
+### Changed
+
+- **`foldkit-agent-mcp`: `authenticate` is an Effect.** `authenticate:
+  request => Effect<Principal, Unauthenticated>`, so it may ask a token store;
+  where it returned `Principal | undefined`. Failing with
+  `AgentMcp.unauthenticated(reason?)` (or Remote's `RemoteUnauthenticated`,
+  of the same shape) is a 401 carrying `reason`; a defect or a throw is a 500
+  that says nothing to the caller and is logged. Wrap
+  a plain lookup: `request => Option.match(lookup(request), { onNone: () =>
+  Effect.fail(AgentMcp.unauthenticated()), onSome: Effect.succeed })`.
+
+- **`foldkit-guard`: `Guards.declare` requires `unguarded`.** What a guarded
+  Entity's surface with no rules decides is written down rather than
+  defaulted to `'allow'`. Pass `unguarded: 'allow'` to keep what an omitted
+  one did; `'deny'` refuses such a surface. Anything else, an omission from
+  a caller without types included, throws at `declare`.
+
+- **`serveFetch` and `defineDocumentHost` resolve the principal with an
+  Effect.** `resolvePrincipal: (request, env) => Effect<P,
+  RemoteUnauthenticated, RP>`, where `serveFetch`'s `layer` provides `RP` too,
+  so a resolver can read a session store; the layer is built once per request.
+  A refusal is a 401 (`serveFetch`'s body `{ error, unauthenticated: { reason?
+  } }`); a resolver that throws or dies is a 500 that says nothing, where a
+  throw used to be a 401 carrying its message. Wrap a plain value:
+  `resolvePrincipal: request => Effect.succeed(actorOf(request))`.
+
+### Fixed
+
+- **`foldkit-primitives`' broadcast doc no longer says a tab never hears
+  itself.** `postBroadcast` posts on a channel of its own, so the posting
+  tab's `broadcastMessages` hears it; name the sender in `data`.
+
+- **A Remote Message's error is a `RemoteError`.** `RemoteError.reason` is
+  `string | undefined`, as the decoded `ReadFailed`/`QueryFailed` error is,
+  so `RemoteData.denied(message.error)` type-checks under
+  `exactOptionalPropertyTypes`.
+
+- **`serveFetch` keeps a live stream's layer open while it streams.** The
+  request's `layer` was closed as soon as the response was built, so a live
+  stream's re-reads, and its `revalidate` passes, ran on released resources:
+  a layer holding a connection pool failed every one. It now closes when the
+  answer is sent, or, for a live stream, when the stream ends or the client
+  leaves. A defect while a stream runs ends it with an `Internal error`
+  frame rather than a broken body, and `revalidate.every` must be longer
+  than zero.
+
+- **`Remote.http` reads every 401 as `Unauthenticated` and every 403 as
+  `Forbidden`.** A body with an `unauthenticated` or `forbidden` key in a
+  shape other than Remote's (`true`, a number for `reason`) was decoded as
+  an answer and failed as a broken one. Remote's own refusal is taken as it
+  is; anything else is the status, with no reason.
+
+- **`defineDocumentHost` stops serving a socket before it closes it for
+  `revalidate`.** A worker's socket fires its own close only when the
+  replica answers, and exchanges in flight until then were still appended as
+  the principal just refused. A resolver that throws, rather than fails or
+  dies, is a 500 too, and `revalidate.every` must be longer than zero.
+
+## 0.20.0
+
+`foldkit-entity` 0.10.0, `foldkit-form` 0.6.0, `foldkit-bundle` 0.8.0,
+`foldkit-surface` 0.10.0 and `foldkit-remote` 0.17.0 for the changes below;
+every package that depends on one of them republishes with a patch to re-pin.
+`foldkit-metadata` and the three rich-text model packages are unchanged.
+
+Three changes can break code written for 0.19:
+
+- A predicate or ordering term over another Entity than the query's no longer
+  compiles.
+- An `own` update in an assembly with `Data.wiring` no longer receives Remote's
+  Messages, so arms that handled them are excess.
+- A test that matched a form's check as an instance by `args: { key }` matches
+  `form.Check` instead.
+
+### Added
+
+- **`foldkit-entity`: a predicate over another Entity is a compile error.**
+  Each `Expr` constructor's result carries the names of the Entities its
+  fields belong to (`Reads<Names>`, type-only), and `Query.where` refuses a
+  query from another: `a predicate reads Comment, but the query is from Post`.
+  `Order.asc`, `desc` and `chosen` do the same for `Query.orderBy`. The
+  run-time check stays for a predicate typed plainly as `Predicate`. New
+  public types: `Reads`, `ReadsOf`, and `Invalid`, which declarations naming
+  these steps reach.
+- **`foldkit-form`: `form.Check`, the Command a key's check runs as.** A
+  definition (`Command.define('<form>.check', …)`) rather than an inline
+  Command, so a test resolves it with `Command.resolve(form.Check, …)` instead
+  of hand-building `{ name: '<form>.check', args: { key }, effect }`. Its args
+  now carry the draft, the values and the subject too, so a test that matched
+  the old Command as an instance by `args: { key }` matches it no longer: match
+  `form.Check`, which compares by name.
+- **`foldkit-form`: `Form.input(schema)`, a plain form's input.** A form that
+  writes no Entity (a sign-up, a search, a login) took `Entity.define` and
+  `Entity.input` over the same schema; `Form.make('Search', Form.input(Search))`
+  is that in one call. The ports of Foldkit's form, auth and job-application
+  examples use it.
+
+### Changed
+
+- **`foldkit-bundle`: a wiring's own tags leave the parent's own update.**
+  `Wiring` takes a `Claims` parameter typing `handles`, and
+  `assembly.update(own)` hands `own` a Message without the tags a wiring claims
+  and does not share. Remote's wiring claims every `RemoteMessage` tag, so an
+  `own` no longer needs `if (Remote.reduces(message))` to narrow them away, and
+  one that matches exhaustively fails to compile when `Data.wiring` is removed
+  from `assemble`. An `own` that handled Remote's tags itself now gets none.
+- **`foldkit-entity`: `Expr.eq` with a plain value on the left says to put the
+  field there.** The right side is typed from the left, so `Expr.eq(3, field)`
+  was refused with `'number' is not assignable to 'Operand<any>'`; it now
+  reads `Expr.eq takes the field on the left and the value on the right`.
+
+### Fixed
+
+- **`foldkit-form`: a filled optional key not checked yet is refused, not left
+  out.** `engine.value` counted an optional key whose draft was filled by
+  `fill` but not yet validated as valid, and gave the value without it. Such a
+  draft must now pass its own check. A submit was never affected: it validates
+  every unchecked key first.
+
+## 0.19.0
+
+Every package with a Foldkit peer now asks for Foldkit 0.168, so each of them
+takes a minor version, as do `foldkit-entity` 0.9.0 (`and`, `or`, `not` and
+comparisons), `foldkit-remote-drizzle` 0.12.0 (compiling them),
+`foldkit-guard` 0.2.0, `foldkit-durable` 0.9.0 and `foldkit-react-codegen`
+0.3.0 (TypeScript 6 as well as 5). Republished to re-pin: `foldkit-cms-drizzle`
+0.6.3 and `foldkit-remote-server` 0.13.3; `foldkit-richtext-markdown` 0.2.1
+widens a dependency. `foldkit-metadata`, `foldkit-richtext`,
+`foldkit-richtext-code` and `foldkit-richtext-code-shiki` are unchanged.
+
+Three changes can break code written for 0.18:
+
+- Foldkit 0.168 itself: an application moves with it, renaming what 0.166 and
+  0.167 renamed (`read` for `toChildModel`, `persistentEntry`, the `Dom`
+  stream helpers).
+- `GuardServer.validate` refuses at startup a query body that filters or orders
+  by a member with a Read rule.
+- A Behavior whose Mount fails no longer takes the element's other Behaviors
+  with it; it is reported and the rest go on.
+
+### Added
+
+- **`foldkit-mixins`: a reader's light or dark, before the first paint.**
+  `Theme.schemeScript(key?)` is a head script that applies the scheme kept in
+  `localStorage`; `Theme.chooseScheme(scheme, key?)` applies and keeps one
+  (`'system'` removes it); `Theme.currentScheme()` reads it back. The docs site
+  has an Auto/Light/Dark choice built on them.
+
+- **`foldkit-sync`: the browser asks before leaving while an edit is unsaved.**
+  `Sync.mount` shows a durable edit before it is stored; a reload in between
+  lost it. From the first such edit until the last is stored, `beforeunload`
+  asks the reader first.
+
+- **Public types a dependent's declarations need.** A library built on these
+  packages could not emit declarations under TypeScript 7 for a value whose
+  inferred type reaches a type it cannot name. The package indexes now export
+  them: `foldkit-mixins` `AttributeName`, `EventName`, `RequirementName`,
+  `HiddenOf` and `SlotRecipe`; `foldkit-bundle` `PlacedBy`, `CollectionBy`,
+  `WithoutResources` and `RuntimeResult`; `foldkit-agent` `CapabilitiesByName`,
+  `CapabilitiesByTag`, their `Any` forms, `DefinitionOf` and `AnyCompletion`;
+  `foldkit-data-grid` `EditableId`. An interface that shares its namespace's
+  name is exported as a shape: `CapabilityShape`, `SlotViewShape`,
+  `BundleShape`, `JournalShape`.
+
+- **`foldkit-guard`: `GuardServer.validate` refuses a query body that filters
+  or orders by a member with a Read rule.** The row comes back without the
+  member, but which rows match, and in what order, still tells what it holds;
+  with comparisons a client could bisect it (`cost < $max`).
+
+- **`foldkit-entity`: `Expr.and`, `Expr.or` and `Expr.not`.** The connectives,
+  with SQL's three-valued meaning: `or` takes true over unknown, `and` false,
+  and `not` of an unknown stays unknown, so a null matches neither a
+  comparison nor its `not`. `and` and `or` need an operand and flatten one of
+  the same kind. `Expr.whenGiven(input, given => predicate)` is a filter that
+  applies only when a nullable input is given. `evaluate` runs them, and
+  `decided(predicate, input)` is a predicate's truth from the input alone,
+  when it reads no field. The conformance suite covers them.
+- **`foldkit-entity`: comparisons, `Expr.lt`, `lte`, `gt` and `gte`.** Numbers
+  compare as numbers; text only under `Collation.binary` or `asciiFold`
+  (declared on the field or passed) and against a field, refused where it is
+  written otherwise, since backends order text by different defaults. A value
+  compares in its encoded form, so a date stored as an ISO string is text. The
+  evaluator compares as `orderBy` does, and the conformance suite covers them.
+- **`foldkit-remote-drizzle`: comparisons compiled,** the column first however
+  the body wrote it, and text under its collation as keyset paging applies one
+  (`collate "C"` on Postgres, `collate binary` or `nocase` on SQLite).
+- **`foldkit-remote-drizzle`: `and`, `or` and `not` compiled,** and an operand
+  that reads no field decided per request, so `whenGiven` compiles to `true`
+  when its input is null and to the predicate alone when it is given, with no
+  parameter for the check.
+
+### Changed
+
+- **TypeScript 7.** The workspace typechecks and builds with TypeScript 7.0.2,
+  the native compiler (a forced typecheck takes under a minute). Its DOM
+  library declares the Navigation API, so `foldkit-primitives` no longer
+  declares its own. `foldkit-react-codegen` peers on `typescript@>=5.7.2 <7`
+  rather than exactly 5.9.3: it reads source through the compiler API, which
+  TypeScript 7 does not ship.
+- **Foldkit 0.168.** Each package with a Foldkit peer asks for `foldkit@^0.168.0` (and
+  `foldkit-mixins-ui` on `@foldkit/ui@^0.168.0`), since they use what 0.166 and
+  0.167 renamed: a lifted child is read as an `Option` (`read`, not
+  `toChildModel`), the entry factories end in `Entry`
+  (`Subscription.persistentEntry`, `Port.subscriptionEntry`), and the DOM
+  Stream helpers are `Dom`'s (`Dom.streamFromEventFilterMap`,
+  `Dom.streamFromKeyBindings`; `KeyBinding` and `KeySequence` come from
+  `foldkit/dom`). The examples build with Vite 8 and `@foldkit/vite-plugin`
+  0.27.
+- **Effect 4.0.4.** The workspace builds and tests against `effect@4.0.4` and
+  its `@effect/*` packages at the same version. Published packages still peer on
+  `effect@^4.0.0`, and `foldkit-durable` now depends on
+  `@effect/sql-sqlite-node@^4.0.0` rather than exactly `4.0.0`, so an
+  application chooses its 4.x. `examples/livestore` moves to
+  `@livestore/livestore` 0.5.0-dev.1, which peers on `effect@^4.0.3`, so the
+  workspace holds one Effect.
+- **`foldkit-mixins`: one Behavior's failing Mount no longer stops the others
+  on its element.** The resolver merges an element's Mounts into one, and from
+  Effect 4.0.2 a merge ends when any stream in it fails, so a `Measure` without
+  a `ResizeObserver` took the canvas's `Targets` with it. Each fails alone now,
+  reported as Foldkit reports a Mount (`[OnMount Name] unhandled failure`).
+
+### Fixed
+
+- **`foldkit-remote` depends on `foldkit-metadata`,** which its declarations
+  name (`import("foldkit-metadata").MetadataKey`). Without the dependency the
+  declaration build copied metadata's types into remote's; TypeScript 7
+  refuses that, and the copy was a second set of the same types.
+- **`foldkit-sync`: `foldkit-remote` is an optional peer again.** The manifest
+  declared `peerDependenciesMeta` twice, and the second, naming only
+  `foldkit-durable`, replaced the first.
+- **`foldkit-durable`: a database it cannot open fails as a `JournalError`.**
+  From `@effect/sql-sqlite-node` 4.0.1 opening the file can fail with a
+  `SqlError`, which escaped the journal's declared errors.
+- **`foldkit-mixins`: `Theme.oklch`'s doc said a knob overridden on any
+  subtree re-derives the palette.** A custom property resolves where it is
+  declared, so tokens on `:root` reach a subtree already resolved; the knob
+  re-derives them only on the element that declares them (`:root`, a
+  `Theme.scoped` selector, or a subtree that declares the theme itself).
+
+## 0.18.0
+
+`foldkit-site` 0.2.0, `foldkit-remote` 0.15.0, `foldkit-primitives` 0.9.0,
+`foldkit-mixins` 0.10.0, `foldkit-mixins-ui` 0.9.0, and `foldkit-builder` and
+`foldkit-mixins-builder` 0.2.0 for the changes below, and `foldkit-plus` 0.1.0,
+published for the first time. Republished to re-pin: `foldkit-cms` and
+`foldkit-cms-drizzle` 0.6.2, `foldkit-crud` 0.7.2, `foldkit-data-grid` and
+`foldkit-mixins-data-grid` 0.1.4, `foldkit-mixins-crud` 0.6.6,
+`foldkit-mixins-form` 0.5.2, `foldkit-mixins-richtext` 0.2.4,
+`foldkit-remote-drizzle` 0.11.2, `foldkit-remote-server` 0.13.2 and
+`foldkit-sync` 0.10.2, each of which pins a bumped package. Every other
+package is unchanged.
+
+Two changes break code written for 0.17 (under Changed): a Site node's
+`shortcut` is now a `KeySequence`, and a Builder's keys go through
+`keyPressed`.
+
+### Added
+
+- **`foldkit-remote`: `Data.preload`, prefetch from `update`.** `satisfy` as a
+  Command for a destination the reader has not reached (a hover over a link):
+  it reads what the given Surfaces read in the Model you give it and yields one
+  new Message, `Preloaded`, carrying the Messages that wrote it, so they reduce
+  into the live Model as it is by then. It never fails, and refuses a Surface
+  of another application when the Command is made. `Remote.fold` lifts it.
+
+- **`foldkit-site`: head metadata from the tree.** A node's `meta` (a function
+  of its route and the Model, returning `foldkit-ssr`'s `Meta`) and `indexed`
+  flag, on `Site.route` or the `Site.node` builder. `Site.metaOf(site, route,
+  model)` merges the route's chain root first, a deeper node's field replacing
+  its ancestor's, the preview title falling back to the node's `title`, and an
+  unindexed route `noindex`; it is an SSR plan's `meta` as it stands.
+  `Site.indexedOf` reads the flag, which a node inherits from the nearest
+  ancestor that declares it. `foldkit-ssr` is now a dependency, for the type.
+- **`foldkit-site`: every address, and both directions, from the tree.**
+  `Site.paths(node, list)` lists a node's addresses from an Effect (with when
+  each last changed), and `Site.targets(site, paths)` lists the whole site in
+  tree order for a build, a sitemap or prefetch, refusing a node with params
+  left unsaid. A tree's type now carries its routes: `Site.parse(site,
+  NotFound)` is the application's URL parser and `Site.hrefOf(site, route)`
+  builds an address back, refusing a route no node holds.
+  `Site.routeAt(site, url)` is the route at an address, or `None` where no
+  node takes it.
+- **`foldkit-site`: `Site.shortcuts`, key bindings from the tree.**
+  `Site.shortcuts(site, toMessage)` is every node's shortcut as a
+  `Subscription.keyBindings` binding sending the Message made of its
+  landing target, refusing a shortcut with no landing or keys used twice.
+- **`foldkit-primitives`: `pointedLinks()`** in `foldkit-primitives/dom`, the
+  address of each same-origin link the reader points at or tabs to, once
+  while they stay on it: the trigger for reading a page ahead.
+- **`foldkit-site`: `Site.routing`'s `arrived`.** What the application does
+  once a new route is set and its routed pages are told, such as moving
+  focus to what it drew; an echo of the shown address runs nothing.
+
+- **`foldkit-plus`: every package in one install, and `npx foldkit-plus setup`.**
+  Each package's entry points are re-exported by subpath (`foldkit-remote/port`
+  is `foldkit-plus/remote/port`), the namespaces most applications use from the
+  root, and an adapter that needs a library of its own (React, Drizzle, Shiki,
+  `@foldkit/ui`, Agent Native) is an optional peer, so none of those libraries
+  is installed with it. `setup` prints, for the project it runs in, how to
+  install Effect, Foldkit and Foldkit Plus with that project's package manager,
+  which `effect` or `foldkit` version is wrong or missing, the agent skill, and
+  which package does which job, written for a coding agent to follow.
 
 - **`foldkit-mixins`: code colors in `Theme.oklch`.** A `syntax` group colors
   each kind `foldkit-richtext-code` and `foldkit-richtext-code-shiki` name
@@ -17,6 +2409,24 @@ version changed; `pnpm` skips versions already in the registry.
   numbers and a copy button, its tokens (a `foldkit-richtext-code` tokenizer's
   `{ from, to, kind }`) drawn by kind and colored by `Recipes.CodeBlock` from
   the theme's `syntax` group. The block's text is the code exactly.
+
+### Changed
+
+- **`foldkit-builder`: a shortcut is judged in `update`.** The layers and the
+  canvas send `KeyPressed` for every key a command binds
+  (`PageBuilder.keyPressed`), and `update` runs `keyCommand` against the Model
+  as it is: a key pressed before the frame that drew a new selection deleted
+  nothing, or the node selected before it. A bound key with nothing to do
+  now has its default held back on those two. A view drawing a Builder by hand
+  attaches `keyPressed` where it attached `keyCommand`, and a Builder handed
+  to `foldkit-mixins-builder`'s views must offer `keyPressed` too.
+- **`foldkit-site`: `Site.routing` loads a link its tree does not hold.** A
+  tree is one application's document, so a click on an address of this
+  origin that no node takes is a full load, where it was a Navigate Command
+  that could only draw the application's NotFound.
+- **`foldkit-site`: a node's `shortcut` is a Foldkit `KeySequence`.** Write
+  a sequence as an array (`['G', 'H']`, where it was `'GH'`) and one press as
+  a string (`'/'`, `'Mod+K'`), as `Subscription.keyBindings` names keys.
 
 ## 0.17.1
 

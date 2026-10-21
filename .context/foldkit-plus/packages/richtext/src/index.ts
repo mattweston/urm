@@ -13,8 +13,10 @@ export {
   type RunPlace,
   type LocatedRun,
   blockAtPath,
+  eachBlock,
   locateBlock,
   locateRun,
+  siblingsOf,
   textBefore,
   isBlank,
   textRangeBefore,
@@ -71,11 +73,19 @@ export {
   blocksAt,
   moveTargets,
   coversText,
+  takesTab,
+  isAtom,
   run,
   runAction,
   unionChangeSet,
 } from './command.js'
-export { type InputContext, type InputMatch, type InputRule, applyInputRules } from './input.js'
+export {
+  type InputContext,
+  type InputMatch,
+  type InputRule,
+  applyInputRules,
+  resolveInputRules,
+} from './input.js'
 export {
   History,
   type CommitOptions,
@@ -91,6 +101,7 @@ export {
 } from './history.js'
 export { type BlockList, toHtml, toText, documentToHtml, documentToText } from './html.js'
 export {
+  type Adornment,
   type ElementRendering,
   type Rendering,
   type RenderingEntry,
@@ -100,6 +111,11 @@ export {
   runRendering,
   nodeRendering,
   renderingOver,
+  adornmentAttributes,
+  sameElementRendering,
+  ADORNMENT_ATTRIBUTE,
+  TOGGLES_ATTRIBUTE,
+  ACTION_ATTRIBUTE,
 } from './rendering.js'
 export {
   type Decoration,
@@ -109,7 +125,14 @@ export {
   decorationsIn,
   runPieces,
 } from './decoration.js'
-export { SEARCH_DECORATION, searchDecorations } from './search.js'
+export {
+  SEARCH_DECORATION,
+  SEARCH_CURRENT_DECORATION,
+  type SearchMatch,
+  type SearchOptions,
+  findMatches,
+  searchDecorations,
+} from './search.js'
 export { type CodeToken, type CodeTokenizer, codeDecorations } from './code.js'
 export { safeUrl } from './url.js'
 export {
@@ -148,6 +171,7 @@ export {
   type LinkAt,
   standardMarks,
   standardNodes,
+  imageBox,
   standardRendering,
 } from './standard.js'
 export {
@@ -185,3 +209,25 @@ export {
   type TransactionResult,
 } from './transaction.js'
 export * as Replicated from './replicated.js'
+export { type TableAt, tableAt } from './table.js'
+export { INDENT } from './indent.js'
+export { type OutlineEntry, outlineOf, sectionAt } from './outline.js'
+export {
+  type Footnote,
+  FootnoteDefinition,
+  FootnoteRef,
+  footnoteAt,
+  footnotesOf,
+  nextFootnoteLabel,
+  referenceLabel,
+} from './footnote.js'
+export {
+  Attachment,
+  Audio,
+  fileSize,
+  mediaBlock,
+  type MediaFile,
+  mediaNodes,
+  mediaRendering,
+  Video,
+} from './media.js'

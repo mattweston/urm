@@ -4,6 +4,7 @@
  * fails for every one.
  */
 const tests = ['packages/mixins-ui/test/menu.test.ts']
+const browser = ['packages/mixins-ui/test/menu.browser.test.ts']
 
 export default [
   {
@@ -49,5 +50,35 @@ export default [
       },
     ],
     tests,
+  },
+  {
+    // Both halves, as before the top layer: the wrapper alone removed leaves
+    // a popover never shown, which the browser hides from every test.
+    name: 'an open panel stays in the page flow',
+    edits: [
+      {
+        file: '../src/menuView.ts',
+        find: 'h.OnMount(topLayer(Menu.AnchorMenu({ buttonId: `${id}-button`, anchor })))',
+        replace: 'h.OnMount(Menu.AnchorMenu({ buttonId: `${id}-button`, anchor }))',
+      },
+      {
+        file: '../src/menuView.ts',
+        find: "    h.Attribute('popover', 'manual'),\n",
+        replace: '',
+      },
+    ],
+    tests: browser,
+  },
+  {
+    // The wrapper then passes over the panel, which stays in the page flow.
+    name: 'a panel drawn without the popover attribute',
+    edits: [
+      {
+        file: '../src/menuView.ts',
+        find: "    h.Attribute('popover', 'manual'),\n",
+        replace: '',
+      },
+    ],
+    tests: browser,
   },
 ]

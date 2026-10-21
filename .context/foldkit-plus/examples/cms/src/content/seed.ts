@@ -101,6 +101,16 @@ const about = {
       src: '/images/desk.svg',
       alt: 'A desk with a lamp and an open notebook',
       caption: 'Where the drafts happen.',
+      // Its facts, written from the drawing's viewBox (the inspectors read pictures, not SVG),
+      // so its box is its own shape.
+      asset: {
+        key: '/images/desk.svg',
+        width: 800,
+        height: 600,
+        alpha: false,
+        hash: null,
+        placeholder: null,
+      },
     }),
     quote: node('Quote', {
       text: 'Make it work, make it right, make it fast.',
@@ -817,8 +827,8 @@ const posts: ReadonlyArray<Seeded> = [
       'is built from one accent hue in OKLCH, with a lighter accent for dark mode:',
       '',
       '```ts',
-      'Theme.oklch({',
-      "  accent: { h: 265, c: 0.16, l: '52%', dark: { l: '72%', c: 0.13 } },",
+      'Theme.make({',
+      '  accent: { hue: 265, chroma: { light: 0.16, dark: 0.13 }, lightness: { light: 52, dark: 72 } },',
       '})',
       '```',
       '',

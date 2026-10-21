@@ -4,16 +4,18 @@ import type { Html, HtmlBuilder } from 'foldkit/html'
 import { resolveFor, type MixinList, type ResolveContext, type Resolved } from './resolve.js'
 
 /**
- * The button publishes one slot. `click` is owned by the base `OnClick` when
- * the button is interactive, so a Behavior that adds its own click handler is a
- * conflict rather than a second silent owner.
+ * The button publishes the button and the box its `icon` stands in. `click`
+ * is owned by the base `OnClick` when the button is interactive, so a Behavior
+ * that adds its own click handler is a conflict rather than a second silent
+ * owner.
  */
 export const ButtonSlots = Slots.define({
   button: Slot.make({
     capability: Capability.Interactive,
     events: [Event.Click],
-    attributes: [Attr.Role, Attr.AriaDisabled, Attr.Disabled],
+    attributes: [Attr.Role, Attr.AriaDisabled, Attr.Disabled, Attr.AriaPressed],
   }),
+  icon: Slot.make({ capability: Capability.Container }),
 })
 
 /** The button's bundles with the attached Mixins applied. */
@@ -46,8 +48,13 @@ export const toView =
  * else (an `a`, a split control); this covers the common case.
  */
 export interface ButtonView<Message> {
-  /** The button's text. */
+  /**
+   * The button's text, and its accessible name. The recipe's `icon` variant
+   * hides it from sight and draws the `icon` alone.
+   */
   readonly label: string
+  /** A drawing before the label (an `svg`), hidden from assistive technology. */
+  readonly icon?: Html | undefined
   /** A style of `ButtonSlots`, for the button's own look. */
   readonly style?: NamedStyle<typeof ButtonSlots> | undefined
   /** Mixins beside the style, for state or behavior the style does not own. */
@@ -57,6 +64,11 @@ export interface ButtonView<Message> {
   readonly type?: 'button' | 'submit' | 'reset' | undefined
   readonly disabled?: boolean | undefined
   readonly onClick?: Message | undefined
+  /**
+   * Whether the button is on, as a toggle button: `aria-pressed`, and the
+   * recipe's pressed look. Omit it for a button that is not a toggle.
+   */
+  readonly pressed?: boolean | undefined
 }
 
 export const view = <Message>(options: ButtonView<Message>, h: HtmlBuilder<Message>): Html =>
@@ -68,7 +80,15 @@ export const view = <Message>(options: ButtonView<Message>, h: HtmlBuilder<Messa
       toView: toView(
         [...(options.style === undefined ? [] : [options.style.mixin]), ...(options.mixins ?? [])],
         { input: options.input, h },
-        ({ button }) => h.button(button, [options.label]),
+        ({ button, icon }) =>
+          h.button(
+            options.pressed === undefined
+              ? button
+              : [...button, h.AriaPressed(String(options.pressed))],
+            options.icon === undefined
+              ? [options.label]
+              : [h.span([...icon, h.AriaHidden(true)], [options.icon]), options.label],
+          ),
       ),
     },
     h,

@@ -1,6 +1,6 @@
 {
   "name": "foldkit-mixins-data-grid",
-  "version": "0.1.3",
+  "version": "0.2.10",
   "description": "A foldkit-data-grid grid drawn as an accessible, virtualized WAI-ARIA grid through slots.",
   "keywords": [
     "foldkit",
@@ -17,7 +17,7 @@
     "url": "git+https://github.com/doeixd/foldkit-plus.git",
     "directory": "packages/mixins-data-grid"
   },
-  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/mixins-data-grid#readme",
+  "homepage": "https://foldkit-plus.pages.dev/data-grid/guides/mixins-data-grid",
   "bugs": {
     "url": "https://github.com/doeixd/foldkit-plus/issues"
   },
@@ -48,15 +48,15 @@
   },
   "peerDependencies": {
     "effect": "^4.0.0",
-    "foldkit": "^0.165.0"
+    "foldkit": "^0.168.0"
   },
   "devDependencies": {
-    "@effect/platform-browser": "4.0.0",
-    "effect": "4.0.0",
-    "foldkit": "0.165.0",
+    "@effect/platform-browser": "^4.0.4",
+    "effect": "^4.0.4",
+    "foldkit": "0.168.0",
     "foldkit-bundle": "workspace:*",
-    "jsdom": "26.1.0",
-    "tsdown": "^0.23.0",
-    "typescript": "5.9.3"
+    "jsdom": "30.1.2",
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2"
   }
 }

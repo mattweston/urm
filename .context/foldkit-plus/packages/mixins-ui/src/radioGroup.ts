@@ -1,6 +1,7 @@
 import type { OptionInfo, RenderInfo } from '@foldkit/ui/radioGroup'
-import { Attr, Capability, Event, Slot, Slots, type SlotAttributes } from 'foldkit-mixins'
+import { Attr, Behavior, Capability, Event, Slot, Slots, type SlotAttributes } from 'foldkit-mixins'
 import type { Html } from 'foldkit/html'
+import { ReadingKeys } from './direction.js'
 import { buildersOf, type MixinList, type ResolveContext } from './resolve.js'
 
 /**
@@ -25,6 +26,13 @@ export const RadioGroupSlots = Slots.define({
   }),
   label: Slot.make({ capability: Capability.Container }),
   description: Slot.make({ capability: Capability.Container }),
+  /**
+   * An option's whole row, which the application draws around its radio and
+   * words (a `label`, so a press anywhere on it presses the radio). No
+   * upstream bundle: this package's, `data-checked` while its option is, so
+   * a card recipe styles the row and its chosen look.
+   */
+  card: Slot.make({ capability: Capability.Container }),
   hiddenInput: Slot.make({
     capability: Capability.Base,
     attributes: [Attr.Value],
@@ -39,6 +47,7 @@ export type ResolvedRadioOption<Value extends string, Message> = Omit<
   readonly option: SlotAttributes<Message>
   readonly label: SlotAttributes<Message>
   readonly description: SlotAttributes<Message>
+  readonly card: SlotAttributes<Message>
 }
 
 /** The radio group's bundles with the attached Mixins applied. */
@@ -48,6 +57,25 @@ export interface ResolvedRadioGroup<Value extends string, Message> {
   readonly selectedValue: RenderInfo<Value>['selectedValue']
   readonly hiddenInput: SlotAttributes<Message>
 }
+
+/**
+ * Arrow keys read by the direction the group is drawn in: right to left,
+ * ArrowLeft goes to the next option, as the APG asks. Upstream's keys know no
+ * direction, and its bundles no view option reaches, so this is a Mount
+ * (`ReadingKeys`) that reads the key before upstream's handler does. Pass it
+ * beside the style where the page may be right to left. It is not built in
+ * because a Scene test must resolve every Mount with a Message, and this one
+ * has none to give.
+ */
+export const readingKeys = Behavior.forSlots(RadioGroupSlots)<unknown, never>(
+  {
+    group: Behavior.slot({
+      requires: { capability: Capability.Container },
+      mount: () => ReadingKeys(),
+    }),
+  },
+  { name: 'RadioGroupReadingKeys' },
+).mixin
 
 /** Resolves every option's bundles alongside the group and hidden input. */
 export const resolve = <Value extends string, Input, Message>(
@@ -63,6 +91,7 @@ export const resolve = <Value extends string, Input, Message>(
       option: builders.option.attrs(option.option),
       label: builders.label.attrs(option.label),
       description: builders.description.attrs(option.description),
+      card: builders.card.attrs([context.h.DataAttribute('checked', String(option.isSelected))]),
     })),
     selectedValue: render.selectedValue,
     hiddenInput: builders.hiddenInput.attrs(render.hiddenInput),

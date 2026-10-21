@@ -226,17 +226,27 @@ dependenciesOf(byTitle, ...newest)
 Immutable data, frozen as it is built: building one reads nothing, names no
 database, runs no query, and nothing can change it after `Query.where` checked it.
 An interpreter compiles it (`foldkit-remote-drizzle` to SQL, an in-memory
-evaluator to a row predicate). `Expr.eq` coerces a field or a plain value on
-either side; a field compared to the wrong type is an error where it is written.
-`Query.where` refuses predicates that expand past `maxQueryNodes` (1,000) nodes,
+evaluator to a row predicate). `Expr.eq` takes the field on the left and the
+value on the right, typed from it (a comparison takes a field second as
+`Expr.field(…)`); a field compared to the wrong type is an error where it is written.
+`Query.where` refuses, at compile time, a predicate over another Entity than the
+query's (its type names the Entities its fields belong to). It also refuses predicates that expand past `maxQueryNodes` (1,000) nodes,
 counting a shared node (`Expr.eq(n, n)`) on every path, since interpreters read
 a predicate as a tree.
 
 `Expr.isNull` / `Expr.isNotNull` (one node, the answer to absence flipped),
 `Expr.contains` and `Expr.in(field, list | input)` (SQL's `in`; an empty list
-matches nothing) exist too. The operator set grows from real queries, not from
-what SQL can express — there is still no `and` (a `Query` holds a list of
-predicates, which *is* the conjunction) and no `or`.
+matches nothing) exist too, and the connectives `Expr.and`, `Expr.or` and
+`Expr.not`, three-valued as SQL's: `not` of an unknown (a null compared) stays
+unknown, so a null matches neither a comparison nor its `not`. A `Query`'s list
+of predicates is already the conjunction; `and` is for one inside an `or`.
+`Expr.whenGiven(input.status, status => Expr.eq(fields.status, status))` is a
+filter that applies only when a nullable input is given. The operator set grows
+from real queries, not from what SQL can express. `Expr.lt` / `lte` / `gt` /
+`gte(left, right, { collation? })` compare numbers, and text only under
+`Collation.binary` or `asciiFold` (declared on the field or passed) and against
+a field, since backends order text by different defaults; a date stored as an
+ISO string is text, compared under `binary`.
 
 **Asking about an input without branching on it.** An input is a placeholder, so
 a query cannot pick a shape from a value. It does not need to:

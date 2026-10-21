@@ -11,7 +11,7 @@
  * operation here is one a real query in this repository needs; the set grows
  * from queries, not from what a database could express.
  */
-import { Match, Option, Pipeable, Schema, SchemaAST } from 'effect'
+import { Array as Arr, Match, Option, Pipeable, Schema, SchemaAST } from 'effect'
 import { Collation } from './collation.js'
 import type { AnyEntity, EntityField, EntityIdentity } from './index.js'
 
@@ -64,7 +64,15 @@ export type AnyExpr = Expr<unknown>
  * then be confused, which a structural phantom would allow. A scalar-valued
  * operation, if one is ever needed, joins `Expr` instead.
  */
-export type Predicate = EqPredicate | NullPredicate | ContainsPredicate | InPredicate
+export type Predicate =
+  | EqPredicate
+  | NullPredicate
+  | ContainsPredicate
+  | InPredicate
+  | AndPredicate
+  | OrPredicate
+  | NotPredicate
+  | ComparePredicate
 
 /** Two values are the same. */
 export interface EqPredicate {
@@ -108,6 +116,48 @@ export interface InPredicate {
 }
 
 /**
+ * Every operand holds. `Query.where`'s list is already a conjunction; this is
+ * one inside something else, `or(and(a, b), c)`. Never empty, and never holding
+ * another `and`: `Expr.and` flattens one into its parent.
+ */
+export interface AndPredicate {
+  readonly _tag: 'And'
+  readonly operands: Arr.NonEmptyReadonlyArray<Predicate>
+}
+
+/** At least one operand holds. Never empty, and never holding another `or`. */
+export interface OrPredicate {
+  readonly _tag: 'Or'
+  readonly operands: Arr.NonEmptyReadonlyArray<Predicate>
+}
+
+/**
+ * The operand does not hold. As SQL's `not`, an unknown stays unknown, so a row
+ * whose operand is unknown (a null compared) is matched by neither the operand
+ * nor its `not`.
+ */
+export interface NotPredicate {
+  readonly _tag: 'Not'
+  readonly operand: Predicate
+}
+
+/** Which way a comparison orders its two sides: `left < right` for `lt`. */
+export type CompareOperator = 'lt' | 'lte' | 'gt' | 'gte'
+
+/**
+ * One scalar orders before, or after, the other. A null on either side is
+ * unknown. `collation` is how text compares, decided where the comparison is
+ * written (see `Expr.lt`); none for values that order intrinsically, numbers.
+ */
+export interface ComparePredicate {
+  readonly _tag: 'Compare'
+  readonly operator: CompareOperator
+  readonly left: AnyExpr
+  readonly right: AnyExpr
+  readonly collation: Option.Option<Collation>
+}
+
+/**
  * Anything an operation can be given: a scalar, or a predicate where a boolean
  * is wanted. `Expr.eq(Expr.isNotNull(archivedAt), input.archived)` is the
  * second case, and it is how a query depends on an input without branching on
@@ -117,6 +167,56 @@ export type Operandish = AnyExpr | Predicate
 
 /** A field, a scalar already built from one, or a predicate used as a boolean. */
 type Operand<T> = EntityField<string, string, Schema.Constraint> | Expr<T> | Predicate
+
+/**
+ * Type-only: the Entities a predicate's fields belong to, by name, so
+ * `Query.where` can refuse one over another Entity where it is written. Never
+ * set at run time; a predicate built without it (typed plain `Predicate`)
+ * reads as unknown and is checked at run time only.
+ */
+export interface Reads<Names extends string> {
+  readonly '~reads'?: Names
+}
+
+/**
+ * The Entity names an operand reads: a field's own, a marked node's, none for
+ * a value or an input. A node with no marker (a `Predicate` typed plainly)
+ * reads as `string`, unknown.
+ */
+export type ReadsOf<X> =
+  X extends EntityField<infer Name, string, Schema.Constraint>
+    ? Name
+    : X extends PlainValue | { readonly _tag: 'Literal' | 'Input' }
+      ? never
+      : X extends { readonly '~reads'?: infer Names }
+        ? unknown extends Names
+          ? string
+          : Names extends string
+            ? Names
+            : never
+        : never
+
+/**
+ * Nothing when a query's predicates read its own Entity, none, or one unknown
+ * to the type (checked at run time instead); else a failure naming both.
+ */
+type OverEntity<
+  Names extends string,
+  Name extends string,
+  What extends string,
+> = string extends Names
+  ? unknown
+  : [Names] extends [Name]
+    ? unknown
+    : Invalid<`foldkit-entity: ${What} reads ${Exclude<Names, Name>}, but the query is from ${Name}`>
+
+/** A plain value, which `Expr.eq` takes on the right only. */
+type PlainValue = string | number | boolean | bigint | null
+
+/** A compile-time failure whose type is the sentence that says what to do. */
+export interface Invalid<Message extends string> {
+  readonly '~invalid': Message
+}
 
 /** What an operand is worth, so a comparison's other side is checked against it. */
 export type ValueOf<E> =
@@ -183,7 +283,7 @@ const fieldExpr = (field: EntityField<string, string, Schema.Constraint>): Field
     ),
   })
 
-const predicateTags = new Set(['Eq', 'Null', 'Contains', 'In'])
+const predicateTags = new Set(['Eq', 'Null', 'Contains', 'In', 'And', 'Or', 'Not', 'Compare'])
 
 /** Whether a value is a predicate, and so usable where a boolean is wanted. */
 export const isPredicate = (value: unknown): value is Predicate =>
@@ -220,7 +320,16 @@ const toExpr = <T>(value: Operand<T> | T, step: string): AnyExpr => {
  * runs, and a body needing one it does not is refused rather than answered
  * wrongly — see `Query.unsupported`.
  */
-export type Operation = 'eq' | 'isNull' | 'isNotNull' | 'contains' | 'in'
+export type Operation =
+  | 'eq'
+  | 'isNull'
+  | 'isNotNull'
+  | 'contains'
+  | 'in'
+  | 'and'
+  | 'or'
+  | 'not'
+  | 'compare'
 
 /** One field an expression reads: its Entity's name and key, and the identity that owns it. */
 export interface FieldDependency {
@@ -251,6 +360,202 @@ export interface QueryDependencies extends Dependencies {
   readonly order: ReadonlyArray<FieldDependency>
 }
 
+/**
+ * A field or scalar whose value orders: a number, text, a date (which orders by
+ * its encoded form), or one of those absent. A boolean does not order here.
+ * A constraint on the type parameter, as `TextOperand` is, so inference cannot
+ * fall back past it.
+ */
+export type OrderedOperand =
+  | EntityField<
+      string,
+      string,
+      Schema.Constraint & Schema.Codec<number | string | Date | null, any, any, any>
+    >
+  | Expr<number>
+  | Expr<number | null>
+  | Expr<string>
+  | Expr<string | null>
+  | Expr<Date>
+  | Expr<Date | null>
+
+/** How values encoded by `ast` order: as numbers, as text, or not at all. */
+const orderKindOf = (ast: SchemaAST.AST): 'number' | 'text' | 'none' => {
+  if (SchemaAST.isNumber(ast)) return 'number'
+  if (SchemaAST.isString(ast) || SchemaAST.isTemplateLiteral(ast)) return 'text'
+  if (SchemaAST.isLiteral(ast)) {
+    if (typeof ast.literal === 'number') return 'number'
+    if (typeof ast.literal === 'string') return 'text'
+    return 'none'
+  }
+  if (SchemaAST.isUnion(ast)) {
+    // A null orders nowhere, as every comparison of it is unknown.
+    const kinds = new Set(ast.types.filter(member => !SchemaAST.isNull(member)).map(orderKindOf))
+    const [only] = kinds
+    return kinds.size === 1 && only !== undefined ? only : 'none'
+  }
+  return 'none'
+}
+
+/** How a literal orders; a null orders as anything, since comparing it is unknown. */
+const literalKind = (value: unknown): 'number' | 'text' | 'none' | 'null' => {
+  if (value === null) return 'null'
+  if (typeof value === 'number') return 'number'
+  if (typeof value === 'string') return 'text'
+  return 'none'
+}
+
+/** How a side orders, read from its encoded form. */
+const sideKind = (side: AnyExpr): 'number' | 'text' | 'none' | 'null' =>
+  Match.value(side).pipe(
+    Match.tagsExhaustive({
+      Field: field => orderKindOf(Schema.toEncoded(field.schema).ast),
+      Input: input => orderKindOf(Schema.toEncoded(input.schema).ast),
+      Literal: ({ value }) => literalKind(value),
+    }),
+  )
+
+/**
+ * How a comparison's text compares: the collation given, else the field's
+ * declared one. Text orders differently by backend (SQLite's `BINARY`, the
+ * Postgres database's locale, JavaScript's UTF-16 units), so it is compared
+ * only under `binary` or `asciiFold`, which every interpreter here agrees on,
+ * and only against a field, whose collation it is. Values that order
+ * intrinsically, numbers, need none.
+ */
+const collationFor = (
+  step: CompareOperator,
+  left: AnyExpr,
+  right: AnyExpr,
+  given: Option.Option<Collation>,
+): Option.Option<Collation> => {
+  const kinds = new Set([sideKind(left), sideKind(right)].filter(kind => kind !== 'null'))
+  if (kinds.has('none') || kinds.size > 1) {
+    throw new Error(
+      `[foldkit-entity] Expr.${step}: only numbers with numbers, or text with text, order alike in every interpreter, as stored`,
+    )
+  }
+  if (!kinds.has('text')) return Option.none()
+  const fields = [left, right].flatMap(side =>
+    Match.value(side).pipe(
+      Match.tag('Field', field => [field]),
+      Match.orElse(() => []),
+    ),
+  )
+  const [first] = fields
+  if (first === undefined) {
+    throw new Error(
+      `[foldkit-entity] Expr.${step}: text compared with no field, whose collation would say how it orders`,
+    )
+  }
+  const named = fields.map(field => `${field.owner.name}.${field.key}`).join(' and ')
+  const collations = Option.match(given, {
+    onSome: collation => [collation],
+    onNone: () =>
+      fields.map(field =>
+        Option.getOrElse(field.collation, () => {
+          throw new Error(
+            `[foldkit-entity] Expr.${step}: ${field.owner.name}.${field.key} is text with no declared collation, so backends would order it differently; declare Collation.binary or Collation.asciiFold on it, or pass one`,
+          )
+        }),
+      ),
+  })
+  const [collation] = collations
+  if (collation === undefined || collations.some(each => each._tag !== collation._tag)) {
+    throw new Error(
+      `[foldkit-entity] Expr.${step}: ${named} declare different collations; pass one to compare them by`,
+    )
+  }
+  return Match.value(collation).pipe(
+    Match.tagsExhaustive({
+      Binary: () => Option.some(collation),
+      AsciiFold: () => Option.some(collation),
+      Locale: ({ locale }) => {
+        throw new Error(
+          `[foldkit-entity] Expr.${step}: ${named} compares by the backend's "${locale}" collation, which only that backend has`,
+        )
+      },
+    }),
+  )
+}
+
+/** `Expr.lt` and its three siblings: the operator fixed, the sides typed alike. */
+const comparison =
+  (operator: CompareOperator) =>
+  <L extends OrderedOperand, R extends ValueOf<L> | Expr<ValueOf<L>>>(
+    left: L,
+    right: R,
+    options: { readonly collation?: Collation | undefined } = {},
+  ): ComparePredicate & Reads<ReadsOf<L> | ReadsOf<R>> => {
+    const leftSide = toExpr<unknown>(left, operator)
+    const rightSide = toExpr<unknown>(right, operator)
+    return node({
+      _tag: 'Compare',
+      operator,
+      left: leftSide,
+      right: rightSide,
+      collation: collationFor(
+        operator,
+        leftSide,
+        rightSide,
+        Option.fromUndefinedOr(options.collation),
+      ),
+    })
+  }
+
+/** A connective's operands, each checked to be a predicate, with one of the same kind flattened in. */
+const connected = (
+  step: 'and' | 'or',
+  kind: 'And' | 'Or',
+  given: ReadonlyArray<unknown>,
+): Arr.NonEmptyReadonlyArray<Predicate> => {
+  const operands = given.flatMap((operand): ReadonlyArray<Predicate> => {
+    if (!isPredicate(operand)) {
+      throw new Error(
+        `[foldkit-entity] Expr.${step}: every operand is a predicate; compare a value with Expr.eq first`,
+      )
+    }
+    return Match.value(operand).pipe(
+      Match.tags({
+        And: and => (kind === 'And' ? and.operands : [and]),
+        Or: or => (kind === 'Or' ? or.operands : [or]),
+      }),
+      Match.orElse(() => [operand]),
+    )
+  })
+  // Flattening copies a shared operand's list, so `or(x, x)` built thirty deep
+  // would be 2^30 operands before the budget ever counts them.
+  if (operands.length > maxQueryNodes) {
+    throw new Error(
+      `[foldkit-entity] Expr.${step}: more than ${maxQueryNodes} operands, the most a query's predicates may hold`,
+    )
+  }
+  if (!Arr.isReadonlyArrayNonEmpty(operands)) {
+    throw new Error(
+      `[foldkit-entity] Expr.${step}: no operands, which would match ${step === 'and' ? 'every row' : 'no row'}; check a list is non-empty before spreading it`,
+    )
+  }
+  return operands
+}
+
+/** `Expr.and` and `Expr.or`: one operand is that operand, and two or more are one node. */
+interface Connective<Node extends Predicate> {
+  <P extends Predicate>(only: P): P
+  <A extends Predicate, B extends Predicate, Rest extends ReadonlyArray<Predicate>>(
+    first: A,
+    second: B,
+    ...rest: Rest
+  ): Node & Reads<ReadsOf<A> | ReadsOf<B> | ReadsOf<Rest[number]>>
+  (...operands: Arr.NonEmptyReadonlyArray<Predicate>): Predicate
+}
+
+const connective =
+  <Node extends AndPredicate | OrPredicate>(step: 'and' | 'or', kind: Node['_tag']) =>
+  (...given: ReadonlyArray<Predicate>): Predicate => {
+    const operands = connected(step, kind, given)
+    return operands.length === 1 ? operands[0] : node({ _tag: kind, operands } as Node)
+  }
+
 export const Expr = {
   /** A constant. Comparisons coerce a plain value, so this is rarely written. */
   literal,
@@ -265,10 +570,12 @@ export const Expr = {
   /** One field of one Entity, as a scalar. */
   field: <Name extends string, Key extends string, S extends Schema.Constraint>(
     field: EntityField<Name, Key, S>,
-  ): FieldExpr<Schema.Schema.Type<S>> => fieldExpr(field) as FieldExpr<Schema.Schema.Type<S>>,
+  ): FieldExpr<Schema.Schema.Type<S>> & Reads<Name> =>
+    fieldExpr(field) as FieldExpr<Schema.Schema.Type<S>>,
 
   /**
-   * Two scalars are the same value. A field or a plain value on either side is
+   * Two scalars are the same value: a field (or an expression) on the left,
+   * and the value on the right, typed from it. Fields and plain values are
    * coerced, so the common form reads as it means:
    *
    * ```ts
@@ -276,21 +583,29 @@ export const Expr = {
    * Expr.eq(Post.fields.status, 'active')
    * ```
    */
-  eq: <L extends Operand<any>>(
+  eq: <
+    L extends Operand<any> | PlainValue,
+    R extends (L extends PlainValue
+      ? Invalid<'foldkit-entity: Expr.eq takes the field on the left and the value on the right'>
+      : ValueOf<L> | Expr<ValueOf<L>> | (boolean extends ValueOf<L> ? Predicate : never)),
+  >(
     left: L,
-    right: ValueOf<L> | Expr<ValueOf<L>> | (boolean extends ValueOf<L> ? Predicate : never),
-  ): EqPredicate => node({ _tag: 'Eq', left: toOperand(left), right: toOperand(right as never) }),
+    // The right side is typed from the left, so a plain value on the left has
+    // nothing to type it by: say so, rather than that 3 is no `Operand`.
+    right: R,
+  ): EqPredicate & Reads<ReadsOf<L> | ReadsOf<R>> =>
+    node({ _tag: 'Eq', left: toOperand(left), right: toOperand(right as never) }),
 
   /**
    * Whether a field holds no value. Its opposite is `isNotNull`; both are the
-   * one node, because a query asks which of the two it means and nothing here
-   * can negate a predicate.
+   * one node, since a query asks which of the two it means, and `is not null`
+   * has no unknown for a `not` to keep.
    */
-  isNull: <L extends Operand<any>>(operand: L): NullPredicate =>
+  isNull: <L extends Operand<any>>(operand: L): NullPredicate & Reads<ReadsOf<L>> =>
     node({ _tag: 'Null', operand: toExpr(operand, 'isNull'), present: false }),
 
   /** Whether a field holds a value. */
-  isNotNull: <L extends Operand<any>>(operand: L): NullPredicate =>
+  isNotNull: <L extends Operand<any>>(operand: L): NullPredicate & Reads<ReadsOf<L>> =>
     node({ _tag: 'Null', operand: toExpr(operand, 'isNotNull'), present: true }),
 
   /**
@@ -307,10 +622,12 @@ export const Expr = {
    * **Over a column that can be null this is not the same as no filter.** A
    * null contains nothing, not even the empty string, so its rows drop out. A
    * nullable column that should match everything on an empty search says so:
-   * `Expr.or` does not exist yet, so for now such a column needs its own
-   * predicate or a native escape hatch.
+   * `Expr.or(Expr.isNull(field), Expr.contains(field, input.search))`.
    */
-  contains: <L extends TextOperand>(value: L, search: string | Expr<string>): ContainsPredicate =>
+  contains: <L extends TextOperand>(
+    value: L,
+    search: string | Expr<string>,
+  ): ContainsPredicate & Reads<ReadsOf<L>> =>
     node({
       _tag: 'Contains',
       value: toExpr(value, 'contains'),
@@ -333,12 +650,91 @@ export const Expr = {
   in: <L extends Operand<any>>(
     value: L,
     among: ReadonlyArray<ValueOf<L>> | Expr<ReadonlyArray<ValueOf<L>>>,
-  ): InPredicate =>
+  ): InPredicate & Reads<ReadsOf<L>> =>
     node({
       _tag: 'In',
       value: toExpr(value, 'in'),
       among: Array.isArray(among) ? literal(Object.freeze([...among])) : toExpr(among, 'in'),
     }),
+
+  /**
+   * `left` orders before `right`. Numbers compare as numbers; text compares
+   * under a collation, the one given or the field's declared one, which must be
+   * `binary` or `asciiFold` (so every backend agrees), and text needs a field on
+   * one side. A date compares by its encoded form: as text when it is stored as
+   * an ISO string, so its field declares `Collation.binary`. A null on either
+   * side is unknown, so the row is matched by neither this nor its `not`.
+   *
+   * ```ts
+   * Expr.lt(fields.cents, 1000)
+   * Expr.and(Expr.gte(fields.at, input.from), Expr.lt(fields.at, input.until))
+   * ```
+   */
+  lt: comparison('lt'),
+  /** `left` orders before `right`, or with it; see `Expr.lt`. */
+  lte: comparison('lte'),
+  /** `left` orders after `right`; see `Expr.lt`. */
+  gt: comparison('gt'),
+  /** `left` orders after `right`, or with it; see `Expr.lt`. */
+  gte: comparison('gte'),
+
+  /**
+   * Every operand holds, as one predicate to place inside another: `where`'s
+   * list is already a conjunction, so this is for `or(and(a, b), c)`.
+   * Unknown as SQL's `and` is: false wins over unknown, which wins over true.
+   * Needs an operand; a list built at run time is checked non-empty first
+   * (`Array.isReadonlyArrayNonEmpty`), since an empty `and` would match every row.
+   */
+  and: connective<AndPredicate>('and', 'And') as Connective<AndPredicate>,
+
+  /**
+   * At least one operand holds:
+   *
+   * ```ts
+   * Expr.or(Expr.contains(fields.description, input.search), Expr.contains(fields.upc, input.search))
+   * ```
+   *
+   * Unknown as SQL's `or` is: true wins over unknown, which wins over false.
+   * Needs an operand, since an empty `or` would match no row.
+   */
+  or: connective<OrPredicate>('or', 'Or') as Connective<OrPredicate>,
+
+  /**
+   * The operand does not hold. **A null is matched by neither side**:
+   * `not(eq(status, 'draft'))` leaves out a row whose `status` is null, since
+   * `null = 'draft'` is unknown and so is its `not`, as in SQL. "Everything
+   * but drafts" over a nullable column is
+   * `Expr.or(Expr.isNull(status), Expr.not(Expr.eq(status, 'draft')))`.
+   */
+  not: <P extends Predicate>(operand: P): NotPredicate & Reads<ReadsOf<P>> => {
+    if (!isPredicate(operand)) {
+      throw new Error(
+        '[foldkit-entity] Expr.not: the operand is a predicate; compare a value with Expr.eq first',
+      )
+    }
+    return node({ _tag: 'Not', operand })
+  },
+
+  /**
+   * A filter that applies only when its input is given: `or(isNull($x), …)`,
+   * with the predicate built from the input as never null.
+   *
+   * ```ts
+   * // Every product, or those of the chosen status.
+   * Expr.whenGiven(input.status, status => Expr.eq(fields.status, status))
+   * ```
+   *
+   * An interpreter that runs per request, as the Drizzle compiler does, decides
+   * `isNull($x)` before writing SQL, so this compiles to `true`, which filters
+   * nothing, or to the predicate alone.
+   */
+  whenGiven: <T, P extends Predicate>(
+    input: InputExpr<T>,
+    build: (given: InputExpr<NonNullable<T>>) => P,
+  ): Predicate & Reads<ReadsOf<P>> =>
+    // The predicate only decides a row when the input is not null: when it is,
+    // `isNull` is true and so is the `or`. That is what the narrowed type says.
+    Expr.or(Expr.isNull(input), build(input as unknown as InputExpr<NonNullable<T>>)),
 
   /** An expression as readable text; see `showExpr` for what it is and is not. */
   show: (node: Operandish): string => showExpr(node),
@@ -407,10 +803,10 @@ export type Ordering = OrderTerm | ChosenOrder
 
 export const Order = {
   /** Smallest first; rows without a value last, unless `nulls` says first. */
-  asc: <E extends Operand<any>>(expr: E, options?: TermOptions): OrderTerm =>
+  asc: <E extends Operand<any>>(expr: E, options?: TermOptions): OrderTerm & Reads<ReadsOf<E>> =>
     term('asc', toExpr(expr as never, 'asc'), options),
   /** Largest first; rows without a value first, unless `nulls` says last. */
-  desc: <E extends Operand<any>>(expr: E, options?: TermOptions): OrderTerm =>
+  desc: <E extends Operand<any>>(expr: E, options?: TermOptions): OrderTerm & Reads<ReadsOf<E>> =>
     term('desc', toExpr(expr as never, 'desc'), options),
 
   /**
@@ -423,10 +819,10 @@ export const Order = {
    * Query.orderBy(Order.chosen(input.sort, { title: Post.fields.title }))
    * ```
    */
-  chosen: <By extends string>(
+  chosen: <By extends string, const Choices extends { readonly [K in By]: Operand<any> }>(
     sort: InputExpr<ChosenSort<By>>,
-    choices: { readonly [K in By]: Operand<any> },
-  ): ChosenOrder => {
+    choices: Choices,
+  ): ChosenOrder & Reads<ReadsOf<Choices[keyof Choices]>> => {
     const fields: Record<string, FieldExpr<unknown>> = Object.create(null)
     for (const [name, choice] of Object.entries<Operand<any>>(choices)) {
       const expr = toExpr(choice as never, 'chosen')
@@ -448,7 +844,8 @@ export const Order = {
  * answer `Query.placement` gives, and the reason when it cannot.
  */
 export type Placement =
-  { readonly _tag: 'Placeable' } | { readonly _tag: 'NotPlaceable'; readonly reason: string }
+  | { readonly _tag: 'Placeable' }
+  | { readonly _tag: 'NotPlaceable'; readonly reason: string }
 
 const placeable: Placement = Object.freeze({ _tag: 'Placeable' })
 const notPlaceable = (reason: string): Placement => Object.freeze({ _tag: 'NotPlaceable', reason })
@@ -580,6 +977,23 @@ const walk = (expr: AnyExpr | Predicate | Ordering, found: Found): void => {
       walk(expr.value, found)
       walk(expr.among, found)
       return
+    case 'And':
+      found.operations.add('and')
+      for (const operand of expr.operands) walk(operand, found)
+      return
+    case 'Or':
+      found.operations.add('or')
+      for (const operand of expr.operands) walk(operand, found)
+      return
+    case 'Not':
+      found.operations.add('not')
+      walk(expr.operand, found)
+      return
+    case 'Compare':
+      found.operations.add('compare')
+      walk(expr.left, found)
+      walk(expr.right, found)
+      return
     case 'Term':
       walk(expr.expr, found)
       return
@@ -666,6 +1080,17 @@ const fieldsIn = function* (
       yield* fieldsIn(expr.value, seen)
       yield* fieldsIn(expr.among, seen)
       return
+    case 'And':
+    case 'Or':
+      for (const operand of expr.operands) yield* fieldsIn(operand, seen)
+      return
+    case 'Not':
+      yield* fieldsIn(expr.operand, seen)
+      return
+    case 'Compare':
+      yield* fieldsIn(expr.left, seen)
+      yield* fieldsIn(expr.right, seen)
+      return
     case 'Term':
       yield* fieldsIn(expr.expr, seen)
       return
@@ -722,6 +1147,13 @@ const childrenOf = (expr: AnyExpr | Predicate): ReadonlyArray<AnyExpr | Predicat
       return [expr.value, expr.search]
     case 'In':
       return [expr.value, expr.among]
+    case 'And':
+    case 'Or':
+      return expr.operands
+    case 'Not':
+      return [expr.operand]
+    case 'Compare':
+      return [expr.left, expr.right]
   }
 }
 
@@ -773,8 +1205,10 @@ export const Query = {
    * ```
    */
   where:
-    (...predicates: ReadonlyArray<Predicate>) =>
-    <E extends AnyEntity>(self: Query<E>): Query<E> => {
+    <const P extends ReadonlyArray<Predicate>>(...predicates: P) =>
+    <E extends AnyEntity>(
+      self: Query<E> & OverEntity<ReadsOf<P[number]>, E['name'], 'a predicate'>,
+    ): Query<E> => {
       if (predicates.length === 0) return self
       checkOwnership('where', 'a predicate', self.entity, predicates)
       const where = [...self.where, ...predicates]
@@ -794,8 +1228,10 @@ export const Query = {
    * than silently winning.
    */
   orderBy:
-    (...terms: ReadonlyArray<Ordering>) =>
-    <E extends AnyEntity>(self: Query<E>): Query<E> => {
+    <const T extends ReadonlyArray<Ordering>>(...terms: T) =>
+    <E extends AnyEntity>(
+      self: Query<E> & OverEntity<ReadsOf<T[number]>, E['name'], 'an ordering term'>,
+    ): Query<E> => {
       if (terms.length === 0) return self
       checkOwnership('orderBy', 'a term', self.entity, terms)
       return query(self.entity, self.where, [...self.orderBy, ...terms])
@@ -893,8 +1329,14 @@ export const Query = {
   show: (self: AnyQuery): string =>
     [
       `FROM ${self.entity.name}`,
+      // Among several, an `or` is parenthesised: `WHERE a or b` over `AND c`
+      // would read as `a or (b and c)`.
       ...self.where.map(
-        (predicate, index) => `${index === 0 ? 'WHERE' : '  AND'} ${Expr.show(predicate)}`,
+        (predicate, index) =>
+          `${index === 0 ? 'WHERE' : '  AND'} ${Match.value(predicate).pipe(
+            Match.tag('Or', or => (self.where.length > 1 ? `(${Expr.show(or)})` : Expr.show(or))),
+            Match.orElse(each => Expr.show(each)),
+          )}`,
       ),
       ...(self.orderBy.length === 0
         ? []
@@ -947,8 +1389,30 @@ const showExpr = (node: AnyExpr | Predicate): string => {
       return `contains(${showOperand(node.value)}, ${showOperand(node.search)})`
     case 'In':
       return `${showOperand(node.value)} in ${showOperand(node.among)}`
+    case 'And':
+      return node.operands.map(showConnected).join(' and ')
+    case 'Or':
+      return node.operands.map(showConnected).join(' or ')
+    case 'Not':
+      return `not (${showExpr(node.operand)})`
+    case 'Compare':
+      return `${showOperand(node.left)} ${symbols[node.operator]} ${showOperand(node.right)}`
   }
 }
+
+const symbols: Readonly<Record<CompareOperator, string>> = {
+  lt: '<',
+  lte: '<=',
+  gt: '>',
+  gte: '>=',
+}
+
+/** An operand of `and` or `or`: another connective is parenthesised, so its grouping shows. */
+const showConnected = (node: Predicate): string =>
+  Match.value(node).pipe(
+    Match.tags({ And: () => `(${showExpr(node)})`, Or: () => `(${showExpr(node)})` }),
+    Match.orElse(() => showExpr(node)),
+  )
 
 const showOperand = (node: Operandish): string =>
   isPredicate(node) ? `(${showExpr(node)})` : showExpr(node)

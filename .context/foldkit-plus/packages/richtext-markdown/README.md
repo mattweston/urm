@@ -58,6 +58,8 @@ skipped, because its payload is opaque.
 | `CodeBlock` | a fence, its `language`, the text verbatim, and a fence longer than any backticks inside |
 | `ThematicBreak` | `---` |
 | `Image` | `![alt](src)` on its own line |
+| `FootnoteRef` on a run | `[^label]` in place of the label the run shows |
+| `FootnoteDefinition` | `[^label]: ` and its first block, later lines indented four |
 | `Table`, `TableRow`, `TableCell` | a GFM pipe table, the first row as its header (`TableRow.header`) |
 | `Bold`, `Italic`, `Code`, `Strikethrough`, `Link` | `**`, `*`, backticks, `~~`, `[label](href)`, with the link outermost |
 
@@ -82,9 +84,11 @@ const { document, diagnostics } = parse('> quoted\n', { mint: () => `id-${++n}` 
 is decoded through the codec, so a bad construction fails loudly instead of reaching an
 editor.
 
-It reads CommonMark, plus GFM's task lists, strikethrough, and tables. It reports instead
-of guessing: raw HTML, a link definition (a reference to one keeps its text, unlinked), a
-footnote, a hard line break (which becomes its
+It reads CommonMark, plus GFM's task lists, strikethrough, and tables, and with
+`footnotes: true` its footnotes, as `foldkit-richtext`'s `FootnoteRef` and
+`FootnoteDefinition` for a kit that declares them; without it a footnote is reported and
+skipped. It reports instead of guessing: raw HTML, a link definition (a reference to one keeps
+its text, unlinked), a hard line break (which becomes its
 own paragraph, because a block holds no line break), and an image inside a paragraph
 (`Image` is a block, so a paragraph holding only one is hoisted to it). Markdown is as
 untrusted as pasted HTML, so a link's or an image's URL passes the same `safeUrl` policy
@@ -127,7 +131,15 @@ item to it; and a fence with an optional language, such as
 `` ```ts `` then a space, converts it to a `CodeBlock` (`ConvertBlock`). `[ ] ` or `[x] ` at
 the start of a list item, which `- ` has made by then, makes the item a task where it stands,
 unticked or ticked (`RetypeContainer`), in a bulleted or an ordered list, with any list nested
-in it. Typed in a later paragraph of the item, the marker stays text, as Markdown reads it. An editor
+in it. Typed in a later paragraph of the item, the marker stays text, as Markdown reads it.
+
+The inline markers close as they are typed (`markdownInlineRules`, which `markdownInputRules`
+ends with): `**bold**`, `*italic*` and `_italic_`, `` `code` ``, and `~~struck~~` become marked
+text the moment the closing marker is typed, and what is typed next is plain again. The content
+is not empty, does not start or end with a space, and holds no delimiter character, and the
+opening marker stands at the block's start or after a space, an opening bracket or a quote, so
+`snake_case_name` and `2*3*4` stay text. Inside a `CodeBlock`, which forbids marks, the markers
+stay the text they are. An editor
 placement in `foldkit-richtext-dom` names the rules it applies, so this package holds no
 editor state and the editor holds no Markdown:
 
@@ -205,7 +217,9 @@ caller's document. Keep the old selection then.
 - **A bare URL in text.** GFM links `https://…`, `www.…`, and email addresses written as
   plain text, and no escape stops it, so such text reads back as a link.
 - **A hard line break** has no shape inside a block, so it ends the paragraph and the rest
-  starts a new one, with a diagnostic. Raw HTML, link definitions, and footnotes are
-  reported and skipped: a document holds none of them.
+  starts a new one, with a diagnostic. Raw HTML and link definitions are reported and
+  skipped: a document holds neither. Footnotes are too, unless `parse` is given
+  `footnotes: true`; a footnote label GFM cannot spell (one with a space) prints as text,
+  reported.
 - **No profile yet.** Custom syntax needs both directions at once, so it arrives with the
   first application that declares one.

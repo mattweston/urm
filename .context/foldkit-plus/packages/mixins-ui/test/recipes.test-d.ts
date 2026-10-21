@@ -44,14 +44,22 @@ Recipes.Select({ size: 'lg', variant: 'filled' })
 // @ts-expect-error a variant the select recipe does not offer.
 Recipes.Select({ variant: 'ghost' })
 
-Recipes.RadioGroup({ tone: 'neutral', size: 'lg' })
+Recipes.RadioGroup({ tone: 'neutral', size: 'lg', variant: 'card' })
 
 // @ts-expect-error a tone the radio recipe does not offer.
 Recipes.RadioGroup({ tone: 'brand' })
 
+// @ts-expect-error a variant the radio recipe does not offer.
+Recipes.RadioGroup({ variant: 'raised' })
+
 Recipes.Slider({ tone: 'neutral', size: 'md' })
 Recipes.Toast({})
 Recipes.FileDrop({})
+Recipes.Calendar({ size: 'sm' })
+
+// @ts-expect-error a size the calendar recipe does not offer.
+Recipes.Calendar({ size: 'lg' })
+
 Recipes.DatePicker({ size: 'sm' })
 
 // @ts-expect-error a size the date picker recipe does not offer.
@@ -96,11 +104,10 @@ const DeleteStyle = Style.forSlots(ButtonSlots)(
   Recipes.Button({ tone: 'danger', variant: 'outline', size: 'sm' }),
 )
 const L = Layers.standard
-const palette = Theme.oklch({ accent: { h: 280, c: 0.15, l: '60%' } })
+const theme = Theme.make({ accent: { hue: 280, chroma: 0.15, lightness: 60 } })
 const _sheet: string = Style.stylesheet(
   L.declare,
-  L.in('tokens', Theme.root(Theme.tokens)),
-  L.in('theme', Theme.root(palette)),
+  L.in('theme', Theme.root(Theme.standard(theme))),
   DeleteStyle,
 )
 void _sheet

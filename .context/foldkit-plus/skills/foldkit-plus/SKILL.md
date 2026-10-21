@@ -1,9 +1,9 @@
 ---
 name: foldkit-plus
-description: Explains the Foldkit Plus packages (foldkit-surface, foldkit-remote with -server and -drizzle, foldkit-sync, foldkit-durable, foldkit-mirror, foldkit-site, foldkit-agent and its WebMCP/MCP/A2A/Agent Native adapters, foldkit-mixins with -surface, -ui, -form and -crud, foldkit-react, foldkit-bundle, foldkit-primitives, foldkit-entity, foldkit-guard, foldkit-form, foldkit-crud, foldkit-cms, foldkit-data-grid), which one owns which kind of state and basic use of each. Use when writing or reviewing a Foldkit app that uses a foldkit-* package, choosing a package for server data, offline sync, URL or storage state, route topology, AI agent tools, view styling, React interop, reusable Submodels, domain entities, authorization, forms, admin screens, a data grid, or a CMS, or when the user mentions Foldkit Plus, Surface, Projection, Remote, Sync, Mirror, Site.target, Agent.expose, Mixins, Bundle, Entity.select, Guards.declare, Form.make, Crud.editor, DataGrid.make, or Cms.content.
+description: Explains the Foldkit Plus packages (foldkit-surface, foldkit-remote with -server and -drizzle, foldkit-sync, foldkit-durable, foldkit-mirror, foldkit-site, foldkit-agent and its adapters, foldkit-mixins with -surface, -ui, -form and -crud, foldkit-react, foldkit-bundle, foldkit-primitives, foldkit-entity, foldkit-guard, foldkit-auth, foldkit-form, foldkit-crud, foldkit-cms, foldkit-data-grid, foldkit-media), which owns which state, and basic use. Use when starting a new Foldkit app, writing or reviewing one using a foldkit-* package, choosing one for server data, offline sync, URL or storage state, route topology, AI agent tools, view styling, React interop, reusable Submodels, domain entities, authorization, Yielded Auth sessions, forms, admin screens, a data grid, a CMS, images and icons, or when the user mentions Foldkit Plus, Surface, Projection, Remote, Sync, Mirror, Site.target, Agent.expose, Mixins, Bundle, Entity.select, Guards.declare, Form.make, Crud.editor, DataGrid.make, or Cms.content.
 license: MIT
 metadata:
-  version: '0.17.1'
+  version: '0.30.1'
   repository: https://github.com/doeixd/foldkit-plus
 ---
 
@@ -22,7 +22,7 @@ Every package keeps that rule:
 - the URL and storage mirror a slice of the Model, never own it;
 - views are extended from outside without forking them.
 
-Targets Foldkit `0.165.x` and Effect 4 stable (`effect@4.0.0`); see the peer
+Targets Foldkit `0.168.x` and Effect 4 stable (`effect@4.0.0`); see the peer
 list under the rules below. APIs are `0.x` and may break between minors.
 
 ## Pick the package by who owns the data
@@ -37,17 +37,20 @@ list under the rules below. APIs are `0.x` and may break between minors.
 | What an AI agent may see and do, over MCP, WebMCP, A2A, or Agent Native | the application | `foldkit-agent` + one adapter | [agent.md](references/agent.md) |
 | Restyling or adding behaviour to views, including `@foldkit/ui` | the view contract | `foldkit-mixins` (+ `-surface`, `-ui`) | [mixins.md](references/mixins.md) |
 | A reusable Submodel placed several times or per key, with every part wired | the parent Model | `foldkit-bundle` (+ `-surface`) | [bundle.md](references/bundle.md) |
+| Responsive images: which widths exist, `srcset`, `sizes`, a source per format, placeholders, and the URL of each variant; icons as data, imported by name | the image's source; variants are a cache | `foldkit-media` (+ `Image`, `Icon.view` in `foldkit-mixins-ui`; early, 0.1.0) | [media.md](references/media.md) |
 | A media query, presence, timer, pagination, undo history, socket, resize, or clipboard | the parent Model | `foldkit-primitives` | [primitives.md](references/primitives.md) |
 | A React component in a Foldkit view, a Foldkit program in a React app, or views compiled to TSX | the Model / the embedded program | `foldkit-react` (+ `-codegen`) | [react.md](references/react.md) |
 | Typed facts a package attaches to another package's declaration (package authors only) | the key's package | `foldkit-metadata` (re-exported by `foldkit-surface`) | [surface.md](references/surface.md) |
 | A domain entity's fields, relations, and derived members, declared once, and typed selections of them (Remote registers and reads them as they are; `remote-drizzle` binds them to tables) | the domain declaration | `foldkit-entity` | [entity.md](references/entity.md) |
-| Who may do what: guards declared once on the domain, principal guards' bodies on the server, row guards as `Expr`, enforced on reads, writes, Sync edits and agents | the domain declaration; bodies on the server | `foldkit-guard` (`/server`, `/drizzle`, `/sync`, `/agent` for each seam) | [guard.md](references/guard.md) |
+| Who may do what: guards declared once on the domain, principal guards' bodies on the server, row guards as `Expr`, enforced on reads, writes, Sync edits, agents and uploads | the domain declaration; bodies on the server | `foldkit-guard` (`/server`, `/drizzle`, `/sync`, `/agent` for each seam) | [guard.md](references/guard.md) |
+| Who is signed in: a Yielded Auth session as the principal a Remote or Sync host answers as, a visitor, or a 401 | Yielded Auth's session; the principal is the application's | `foldkit-auth` (+ `/server`; early, 0.1.0) | [auth.md](references/auth.md) |
 | A form: drafts, validation, and a decoded value handed to the parent | the parent Model | `foldkit-form` (+ `foldkit-mixins-form` to draw it) | [form.md](references/form.md) |
 | An edit or create screen (load, fill a form, save, report status), or a list over a query | Remote and the form; the editor only joins them | `foldkit-crud` (+ `foldkit-mixins-crud` to draw lists and details) | [crud.md](references/crud.md) |
 | An interactive data grid: which cells exist, keyboard moves and ranges over rows the application supplies | the grid owns geometry and interaction; the application owns the rows | `foldkit-data-grid` (+ `foldkit-mixins-data-grid` to draw it; experimental, 0.1.0) | [data-grid.md](references/data-grid.md) |
 | Drafts, revisions, a schedule, and what a visitor may see | the application's tables; a draft is kept beside the row | `foldkit-cms` + `foldkit-cms-drizzle` (editor state and server) | [cms.md](references/cms.md) |
 | What crosses from a server render to the browser: the browser's slice of the Model, handed over instead of rerunning `init` | the application, in a resume plan | `foldkit-ssr` (early) | [ssr.md](references/ssr.md) |
 | What a page is: Blocks in Regions, stored as a Document and checked against a Catalog; editing it | the Document, as a stored field; the Builder, as one form key | `foldkit-composition` + `foldkit-builder` (+ `foldkit-mixins-builder` to draw it; experimental, 0.1.0) | [composition.md](references/composition.md) |
+| Every package above in one install, each under a subpath (`foldkit-plus/remote`), and a project-specific setup guide (`npx foldkit-plus setup`) | nothing: it re-exports the packages, which own what they own | `foldkit-plus` | this file |
 | The route, a selection, a transient error | the local Model (topology in `foldkit-site`) | none: plain Foldkit | — |
 | A semantic rich-text document, the commands that edit it, and what each kind may hold | the local Model | `foldkit-richtext` (early) | [richtext.md](references/richtext.md) |
 | An editable rich-text subtree the browser mutates directly (the `contenteditable` island) | the DOM adapter, over the document the Model owns | `foldkit-richtext-dom` (early) | [richtext.md](references/richtext.md) |
@@ -74,6 +77,7 @@ foldkit-mixins (standalone) ─ foldkit-mixins-surface (with Surface), foldkit-m
 foldkit-bundle (standalone) ─ foldkit-bundle-surface (with Surface), foldkit-primitives, foldkit-form
 foldkit-entity (standalone) ─ read by foldkit-remote, foldkit-remote-drizzle, foldkit-form
 foldkit-guard ─ over foldkit-entity: guards as data, decided on the server; its subpaths enforce them in remote-server, -drizzle, sync and agent
+foldkit-auth ─ a Yielded Auth session as the principal remote-server's and sync's hosts resolve; guard decides on it
 foldkit-crud ─ joins foldkit-form, foldkit-remote, foldkit-entity
 foldkit-cms ─ over foldkit-entity, foldkit-form, foldkit-crud, foldkit-remote: drafts beside the row, derived lifecycle
   └─ foldkit-cms-drizzle ─ over foldkit-remote-drizzle, -server: the audience boundary, drafts, publish in a transaction
@@ -138,9 +142,19 @@ App.model.remote, … })`, `Mirror.url(App, …)`, and `SurfaceView.define(TodoL
   placements and integration wirings (`Data.wiring(…)`, `….wiring('UrlChanged')`,
   contract-only `….wiring()`); routing, startup Commands, Subscriptions, and the
   Module derive from the list. See `bundle.md` and the integration's page.
-- **Install only what the boundary needs**, with its peers (`pnpm add effect foldkit
-  foldkit-surface foldkit-sync`): `effect` for every package, `foldkit` for client-side
-  ones, an adapter's own (`@foldkit/ui`). `foldkit-durable` needs Node >= 22.
+- **Install** `foldkit-plus` for every package at once (`pnpm add effect@4.0.0
+  foldkit@0.168.0 foldkit-plus`, then import `foldkit-plus/<package>`, as in
+  `foldkit-plus/remote-server`), or each package on its own with its peers; both name
+  the same modules. Adapters that need a library of their own (`foldkit-react`, the
+  Drizzle packages, `foldkit-mixins-ui`, `-richtext-code-shiki`, `-agent-native`) are
+  added with it. `npx foldkit-plus setup` prints all of this for the project it runs
+  in. `foldkit-durable` needs Node >= 22.
+- **A new application** starts with the user, not with code: the brief, the look
+  (a theme from foldkit-plus.pages.dev/create), the domain
+  in rounds, recorded in `docs/domain/` and mapped to these packages (the user,
+  not the agent, says when the rounds are done), a plan for
+  architecture, performance, mobile, SEO, testing, CI and deployment, then built once they
+  agree. Follow [greenfield.md](references/greenfield.md).
 
 ## More
 

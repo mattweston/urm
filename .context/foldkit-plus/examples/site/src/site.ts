@@ -7,10 +7,12 @@ import { Style } from 'foldkit-mixins'
 import type { SiteModule } from 'foldkit-ssr/vite'
 
 import { library } from './content/load.js'
+import { headScripts } from './head.js'
 import { Model, ORIGIN, modelAt, plan, update, viewWith } from './main.js'
 import { stylesheet } from './style.js'
 
-export const site = {
+// Annotated rather than `satisfies`: the inferred type, the whole Model's, is too long to write out.
+export const site: SiteModule = {
   origin: ORIGIN,
   // The host serves `404.html` for an address with no page.
   paths: async () => [...(await library()).paths, '/404.html'],
@@ -25,10 +27,14 @@ export const site = {
     }
   },
   plan,
-  // The foundations and the classes the page draws, so the first paint is
-  // styled before any script runs.
-  head: rendered => `<style>${stylesheet}</style><style>${Style.usedIn(rendered.html)}</style>`,
-  files: 'directory',
+  // The reader's light or dark and theme, applied before anything draws; then
+  // the foundations and the classes the page draws, so the first paint is
+  // styled before any other script runs.
+  head: rendered =>
+    `${headScripts}<style>${stylesheet}</style><style>${Style.usedIn(rendered.html)}</style>`,
+  // `/remote` as `remote.html`: the host serves it at that address, with no
+  // redirect to `/remote/` on every link.
+  files: 'flat',
   sitemap: true,
   robots: true,
-} satisfies SiteModule
+}

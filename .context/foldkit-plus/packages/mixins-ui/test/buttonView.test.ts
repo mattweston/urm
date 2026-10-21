@@ -21,7 +21,9 @@ type Model = typeof Model.Type
 const Message = defineMessageUnion({ Clicked: {} })
 type Message = typeof Message.Type
 
-const draw = (options: ButtonView<Message>) => {
+const draw = (
+  options: ButtonView<Message> | ((h: HtmlBuilder<Message>) => ButtonView<Message>),
+) => {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
     setTimeout(() => callback(performance.now()), 0),
   )
@@ -37,7 +39,8 @@ const draw = (options: ButtonView<Message>) => {
       init: () => ({ model: { clicked: false } }),
       update: (model: Model, message: Message) =>
         message._tag === 'Clicked' ? { model: { ...model, clicked: true } } : { model },
-      view: (_model: Model, h: HtmlBuilder<Message>) => Button.view(options, h),
+      view: (_model: Model, h: HtmlBuilder<Message>) =>
+        Button.view(typeof options === 'function' ? options(h) : options, h),
     }),
   )
   return handle
@@ -62,6 +65,37 @@ describe('Button.view', () => {
       // Upstream marks disabled buttons `aria-disabled` (still focusable)
       // and withholds the click Message, rather than setting `disabled`.
       expect(button.getAttribute('aria-disabled')).toBe('true')
+    } finally {
+      handle.dispose()
+    }
+  })
+
+  it('says a toggle is on or off with aria-pressed, and a plain button says neither', async () => {
+    for (const [pressed, expected] of [
+      [true, 'true'],
+      [false, 'false'],
+      [undefined, null],
+    ] as const) {
+      const handle = draw({ label: 'Bold', ...(pressed === undefined ? {} : { pressed }) })
+      try {
+        await vi.waitFor(() => expect(document.querySelector('button')?.textContent).toBe('Bold'))
+        expect(document.querySelector('button')?.getAttribute('aria-pressed')).toBe(expected)
+      } finally {
+        handle.dispose()
+        document.body.innerHTML = ''
+      }
+    }
+  })
+
+  it('draws an icon in its slot before the label, hidden from assistive technology', async () => {
+    const IconStyle = Style.forSlots(ButtonSlots)({ icon: Style.class('glyph') })
+    const handle = draw(h => ({ label: 'Delete', style: IconStyle, icon: h.span([], ['×']) }))
+    try {
+      await vi.waitFor(() => expect(document.querySelector('button')).not.toBeNull())
+      const [icon, label] = Array.from(document.querySelector('button')!.childNodes)
+      expect((icon as Element).className).toBe('glyph')
+      expect((icon as Element).getAttribute('aria-hidden')).toBe('true')
+      expect(label?.textContent).toBe('Delete')
     } finally {
       handle.dispose()
     }

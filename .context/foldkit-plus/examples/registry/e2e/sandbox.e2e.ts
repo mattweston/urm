@@ -117,8 +117,12 @@ test('the later of two edits wins, the device whose edit lost is told, and an of
 
   // A commits first; B, offline, edits the same price and commits when back.
   await offline('Device B').check()
+  // Working offline pauses B's exchange, not its live reads of the table: B
+  // showing A's price is the sign A's edit is committed, so B's is the later.
   await editPrice(page, 'Device A', row, '1.11')
-  await expect.poll(() => cell(page, 'Device B', row, 'cents').textContent()).not.toBe('1.11')
+  await expect
+    .poll(() => cell(page, 'Device B', row, 'cents').textContent(), { timeout: 10_000 })
+    .toBe('1.11')
   await editPrice(page, 'Device B', row, '2.22')
   await expect.poll(() => mark('Device B')).toBe('pending')
   await offline('Device B').uncheck()
@@ -138,6 +142,13 @@ test('the later of two edits wins, the device whose edit lost is told, and an of
   await expect
     .poll(() => cell(page, 'Device B', 'p000006', 'cents').getAttribute('data-mark'))
     .toBe('pending')
+  // The cell is marked as soon as the edit is made, and the edit is written to
+  // the device a moment later; the replica's own count says when it has been.
+  // Reloading in that moment lost the edit, which no person types fast enough
+  // to do, and CI sometimes did.
+  await expect
+    .poll(() => pane(page, 'Device B').locator('#exchange').textContent())
+    .toBe('Working offline: 1 edit kept on this device.')
   const frameB = page.frames().find(frame => frame.url().includes('pane=device-b'))!
   await frameB.goto(frameB.url())
   // The reloaded device starts its database and connection again, which the

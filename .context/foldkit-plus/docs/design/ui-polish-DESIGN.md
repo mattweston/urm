@@ -1,0 +1,803 @@
+# UI polish: bugs, consolidation and depth
+
+The parity work ([ui-parity-DESIGN.md](./ui-parity-DESIGN.md)) put a component
+behind every name shadcn has. This plan is the second pass a user's review of
+the gallery asked for: what is broken, what should be one component instead of
+two, and where each component is thinner than the sources it is measured
+against. The bar is the one in [TODO.md](./TODO.md) ("The bar"): Zag's
+robustness, the APG's standards, Base UI's usefulness, Fluid Functionalism's
+beauty and defaults, shadcn's completeness, CSS-Tags' customizability, while
+primitives stay reused, everything works unstyled, and every part composes.
+
+Each finding below is marked **confirmed** (read in the source) or
+**hypothesis** (to be reproduced in a browser before the fix).
+
+## How the work runs
+
+1. **Look before fixing.** Every visual claim is checked in Chrome on the
+   gallery at three widths (phone, 768px, desktop), in light and dark, and in
+   `dir="rtl"`. A bug gets a screenshot and, once fixed, a browser test that
+   asserts geometry or computed style (AGENTS.md: "A claim about focus, layout
+   or the pointer is a browser test").
+2. **A brief before a redesign.** A component that is redesigned (not just
+   fixed) gets the research table from ui-parity-DESIGN.md §"How each
+   component is built" first: shadcn, ReUI, Base UI, Zag, Fluid
+   Functionalism, the APG, and where named, blobz. The brief lands with the
+   first code.
+3. **Systems before components.** Part A fixes rules that many components
+   share; doing them first fixes a dozen findings at once and keeps a
+   component from patching its own copy of a shared fault.
+4. **Many examples per page.** A gallery page shows a component's range, the
+   way Fluid's presets do: several named examples, not one (A8).
+5. **The untested backlog first.** About 26 components since NumberField
+   have tests that have never run (TODO.md, parity 6). Phase 0 runs them.
+
+## Part A: shared systems
+
+### A1. State colour on coloured surfaces
+
+**Seen in:** Button Group hover, Table row hover, NumberField, Command,
+Context Menu, Sidebar, Menubar, VirtualList, the date range, TreeView, Nested
+Menu, Tabs.
+
+**Confirmed cause.** `unfilledHover` mixed `currentColor`, the text colour, a
+neutral grey, so every hover laid a grey film. On a neutral page that reads
+as a tint; on an accent fill or a toned band it desaturates the hue: a hover
+on blue read as dirt. Measured on a bold error band: the film was the pale
+on-fill text (lightness 98, chroma 0.08) over a fill of lightness 60,
+chroma 0.2.
+
+**Done.** A `--fk-state-ink` custom property that a hover film is made of,
+read on the element hovering (`unfilledHover` mixes it directly) instead of
+the text. It defaults to the element's own text, and a surface painted in a
+hue names its paint: the alert band per emphasis, the accent and danger
+tones. A hover on blue is a deeper blue. Neutral and ink tones name the text
+back, so a neutral control sitting on a band keeps a text-based fill.
+Mechanism note, learned the slow way: a `var()` substitutes where the token
+is declared, so a state token cannot carry a per-surface ink — only
+`currentColor` resolves per element. The tokens stay text-based; the ink
+travels as its own property.
+A knob `stateHue`: `neutral` (today: surfaces name the text back through the
+derived `surface-ink` knob, which is 0), `surface` (the new default), `accent`
+(Fluid's look: the default ink is the accent's ink, so hovers lean on the
+accent at low chroma). One override changes every component, and the choice
+also switches at runtime through `surface-ink`.
+Audit, as committed: `unfilledHover` is read in 20 recipes, all on neutral
+grounds except the alert bands; `surface.muted` as a hover is only Card's
+filled `pressableHover` (a deliberate fill step, neutral); `text.muted` on
+fills is deliberate quiet text (badge base, alert subtle ink-on-tint,
+pagination current) with no contrast failure; popup rows use the
+`popup.highlight` token (the panel ink's tint, or the accent fill when bold),
+left alone; `Theme.raise` levels keep the base hue. Browser test: a hovered
+action on a bold error band films the fill (hue 25, the fill's chroma and
+lightness) in both schemes.
+
+### A2. Concentric corners
+
+**Seen in:** Command, Context Menu, Menubar, Segmented, Carousel, InputCopy's
+focus ring, the popup highlight.
+
+**Confirmed causes.**
+- Popup rows and the fluid highlight use a fixed `radius.md`
+  (`recipes/popup.ts:114`) inside a `radius.xl` panel with padding. The rows
+  box itself is `nested(xl, 2xs, thin)` (`popup.ts:80`), but its children are
+  not.
+- Segmented: the options use `nested(radius.md, inset)` while the indicator
+  and highlight overlays use `radius.sm` (`recipes/segmented.ts:32, 74`), so
+  the pill and the option it marks have different corners.
+- Command's list and rows (`recipes/command.ts:23, 65`) and Menubar's bar
+  (`recipes/menubar.ts:23`) set radii by hand, unrelated to their containers.
+
+**Checked.** `Theme.nests(radius, inset, border?)` on the
+container and `Theme.nested()` on its descendants, in `foldkit-mixins`. The
+popup panel, Command's list, the Menubar's bar, Segmented's trays and pill
+Tabs publish; their rows, triggers, options, pills, highlights and markers
+read. InputCopy rounds its controls' outer corners instead (it pads nothing).
+Carousel's track has no padding and its slides already share its radius.
+A custom property that reads `var()` resolves where it is declared, so
+`nested()` is a plain `calc` placed in `border-radius`, read on the child.
+
+**Plan.** Make concentricity the default instead of each recipe's
+arithmetic. A container that pads its children publishes `--fk-outer-radius`
+and `--fk-inset`; `Theme.nested()` with no arguments reads them, so a child's
+radius is `max(outer - inset, minimum)`. A popup panel, a tray, a card, the
+Command list, Carousel's track and a field group publish them; rows, pills,
+highlights and focus rings read them. Audit: every `borderRadius` inside a
+padded container in `recipes/`.
+
+### A3. Collapse motion: "taller, then shorter, text jumping"
+
+**Seen in:** Sidebar sections, TreeView groups (and likely Accordion).
+
+**Done in Phase 0.** Hypothesis 1 was wrong and 2 was close: the cause was
+the stretched `auto` heading row (Part B). Sidebar and TreeView now share
+`opensBelow` in `design.ts`. Accordion animates a one-track panel, has no
+`auto` row, and did not jump. The original hypotheses are kept below for
+the record.
+
+**Hypotheses, to reproduce first.**
+1. The open transition uses `ref.motion.ease` (`recipes/sidebar.ts:78`,
+   `recipes/treeView.ts:31`). `/create`'s motion presets can set `ease` to
+   `spring`, a `linear()` curve that overshoots, and an overshoot on
+   `grid-template-rows` is a height that passes its end and comes back:
+   "taller, then shorter".
+2. The collapsing row's content reflows during the animation (padding or a
+   min-height inside the clipped row, or the sidebar's width transition),
+   which reads as text jumping.
+
+**Plan.** A rule for the motion system: layout properties (`*-size`,
+`grid-template-*`) never take an overshooting curve; `glide`/`presence`
+already separate travel from fade, so add `collapse(tier)` to `design.ts`
+that every disclosure uses (Accordion, Sidebar, TreeView; Menu submenus open without one).
+The content keeps its final layout while the row clips it. Browser test:
+sample the section's height every frame while it opens; it never exceeds
+its final height, and the first label's x never moves.
+
+### A4. The overlay layer: stacking, collision, arrows, anchors
+
+**Seen in:** Popover, Tooltip, Hover Card (the link moves), Nested Menu (the
+submenu scrolls), Combobox (width), Select, Menus.
+
+**Confirmed and reported causes.**
+- The gallery draws popups with `portal: false` (AGENTS.md: upstream's
+  portal relocates the node and the runtime that drew it crashes), so a
+  panel stays inside its trigger's stacking context and its overflow. That is
+  where z-index fights and clipping come from.
+- Nested Menu draws each submenu inside its row, and the rows sit in the
+  panel's scrolling slot, so the submenu is clipped by and scrolls with the
+  parent's list (the agent's report on `nestedMenu.ts`).
+- Hover Card, hypothesis: the card is in flow beside the link, or the anchor
+  restyles the trigger, so showing it shifts the link.
+
+**Plan.**
+- **The top layer.** Draw every floating panel in the browser's top layer
+  with the Popover API (`popover="manual"`, `showPopover()`), and dialogs as
+  modal `<dialog>`. The node stays where the runtime drew it, so nothing is
+  relocated, and no z-index or ancestor `overflow` can reach it. This
+  replaces the portal for good. Check upstream's anchor (Floating UI) works
+  with a top-layer element; if a fix belongs upstream, write it up.
+- **Collision.** Placement with flip, shift and a size limit to the viewport
+  (Floating UI's `flip`, `shift`, `size`) as defaults, configurable per use.
+- **Arrows.** An `arrow` slot on Popover, Tooltip and Hover Card, positioned
+  by the anchor's arrow data, drawn in CSS, with a recipe axis to hide it.
+- **Anchors and alignment.** Placement (`side` × `align`), offset, cross
+  offset, and *match the trigger's width* (`sameWidth`: on for Combobox and
+  Select, configurable).
+- Nested Menu's submenus then live in the top layer too, out of the parent's
+  scroll box.
+
+**Done (main in-place panels only).** Proved first: `anchorSetup` with `portal: false`
+positions a showing manual popover correctly and escapes an `overflow: hidden`
+ancestor (a Chromium probe), so no upstream fix was needed for the core. Our
+`Anchor.topLayer` wraps an upstream anchor Mount only when its config says
+`portal: false`: it shows the panel around the Mount's own acquire and hides it
+once that Mount releases (a `WeakSet` of shown elements, a no-op where the
+popover API is missing), keeping the Mount's name, args and Messages so Scene
+tests still match. Menu (its submenus too), Menubar, Listbox and Combobox draw such in-place
+panels with `popover="manual"`, `inset: auto` and the wrapped Mount (E1); a menu opened inside an `overflow:
+hidden` box paints past it (a browser test hits the panel below the box).
+Panels that still relocate through an upstream portal keep upstream's behavior:
+relocating a shown popover hides it again, so the wrapper deliberately stays
+off there. `sameWidth` is a width axis on Combobox (default `trigger`) and
+Listbox (default `auto`): `min-inline-size: var(--button-width, 14rem)`, the
+`--button-width` upstream's `size` middleware publishes, replacing the
+panel's 14rem minimum. Collision was already
+upstream's defaults (flip, shift, `size` with a viewport cap).
+**Deferred to upstream support:** Popover,
+Tooltip, Hover Card, the DatePicker panel and Select render through upstream
+views, whose Mounts attach inside upstream code a wrapper cannot reach (one
+Mount per element; bundle attributes are opaque). Same for modal `<dialog>`
+(their `AcquireResources` Mount) and the arrow slots there. Filed as
+foldkit/foldkit#1683: upstream `anchorSetup`/Anchor Mounts need a `topLayer`
+they own (show/hide around their positioning), so every view above gets it
+without forks.
+**Since done for Popover, Tooltip and Hover Card** (85038b4d…e3a96a7c): an
+`Anchor.layer` element drawn around the panel shows itself in the top layer
+while upstream's anchor places the panel inside it, with `Popover.anchor()`,
+`Tooltip.anchor()` and `HoverIntent.anchor()` as the defaults and an `arrow`
+slot on each. The DatePicker panel, Select and modal dialogs remain; the
+upstream requests are in E9.
+
+### A5. Scrollbars and scroll areas
+
+**Seen in:** every scrolling surface. Fluid's
+[scrollbars](https://www.fluidfunctionalism.com/docs/scrollbars) are the
+reference: a thin thumb that rests, widens on hover, fades when idle, native
+on touch, with fades at the edges that have more.
+
+**Checked.** `ScrollBars({ idle?, scroller? })` in
+`foldkit-primitives/dom` drives bars drawn beside the scroller (thumb 4px,
+6px on hover, idle fade; native on a coarse pointer); the look is
+`recipes/scrollBars.ts`; `Utilities.scrollDivider`/`scrollTimeline` draw
+the edge hairline where `timeline-scope` exists. Wired, opt-in
+(`X.overlayBars`, a mixin list beside the style, E6), in ScrollArea (markup gains a `root`), Command,
+VirtualList, and Menu, Listbox and Combobox. Open: Table and Sidebar have
+no scrolling element yet; Dialog's body and Sheet need a wrapper with bar
+slots; nested and Menubar submenus. The gallery's Scroll area page shows it.
+Decided: off by default, since its Mount sends no Message and a Scene test
+of every page drawing it would have to resolve it.
+
+**Plan.** This is systems 6b, now with a brief. A `ScrollBars` Mount draws an
+overlay thumb (rest 4px, hover 6px, idle fade after a pause, travel-aware),
+and keeps the native bar on coarse pointers. `Utilities.scrollFade` (6a)
+stays the edge gradient; add the hairline divider at a scrolled edge (needs
+`timeline-scope` or a scroll-driven animation). Every scrolling recipe
+(ScrollArea, popup lists, Command, VirtualList, Sidebar, Table, Dialog body,
+Sheet) uses the same pieces.
+
+### A6. Right to left
+
+**Open again (review, 2026-10-16).** The status below claimed more than a
+fresh build shows: indicators, Color Picker tracks, the Calendar's arrows
+and keys, Command's shortcuts, and the arrow keys of Tabs and a horizontal
+Radio Group are still wrong right to left. See Part E, E3, where all but
+the Calendar's month buttons and a browser RTL test per component are now
+done.
+
+**Partly done.** Keys: one `readingKey` helper
+(`packages/mixins-ui/src/direction.ts`) and a `direction?: 'ltr' | 'rtl'
+view option on Menubar, Menu (its submenu opens on the left), TreeView,
+Resizable (keys and drag) and the horizontal Listbox forks; Messages stay
+logical. Progress's indeterminate sweep is mirrored. Chevrons and arrows
+(`cornerSides`), the Switch thumb and the Checkbox check were fixed earlier.
+The gallery's direction control now reaches Menu, Menubar, Listbox, TreeView
+and Resizable, so those previews exercise the same option as their browser
+tests. Browser tests flip `dir` for Menu, Menubar, TreeView, the horizontal
+Listbox, and Resizable. Still open: popup overlays measured from the left
+(deliberate: the Mounts measure from the left).
+
+**Confirmed:** the Switch thumb starts at `inset-inline-start` (logical) but
+moves by a positive physical `translate` (`recipes/toggle.ts:125, 138`), so
+in RTL it slides off the far side. **Plan:** a `--_fk-dir` of `1` or `-1`
+set under `:dir(rtl)` that every physical translate multiplies by; then the
+audit TODO.md already lists (physical `left`/`right`), extended to
+translates and arrow keys: Switch, Carousel arrows, NestedMenu's
+ArrowRight/Left, TreeView's, RangeSlider, Steps' connector, the popup
+overlays (`left: 0`, measured from the left). Every gallery page gets an RTL
+toggle, and a browser test per component flips `dir`.
+
+### A7. Optical centring and text boxes
+
+**Seen in:** Segmented (space under the text), Kbd, the Checkbox mark,
+Radio's dot against its label, Steps.
+
+**Segmented, measured in Phase 0:** each option carries both `trimmed`
+(`text-box`) and `Utilities.steady`'s hidden `::after` copy
+(`recipes/segmented.ts`). The guess was that the trim did nothing on a flex
+button and the copy added a line. Neither holds: the option computes
+`inline-block` (a block container, so the trim applies) and the copy is
+`height: 0`. The text still sits about 2.5px above centre, so the offset
+comes from the trimmed glyphs themselves; measure ink, not line boxes,
+before choosing the fix. **Plan:** one checked recipe for "a label centred in a fixed
+height": a block inner span with the trim, the steady copy laid over it
+(grid stacking, not a second line). Kbd, Badge, Segmented, Tabs and Button
+use it. The Checkbox and Radio marks are centred with `place-items: center`
+on the box and a mask glyph, not percentage offsets (the check sits at
+`inset-inline-start: 32%`, `toggle.ts:67`). Browser test: the glyph's and
+the text's boxes share a centre within 0.5px.
+
+### A8. Gallery pages with many examples
+
+Most findings say "show more examples". **Done.** A showcase carries named
+examples (`Showcase.examples`), each drawn with the picked style, with its own
+snippet region (`${slug}-${name}` in `snippets/components.ts`) and a link to it
+(`#${name}`). The recipe axes stay switchable over all of them: the page
+holds one toolbar and renders one section per example (title, self-link,
+preview, code). An example may pin an axis value (`pins`), which the toolbar then leaves
+alone for it. Showcases without examples keep the old single-preview page,
+so Part C migrates them one by one. The site build prerenders every page and
+fails on a missing region; a unit test pins each example's region and the
+uniqueness of its fragment. Migrated: alert (inline, banner), badge (tinted,
+dot, outline, solid).
+
+### A9. One component where there are two
+
+Breaking changes are fine at 0.x. Each merge keeps one API, one recipe and one
+gallery page with the variants as examples.
+
+| Today | Becomes | How |
+|---|---|---|
+| `Alert`, `Banner` | `Alert` with `layout: inline \| banner` | Banner's region landmark and full-width strip as a layout; Alert's tones and emphasis shared; Fluid's [Banner](https://www.fluidfunctionalism.com/docs/banner) as the reference. **Checked**: `Alert.view({ layout: 'inline' \| 'banner', … })`, a union type so a banner needs `label` and cannot be `assertive`; one recipe with `tone` and `emphasis`; `Patterns.Alert`; Banner removed. Fluid's compact layout and action styles stay in Part C |
+| Dialog, Alert Dialog | Dialog, `role: dialog \| alertdialog` | `Dialog.isDismissal` stays; one page. **Checked**: `role` on `Dialog.toView`/`resolve`'s context (`DialogContext`); the `alert-dialog` gallery page folded into `dialog`. `examples/widgets` keeps its own primitives-built alert dialog |
+| `Recipes.Sheet`, `Recipes.Drawer` | `Sheet` with `side` and a `handle`, plus drag (C, Sheet) | one recipe, one page. **Checked**: `Recipes.Sheet({ side, handle: 'none' \| 'bar' })`, the handle a `handle` Slot on `DialogSlots`; `Recipes.Drawer` removed; the gallery's Drawer page folded into Sheet. Drag and snap points stay in Part C |
+| Calendar, DatePicker, DateRange | one date system: `selection: single \| range \| multiple`, inline or in a popover | DateRange's `picked` becomes the range mode; the DatePicker stays open in range mode with our own update over the Calendar. **Checked**: `Calendar.Selection` (`Single`/`Range`/`Multiple`) with `empty`/`picked`/`isComplete`/`selectedDate`/`toView`; `DatePicker.update(selection)` keeps the popover open while the pick leaves it unfinished; `DateRange` removed; Calendar page shows one day and a range |
+| Slider, RangeSlider | Slider with a `number` or a `{ low, high }` value | one recipe in Fluid's [slider](https://www.fluidfunctionalism.com/docs/slider) look. **Checked**: `Slider.view` overloaded on the value, both kinds native range inputs (the upstream adapter dropped: it draws one thumb), `marks` and `showValue`, `Recipes.Slider` with `track: thick \| thin` and `value: above \| inside`; RangeSlider removed. Vertical, mark labels and ColorPicker on it stay in Part C |
+| Menu, ContextMenu, NestedMenu | one Menu page: a button, a point or a row opens it | shared panel recipe, submenus available to all three. **Checked**: `Menu.init(id, rows, { isAnimated?, isModal? })`, `Menu.update`, `Menu.view({ ..., opensAt?: 'button' \| 'point', ... })` with `Menu.target`; a typed `@foldkit/ui` Menu opens at a point through the adapter (`Menu.drawAtPoint`, `Menu.pointTarget`); `NestedMenu`/`ContextMenu` (never released) gone; one gallery page |
+
+## Part B: bugs
+
+Phase 0 (2026-10-15) reproduced each row in Chromium on the gallery, by
+script: geometry, computed style and hit tests, plus screenshots of every
+page at 390, 768 and 1440px, dark, and `dir="rtl"`. No page logs an error.
+**Fixed** rows name the commit's subject.
+
+| Component | Symptom | Cause | Fix |
+|---|---|---|---|
+| Input OTP | The gallery example does not work | **confirmed:** the cells are drawn over the input, so a press on a cell lands on a `div` and focuses nothing; typing after focusing the input works | **Fixed** (batch B, `37f1737e`): the cell groups take no pointer; a browser test presses where a cell is drawn and types |
+| Hover Card | The link moves when the card shows | **confirmed:** the card is drawn in flow inside the trigger's `span`; the centred preview re-centres on the wider pair and the link jumps about 140px. The Anchor's absolute strategy writes `top` and `left` but no `position` | **Checked**: the HoverCard recipe's panel is `position: absolute`. The top layer (A4) stays the long-term fix |
+| Nested Menu | The submenu scrolls inside the parent | **confirmed, worse:** the submenu's nearest clipping ancestor is the parent `role="menu"` (`overflow: auto`), and it is placed beside the parent, so it is clipped away entirely and never shows. The `overflow-y: auto` is the Anchor's, written inline | **Checked**, then merged: a submenu's row carries `data-open`, and the Menu recipe makes the panel holding an open one `overflow: visible !important` (only `!important` beats the inline declaration). A4 stays the long-term fix |
+| Radio Group | The label cannot be clicked; the dot sits off the text | **confirmed:** the radio is a `button`, the label a `<label>` with no `for` and no click, so a press on it changes nothing; the dot's centre sits 3px above the label's | press **fixed**: "a press on a radio's words presses it" (the row is a `label` around its radio; README and skill say so). The dot: **checked**, the radio centres on the first line of a top-aligned row (`calc((1lh - edge) / 2)`) |
+| Skeleton | Looks broken on the website | **confirmed:** every shape computes 0px wide (16px tall), so nothing shows | **Fixed**: "a Skeleton bar shows in a container that sizes to its content" (a `4rem` floor; the demo has a width). The composites stay in C |
+| VirtualList | The width changes while scrolling | **confirmed:** the list sizes to its widest drawn row, 121–131px as rows change | **Checked**: one `minmax(0, 1fr)` column, the box as wide as its container; the demo has a width |
+| Carousel | The corners are cropped | **confirmed, two causes:** the gallery's slides drew a square `1px currentColor` border that the slide's rounded clip cut (**fixed**: "the carousel demo's slides are a fill"); and what looked like a focused slide's ring cut at the sides was that same border: slides take no focus, and the track's ring is drawn outside it | nothing more |
+| Segmented | Corners and vertical centring | **confirmed:** the text sits about 2.5px above centre in its 28px option. The trim is on an `inline-block`, which is a block container, and the steady copy is `height: 0` and adds no line, so the cause in A7 is wrong. Measured: `text-box: trim-both` trims the first line's top and the last line's bottom, and the last line is the steady copy, so only the words' top was trimmed | **Checked**: `Segmented.view` draws the words in a new `label` Slot that holds the trim. Corners checked in A2 |
+| Switch | Broken in RTL | confirmed: the thumb starts at the inline start but moves by a physical `translate` | **Checked**: right to left it moves the other way |
+| Checkbox | The mark is off centre | measured from the ink at 8×: the check's middle is at 46.7% across and 43.75% down, about a pixel high; whole-pixel snapping leaves half a pixel across either way | **Checked**: `top: 19.5%` (49.6% down), placed with a physical `left` |
+| Kbd | Not optically centred | the line box is 1px above centre; measured: the capital stands about a pixel high in the key's face | **Checked**: the line trimmed to its capitals, the height given back as even padding |
+| Sidebar, TreeView | Jumps while a section opens | **confirmed, not the spring:** the shipped spring overshoots 0.3% (a fifth of a pixel on 72px). The heading row is an `auto` track, and mid-transition `align-content: normal` stretched it into the room the `fr` row left, so the links dropped about 16px and rose back. **Fixed**: "a Sidebar section or TreeView group holds its rows still while it opens" (`opensBelow`, with a frame-sampling browser test) | — |
+| InputCopy | The focus ring is cut by the corners | **confirmed:** the input's ring is an inset square outline (`outline-offset: -2px`, radius 0) inside a group with `overflow: hidden` and an 8.4px radius | **Checked**: the input and button round their outer corners to the group's inner radius, so the inset rings follow it |
+| Steps | Misaligned by default | **partly:** the connector is centred on the marker (both at y 467.9). What reads as misaligned: the titles sit at different heights, because each text block is centred on its marker and the descriptions differ in length; the connectors' widths differ (16–28px); and at 390px the labels overlap the markers | **Checked**: steps align to their top, each title's first line centred on its marker, connectors on the markers' middle line; a horizontal row takes its container's width and below 32rem shows only the current label. Equal connectors are left: they need equal step widths |
+
+**Found in Phase 0, not in the review:**
+
+| Component | Symptom | Cause | Fix |
+|---|---|---|---|
+| Accordion, Sidebar, TreeView, Nested Menu, Carousel, Steps | RTL: a shut row's chevron pointed up, the Sidebar's open one left, the carousel's arrows up and down | the marks were drawn with logical borders, which mirror under `dir="rtl"`, so each recipe's RTL turn landed a quarter off; the Sidebar had no RTL turn | **Fixed**: "chevrons and arrows point the right way right to left" (`cornerSides`, physical sides; a browser test reads where each mark points) |
+| Alert | At 390px the title is squeezed into a three-line column beside the description | title and description sit side by side at every width | **Checked**: a grid, the title over the description and the icon beside both |
+| Banner | At 390px the text is indented behind an empty gutter and the action centred under it | the strip pads both sides for a dismiss button whether it has one or not | **Checked**: the root carries `data-dismissible`, and the room is kept only then; now the banner layout of the merged Alert |
+| Pagination | At 390px it overflows: "Previous1" touches | the row cannot wrap, and Previous and Next had almost no side padding | **Checked**: the row wraps and centres, and Previous and Next get room. A compact layout stays in Part C |
+| Radio Group | Drawn as a row though it says `aria-orientation="vertical"`; at 390px three narrow columns wrap | the layout ignores the orientation | **Fixed**: the recipe stacks unless `aria-orientation` is `horizontal` |
+| Item | The demo's media is a bare black `●` | gallery content | **Checked**: a small success-coloured status dot. More examples stay in Part C |
+| Resizable | The demo's file list shows default list bullets | gallery content | **Checked**: no bullets, an even inset, a quiet frame |
+| OTP, Steps (dark) | Cell borders and the upcoming marker are faint on the dark page | the outline token, judged from half-scale thumbnails | left for A1, which owns the palette |
+
+## Part C: component by component
+
+Each entry lists the sources to read and the options to decide on. The brief
+decides adopt, adapt or skip.
+
+### Actions and display
+
+- **Button.** **Checked**: `:active` deepens to the
+  family's `active` fill with a 0.98 scale on the fast tier through `travel`;
+  pressed (`aria-pressed`) fills unfilled toggles with their tone. Comparing
+  Fluid, shadcn and Base UI states stays open.
+- **Badge.** **Checked**: `appearance: tinted | dot |
+  outline | solid`.
+- **Alert / Banner.** Merge (A9). From Fluid's Banner: icon, title and
+  description, actions on the end or below, dismiss, tone and emphasis, a
+  compact layout.
+- **Card and Card Group.** The elevated look is the weakest:
+  - Layered shadows (a tight contact shadow and a soft ambient one), tinted
+    by the surface's hue through a `shadow-hue` knob, with
+    `shadow-strength` scaling both.
+  - Elevation in dark mode by surface lightness (`Theme.raise`), not by
+    shadows that do not show on dark.
+  - An `elevation` axis 0–3 tied to the surface ladder; hover lift as an
+    option.
+  - Examples from Fluid's [card presets](https://www.fluidfunctionalism.com/docs/card?preset=caI9E8):
+    media, stat, pricing, profile, selectable, link card, card group as a
+    grid. **Integrated**: `elevation`, `lift`, the `shadow-h`/`shadow-c` knobs; examples stat, media, profile, link, elevation and a grid (components 98338a43…401c33b2; gallery 25974388, docs 277f601f, ad07a67c, c134284c.) Pricing and a selectable card beyond the group stay open.
+- **Avatar.** Recipes from [blobz](https://blobz.lirena.in/docs/components/):
+  a stacked group with overlap and a "+3", a status dot, a ring, initials
+  with a colour from the name, shapes, an avatar with name and caption, an
+  avatar inside a badge. **Integrated**: a group with a count, status, ring, initials by name, shapes, an avatar with a name as an Item (components 98338a43…401c33b2; gallery 25974388, docs 277f601f, ad07a67c, c134284c.) An avatar inside a badge stays open.
+- **Kbd.** **Checked**: `Kbd.combo({ keys, joiner? })`, and the keycap look (a heavier lower edge and a lit top, measured in `kbd.browser.test.ts`).
+- **Separator.** Examples: horizontal and vertical, a label in the middle,
+  spacing and inset options, dashed, thickness. **Integrated**: a label, vertical, dashed with thickness, spacing and inset (components 98338a43…401c33b2; gallery 25974388, docs 277f601f, ad07a67c, c134284c.)
+- **Skeleton.** Fix (B), then: a shimmer wave option (travel-aware), text
+  lines (`lines: 3`, a short last line), and composites (an avatar row, a
+  card, a table row) built from the existing shapes. **Integrated**: shimmer, lines, an avatar row, a card and table rows (components 98338a43…401c33b2; gallery 25974388, docs 277f601f, ad07a67c, c134284c.)
+- **Spinner.** Kinds: ring (today), dots, bars, pulse, orbit, an
+  indeterminate ring shared with Progress; sizes and tones; a label beside
+  it. **Integrated**: five kinds, sizes, tones and a label (components 98338a43…401c33b2; gallery 25974388, docs 277f601f, ad07a67c, c134284c.) The ring shared with Progress stays open.
+- **Item.** Say what it is (the row primitive: media, title, description,
+  actions) and show it: settings rows, a notification list, a file row, a
+  selectable item, a link item. **Integrated**: the row primitive, pressable and chosen, `Item.group`; settings rows and a choice of rows (components 98338a43…401c33b2; gallery 25974388, docs 277f601f, ad07a67c, c134284c.)
+- **Empty.** Make it read as empty: a muted icon or illustration slot, a
+  dashed border option, title, description, actions; examples for no
+  results, first use and an error. **Integrated**: media, a dashed or filled frame, the danger tone; no results, first use and an error (components 98338a43…401c33b2; gallery 25974388, docs 277f601f, ad07a67c, c134284c.)
+
+### Form controls
+
+- **Input.** **Checked**: the filled variant's fill is the new `surface.field`
+  token (on the `default` step, so it tracks the `surface-contrast` knob)
+  rather than the page-adjacent `surface.subtle`; shared by Input, Textarea
+  and Select, with a browser test pinning the field/base separation in both
+  schemes.
+- **Select.** **Checked**: native-select examples — basic, placeholder (an
+  empty disabled selected option), groups with headings (`optgroup`), a
+  disabled option, and invalid with its description; sizes and
+  outline/filled come from the recipe axes over all of them. Icons and
+  descriptions inside options, the check's position and `sameWidth` do not
+  apply to a native control (its options are text); those live with Listbox
+  and Combobox.
+- **Checkbox.** **Checked**: the mark wipes in over the fast tier,
+  travel-aware (reduced motion shows it at once), and the mixed dash is a
+  dash again (it had inherited the check's borders and rotation); sizes and
+  tones come from the recipe axes over every example; the gallery shows
+  basic, indeterminate and a card checkbox (the whole card the label).
+- **Checkbox Group.** **Checked**: rows spaced on the ladder (a vertical
+  list stays flush so checked rows stay one block); a description per
+  option, the box on the label's row; `orientation` `vertical` or
+  `horizontal`; an `error` that marks the group invalid; `coverage` and
+  `setEnabled` for a select-all, a disabled option counting for neither.
+  The gallery shows alerts, descriptions, select-all and invalid.
+- **Radio Group.** **Checked**: descriptions, a wrapping horizontal row
+  (`orientation: 'Horizontal'`), and `variant: 'card'`, which frames each
+  direct label and fills the one whose radio is checked. The gallery shows
+  all three. The press and the dot were fixed in Part B.
+- **Switch.** RTL (A6); a thumb drag (systems 8, open).
+- **Input OTP.** Fix (B); separators and groups (3-3), masked, numeric or
+  alphanumeric, sizes.
+- **Password Input.** Check its slots against shadcn's and Zag's: a strength
+  Meter slot (Meter synergy), a caps-lock hint, a requirements list, the
+  toggle's placement. **Integrated**: strength, requirements, a Caps Lock hint (components fc7fb1c9…340a5273; gallery 0a4e23f4; docs 277f601f, ad07a67c, c134284c.)
+- **Tags Input.** Show a refused tag (a repeat or an empty part): a message
+  slot and a brief shake, travel-aware, announced politely; suggestions
+  through the Combobox; a maximum; chips as Badges. **Integrated**: refusals in a `message` with a shake, a maximum (components fc7fb1c9…340a5273; gallery 0a4e23f4; docs 277f601f, ad07a67c, c134284c.) Suggestions are the multiple Combobox with chips.
+- **InputCopy.** The focus ring (B, A2); go back to "Copy" after a delay the
+  application sets (`InputCopy.Reset` after `ms`, as a Command). **Integrated**: `InputCopy.Model` and `Reset` after `resetAfter` (components fc7fb1c9…340a5273; gallery 0a4e23f4; docs 277f601f, ad07a67c, c134284c.)
+- **Slider / Range Slider.** Merge (A9); Fluid's look: a thick rounded
+  track, the value inside or above the thumb, marks and ticks, steps,
+  vertical. **Integrated**: vertical again, ticks, labelled marks, the value at the end, a painted track (components dedd95dd, 79571688, cd27fb6e, a2542684, 6f0d5b11; gallery f1cd9125; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+- **Color Picker.** Rebuild after ReUI's: a 2D saturation and brightness
+  area, hue and alpha sliders (the merged Slider), an eyedropper where
+  supported, a format switch (hex, rgb, hsl, oklch) with an input, swatches,
+  and a popover trigger. **Integrated**: the area, hue and alpha Sliders, the eyedropper, four formats, swatches and a popover, its Model folded with `update` (components dedd95dd, 79571688, cd27fb6e, a2542684, 6f0d5b11; gallery f1cd9125; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+- **Combobox.** A research brief first (ReUI, shadcn, Fluid, Base UI, Zag,
+  the APG): width matched to the input and configurable (A4); icons and
+  descriptions; multiple selection with chips (TagsInput synergy); async
+  loading; creatable; groups; matched text highlighted; an empty state;
+  clear; long lists through VirtualList. **Integrated**: chips, clear, empty and loading, groups, creatable, the typed text marked; `Combobox.draw` through `drawCombobox`'s `beforeInput`/`afterInput`/`afterPanel` (9ae2b484) (components fc7fb1c9…340a5273; gallery 0a4e23f4; docs 277f601f, ad07a67c, c134284c.) Long lists through VirtualList stay open (an upstream row seam, filed as foldkit/foldkit#1690).
+- **Dates.** Merge (A9). Typography like shadcn's and ReUI's (weights,
+  tabular numbers, muted weekday labels and outside days). Edge cases: min
+  and max, disabled dates, outside days, the locale's first day, week
+  numbers, RTL, today. Month and year choosing: dropdowns, a grid of months
+  and of years, a caption layout. Presets ("Last 7 days"), two months, a
+  hover preview of a range. **Integrated**: week numbers, a label or selects for the caption, two months side by side, presets, a range preview, `localeOf`, outside days hidden (components dedd95dd, 79571688, cd27fb6e, a2542684, 6f0d5b11; gallery f1cd9125; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+
+### Navigation
+
+- **Breadcrumb.** **Checked**: separators (chevron, slash, dot, custom), a maximum with the middle folded into an ellipsis (`collapse`), icons.
+- **Pagination.** **Checked**: simple, numbered with ellipses, siblings and boundaries, "1–10 of 97", compact (wraps), first and last. A page size select stays open.
+- **Tabs.** Examples: underline, pill, vertical, with icons and counts,
+  scrolling overflow, closable. **Integrated**: underline, pill, vertical, icons and counts, scrolling, closable (components 028bc35c, 7af6e895, 76e93241, bb898c1a, 54487b5e; gallery 5f06ac19; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+- **Segmented.** Fix (A2, A7); examples: icons, sizes, full width, tray and
+  underline. **Integrated**: icons (alone too), sizes, full width, underline (components 028bc35c, 7af6e895, 76e93241, bb898c1a, 54487b5e; gallery 5f06ac19; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+- **Navigation menu.** Dropdown panels (a mega menu), the indicator styles
+  (pill, underline), vertical. **Integrated**: dropdown panels in the top layer with the APG keys, pill and underline, a column (components 028bc35c, 7af6e895, 76e93241, bb898c1a, 54487b5e; gallery 5f06ac19; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+- **Sidebar.** Fix (A3), then after Fluid's sidebar: header and footer
+  slots, groups, counts and badges, icons, nested items, a gliding active
+  marker, collapse to an icon rail with tooltips, a resizable width (the
+  Resizable handle), a sheet on a phone, the collapsed state remembered. **Integrated**: a Model, header and footer, groups, icons and counts, branches, a gliding marker, an icon rail with Tooltips, a phone Sheet, a resizable width (components 028bc35c, 7af6e895, 76e93241, bb898c1a, 54487b5e; gallery 5f06ac19; docs 6fc547d4, ebfc4c98, 7d75f8f5.) Group actions, a shortcut and floating variants stay open.
+- **Steps.** **Checked**: icons per step, vertical with content. Markers on the Badge and Avatar sizes, and the connector as a Progress, stay open. **Integrated**: markers on the Avatar's sizes, dots, a progress connector (components 54c3a9ba, ab718afb, fbf7b563, 4b81129e, 45fb79b3, 87296ff2, 2abae422; gallery 6a7e09a2; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+- **Carousel.** Fix (B); dots after Fluid's
+  [carousel dots](https://www.fluidfunctionalism.com/docs/carousel-dots),
+  thumbnails, several per view, the swipe reported back (a `scrollend`
+  Mount), autoplay with pause and a stop control. **Integrated**: Fluid's dots, thumbnails, several per view, the swipe reported back by `ScrollSettle`, autoplay with a stop control (components 54c3a9ba, ab718afb, fbf7b563, 4b81129e, 45fb79b3, 87296ff2, 2abae422; gallery 6a7e09a2; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+- **Tree View.** Fix (A3); icons, guide lines, checkboxes, drag to reorder
+  later. **Integrated**: icons, guide lines, tri-state checkboxes (components 54c3a9ba, ab718afb, fbf7b563, 4b81129e, 45fb79b3, 87296ff2, 2abae422; gallery 6a7e09a2; docs 6fc547d4, ebfc4c98, 7d75f8f5.) Drag to reorder stays later.
+
+### Overlays and menus
+
+- **Menus.** Merge the pages (A9); concentric rows (A2); checkbox and radio
+  items, shortcuts, submenus in the top layer (A4). Menubar gets the same. **Integrated**: checkbox and radio rows, groups, shortcuts and a destructive tone, Menubar too (components 4381fa3d, 3a90b39b, 5b9724c9, 6d7d3573, e4cf287c, 9f932a14; gallery aa2c829b, 81abe761; docs 277f601f, ad07a67c, c134284c.)
+- **Command.** Concentric (A2); from Fluid's
+  [command menu](https://www.fluidfunctionalism.com/docs/command-menu?preset=kd4OW):
+  groups with headings, shortcuts as Kbd, icons, a footer with key hints, an
+  empty and a loading state, nested pages, ⌘K in a dialog. **Integrated**: icons, descriptions, pages, loading, hints, keycaps, ⌘K in a dialog (components 4381fa3d, 3a90b39b, 5b9724c9, 6d7d3573, e4cf287c, 9f932a14; gallery aa2c829b, 81abe761; docs 277f601f, ad07a67c, c134284c.)
+- **Popover, Tooltip, Hover Card.** A4 (top layer, collision, arrows,
+  anchors), and more examples per page. **Integrated**: in the top layer through `Anchor.layer`, placement defaults with flip and shift, arrows; examples per page (components 85038b4d…e3a96a7c; gallery 990d9579; docs 277f601f, ad07a67c, c134284c.)
+- **Dialog.** Merge (A9); sizes, a scrolling body with a sticky footer
+  (A5), a form, a destructive confirmation, nested. **Integrated**: sizes to `xl` and `full`, a scrolling body under a footer, a form, nested with `covered` (components 85038b4d…e3a96a7c; gallery 990d9579; docs 277f601f, ad07a67c, c134284c.)
+- **Sheet / Drawer.** The hardest. A brief over vaul, Radix and Base UI
+  dialogs, Zag's dialog, Fluid and ReUI: drag to dismiss with velocity,
+  snap points, the handle as a real slot, nested drawers, scaling the page
+  behind, scroll lock, safe areas on a phone, the top layer (A4), focus,
+  sides and sizes, non-modal. One component (A9). **Integrated**: `Sheet`, its handle dragging between points and away with vaul's thresholds, sides, nested, scaling the page (components 85038b4d…e3a96a7c; gallery 990d9579; docs 277f601f, ad07a67c, c134284c.) Non-modal waits on upstream (E9).
+- **Toast.** Rebuild after Sonner, Fluid and ReUI: a stack that expands on
+  hover, swipe to dismiss, positions, a type with its icon, promise toasts
+  (loading to success), actions, a duration that pauses on hover and focus,
+  a maximum shown, reduced motion. **Integrated**: the `Toast` component, its types, a promise, an action, the rich tone and positions on the Toast page (components 4381fa3d, 3a90b39b, 5b9724c9, 6d7d3573, e4cf287c, 9f932a14; gallery aa2c829b, 81abe761; docs 277f601f, ad07a67c, c134284c.) A focus hotkey and swipe velocity stay open.
+
+### Data
+
+- **Table.** ReUI's tables are the reference. Decide the boundary with the
+  DataGrid first: Table stays the presentational table (sortable headers
+  with `aria-sort`, striped, density, a sticky header, row selection with
+  checkboxes, an empty state, an expandable row), and filtering, column
+  reordering, resizing and virtualized rows point to `foldkit-data-grid`.
+  Examples for each. **Integrated**: sortable headings, row selection, expandable rows, an empty state, striped, density, a sticky header (components c7a94883, b7cb520b, 8a137386, 708cb4bb, 00bcb55d; gallery 3ccd4f37; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+- **VirtualList.** Fix (B); use the project's pieces: ScrollArea and the
+  scroll fades (A5), `ListNavigation` and Selection for a selectable list.
+- **Progress.** Examples: a label with the value, segmented and stacked,
+  buffered, striped and moving (travel-aware), the ring with the value
+  inside, an upload list, steps as progress; tones shared with Meter. **Integrated**: its value, stacked, buffered, striped and moving, the ring with its value, steps, tones (components c7a94883, b7cb520b, 8a137386, 708cb4bb, 00bcb55d; gallery 3ccd4f37; docs 6fc547d4, ebfc4c98, 7d75f8f5.) An upload list stays a gallery idea.
+- **Rating.** A brief (Zag, MUI, Mantine): a fractional read-only value
+  (4.3 drawn as a partial star by a clip), half stars, other glyphs
+  (hearts), sizes, a label per value, clearing, Home and End. **Integrated**: fractions, half stars, hearts and circles, a word per value, clearing, Home and End; a read-only one takes no `onChange` (components c7a94883, b7cb520b, 8a137386, 708cb4bb, 00bcb55d; gallery 3ccd4f37; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+- **Resizable.** A nicer handle (grip dots, an accent line on hover),
+  vertical, nested both ways, collapsible panels. **Integrated**: a grip and an accent line, collapsible panels, nested both ways (components c7a94883, b7cb520b, 8a137386, 708cb4bb, 00bcb55d; gallery 3ccd4f37; docs 6fc547d4, ebfc4c98, 7d75f8f5.)
+
+## Part E: review of the first pass (2026-10-16)
+
+A first pass over Phases 0–5 (71 commits from 706c393a to 1fe1dad4) was
+reviewed commit by commit by five reviewers, each re-running the tests,
+re-applying the bugs it fixed and measuring a fresh build. What holds:
+the merges ported their tests and lost no tested capability; `nested()`,
+the top layer (left to right), ScrollBars, the state-ink tokens and the
+collapse helper `opensBelow` are sound; OTP, Skeleton, the stacked Radio
+Group, TreeView's collapse and the chevrons are fixed and proven; 27
+mutation specs re-run kill every mutation; unit (940 files) and mixins-ui
+browser (43 files) suites are green. What does not hold is below, grouped
+by the files a fixer owns. Reports: the session scratchpad's `review/`.
+
+The merge commits d2776da6..9ac43085 do not build one by one (each exports
+modules another deletes); bisect must skip them, 5fc1f906 being the first
+green commit. Shared history is not rewritten.
+
+### E1. CI and blockers
+
+- [x] `examples/site/test/components.mutations.ts:193`: the anchor lost two
+  spaces of indentation when 1fe1dad4 re-indented the radio snippet
+  (`snippets/components.ts:957-958`), so the spec refuses to run and
+  `mutate:check` and `pnpm check` are red. Re-anchor, run `--only`. **Done**: 4276d1ab.
+- [x] Gallery example sections are unnamed: `view/components.ts:204-205`
+  labels each by `example-${name}` while its heading's id is `${name}`.
+  Fix and add the name check to the prerender test. **Done**: d01a6fce (the prerender test refuses a dangling `aria-labelledby`).
+- [x] Top-layer panels open at the wrong side right to left: a shown
+  popover keeps the browser's `inset: 0`, the anchor writes only
+  `left`/`top`, so `right: 0` wins under `<html dir="rtl">`
+  (`menuView.ts:307`, `listboxShared.ts:353`, `comboboxShared.ts:332`).
+  `inset: auto`; a browser test that sets `dir` on `documentElement` (the
+  current one sets it on a wrapper, where the bug does not show). Decide
+  whether to reset the UA popover border, padding and `Canvas` background. **Done**: 5de3153b (`inset: auto`; a browser test sets `dir` on the document; the UA border, padding and fill stay, since every recipe replaces them).
+- [ ] The richtext specs' four rotted anchors (`richtext/test/deleteAcross`,
+  `table`, `richtext-dom/test/hint` ×2) predate this work; leave them to the
+  richtext session, but list them so `mutate:check` red is explained.
+
+### E2. State colour and hovers
+
+- [x] The default (subtle) Alert's actions and dismiss have no visible
+  hover: on the band, `--fk-state-ink` is the band's tint, so the film is
+  the band over itself (`recipes/alert.ts:184`). Use the band's ink; a
+  browser test for the subtle case. **Done**: c07731dc (`stateInk.browser.test.ts`).
+- [x] `stateHue: 'accent'` does not reach neutral and ink tones: they set
+  `--fk-state-ink: currentColor` on the element, overriding the root
+  (`recipes/design.ts:273, 286`), so neutral ghost/outline Buttons, Radio,
+  Slider and Toggle still hover grey; the claim "one override changes every
+  component" (plan, CHANGELOG, skill) is false. Split the names
+  (`--_fk-state-ink` local, `--fk-state-ink` the theme's); a browser test
+  of a neutral ghost button in accent mode. **Done**: c07731dc (`--_fk-state-ink` local, `--fk-state-ink` the theme's; `stateInk.browser.test.ts`).
+- [x] Pressed toggles (`recipes/button.ts:55, 117, 174`): an outline,
+  ghost or icon toggle pressed and held without hover gets a 16% tint with
+  on-fill text, so the label vanishes; a pressed icon toggle's glyph
+  changes colour on hover; a pressed solid toggle looks unpressed on hover.
+  Fix, and test with computed style under `CSS.forcePseudoState`, not CSS
+  text. **Done**: 90d44648 (`toggleButtons.browser.test.ts`, forced pseudo-states).
+
+### E3. Right to left (A6, reopened)
+
+- [x] Segmented, Tabs and Navigation Menu indicators are measured only on
+  draw or resize and stay put after a direction change
+  (`recipes/segmented.ts:26-31`, `tabs.ts:40, 116, 145`, `nav.ts:21-24`):
+  remeasure on a direction change (key by direction as `resizable.ts:172`
+  does, or observe `dir`); a test that flips `dir` after mount. **Done**: f702f16b (`FollowDirection`; browser tests flip `dir` after mount).
+- [x] Color Picker tracks run `to right` while the thumbs mirror
+  (`recipes/colorPicker.ts:27-30`): mirror under `:dir(rtl)`. **Done**: 4272d931 (`colorPicker.browser.test.ts`).
+- [ ] Calendar: ArrowLeft moves to the previous day, drawn to the right;
+  the month buttons swap sides but keep `‹`/`›` (`calendar.ts:216, 248`). **Partly**: the arrows (e18fba0d, `Calendar.readingKeys`); the month buttons still draw `‹`/`›`.
+- [x] Command shortcuts render "N⌘" (`command.ts:89`):
+  `direction: ltr; unicode-bidi: isolate` on the shortcut slot. **Done**: e8598620.
+- [x] Tabs and a horizontal Radio Group do not mirror their arrow keys
+  (only the five components with a `direction` option do). **Done**: e18fba0d (`readingKeys`, opt-in; `readingKeys.browser.test.ts`).
+- [x] A `direction` option swaps keys but no view draws `dir`: each view
+  with the option draws `h.Dir(direction)` on its root, so keys and CSS
+  agree (the Resizable README/skill sentence is false without it; a Menu
+  with `direction: 'rtl'` opens its submenu left with a right chevron). **Done**: dc7e751c, 0e68be1c.
+- [x] One way to detect RTL: `:dir(rtl)` everywhere, not
+  `:where([dir="rtl"]) &` (accordion, sidebar, treeView, menu), which
+  matches an LTR island in an RTL page. **Done**: no `[dir="rtl"]` selector is left in `packages/mixins-ui/src`.
+- [ ] A browser RTL test per component that has a direction-dependent
+  part, setting `dir` on `documentElement`.
+
+### E4. Tests that cannot fail, and claims marked without proof
+
+- [x] Hover Card's "trigger stays put" passes with a static card (the
+  fixture is left-aligned): centre the trigger so a card in flow moves it. **Done**: 2b2d5956.
+- [x] InputCopy's corner test is a regex over CSS that passes a wrong
+  radius: measure computed radii; use `nested()` (A2) instead of a
+  hard-coded `radius.md`. **Done**: 8c250261.
+- [ ] Steps' narrow layout test reads CSS text and passes with
+  `containerType` removed: measure at a narrow width.
+- [x] da1acf5b replaced the browser test "a held button keeps its size
+  under reduced motion" with a regex; restore it with
+  `CSS.forcePseudoState` (AGENTS.md). **Done**: 66bf877f.
+- [x] The checkbox browser test asserts a rotation every mark has; test
+  that a checked box shows its check and an unchecked one does not. **Done**: ca42af48.
+- [x] Command search's `.toLowerCase()` is untested. **Done**: 581f6468.
+- [ ] 50a7ef0f flipped about 30 rows to "Checked" with no browser test:
+  Switch RTL, Kbd, Checkbox and Segmented ink centring (use the audit's
+  `ink.mjs` method), Alert and Pagination at 390px, VirtualList. Each gets
+  its measuring test before it is marked again.
+- [ ] A3's test covers TreeView only and skips "never taller than its
+  final height" and "the first label's x never moves": add both, and
+  Sidebar.
+- [x] `test/menu.mutations.ts:55` removes `topLayer` but keeps
+  `popover="manual"`, hiding the panel; remove both so only the overflow
+  test kills it. **Done**: 816cff40.
+- [ ] The radio "press" test checks `label.control`; press it.
+- [ ] Badge, kbd, buttonLook and checkbox-recipe mutation specs re-read the
+  CSS line they change: replace with behaviour or computed-style tests. **Partly**: badge and kbd (24e850c9), buttonLook (90d44648); the checkbox recipe's spec is left.
+
+### E5. Merges and their docs
+
+- [x] `Menu.init(id, rows)` never passes `isAnimated`, so every Menu snaps
+  (the fade at `recipes/popup.ts:42` never runs; the gallery's menus were
+  animated before): `Menu.init(id, rows, { isAnimated?, isModal? })` for the
+  menu and its submenus, a `data-closed` browser test, the gallery set. **Done**: 46836818 (browser tests watch `data-closed`/`data-leave`), 05de987c (the gallery).
+- [x] `Menu.view` has no `style` option, yet the README, skill and
+  CHANGELOG document one (the snippet fails with TS2353): remove it there. **Done**: 45b7267a, 8e4037de, ee069277.
+- [x] Calendar Range and Multiple mark many cells `aria-selected` but the
+  grid has no `aria-multiselectable="true"` (`calendar.ts:393`). **Done**: 33fe1287 (`calendarSelection.test.ts`).
+- [x] `DatePicker.update(selection)` (range in a popover) is untested in a
+  browser, in no example, and undocumented in README and skill; for a range,
+  `triggerContent` gets nothing and the hidden `name` input submits
+  nothing. A range picker on the Calendar page, a browser test, the limits
+  documented. **Done**: 3e823368 (`datePicker.browser.test.ts`), 6005f701 (the gallery), 45b7267a and 8e4037de (documented).
+- [x] Two capabilities left with the merges and are not recorded: the
+  Slider's vertical orientation, and opening any typed Menu at a point (now
+  only the string-row component can). Restore a point mode on
+  `Menu.toView`, or record both. **Done**: 3b97f055 restores a point for a typed Menu (`menu.browser.test.ts`); the Slider's vertical orientation is recorded in the CHANGELOG.
+- [x] Describe the Menu once, truly: `MenuView` is still the fork, `Menu.resolve`
+  /`toView` adapt it (Menubar uses that), and the component is built on
+  top (`README.md:821-837`, skill `mixins.md:300`, `menu.ts:5`). **Done**: 01180a80 (`menu.ts`), 45b7267a (README), 8e4037de (skill).
+- [x] A single date is passed twice (the selection and upstream's
+  `maybeSelectedDate`, `calendar.ts:427`): derive one from the other. **Done**: 33fe1287 (`Calendar.inputs`).
+- [x] `gallery/widgets.ts:550, 171`: an orphaned comment and a stray blank
+  line. **Done**: 05de987c.
+
+### E6. Systems' loose ends
+
+- [ ] Overlay bars have two API shapes (a boolean `overlayBars` on
+  ScrollArea, Command and VirtualList; an `X.overlayBars` mixin list on the
+  popups): pick one; browser tests for VirtualList and a popup; a gallery
+  example; decide whether they default on. **Partly**: one shape, off by default (245fdb20), browser tests for Command and VirtualList (e8598620), a gallery example (1662fb24); a popup's bar has no browser test yet.
+- [x] ScrollBars re-observes the scroller and every child on any child
+  change (`scroll-bars.ts:254-258`), once a frame while a VirtualList
+  scrolls: observe one content box. **Done**: 50fc5b3d (`scroll-bars.browser.test.ts` counts observations).
+- [x] `Anchor.topLayer` throws on an element without `popover`: guard. **Done**: 355a2d94.
+- [x] `triggerWidth` is a selection built with `component()` (`popup.ts:57`):
+  `variant()`, and its doc says floor where it replaces. **Done**: 43b3fe8a.
+- [x] Wrong comments: `nested()` "outside any such container it is square"
+  (`tokens.ts:194`; values inherit); `anchor.ts:6-7` says the anchor writes
+  `position`. **Done**: 83e7ae07, 355a2d94.
+- [x] `theme.browser.test.ts:173` tests the browser's `var()`: delete. **Done**: 83e7ae07.
+- [x] Casts in `anchor.test.ts` (`Stream.never as …`): remove. **Done**: 355a2d94.
+- [x] The skill misses top-layer panels, `Anchor.topLayer` and the popups'
+  `width` axis (Combobox `trigger`, Listbox `auto`). **Done**: 8e4037de.
+- [x] VirtualList's width still changes while scrolling in a content-sized
+  container (132.6 → 127.7px); only the demo's fixed width hides it. **Done**: e8598620 (`lists.browser.test.ts`).
+
+### E7. Part C, finished properly
+
+- [x] The gallery shows little of 04fa1bdb: examples for pressed toggles
+  (Button), `Kbd.combo`, Breadcrumb's separators, collapse and icons,
+  Pagination's ends, range, siblings and compact, Steps' icons and vertical
+  content. **Done**: 1662fb24, 09b04462.
+- [x] Breadcrumb: twice the space after a separator as before
+  (`breadcrumb.ts:33`); the "…" should open a menu (the plan, shadcn), not
+  expand in place. **Done**: the spacing (3bfe90a2); the "…" opens a Menu
+  (76e93241), on the gallery in 5f06ac19.
+- [x] Pagination: the page-size select; compact mode hides the total. **Done**: 8fb1105b.
+- [x] Steps: vertical connectors do not reach the markers; Badge/Avatar
+  markers and a Progress connector are open. **Done**: the vertical line reaches both markers (b41a6fba); markers on the Avatar's sizes and a progress connector (45fb79b3).
+- [x] Select: no dropdown arrow (`appearance: none`, nothing drawn) and a
+  placeholder that `::placeholder` cannot mute; and it was narrowed to the
+  native control and marked Checked, while Fluid's select is a custom
+  listbox: the custom Select (over Listbox) with Fluid's examples.
+  **Done**: the chevron, the muted placeholder and `Listbox.parts` in
+  fc7fb1c9…340a5273; the custom examples on the Select page in 0a4e23f4.
+- [ ] Checkbox Group: `setEnabled` drops a checked disabled option
+  (`checkboxGroup.ts:77-80`), contrary to "counts for neither"; uneven row
+  spacing; the disabled label not dimmed; select-all outside the group above
+  the legend; the invalid example errors while boxes are checked; the three
+  gallery checkbox examples share one state; "indeterminate" can never be
+  plainly unchecked. **Partly**: `setEnabled(options, checked, on)` keeps a locked box and the group draws its select-all (46abbe48), each example holds its own state and the invalid one errors only while nothing is checked (e3b30b24, 1662fb24); the spacing, the dimmed disabled label and a plainly unchecked indeterminate box are not confirmed.
+- [x] Radio cards style the application's own `label`s, not a Slot, and the
+  selected card nearly vanishes in dark; the Cards snippet should show
+  `Recipes.RadioGroup({ variant: 'card' })`. **Done**: b3582ce7, 6005f701, 09b04462.
+- [x] Badge's four example snippets have identical bodies. **Done**: 1662fb24.
+- [x] Kbd's plan entry says the keycap is open; it shipped. **Done**: the entry in Part C now says it shipped.
+
+### E8. Docs and tooling
+
+- [x] The CHANGELOG logs never-released components (NestedMenu,
+  ContextMenu, DateRange, Recipes.Drawer, RangeSlider, Banner) as breaking
+  removals under Unreleased (`CHANGELOG.md:552-555, 565-566, 607-616`):
+  rewrite the Unreleased entries instead; drop the duplicate Sheet entry;
+  "Nested Menu" at 755-759 and 790. **Done**: ee069277.
+- [x] The button press is described as both a 2% shrink and exactly 1px a
+  side (CHANGELOG 14 vs 287-293): describe the code (a 2% scale, a 1px
+  border cleared on solid buttons). **Done**: ee069277, 45b7267a.
+- [x] The top-layer scope in CHANGELOG:539 and §A4 says submenus and the
+  Menubar stay on portals; they are drawn `portal: false` and are in the
+  top layer. **Done**: ee069277, and §A4.
+- [x] README and skill rows say Breadcrumb and Pagination have no axis
+  (`separator`, `compact` exist). **Done**: 45b7267a, 8e4037de.
+- [x] `docs/mixins.md` lists Toast, FileDrop, VirtualList, Anchor and
+  HoverIntent as not covered. **Done**: fc11fdd7.
+- [x] `scripts/workspace-paths.mjs` and `packages/plus/scripts/generate.ts`
+  still format with prettier and `.prettierrc.json`: use oxfmt's `format()`,
+  drop the duplicate config. `.prettierignore`'s comment, AGENTS.md's and
+  CONTRIBUTING.md's sentence that bare `oxfmt` ignores the config (it reads
+  it, and formats html/mjs/jsonc outside the glob), the pipe-status trap's
+  incident (prettier, not oxfmt), and kitchen-sink's missing
+  `foldkit-primitives` mapping (the ScrollBars README snippet was never
+  compiled). Add the reformat commit 573d4529 to `.git-blame-ignore-revs`. **Done**: 4b6ae0c3.
+
+### E9. Integration of Parts C and E (2026-10-16)
+
+- [x] The site builds again after the Menubar, Command and Tooltip breaks. **Done**: aa2c829b.
+- [x] Index exports for the Sheet, the avatar and item groups and the new types, and the
+  token gate over the group recipes and the Sheet. **Done**: 576d34e0.
+- [x] `Combobox.draw` draws through `drawCombobox`'s seams, with its mutations re-anchored;
+  the date picker's hidden input carries its name in server markup (a render-to-string
+  test; `h.Name` was already serialized in Foldkit 0.168). **Done**: 9ae2b484.
+- [x] The button comment, the root's unused prettier, kitchen-sink's `foldkit-primitives`.
+  **Done**: 12f0e229, 161927b4.
+- [x] Gallery examples for display, forms, menus, Command, Toast and the overlays, each
+  with widgets state of its own. **Done**: 25974388, 0a4e23f4, 81abe761, 990d9579.
+- [x] CHANGELOG, the mixins-ui README (its opening claim of no component state too) and
+  the skill. **Done**: 277f601f, ad07a67c, c134284c.
+- [x] The rest of the hand-offs: dates and colour, navigation, carousel, tree and steps, data
+  (galleries f1cd9125, 5f06ac19, 6a7e09a2, 3ccd4f37; the Carousel's `slide` and the Sheet's
+  `point`, fields a Surface's ModelRef would refuse, 2abae422, 2326b3bc).
+- [x] Screenshots of every changed gallery page at 390 and 1280, light and dark, and the
+  popups, dialogs, sheets, toasts and ⌘K opened. **Done**: the gallery's own faults fixed in
+  a87abff0 (axes with no fallback forced on, the terms' paragraphs, boxes to fill). Seen in
+  components, open:
+- [x] Steps at 390: a step's title runs into the next marker (Payment, Shipped, Upload under
+  the progress connector), and the dots' connectors sit below the dots. **Done**: 4fcd0631.
+- [x] Navigation menu at 390: the trigger's chevron draws as a diagonal tick, and a panel wider
+  than the viewport is cut at its edge rather than shifted inside it. **Done**: c24b0c96 (the panel
+  fitted; its row of columns ran past it).
+- [x] Segmented trays are as wide as their options now, so the CMS Builder's inspector choices
+  and narrow panel tabs (`examples/cms/src/styles/builderStyle.ts:365, 437, 442`, options
+  `flex: 1`) and `examples/design-system/src/style.ts:614` no longer fill their row: give
+  those trays `width: 'fill'` or `inlineSize: 'auto'`. **Done**: 6a6a434a (the viewports never filled
+  their flex row, so they stay).
+- [x] Popover: no arrow could be seen on the open panel in the screenshots. **Done**: 1b6f463a (it
+  was drawn, too small to see; now larger, the panel 12px off).
+- [ ] A Dialog's `initialFocus` on a `Button.view`: the view takes no attributes, so the
+  alert example cannot spread it on Cancel.
+
+Needs `@foldkit/ui` (open):
+
+- [ ] A non-modal Dialog: `InitConfig.isModal?` passed to `showDialog` and
+  `AcquireResources`, skipping the scroll lock when false; it gives a non-modal Sheet. Filed: foldkit/foldkit#1686.
+- [ ] The Tooltip's arrow: `arrowId(id)` and an `arrow` bundle in its `RenderInfo`, so
+  `PlaceArrow` and its `!important` override can go. Filed: foldkit/foldkit#1687.
+- [ ] Collision inside a top-layer ancestor: a `boundary`/`rootBoundary` in
+  `AnchorConfig`, or a top layer the anchor owns (foldkit/foldkit#1683). Filed: foldkit/foldkit#1688.
+- [ ] A modal `<dialog>` in the top layer: upstream opens it with `show()` and a z-index,
+  so a transformed ancestor captures it. Filed: foldkit/foldkit#1689 (an opt-in; `show()` is deliberate, for DevTools).
+
+## Part D: sequence
+
+| Phase | Work | Why first |
+|---|---|---|
+| 0 | Run the untested backlog (unit, browser, mutation); screenshot every gallery page at three widths, light and dark, LTR and RTL; confirm or drop each hypothesis in Part B | nothing above is trusted until it runs. **Done 2026-10-15**: every parity component has a mutation spec (134 mutations, all killed), and Part B records the rest |
+| 1 | A1, A2, A3, A7 | shared rules; each fixes several findings |
+| 2 | Part B | broken things before better things |
+| 3 | A4 and A5 | larger systems; menus, popovers, combobox and scroll areas wait on them |
+| 4 | A9 merges | the API settles before examples are drawn for it |
+| 5 | A8, then Part C in this order: form controls, overlays and menus, navigation, display, data | most-used first |
+| 6 | A6 audit and an RTL test per component | after the shapes stop moving |
+
+Part C entries are independent once Phases 1–4 land, so they split across
+agents the way parity 6 did: each writes its own files and reports the
+shared registration text.
+
+## Open questions
+
+- **The merged names.** `Alert` with a banner layout, or `Notice`? `Sheet`
+  or `Drawer` for the merged edge dialog? The plan assumes `Alert` and
+  `Sheet`.
+- **Table and DataGrid.** Is the boundary above right: sorting and selection
+  in Table, the rest in the DataGrid?
+- **Color Picker scope.** A ReUI-like picker needs a 2D area with pointer
+  and keyboard handling; is the area wanted in the first rebuild?
+- **The top layer.** Moving every floating panel into the top layer changes
+  how applications stack their own overlays; worth confirming before Phase 3.

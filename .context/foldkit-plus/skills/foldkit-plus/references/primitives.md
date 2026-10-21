@@ -58,10 +58,10 @@ name })`, and `permissions({ name })` are factories over a resource tag;
 OutMessage the placement handles with `onOut` — required, so it cannot be
 dropped. `Throttle` pairs leading-edge against that trailing edge.
 `chat.helpers.send('hi')` sends on a placed socket; `copyText`, `readText`, `share`,
-`loadScript`, `enterFullscreen`/`exitFullscreen`, and `postBroadcast` are
+`loadScript`, `decodeImage` (a picture decoded before it is shown), `enterFullscreen`/`exitFullscreen`, and `postBroadcast` are
 Commands; `Resize()`, `Intersection()`, `Mutation()`, `Bounds()`, and
 `Autofocus()` attach with `h.OnMount` in the view; `keyboardEvents()` and
-friends lift with `Subscription.persistent`, and `matchHotkey` turns a press
+friends lift with `Subscription.persistentEntry`, and `matchHotkey` turns a press
 into a chord answer. Slices that must survive reload persist through
 `Mirror.kv`, not here — this package owns live facts only.
 
@@ -127,8 +127,10 @@ and the bundle's `GoTo { step }` jump to any kept step, counted from the oldest.
   (Mount `PointerDrag({ attribute })` in `/dom`): `DragStarted { id }` past a 4px
   threshold, `DraggedOver { over: { id, zone: 'before' | 'inside' | 'after' } | null }`,
   `DragDropped { id, over }`, `DragCancelled { id }` (Escape, `pointercancel`, a
-  button found released). One pointer; touch and pen work by position (give the
-  marked elements `touch-action: none`). No roles or keys: give the keyboard
+  button found released). One pointer; touch and pen work by position. A finger's
+  press is a drag once held still `HOLD_TO_DRAG_MS` (400ms); one that moves `HOLD_SLOP`
+  (8px) first is a scroll, so leave the marked elements' `touch-action` alone and a list of
+  them still scrolls. No roles or keys: give the keyboard
   its own way. Swallows the click a drop ends with. Onto another region (a palette onto a
   page): `targets: { attribute, within: selector }`, so `over` is one of those; `within` is
   found nearest the container first, and each fact carries `region: boolean`, so `over: null`
@@ -154,9 +156,33 @@ and the bundle's `GoTo { step }` jump to any kept step, counted from the oldest.
   scrolling list or canvas scrolls whatever newly matches `selector` into view (`nearest`); no Message.
 - **Draw over a marked element:** the `Measure({ targets: { selected: selector } })` Mount writes
   `--fk-selected-x/-y/-w/-h/-display` on its element, relative to its scroll box; place an overlay
-  absolutely from them. No Message, nothing in the Model.
+  absolutely from them. `-moving` is `1` for the measure that finds the mark on another element and
+  `0` while it stays: scale a glide's duration by it, so the overlay keeps to its element as the
+  layout settles. No Message, nothing in the Model.
+- **Draw over another element anywhere on the page:** the `TrackBox({ name, radius? })` Mount follows the
+  element whose id is its own `data-target` (`TRACK_TARGET_ATTRIBUTE`, read again when it changes) and writes
+  `--fk-<name>-x/-y/-w/-h` (viewport pixels) and, with `radius`, `-radius` (`trackedBox(name)`), through scrolls,
+  resizes and the target drawn anew; sends `TrackedTarget { target, found }` on each change. The Tour's cutout uses it.
+- **One highlight that follows the pointer across items:** the `FluidHover({ name, item, axis, gapClick })`
+  Mount writes `--fk-<name>-x/-y/-w/-h/-shown/-moving` for the item nearest the pointer (gaps included;
+  `axis` `y` list, `x` strip, `xy` grid), skipping disabled items, following `:focus-visible`, ignoring touch.
+  `gapClick` presses the highlighted item's `data-fluid-press` descendant, within `gapReach` pixels if given. `follows: '[data-active]'` lights the
+  item the keys marked while the pointer is away; `from` is the item a fresh highlight grows out of and returns to. `focused` finds the item to light from a focused element that is none (`':scope > :first-child'`, a tree's row from its `treeitem`).
+  The container carries `data-fluid-hover="<name>"` while it runs; style the highlight under it. The lit item carries `data-fluid-lit`.
+  No Message.
+- **An overlay scrollbar:** the `ScrollBars({ idle?, scroller? })` Mount on a scroller drives the bars drawn
+  beside it (siblings marked `data-scroll-bar="block"` or `"inline"`): each gets `data-scrollable`,
+  `data-shown` (scrolling or pointer moving, until `idle` ms, default 600), `data-dragging`, and
+  `--fk-scroll-thumb-offset/-size` (`scrollThumb`) for its thumb; a press on a bar jumps and drags. The
+  scroller carries `data-scroll-overlaid` while it runs (hide the native bar under it). A coarse pointer
+  gets nothing: native bars stay. `scroller: 'ul'` when the scroller holds another Mount. No Message.
 - **Drag deltas:** the `Move` Mount (`foldkit-primitives/dom`) reports `MoveStarted`, `Moved { deltaX, deltaY }`,
   `MoveEnded { completed }` with pointer capture; `Move.behavior(Slots)({ handle, toMessage })` maps them on a `Draggable` slot.
+- **Where one pointer is in an element:** the `PointerPosition({ focus? })` Mount (`foldkit-primitives/dom`)
+  reports `PointerPressed`, `PointerMoved` (with the coalesced `points` and pressure) and `PointerReleased
+  { completed }`, each place in the element's padding box with its size, captured, moves listened to only
+  during a press; `focus` names a descendant to focus on a press. `paddingBoxOf({ rect, border })` and
+  `measurePaddingBox(element)` give the box. The color picker's area, the angle slider and the signature pad read it.
 - **Focus ring for keyboard users only:** place `InputModality` (`events`; `{ modality }` from window keydown and pointerdown)
   and attach `FocusVisible.behavior(Declared)(Slots)({ target })`, which writes `data-focus-visible` under keyboard. CSS `:focus-visible` is the floor.
 - **Dismiss on Escape or outside press:** place `DismissLayer.bundle` once (required `onOut` for `Dismiss { ids }`);

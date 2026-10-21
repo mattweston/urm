@@ -16,6 +16,7 @@ import type { Html, HtmlBuilder } from 'foldkit/html'
 import { defineView, type View as SubmodelView } from 'foldkit/submodel'
 import {
   computeRender,
+  type DirectionInput,
   type ListboxGroupRender,
   type ListboxHeadingRender,
   type ListboxItemRender,
@@ -24,61 +25,15 @@ import {
   type SharedBehavior,
   type SharedViewInputs,
 } from './listboxShared.js'
+import { drawListbox } from './popupView.js'
 
 export type { ListboxGroupRender, ListboxHeadingRender, ListboxItemRender, ListboxRenderInfo }
 
 /** Upstream's markup from the computed bundles: the default `toView`. */
 export const defaultToView =
   (h: HtmlBuilder<Message>) =>
-  (render: ListboxRenderInfo): Html => {
-    const drawItem = (item: ListboxItemRender): Html =>
-      h.keyed('div')(item.key, [...item.attributes], [item.content])
-    const drawGroup = (group: ListboxGroupRender): ReadonlyArray<Html> => {
-      const drawn = group.items.map(drawItem)
-      if (group.group === undefined) return drawn
-      const headed: ReadonlyArray<Html> =
-        group.heading === undefined
-          ? []
-          : [
-              h.keyed('div')(
-                group.heading.id,
-                [...group.heading.attributes],
-                [group.heading.content],
-              ),
-            ]
-      const grouped = h.keyed('div')(
-        group.group.key,
-        [...group.group.attributes],
-        [...headed, ...drawn],
-      )
-      return [
-        ...(group.separator === undefined
-          ? []
-          : [h.keyed('div')(group.separator.key, [...group.separator.attributes])]),
-        grouped,
-      ]
-    }
-    const grouped = render.groups.flatMap(drawGroup)
-    return h.div(
-      [...render.wrapper],
-      [
-        h.keyed('button')(`${render.id}-button`, [...render.button], [render.buttonContent]),
-        ...render.hiddenInputs,
-        ...(render.backdrop === undefined
-          ? []
-          : [h.keyed('div')(render.backdrop.key, [...render.backdrop.attributes])]),
-        ...(render.items === undefined
-          ? []
-          : [
-              h.keyed('div')(
-                render.items.key,
-                [...render.items.attributes],
-                render.scroll === undefined ? grouped : [h.div([...render.scroll], grouped)],
-              ),
-            ]),
-      ],
-    )
-  }
+  (render: ListboxRenderInfo): Html =>
+    drawListbox(render, h)
 
 const makeSharedView = (
   behavior: SharedBehavior,
@@ -97,18 +52,21 @@ const makeSharedView = (
 const singleShared = makeSharedView({ ariaMultiSelectable: false })
 const multiShared = makeSharedView({ ariaMultiSelectable: true })
 
-/** Upstream single view inputs plus the seam. */
+/** Upstream single view inputs plus the seam and `direction`. */
 export type SingleViewInputs<
   Item = string,
   Value extends string = Item extends string ? Item : string,
-> = UpstreamSingleInputs<Item, Value> & Readonly<{ toView?: (render: ListboxRenderInfo) => Html }>
+> = UpstreamSingleInputs<Item, Value> &
+  Readonly<{ toView?: (render: ListboxRenderInfo) => Html }> &
+  DirectionInput
 
-/** Upstream multi view inputs plus the seam. */
+/** Upstream multi view inputs plus the seam and `direction`. */
 export type MultiViewInputs<
   Item = string,
   Value extends string = Item extends string ? Item : string,
 > = UpstreamListbox.Multi.ViewInputs<Item, Value> &
-  Readonly<{ toView?: (render: ListboxRenderInfo) => Html }>
+  Readonly<{ toView?: (render: ListboxRenderInfo) => Html }> &
+  DirectionInput
 
 type MultiModel = UpstreamListbox.Multi.Model
 

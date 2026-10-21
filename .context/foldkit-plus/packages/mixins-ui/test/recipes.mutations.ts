@@ -10,15 +10,15 @@ export default [
     edits: [
       {
         file: '../src/recipes/segmented.ts',
-        find: '    group: variant(\n      // One pressed rule',
-        replace: '    group: component(\n      // One pressed rule',
+        find: '    group: variant(\n      // A positioned box',
+        replace: '    group: component(\n      // A positioned box',
       },
     ],
     tests,
   },
   {
     name: 'an icon button keeps its gap',
-    edits: [{ file: '../src/recipes/button.ts', find: "            gap: '0',\n", replace: '' }],
+    edits: [{ file: '../src/recipes/button.ts', find: "  gap: '0',\n", replace: '' }],
     tests,
   },
   {
@@ -26,7 +26,7 @@ export default [
     edits: [
       {
         file: '../src/recipes/design.ts',
-        find: "export const unfilledHover = 'color-mix(in oklab, currentColor 12%, transparent)'",
+        find: "export const unfilledHover = `color-mix(in oklab, var(--_fk-state-ink, ${ref.state.ink}) ${ref.knob['state-hover']}, transparent)`",
         replace: 'export const unfilledHover = ref.surface.muted',
       },
     ],
@@ -42,8 +42,8 @@ export default [
     edits: [
       {
         file: '../src/recipes/listbox.ts',
-        find: '        { true: { background: ref.accent.subtle, color: ref.accent.ink } },',
-        replace: '        { true: { background: ref.surface.muted, color: ref.text.default } },',
+        find: 'Style.nest(`${unlit}[aria-selected="true"]`, { background: ref.accent.subtle }),',
+        replace: 'Style.nest(`${unlit}[aria-selected="true"]`, { background: ref.surface.muted }),',
       },
     ],
     tests,
@@ -53,8 +53,8 @@ export default [
     edits: [
       {
         file: '../src/recipes/combobox.ts',
-        find: '        { true: { background: ref.accent.subtle, color: ref.accent.ink } },',
-        replace: '        { true: { background: ref.surface.muted, color: ref.text.default } },',
+        find: 'Style.nest(`${unlit}[aria-selected="true"]`, { background: ref.accent.subtle }),',
+        replace: 'Style.nest(`${unlit}[aria-selected="true"]`, { background: ref.surface.muted }),',
       },
     ],
     tests,
@@ -71,13 +71,12 @@ export default [
     tests,
   },
   {
-    name: 'a select keeps room for the value on every size',
+    name: 'a select keeps room for the value, whatever the size',
     edits: [
       {
         file: '../src/recipes/select.ts',
-        find: '  variant(Style.self({ paddingBlock: block, paddingInline: `${inline} 2rem`, fontSize: font }))',
-        replace:
-          '  variant(Style.self({ paddingBlock: block, paddingInline: inline, fontSize: font }))',
+        find: "paddingInline: `${ladder('pad')} 2rem`,",
+        replace: "paddingInline: ladder('pad'),",
       },
     ],
     tests,
@@ -111,6 +110,28 @@ export default [
         file: '../src/recipes/slider.ts',
         find: "        background: toneVar('fill'),",
         replace: '        background: ref.surface.muted,',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a thin slider track is as thick as the thumb',
+    edits: [
+      {
+        file: '../src/recipes/slider.ts',
+        find: 'track: variant(Style.self({ blockSize: `calc(${edge} * 0.375)` })),',
+        replace: 'track: variant(Style.self({ blockSize: edge })),',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a slider thumb widens with no value inside it',
+    edits: [
+      {
+        file: '../src/recipes/slider.ts',
+        find: "Style.pseudo('[data-values]', { '--_fk-slider-thumb'",
+        replace: "Style.pseudo(':not([data-values])', { '--_fk-slider-thumb'",
       },
     ],
     tests,
@@ -203,8 +224,46 @@ export default [
     edits: [
       {
         file: '../src/recipes/menu.ts',
-        find: '      hover({ background: ref.surface.muted }),\n      focusRing,\n      // The contract lets the trigger disable, like the items it opens.\n      disabled,',
-        replace: '      hover({ background: ref.surface.muted }),\n      focusRing,',
+        find: '      hover({ background: unfilledHover }),\n      focusRing,\n      // The contract lets the trigger disable, like the items it opens.\n      disabled,',
+        replace: '      hover({ background: unfilledHover }),\n      focusRing,',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a combobox panel sets itself free of its trigger',
+    edits: [
+      {
+        file: '../src/recipes/combobox.ts',
+        find: "  defaults: { width: 'trigger', check: 'end' },",
+        replace: "  defaults: { width: 'auto', check: 'end' },",
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'no listbox panel matches its trigger',
+    edits: [
+      {
+        file: '../src/recipes/listbox.ts',
+        find: '      trigger: { items: triggerWidth },',
+        replace: '      trigger: {},',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a filled field takes the page-adjacent tint',
+    edits: [
+      {
+        file: '../src/recipes/field.ts',
+        find: 'background: ref.surface.field, borderColor',
+        replace: 'background: ref.surface.subtle, borderColor',
+      },
+      {
+        file: '../src/recipes/select.ts',
+        find: 'backgroundColor: ref.surface.field, borderColor',
+        replace: 'backgroundColor: ref.surface.subtle, borderColor',
       },
     ],
     tests,

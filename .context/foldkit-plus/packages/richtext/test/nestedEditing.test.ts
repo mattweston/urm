@@ -163,14 +163,18 @@ describe('editing inside a nested block', () => {
     expect(blockAt(result.state.document, 1).children[0]?.text).toBe('tail')
   })
 
-  it('refuses a range that leaves its container, changing nothing', () => {
-    const before = state(range(['a', 1], ['t', 1]))
-    expect(run(before, { type: 'DeleteBackward' })).toEqual({
-      ok: false,
-      error: 'InvalidParent',
-    })
-    expect(runsOf(before.document, 0, 0)).toEqual([['one', []]])
-    expect(blockAt(before.document, 1).children[0]?.text).toBe('tail')
+  it('deletes a range that leaves its container, bringing the far end into the near one', () => {
+    // From `o|ne` in the list to `t|ail` after it: `two` goes whole, and `ail` joins `o`.
+    const result = success(run(state(range(['a', 1], ['t', 1])), { type: 'DeleteBackward' }))
+    const document = result.state.document
+    expect(containerAt(document, 0).map(block => block.id)).toEqual(['li1'])
+    expect(
+      runsOf(document, 0, 0)
+        .map(([text]) => text)
+        .join(''),
+    ).toBe('oail')
+    expect(document.children.map(block => block.id)).toEqual(['list', 'last'])
+    expect(result.state.selection).toEqual(caret('a', 1))
   })
 
   it('splits a list item with Enter, keeping the new item inside the list', () => {
@@ -188,8 +192,10 @@ describe('editing inside a nested block', () => {
     expect(blockAt(result.state.document, 1).children[0]?.text).toBe('tail')
   })
 
-  it('joins a list item with the previous sibling on Backspace', () => {
-    const result = success(run(state(caret('b', 0)), { type: 'DeleteBackward' }))
+  it('joins a list item with the previous sibling on Backspace, a heading once it is text', () => {
+    const retyped = success(run(state(caret('b', 0)), { type: 'DeleteBackward' }))
+    expect(blockAt(retyped.state.document, 0, 1)).toMatchObject({ type: 'Paragraph', id: 'li2' })
+    const result = success(run(retyped.state, { type: 'DeleteBackward' }))
     expect(containerAt(result.state.document, 0).map(block => block.id)).toEqual(['li1'])
     // The boundary goes; the runs keep their own marks.
     expect(runsOf(result.state.document, 0, 0)).toEqual([
@@ -207,14 +213,25 @@ describe('editing inside a nested block', () => {
     const result = success(
       run(state(caret('a', 3)), {
         type: 'Paste',
-        slice: RichText.sliceFromText('more', minted().mint),
+        slice: RichText.sliceOf(
+          RichText.decodeDocument({
+            version: 1,
+            children: ['more', 'lines'].map((text, at) => ({
+              type: 'Paragraph',
+              id: `m${at}`,
+              children: [{ type: 'Text', id: `m${at}-t`, text, marks: [] }],
+            })),
+          }),
+          range(['m0-t', 0], ['m1-t', 5]),
+        )!,
       }),
     )
+    // The first line joins the item's text; the second stays in the list.
     expect(
       containerAt(result.state.document, 0).map(block =>
         block.children.map(run => run.text).join(''),
       ),
-    ).toEqual(['one', 'more', 'two'])
+    ).toEqual(['onemore', 'lines', 'two'])
   })
 
   it('moves a list item within its container, and refuses a bad parent', () => {

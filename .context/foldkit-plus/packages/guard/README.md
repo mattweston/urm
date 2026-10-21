@@ -1,8 +1,7 @@
 # foldkit-guard
 
 Who may do what, declared once on a Foldkit Plus domain, and enforced on every
-path a row is read or written by. [`guard-DESIGN.md`](../../docs/design/guard-DESIGN.md)
-explains the design and why.
+path a row is read or written by.
 
 ## What it is
 
@@ -62,8 +61,8 @@ pnpm add effect foldkit-entity foldkit-guard
 `foldkit-guard` is the shared declaration. Its subpaths bring their packages
 as optional peers: `foldkit-guard/server` needs `foldkit-remote` and
 `foldkit-remote-server`, `/drizzle` also `foldkit-remote-drizzle` and
-`drizzle-orm`, `/sync` `foldkit-sync` and `foldkit-remote-server`, and
-`/agent` `foldkit-remote`.
+`drizzle-orm`, `/sync` `foldkit-sync` and `foldkit-remote-server`,
+`/agent` `foldkit-remote`, and `/media` `foldkit-media`.
 
 ## Sixty seconds
 
@@ -97,7 +96,7 @@ const G = Guards.declare(
     isOwner: guard.row(TodoFields, p => Expr.eq(TodoFields.fields.ownerId, p.id)),
     inProject: guard.row(TodoFields, p => Expr.in(TodoFields.fields.projectId, p.projectIds)),
   }),
-  { key: user => user.id },
+  { key: user => user.id, unguarded: 'deny' },
 )
 
 // Server: the body of every principal guard, and nothing else.
@@ -204,8 +203,9 @@ Guards.matrix([Todo])
 - `Guards.guardFields(Todo, 'Read')` names the members a row interaction's
   guards read, so a change to one is known to change who may.
 - A surface with no guards on a guarded Entity falls to the set's
-  `unguarded` (`'allow'` by default); the matrix prints it `open`, or
-  `closed` under `unguarded: 'deny'`.
+  `unguarded`, which `declare` requires so the choice is written down:
+  `'deny'` refuses it (the matrix prints `closed`), `'allow'` lets everyone
+  (`open`).
 
 ## Deciding reads and writes
 
@@ -319,6 +319,33 @@ const TodoSource = source(Db.Todo, { filter: GuardServer.filter(Todo, Policy) })
 - `visible` is the row's Read. Member and relation Reads are the Source's
   `filter`, as `TodoSource` has it.
 
+A body may need a service, a membership lookup say, and name it in its
+Effect. The read seams (`GuardDrizzle.visible`, `GuardServer.memory`,
+`GuardSync`) take a Policy that needs nothing more, since a read rule runs
+inside a read whose requirements are the Source's. Provide the services once,
+at startup; what changes with each request belongs in the principal:
+
+```ts
+class Memberships extends Context.Service<
+  Memberships,
+  { readonly admins: ReadonlyArray<string> }
+>()('app/Memberships') {}
+
+const Checked = G.implement({
+  isAdmin: principal =>
+    Effect.map(Memberships, ({ admins }) =>
+      Option.exists(principal, user => admins.includes(user.id)),
+    ),
+})
+const ReadPolicy = Checked.provide(Context.make(Memberships, { admins: ['ada'] }))
+GuardDrizzle.visible(ReadPolicy, [Todo]) // a type error with `Checked`
+```
+
+A seam built from `ReadPolicy` counts as built from `Checked`, so
+`GuardServer.validate(Checked, …)` accepts it: `validate` checks that a seam
+runs the declared rules, not which services they were given. The write seams take the
+Policy as it is and require its services where the write runs.
+
 ## Serving writes
 
 A declared write (`Mutation.write`) is served by `RemoteServer.write` with no
@@ -422,6 +449,12 @@ It throws, naming each:
   it;
 - for a query listing such an Entity without the rule, and a query the server
   serves that the domain does not declare, whose Entity no one can name;
+- for a query whose body filters or orders by a member with a Read rule. A
+  row comes back without that member, but the query still answers for it: a
+  `cost < $max` halved twenty times reads the cost the row hid. This holds
+  whoever asks, since one body serves every principal. Where some readers
+  must filter by it, give the value an Entity of its own with a row Read
+  rule: a row a reader may not see is not in their list at all;
 - for a declared write of such an Entity that does not land through the
   `GuardServer.writer` built for it;
 - for a live Source of its own over such an Entity, whose stream nothing can
@@ -508,6 +541,40 @@ May.canLink(row.may, Todo, 'project', 'Link')
   unavailable.
 - `foldkit-crud`'s editor locks the keys the reader may not set with
   `locks: May.locks(Todo)`, for `foldkit-mixins-form`'s `locked`.
+
+## Who the client is: `Me`
+
+"Show the Admin link", "show a sign-in page rather than a 404" and "who am
+I signed in as" are questions about the visitor, not about a row.
+`Guards.me` declares them as one Entity with one row, `me`: everyone reads
+their own and no one writes it. It holds `signedIn`, `key` (the principal's
+`key`, `Option.none()` for a visitor) and `may` for the interactions named
+here; `GuardServer.me` serves it, deciding `may` with the Policy.
+
+```ts
+const OpenAdmin = Interaction.make('OpenAdmin')
+
+// Shared domain code, beside the other Entities.
+export const Me = Guards.me(G, {
+  interactions: { [OpenAdmin.key]: [G.isAdmin] },
+})
+
+// The server: one Source among the others.
+const MeSource = GuardServer.me(Me, Policy)
+```
+
+- The client reads `Me` through Remote like any row (`Entity.select(Me,
+  { signedIn: true, key: true, may: true })`), so it is `Loading`, `Ready`
+  or stale as data is, survives SSR, and `Remote.forget` on any change of
+  principal (a sign-in as much as a sign-out) drops it. `May.can(me.may, OpenAdmin.key)` is the server's answer; no rule runs
+  on the client.
+- Its Read is `Guards.anyone`, whatever the set leaves `unguarded`, and its
+  writes are nobody's, as the matrix prints them. `Guards.anyone` serves any
+  surface that is public under a set that denies the rest: a Read of it
+  restricts no one, so a Sync document over its rows needs no readers and
+  `validate` lets a Source share them.
+- `may` is read with the row, as any `may` is: a principal whose role
+  changes sees it when `Me` is read again.
 
 ## When a rule refuses
 
@@ -627,6 +694,48 @@ has a `RequestedArchive` with the todo's `id`.
   type.
 - It is the agent's gate, not the check: the Message's mutation is checked on
   the server, under the same principal.
+
+## Uploads
+
+`foldkit-media`'s upload routes ask one question of an `UploadPolicy`
+before reading a byte: may this request upload (`Upload`), or have an image
+named by URL described (`DescribeUrl`)? `foldkit-guard/media` answers it with
+principal guards, for who your resolver says is asking:
+
+```ts
+import { Layer } from 'effect'
+import { uploadLayer, uploadsKeyValueStore } from 'foldkit-media/server'
+import { GuardMedia } from 'foldkit-guard/media'
+
+const uploads = uploadLayer().pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      uploadsKeyValueStore(),
+      inspector,
+      GuardMedia.uploadPolicy(Policy, { resolve, Upload: [G.isAdmin], DescribeUrl: [G.isAdmin] }),
+    ),
+  ),
+)
+```
+
+`resolve` is the resolver your Remote server is given:
+`(request: Request) => Effect<Option<User>, E, R>`, which
+`AuthServer.resolver` from `foldkit-auth/server` is. `inspector` is
+`foldkit-media`'s `Inspector` for where you run (`inspectorSharp()`,
+`inspectorImages(env.IMAGES)`).
+
+- Only principal guards: no row exists before an upload, so a row guard is a
+  type error. A route admits when any one of its guards allows, and a route
+  given no guards admits nobody.
+- The resolver gets the request's URL, method and headers and never its
+  body, so the route still reads no byte before the policy answers.
+- A resolver that fails (an untrusted origin, a session that ended) is a
+  `401`; a principal the guards refuse is a `403`. Either says only its kind:
+  an `explain` sentence stays on the server.
+- `Policy` must need no service; give it what its bodies need with
+  `Policy.provide`, as the other seams take it.
+- Beside a deployment's secret for scripts:
+  `uploadPolicyAny(uploadPolicyBearer(secret), GuardMedia.uploadPolicy(…))`.
 
 ## Limits
 

@@ -1,8 +1,3 @@
-/**
- * A media query as a bundle: `matches` in the Model, kept current by a
- * `matchMedia` change stream. State stays in the parent Model, so it replays
- * and time-travels like any other state; the browser only reports facts.
- */
 import { Effect, Queue, Schema, Stream } from 'effect'
 import { defineMessageUnion } from 'foldkit/message'
 import * as Subscription from 'foldkit/subscription'
@@ -40,6 +35,11 @@ const matchMediaStream = (query: string): Stream.Stream<MediaQueryMessage> => {
   )
 }
 
+/**
+ * A media query as a bundle: `matches` in the Model, kept current by a
+ * `matchMedia` change stream. State stays in the parent Model, so it replays
+ * and time-travels like any other state; the browser only reports facts.
+ */
 export const MediaQuery = Bundle.make('MediaQuery', {
   Model: MediaQueryModel,
   Message: MediaQueryMessage,
@@ -49,7 +49,7 @@ export const MediaQuery = Bundle.make('MediaQuery', {
     message.matches === model.matches ? { model } : { model: { matches: message.matches } },
   subscriptions: ({ query }): Subscription.Subscriptions<MediaQueryModel, MediaQueryMessage> =>
     Subscription.make<MediaQueryModel, MediaQueryMessage>()(() => ({
-      changes: Subscription.persistent(matchMediaStream(query)),
+      changes: Subscription.persistentEntry(matchMediaStream(query)),
     })),
 })
 

@@ -145,8 +145,10 @@ const clientLayer = Remote.clientLayer(rpcClient) // provide RemoteClient to the
 // Over fetch (a Worker's fetch): serveFetch({ server, resolvePrincipal, layer,
 // liveHeartbeat }) from 'foldkit-remote-server/fetch' answers the POSTs
 // Remote.http sends, and a live open with a text/event-stream of changes
-// (Remote.httpWithLive); the principal and the Sources' requirements come per
-// request from env. Every stream heartbeats, so an idle one survives. A
+// (Remote.httpWithLive). resolvePrincipal is an Effect per request that may
+// need what layer(env) provides; failing with RemoteServer.unauthenticated(reason?)
+// answers 401 { error, unauthenticated: { reason? } }. revalidate: { every, key? }
+// asks again while a live stream is open: a refusal ends it as Unauthenticated. Every stream heartbeats, so an idle one survives. A
 // worker cannot wake another request's stream, so a LiveHub fed from a second
 // request reaches nobody there: poll the durable store (D1) from inside the
 // subscriber's own request instead.
@@ -315,6 +317,14 @@ const page = await Effect.runPromise(
 )
 ```
 
+In a running app, preload a destination with `Data.preload(model, actives)`
+from `update`: the Command reads what `actives` read in the Model you give it
+(the live one with the target route) and yields one `Preloaded` Message with
+the reads, reduced into the Model as it is when it lands. It never fails; a
+failed read leaves the rest for the destination. Use it for hover prefetch,
+not `prefetch`/`satisfy`, whose returned Model would overwrite what changed
+meanwhile.
+
 Prefetch (SSR, route/hover, tests) and persistence:
 
 ```ts
@@ -450,7 +460,12 @@ or any codec); a Source fails with `RemoteServer.refuse(mutation, value)`, and
 `RemoteServer.forbid(reason?)` refuses who is asking, for any mutation: a 403
 over JSON, and `Data.mutation` is `Failed` with `error._tag === 'Forbidden'` and
 `error.reason` when given. `Remote.http` reads a 403 that is not Remote's
-answer (middleware) as `Forbidden` too.
+answer (middleware) as `Forbidden` too. A 401 (`RemoteServer.unauthenticated`,
+or middleware) fails every call kind, reads and live streams included, with
+`_tag: 'Unauthenticated'` and `reason` when given: the session is gone; read it
+with `RemoteData.denied(error)` (`Option<Denied>`: `Unauthenticated` or `Forbidden`, read with `Denied.match`; not a mutation's `refusal`). Remote
+treats it as any failure (a live stream restarts with backoff, refused each
+time); the application signs in again and `forget`s.
 
 **Outcomes in the Model.** `Data.mutation(model, requestId)` is `Pending`,
 `Applied`, `Failed` (with its `error`), or `Unknown`, for the id `Data.mutate`
@@ -581,6 +596,8 @@ const inProcess = Remote.clientLayer(handlers)            // tests/SSR/worker
 // authorize: { Project: (principal: Principal, fields) => ... } plus principal: the layer's.
 // filter: { Project: (principal, fields) => Effect<{ fields, apply }> } decides per record;
 // readable: principal => Effect<(entity, row) => boolean> hides rows from reads, queries and refs.
+// entities: [MeSource] serves an entity no row backs (not in the rows' domain) beside the rows.
+// No principal: no layer, only .server, answered per request through serveFetch or handlers.
 // across a process boundary: RemoteRpc.toLayer(handlers) + your Effect RPC transport
 ```
 

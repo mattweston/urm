@@ -1,12 +1,34 @@
 /**
  * A modal dialog: the backdrop dims the page and the panel is a raised
- * surface. `size` is the panel's maximum width.
+ * surface no taller than the viewport, whose `scroll` scrolls between its
+ * heading and its `footer`. `size` is the panel's maximum width (`full`
+ * fills the viewport less a margin). A panel `covered` by a dialog opened
+ * from it steps back, smaller.
  */
 import { Style } from 'foldkit-mixins'
+import { nests, raise, raisedSurface, role } from 'foldkit-mixins/theme'
+import { Utilities } from 'foldkit-mixins/utilities'
 import { DialogSlots } from '../dialog.js'
-import { component, focusRing, ref, variant, hover } from './design.js'
+import { component, focusRing, hover, presence, ref, unfilledHover, variant } from './design.js'
+import { bar, overlaid, thumb } from './scrollBars.js'
 
-const width = (max: string) => variant(Style.self({ maxInlineSize: `min(${max}, 100% - 2rem)` }))
+/** A width one notch narrower in a compact region, as Fluid Functionalism's (400px to 360px). */
+/**
+ * What the screen leaves a panel: the viewport less a margin and what a notch, a rounded
+ * corner or the home indicator takes from each side (0 unless the page covers the screen).
+ */
+const room = {
+  // Less the on-screen keyboard, which `Dialog.keyboard` measures on the panel.
+  block: `100% - 2rem - ${ref.safe.top} - ${ref.safe.bottom} - var(--fk-keyboard-inset, 0px)`,
+  inline: `100% - 2rem - ${ref.safe.left} - ${ref.safe.right}`,
+}
+
+const width = (max: string) =>
+  variant(
+    Style.self({
+      maxInlineSize: `min(calc(${max} * (1 - 0.1 * ${ref.knob.step})), ${room.inline})`,
+    }),
+  )
 
 export const Dialog = Style.recipeFor(DialogSlots)({
   base: {
@@ -23,6 +45,11 @@ export const Dialog = Style.recipeFor(DialogSlots)({
         maxBlockSize: '100%',
       }),
       Style.pseudo('::backdrop', { background: 'transparent' }),
+      // `@foldkit/ui` draws the open dialog over the whole viewport, so
+      // `margin: auto` centers nothing and the panel sits at the top: the
+      // grid centers it. Only while open, or `display` would beat the user
+      // agent's `dialog:not([open]) { display: none }`.
+      Style.nest('&[open]', { display: 'grid', placeItems: 'center' }),
     ),
     backdrop: component(
       Style.self({
@@ -30,19 +57,74 @@ export const Dialog = Style.recipeFor(DialogSlots)({
         inset: '0',
         background: `color-mix(in oklch, ${ref.surface.bedrock} 45%, transparent)`,
       }),
+      // The veil fades with its panel.
+      presence('slow', {}),
     ),
     panel: component(
       Style.self({
         position: 'relative',
-        display: 'grid',
+        display: 'flex',
+        flexDirection: 'column',
         gap: ref.space.sm,
+        // With the reset's content box, the padding and border added to the
+        // width a size allows, and a phone's panel ran past its margins.
+        boxSizing: 'border-box',
         inlineSize: '100%',
-        marginInline: 'auto',
+        maxBlockSize: `calc(${room.block})`,
+        // A panel drawn without `scroll` scrolls whole rather than leave the viewport.
+        overflowY: 'auto',
+        // Scrolled to its end, a swipe stays in it rather than moving the page behind.
+        overscrollBehavior: 'contain',
+        // Held off each screen edge by what it takes there, and centered by the dialog's
+        // grid in what is left. Physical, as the screen's insets are.
+        marginTop: ref.safe.top,
+        marginRight: ref.safe.right,
+        marginBottom: `calc(${ref.safe.bottom} + var(--fk-keyboard-inset, 0px))`,
+        marginLeft: ref.safe.left,
         padding: ref.space.lg,
         border: `${ref.border.thin} solid ${ref.outline.subtle}`,
         borderRadius: ref.radius.lg,
-        background: ref.surface.base,
+        // Its buttons and fields take a corner concentric with the panel's.
+        ...nests(ref.radius.lg, ref.space.lg, ref.border.thin),
+        background: raisedSurface(),
         boxShadow: ref.shadow['2xl'],
+      }),
+      // Four levels up: a popover opened in it lands two above it.
+      raise(4),
+      // The largest thing that moves: the slow tier, from a little smaller.
+      presence('slow', { scale: '0.97' }),
+      // Under a dialog opened from it: a step back, as Base UI's nested dialogs.
+      Style.pseudo('[data-covered]', { scale: '0.94', translate: `0 calc(-1 * ${ref.space.md})` }),
+    ),
+    body: component(
+      Style.self({
+        position: 'relative',
+        display: 'grid',
+        flex: '1 1 auto',
+        minBlockSize: '0',
+        // The panel's padding, taken back, so the bar lies at the panel's edge.
+        marginInline: `calc(-1 * ${ref.space.lg})`,
+      }),
+    ),
+    scroll: component(
+      Style.self({
+        minBlockSize: '0',
+        overflowY: 'auto',
+        overscrollBehavior: 'contain',
+        paddingInline: ref.space.lg,
+      }),
+      Utilities.scrollFade('block'),
+      overlaid,
+    ),
+    scrollBar: bar,
+    scrollThumb: thumb,
+    footer: component(
+      Style.self({
+        display: 'flex',
+        flexWrap: 'wrap',
+        justifyContent: 'flex-end',
+        gap: ref.space.xs,
+        paddingBlockStart: ref.space.xs,
       }),
     ),
     title: component(
@@ -50,9 +132,8 @@ export const Dialog = Style.recipeFor(DialogSlots)({
         margin: '0',
         color: ref.text.overt,
         fontFamily: ref.font.heading,
-        fontSize: ref.size.xl,
-        fontWeight: ref.weight.semibold,
-        lineHeight: ref.leading.tight,
+        ...role('title'),
+        fontWeight: ref.weight.heading,
       }),
     ),
     description: component(Style.self({ margin: '0', color: ref.text.muted })),
@@ -69,7 +150,7 @@ export const Dialog = Style.recipeFor(DialogSlots)({
         cursor: 'pointer',
       }),
       hover({
-        background: ref.surface.muted,
+        background: unfilledHover,
         color: ref.text.overt,
       }),
       focusRing,
@@ -80,6 +161,12 @@ export const Dialog = Style.recipeFor(DialogSlots)({
       sm: { panel: width('24rem') },
       md: { panel: width('32rem') },
       lg: { panel: width('48rem') },
+      xl: { panel: width('64rem') },
+      full: {
+        panel: variant(
+          Style.self({ maxInlineSize: `calc(${room.inline})`, blockSize: `calc(${room.block})` }),
+        ),
+      },
     },
   },
   defaults: { size: 'md' },

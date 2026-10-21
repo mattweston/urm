@@ -1,8 +1,15 @@
 import { Attr, Capability, Event, Slot, Slots, type SlotAttributes } from 'foldkit-mixins'
-import type { Message } from '@foldkit/ui/datePicker'
-import type { Html } from 'foldkit/html'
+import { Match, Option, pipe } from 'effect'
+import * as UiCalendar from '@foldkit/ui/calendar'
+import { Message, OutMessage, update as upstreamUpdate, type Model } from '@foldkit/ui/datePicker'
+import type * as Dates from 'foldkit/calendar'
+import * as Command from 'foldkit/command'
+import type { Html, HtmlBuilder } from 'foldkit/html'
+import { modifyFields } from 'foldkit/struct'
+import type * as Update from 'foldkit/update'
+import { isComplete, picked, type Selection } from './calendar.js'
 import { buildersOf, type MixinList, type ResolveContext } from './resolve.js'
-import type { DatePickerRenderInfo } from './datePickerView.js'
+import { defaultToView, type DatePickerRenderInfo } from './datePickerView.js'
 
 /**
  * DatePicker is a small composed Submodel: a `trigger` button plus a
@@ -54,12 +61,55 @@ export const resolve = <Input>(
   }
 }
 
-/** The date picker's `toView`: `draw` receives its bundles with `mixins` applied. */
+/**
+ * The date picker's `toView`: `draw` receives its bundles with `mixins`
+ * applied, and the date picker's builder to draw them with; without one,
+ * they are drawn as upstream draws them. Unlike the other adapters' it takes
+ * no builder of the application's, which could not draw these bundles.
+ */
 export const toView =
   (
     mixins: MixinList<Message>,
-    context: ResolveContext<unknown, Message>,
-    draw: (resolved: ResolvedDatePicker) => Html,
+    draw: (resolved: ResolvedDatePicker, h: HtmlBuilder<Message>) => Html = defaultToView,
   ) =>
-  (render: DatePickerRenderInfo): Html =>
-    draw(resolve(render, mixins, context))
+  (render: DatePickerRenderInfo, h: HtmlBuilder<Message>): Html =>
+    draw(resolve(render, mixins, { input: undefined, h }), h)
+
+const toPicker = (message: UiCalendar.Message): Message => Message.GotCalendarMessage({ message })
+
+/**
+ * The date picker's `update` for the application's `selection`, read when
+ * the Message arrives. Upstream closes the popover on every day picked; this
+ * keeps it open while the day leaves the selection unfinished (a range's
+ * first end, any day of a Multiple selection), and is upstream's `update`
+ * otherwise. Either way it reports `SelectedDate`, which the application
+ * folds through `Calendar.picked`. Escape, a press outside and the trigger
+ * still close it, leaving whatever was picked so far.
+ */
+export const update =
+  (selection: Selection) =>
+  (model: Model, message: Message): Update.ReturnWithOutMessage<Model, Message, OutMessage> =>
+    Match.value(message).pipe(
+      Match.tag('GotCalendarMessage', ({ message: calendarMessage }) => {
+        const next = UiCalendar.update(model.calendar, calendarMessage)
+        return pipe(
+          Option.fromNullishOr(next.outMessage),
+          Option.flatMap(out =>
+            UiCalendar.OutMessage.match<Option.Option<Dates.CalendarDate>>(out, {
+              SelectedDate: ({ date }) => Option.some(date),
+              ChangedViewMonth: () => Option.none(),
+            }),
+          ),
+          Option.filter(date => !isComplete(picked(selection, date))),
+          Option.match({
+            onNone: () => upstreamUpdate(model, message),
+            onSome: date => ({
+              model: modifyFields(model, { calendar: () => next.model }),
+              commands: Command.mapMessages(next.commands, toPicker),
+              outMessage: OutMessage.SelectedDate({ date }),
+            }),
+          }),
+        )
+      }),
+      Match.orElse(() => upstreamUpdate(model, message)),
+    )

@@ -43,10 +43,40 @@ for an unknown tag); `Site.parentOf`, `Site.ancestorsOf`, `Site.depthOf`,
 **Metadata.** `title` (of the route value), `section`, read with
 `Site.titleOf` / `Site.sectionOf` (`undefined` when absent). `landing` is a
 section's nav address as its node's params; `Site.landing(site, section)` is
-the first declaring node as a target. `shortcut` names the keys that go
-there; bindings stay application-owned, derived with the name validated
-against the Message union. Annotate once; derive nav, titles, shortcuts, and
+the first declaring node as a target. `shortcut` is a Foldkit
+`KeySequence` (`'/'`, `['G', 'H']`) going to the node's landing;
+`Site.shortcuts(site, target => Message.Pressed({ url: target.url }))` is
+every one as `Dom.streamFromKeyBindings` bindings (no landing, or keys used
+twice, throws). Annotate once; derive nav, titles, shortcuts, and
 breadcrumbs from it.
+
+**Head metadata.** `.meta<Model>(({ route, model }) => Meta)` (or the `meta`
+option) says what a node's page tells a search result and a link preview, as
+`foldkit-ssr`'s `Meta`; `indexed: false` marks a node and the nodes below it
+`noindex`. `Site.metaOf(site, route, model)` merges the chain root first
+(deeper fields win; the preview title falls back to `title`) and is an SSR
+plan's `meta` directly: `meta: model => Site.metaOf(AppSite, model.route,
+model)`. `Site.indexedOf(site, route)` is the flag for a sitemap.
+
+**Both directions and every address.** `Site.parse(site, NotFound)` is the
+app's URL parser from the tree (first node in tree order whose router takes
+the address; a catch-all `/:slug` node goes after the literals it would
+shadow); `Site.hrefOf(site, route)` builds an address back, typed to the
+tree's routes. `Site.targets(site, [Site.paths(Post, listPosts), ...])` is an
+Effect of every `{ node, route, url, modified? }`: paramless nodes once,
+param nodes from their `paths` Effect (refused when missing; list none with
+`Effect.succeed([])`). Feed a static build and a sitemap (filter with
+`Site.indexedOf`). `Site.routeAt(site, url)` is the route at an address as
+an `Option`: `None` means another document serves it (a full load).
+
+**Who may be shown a page.** `.access<Me>({ allow: me => me.signedIn,
+otherwise: requested => Site.target(SignIn, { returnTo: Option.some(requested) }) })`
+on a node covers it and the nodes below it. `Site.accessOf(site, route, who:
+Option<Who>)` is `Access.Allowed`, `Pending` (who unknown: draw loading), or
+`Denied({ url })`: replace the URL in `update`, or answer a 303 on the
+server. Presentation only; the server guards the data. A target the refusing
+rule also covers (a sign-in page mounted under it) throws; in a node's
+options, annotate the reader (`allow: (me: Me) => …`).
 
 **History.** `Site.historyOf(prev, next)`: another node, or an unknown
 location, is a step; within a node its `history` rule (default replace; a
@@ -54,8 +84,8 @@ function for nodes where some param changes are entries of their own).
 
 **Lifecycle.** `Site.routing<Model, Message, Route>({ site, owner, route,
 parse, tags: { clicked, changed }, completed })` is the link-click and
-URL-change lifecycle as one wiring: internal clicks navigate per
-`historyOf`, external links load, URL changes set the route field (or touch
+URL-change lifecycle as one wiring: clicks on links the tree holds navigate
+per `historyOf`, every other link loads (another document), URL changes set the route field (or touch
 nothing on an echo). The app's own update guards with `Routing.reduces`.
 Needs a completion variant and a structural route field (`{ dependency, get,
 set }` — a union field is a union of refs, no single `ModelRef` accepts it).
@@ -80,15 +110,15 @@ and viewless leaves fail loudly.
 key?, when?, onMessage? })`: the link states the relationship once;
 `placed.update` folds, `placed.view` draws. `changed: route => childMsg`
 tells the child on arrival (`undefined` = nothing needed; absent = never
-informed). `Site.routing({ ..., pages: [...] })` informs arrivals. Bundles
+informed). `Site.routing({ ..., pages: [...] })` informs arrivals, and `arrived: (model, route) => Update.Return` runs after
+them for a new route (focus, say), never for an echo. Bundles
 with OutMessages and non-Bundle children stay on `Bundle.at` / `Link.child`.
 
 ## Gotchas
 
 - A layout surface active for several tags is not expressible yet (a future
   `whenAny`-shaped extension); each entry answers its own tag.
-- Route-local model ownership and shortcuts are still per-application
-  code. Bundles with OutMessages and non-Bundle children stay on
+- Route-local model ownership is still per-application code. Bundles with OutMessages and non-Bundle children stay on
   `Bundle.at` / `Link.child`.
 - `Site.target(Node, {})` for param-less routes: params are always explicit.
 - Locales are route params when they arrive; themes are preferences, not routes.

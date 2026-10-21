@@ -1,4 +1,4 @@
-import { Effect, Schema } from 'effect'
+import { Effect, Option, Schema } from 'effect'
 import { defineMessageUnion } from 'foldkit/message'
 import type * as Update from 'foldkit/update'
 import * as RichText from 'foldkit-richtext'
@@ -225,6 +225,8 @@ export const editorViewOf = (model: Model, page: Page): EditorView => ({
   history: RichText.emptyHistory,
   storedMarks: model.storedMarks,
   menuIndex: model.menuIndex,
+  // No menu is drawn here, so nothing dismisses one.
+  slashDismissed: Option.none(),
   hostId,
 })
 
@@ -289,14 +291,15 @@ const applyEdit = (
     model,
     commands: [
       // The editor's own patch would draw its placeholder ids, only for this one to replace
-      // them; this one patches from whatever is drawn, so it is the only one needed.
-      ...commands.filter(command => command.name !== 'RichText.patch'),
+      // them; this one patches from whatever is drawn, so it is the only one needed. First:
+      // the editor's answer, among the rest, must follow the draw.
       toApp(
         patchTo(hostId, keyed, {
           document: Replicated.project(body),
           selection: Replicated.resolve(body, model.selection),
         }),
       ),
+      ...commands.filter(command => command.name !== 'RichText.patch'),
       carets(model, page.id, body),
       Sync.fact(fact),
     ],

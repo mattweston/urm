@@ -5,7 +5,7 @@
  * live classification, optimistic layers) performs no I/O. The `Remote.*`
  * helpers that read or mutate go through the `RemoteClient` Effect service.
  */
-import { Duration, Effect, Layer, Option, Result, Schema, Stream } from 'effect'
+import { Duration, Effect, Layer, Option, Record, Result, Schema, Stream } from 'effect'
 import { KeyValueStore } from 'effect/persistence'
 import {
   Entity as DomainEntity,
@@ -154,6 +154,7 @@ import {
   RemoteQueryError,
   RemoteReadError,
   RemoteRpc,
+  RemoteUnauthenticated,
 } from './wire.js'
 import type { CoalesceOptions } from './coalesce.js'
 import {
@@ -347,7 +348,9 @@ export interface DomainMutateOptions {
  * the page and what the page reveals.
  */
 export type ActiveEntry<AppModel> =
-  ActiveSurface<AppModel> | Surface<AppModel, any, any, void> | SurfaceSource<AppModel>
+  | ActiveSurface<AppModel>
+  | Surface<AppModel, any, any, void>
+  | SurfaceSource<AppModel>
 
 /** A Foldkit Subscription entry of the Remote domain, emitting its Messages through `RemoteClient`. */
 export type RemoteEntry<AppModel, Dependencies> = EntryWithoutKeepAlive<
@@ -416,7 +419,8 @@ export interface SubscriptionsOptions extends ObserveOptions, LiveOptions, Retai
 export type RemoteWiring<AppModel> = Wiring<
   AppModel,
   RemoteMessage | RemoteMessageInput,
-  RemoteClient
+  RemoteClient,
+  keyof typeof remoteMessageCases
 >
 
 /** What `RemoteDomain.mutate` hands `update`: the Model with the request started, and the Command that settles it. */
@@ -504,7 +508,8 @@ export interface RemoteDomain<
     projection: QueryProjection<AppModel, any, Name, Input>,
     options?: {
       readonly surfaces?:
-        Readonly<Record<string, ActiveSurface<AppModel> | SurfaceSource<AppModel>>> | undefined
+        | Readonly<Record<string, ActiveSurface<AppModel> | SurfaceSource<AppModel>>>
+        | undefined
     },
   ): QueryExplanation
   /**
@@ -521,7 +526,8 @@ export interface RemoteDomain<
     projection: Projection<AppModel, RemoteData<unknown>>,
     options?: {
       readonly surfaces?:
-        Readonly<Record<string, ActiveSurface<AppModel> | SurfaceSource<AppModel>>> | undefined
+        | Readonly<Record<string, ActiveSurface<AppModel> | SurfaceSource<AppModel>>>
+        | undefined
     },
   ): ReadDiagnosis
   /**
@@ -651,7 +657,11 @@ export interface RemoteDomain<
     model: AppModel,
     projection: Projection<AppModel, Value>,
     options?: ObserveOptions,
-  ): Effect.Effect<AppModel, RemoteReadError | RemoteProtocolError | RemoteQueryError, RemoteClient>
+  ): Effect.Effect<
+    AppModel,
+    RemoteReadError | RemoteProtocolError | RemoteQueryError | RemoteUnauthenticated,
+    RemoteClient
+  >
   /**
    * The Model with everything the active Surfaces read, for a render that
    * fetches nothing (SSR, a prerender). Each pass prefetches every Surface
@@ -660,7 +670,9 @@ export interface RemoteDomain<
    * the same one, when it comes later in `active`). It stops at the first
    * pass that plans nothing, and fails with `RemoteUnsatisfied` when
    * `options.passes` run out first. Reads are cache-first: a field already
-   * held is not asked again.
+   * held is not asked again. A server that could not tell who is asking
+   * fails it with `RemoteUnauthenticated`, for the host to answer as it
+   * answers a lost session.
    */
   satisfy(
     model: AppModel,
@@ -668,9 +680,30 @@ export interface RemoteDomain<
     options?: SatisfyOptions,
   ): Effect.Effect<
     AppModel,
-    RemoteReadError | RemoteProtocolError | RemoteQueryError | RemoteUnsatisfied,
+    | RemoteReadError
+    | RemoteProtocolError
+    | RemoteQueryError
+    | RemoteUnauthenticated
+    | RemoteUnsatisfied,
     RemoteClient
   >
+  /**
+   * `satisfy` from `update`, for a destination the reader has not reached:
+   * a hover over a link, or a navigation the app expects. `model` is the
+   * Model as it would be there (the route set to the target's); the Command
+   * reads what `active` would read in it and yields one `Preloaded`
+   * carrying the Messages that wrote it, which reduce into the Model as it is
+   * by then. It never fails: a read that fails is one the destination makes
+   * again, and what was read before it still arrives.
+   *
+   * What it reads is kept like any other read until the next change of what
+   * is retained, so preload close to the navigation it expects.
+   */
+  preload(
+    model: AppModel,
+    active: Readonly<Record<string, ActiveEntry<AppModel>>>,
+    options?: SatisfyOptions,
+  ): Command<RemoteMessage, never, RemoteClient>
   /**
    * Starts a registered mutation from `update`: applies `MutationStarted` (with
    * the optimistic operations) to the Model and returns the Command that runs
@@ -763,6 +796,10 @@ export interface RemoteFold<
   readonly mutate: (
     ...args: Parameters<Domain['mutate']>
   ) => FoldedMutationStarted<AppModel, ParentMessage>
+  /** `Data.preload`, its Command lifted. */
+  readonly preload: (
+    ...args: Parameters<Domain['preload']>
+  ) => Command<ParentMessage, never, RemoteClient>
   /** `Data.subscriptions`, every entry lifted to the wrapper Message. */
   readonly subscriptions: <const Active extends Readonly<Record<string, ActiveEntry<AppModel>>>>(
     active: Active,
@@ -1839,7 +1876,7 @@ const liveEntry = <AppModel, Store extends RemoteModel, Message>(
         }),
       ),
       Stream.catchIf(
-        (_error): _error is RemoteLiveError | RemoteProtocolError => true,
+        (_error): _error is RemoteLiveError | RemoteProtocolError | RemoteUnauthenticated => true,
         error =>
           Stream.succeed(
             toMessage({
@@ -2009,15 +2046,19 @@ export const Remote = {
         )
         return { ...started, command: mapMessage(started.command, toParentMessage) }
       },
+      preload: (...args: Parameters<Domain['preload']>) =>
+        mapMessage(
+          domain.preload(
+            ...(args as Parameters<RemoteDomain<AppModel, any, any, any, any>['preload']>),
+          ),
+          toParentMessage,
+        ),
       subscriptions: (
         active: Readonly<Record<string, ActiveEntry<AppModel>>>,
         options?: SubscriptionsOptions,
       ) =>
         markAll(
-          Subscription.lift(brandEntries(domain.subscriptions(active, options)))({
-            toChildModel: (model: AppModel) => model,
-            toParentMessage,
-          }),
+          messagesAs(brandEntries(domain.subscriptions(active, options)), toParentMessage),
         ) as never,
     })
   },
@@ -2618,6 +2659,21 @@ export const Remote = {
 
 // A domain's Subscription entries are unbranded so an application can spread
 // them into its own `Subscription.make`; wiring hands them over as a branded record.
+/**
+ * Each entry with its Messages as the parent's and its dependencies as they
+ * were. The Model is the parent's already, and `Subscription.lift` would wrap
+ * every entry's dependencies in `maybeDependencies` (since Foldkit 0.166).
+ */
+const messagesAs = <AppModel, ParentMessage>(
+  entries: Subscription.Subscriptions<AppModel, RemoteMessage, RemoteClient>,
+  toParentMessage: (message: RemoteMessage) => ParentMessage,
+) =>
+  Record.map(entries, entry => ({
+    ...entry,
+    dependenciesToStream: (dependencies: unknown, read: () => unknown) =>
+      Stream.map(entry.dependenciesToStream(dependencies, read), toParentMessage),
+  }))
+
 const brandEntries = <AppModel>(
   entries: Readonly<Record<string, RemoteEntry<AppModel, any>>>,
 ): Subscription.Subscriptions<AppModel, RemoteMessage, RemoteClient> =>
@@ -3019,6 +3075,97 @@ const bindDomain = <
       )
     }
   }
+  /**
+   * `prefetch` and `satisfy`, each Message they reduce also kept in `heard`,
+   * so `preload` can hand them to the Model as it is by the time they land.
+   */
+  const prefetchInto = (
+    model: AppModel,
+    projection: Projection<AppModel, unknown>,
+    options: ObserveOptions,
+    heard: Array<RemoteMessage>,
+  ) => {
+    const hear = (current: AppModel, message: RemoteMessage): AppModel => {
+      heard.push(message)
+      return reduce(current, message)
+    }
+    return Effect.gen(function* () {
+      const { policy = RemotePolicy.cacheFirst, now = wallClock } = options
+      const client = yield* RemoteClient
+      const planOptions = RemotePolicy.toPlan(policy, now())
+      let current = model
+      // The pages first, so their items join the one entity read below. A
+      // page with a payload already writes its items' selected fields, so
+      // the read below is only for what the server left out.
+      for (const query of planAsked(store.get(current), askedOf(projection), planOptions).queries) {
+        const page = yield* queryRequestOf(query).pipe(
+          Effect.flatMap(request => client.query(request)),
+        )
+        current = hear(
+          current,
+          pageMessage(query.identity, page, true, query.window, query.select, now()),
+        )
+      }
+      const requirements = planAsked(
+        store.get(current),
+        askedOf(projection),
+        planOptions,
+      ).requirements
+      if (requirements.length === 0) return current
+      const at = now()
+      const result = yield* client.read({
+        version: REMOTE_PROTOCOL_VERSION,
+        requests: requirements,
+      })
+      return hear(current, { _tag: 'ReadReceived', requests: requirements, result, now: at })
+    })
+  }
+  const satisfyInto = (
+    model: AppModel,
+    active: Readonly<Record<string, ActiveEntry<AppModel>>>,
+    options: SatisfyOptions,
+    heard: Array<RemoteMessage>,
+  ) =>
+    Effect.gen(function* () {
+      const { passes = 8, now = wallClock } = options
+      const entries = Object.values(active)
+      entries.forEach(assertOwned)
+      const planOptions = RemotePolicy.toPlan(RemotePolicy.cacheFirst, now())
+      const plans = (
+        current: AppModel,
+        projections: ReadonlyArray<Projection<AppModel, unknown>>,
+      ) => {
+        const planned = planAsked(store.get(current), askedUnion(projections), planOptions)
+        return planned.queries.length > 0 || planned.requirements.length > 0
+      }
+      let current = model
+      for (let pass = 0; pass < passes; pass++) {
+        if (
+          !entries.some(entry =>
+            plans(
+              current,
+              resolvedOf(entry, current).map(({ projection }) => projection),
+            ),
+          )
+        )
+          return current
+        for (const entry of entries) {
+          // Asked again over the Model the Surface before it left. A family
+          // resolves its parent first: a pass fetches the parent, and the
+          // instances the parent reveals are read in a later pass.
+          for (const { projection } of resolvedOf(entry, current))
+            current = yield* prefetchInto(current, projection, { now }, heard)
+        }
+      }
+      const reading = entries.flatMap(entry =>
+        resolvedOf(entry, current).filter(({ projection }) => plans(current, [projection])),
+      )
+      if (reading.length === 0) return current
+      return yield* new RemoteUnsatisfied({
+        surfaces: reading.map(({ name }) => name),
+        passes,
+      })
+    })
   const domain: RemoteDomain<AppModel, Store, Entities, Queries, Mutations> = {
     ...definition,
     ...bound,
@@ -3084,79 +3231,25 @@ const bindDomain = <
     meta: (model, projection) => Remote.meta(bound, model, projection),
     storeOf: model => storeOf(bound, model),
     confirmed: projection => confirmed(bound, projection),
-    prefetch: (model, projection, options = {}) =>
-      Effect.gen(function* () {
-        const { policy = RemotePolicy.cacheFirst, now = wallClock } = options
-        const client = yield* RemoteClient
-        const planOptions = RemotePolicy.toPlan(policy, now())
-        let current = model
-        // The pages first, so their items join the one entity read below. A
-        // page with a payload already writes its items' selected fields, so
-        // the read below is only for what the server left out.
-        for (const query of planAsked(store.get(current), askedOf(projection), planOptions)
-          .queries) {
-          const page = yield* queryRequestOf(query).pipe(
-            Effect.flatMap(request => client.query(request)),
+    prefetch: (model, projection, options = {}) => prefetchInto(model, projection, options, []),
+    satisfy: (model, active, options = {}) => satisfyInto(model, active, options, []),
+    preload: (model, active, options = {}) => {
+      // A Surface of another application is a mistake in `update`, refused there.
+      Object.values(active).forEach(assertOwned)
+      return {
+        name: 'Remote.preload',
+        args: { active: Object.keys(active).join(', ') },
+        effect: Effect.suspend(() => {
+          const heard: Array<RemoteMessage> = []
+          // Speculative: however the read ends, defects included, what it
+          // heard is all it hands on, and the destination reads the rest.
+          return satisfyInto(model, active, options, heard).pipe(
+            Effect.exit,
+            Effect.map((): RemoteMessage => ({ _tag: 'Preloaded', messages: heard })),
           )
-          current = reduce(
-            current,
-            pageMessage(query.identity, page, true, query.window, query.select, now()),
-          )
-        }
-        const requirements = planAsked(
-          store.get(current),
-          askedOf(projection),
-          planOptions,
-        ).requirements
-        if (requirements.length === 0) return current
-        const at = now()
-        const result = yield* client.read({
-          version: REMOTE_PROTOCOL_VERSION,
-          requests: requirements,
-        })
-        return reduce(current, { _tag: 'ReadReceived', requests: requirements, result, now: at })
-      }),
-    satisfy: (model, active, options = {}) =>
-      Effect.gen(function* () {
-        const { passes = 8, now = wallClock } = options
-        const entries = Object.values(active)
-        entries.forEach(assertOwned)
-        const planOptions = RemotePolicy.toPlan(RemotePolicy.cacheFirst, now())
-        const plans = (
-          current: AppModel,
-          projections: ReadonlyArray<Projection<AppModel, unknown>>,
-        ) => {
-          const planned = planAsked(store.get(current), askedUnion(projections), planOptions)
-          return planned.queries.length > 0 || planned.requirements.length > 0
-        }
-        let current = model
-        for (let pass = 0; pass < passes; pass++) {
-          if (
-            !entries.some(entry =>
-              plans(
-                current,
-                resolvedOf(entry, current).map(({ projection }) => projection),
-              ),
-            )
-          )
-            return current
-          for (const entry of entries) {
-            // Asked again over the Model the Surface before it left. A family
-            // resolves its parent first: a pass fetches the parent, and the
-            // instances the parent reveals are read in a later pass.
-            for (const { projection } of resolvedOf(entry, current))
-              current = yield* domain.prefetch(current, projection, { now })
-          }
-        }
-        const reading = entries.flatMap(entry =>
-          resolvedOf(entry, current).filter(({ projection }) => plans(current, [projection])),
-        )
-        if (reading.length === 0) return current
-        return yield* new RemoteUnsatisfied({
-          surfaces: reading.map(({ name }) => name),
-          passes,
-        })
-      }),
+        }),
+      }
+    },
     query: <Q extends QueryDescriptor<any, any, any>, Value, Entity extends string>(
       query: Q,
       input: QueryInput<Q>,
@@ -3702,7 +3795,7 @@ const bindDomain = <
       key: `remote:${bound.contract.name}`,
       // Every domain claims the same tags with no per-domain discriminator, so
       // the assembly's claimant check keeps one assembly to one domain.
-      handles: Object.keys(remoteMessageCases),
+      handles: Record.keys(remoteMessageCases),
       route: (model, message) =>
         isRemoteMessage(message) ? Option.some({ model: reduce(model, message) }) : Option.none(),
       subscriptions: brandEntries(domain.subscriptions(active, options)),

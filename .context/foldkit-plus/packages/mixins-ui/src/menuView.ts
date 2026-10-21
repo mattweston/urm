@@ -6,6 +6,9 @@
  * Devin Jameson) at tag `@foldkit/ui@0.165.0`, with the computed bundles
  * named (`MenuRenderInfo`) and handed to `toView`.
  *
+ * Menu's panel adapter (`Menu.toView`) is a `toView` for it, and the Menu
+ * component and Menubar draw every Menu through it (see `./menu.ts`).
+ *
  * The default `toView` reproduces upstream's markup; the parity battery
  * draws both views over the same models, so drift fails loudly. If upstream
  * gains a seam, delete this module; on a bump, re-transcribe and re-run
@@ -27,6 +30,8 @@ import {
   resolveTypeaheadMatch,
   whenOption as when,
 } from './menuUtils.js'
+import { drawMenu } from './popupView.js'
+import { topLayer } from './anchor.js'
 
 export type MenuItemRender = Readonly<{
   key: string
@@ -301,9 +306,22 @@ const computeRender = <Item extends string>(
     onSome: index => [h.AriaActiveDescendant(itemId(id, index))],
   })
 
+  const placed = { position: 'absolute', margin: '0', visibility: 'hidden' }
   const anchorAttributes = [
-    h.Style({ position: 'absolute', margin: '0', visibility: 'hidden' }),
-    h.OnMount(Menu.AnchorMenu({ buttonId: `${id}-button`, anchor })),
+    // Only with an in-place panel: portal relocation moves a panel after the
+    // Mount acquires, and moving a shown popover hides it again. The panel
+    // then draws in the top layer, out of every stacking context and overflow
+    // box; the anchor positions it as before, and light dismiss stays the
+    // application's Messages closing it. A popover keeps the browser's
+    // `inset: 0`, of which the anchor overwrites only `left` and `top`: right
+    // to left, `right: 0` won and the panel opened at the viewport's far edge.
+    ...(anchor.portal === false
+      ? [
+          h.Attribute('popover', 'manual'),
+          h.Style({ ...placed, inset: 'auto' }),
+          h.OnMount(topLayer(Menu.AnchorMenu({ buttonId: `${id}-button`, anchor }))),
+        ]
+      : [h.Style(placed), h.OnMount(Menu.AnchorMenu({ buttonId: `${id}-button`, anchor }))]),
   ]
 
   const wrapper = childAttributes([
@@ -496,54 +514,8 @@ const computeRender = <Item extends string>(
 /** Upstream's markup from the computed bundles: the default `toView`. */
 export const defaultToView =
   (h: HtmlBuilder<Message>) =>
-  (render: MenuRenderInfo): Html => {
-    const drawItem = (item: MenuItemRender): Html =>
-      h.keyed('div')(item.key, [...item.attributes], [item.content])
-    const drawGroup = (group: MenuGroupRender): ReadonlyArray<Html> => {
-      const drawn = group.items.map(drawItem)
-      if (group.group === undefined) return drawn
-      const headed: ReadonlyArray<Html> =
-        group.heading === undefined
-          ? []
-          : [
-              h.keyed('div')(
-                group.heading.id,
-                [...group.heading.attributes],
-                [group.heading.content],
-              ),
-            ]
-      const grouped = h.keyed('div')(
-        group.group.key,
-        [...group.group.attributes],
-        [...headed, ...drawn],
-      )
-      return [
-        ...(group.separator === undefined
-          ? []
-          : [h.keyed('div')(group.separator.key, [...group.separator.attributes])]),
-        grouped,
-      ]
-    }
-    const grouped = render.groups.flatMap(drawGroup)
-    return h.div(
-      [...render.wrapper],
-      [
-        h.keyed('button')(`${render.id}-button`, [...render.button], [render.buttonContent]),
-        ...(render.backdrop === undefined
-          ? []
-          : [h.keyed('div')(render.backdrop.key, [...render.backdrop.attributes])]),
-        ...(render.items === undefined
-          ? []
-          : [
-              h.keyed('div')(
-                render.items.key,
-                [...render.items.attributes],
-                render.scroll === undefined ? grouped : [h.div([...render.scroll], grouped)],
-              ),
-            ]),
-      ],
-    )
-  }
+  (render: MenuRenderInfo): Html =>
+    drawMenu(render, h)
 
 const menuViewImpl = defineView<Model, Message, MenuViewInputs<string>>((model, viewInputs, h) => {
   const render = computeRender(model, viewInputs, h)

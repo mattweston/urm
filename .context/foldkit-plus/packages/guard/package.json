@@ -1,6 +1,6 @@
 {
   "name": "foldkit-guard",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "description": "Who may do what, declared once on a Foldkit Plus domain: principal guards implemented on the server, row guards as query expressions.",
   "keywords": [
     "foldkit",
@@ -18,7 +18,7 @@
     "url": "git+https://github.com/doeixd/foldkit-plus.git",
     "directory": "packages/guard"
   },
-  "homepage": "https://github.com/doeixd/foldkit-plus/tree/main/packages/guard#readme",
+  "homepage": "https://foldkit-plus.pages.dev/guard",
   "bugs": {
     "url": "https://github.com/doeixd/foldkit-plus/issues"
   },
@@ -48,6 +48,11 @@
       "foldkit-plus:source": "./src/sync.ts",
       "types": "./dist/sync.d.mts",
       "import": "./dist/sync.mjs"
+    },
+    "./media": {
+      "foldkit-plus:source": "./src/media.ts",
+      "types": "./dist/media.d.mts",
+      "import": "./dist/media.mjs"
     }
   },
   "files": [
@@ -66,6 +71,7 @@
   "peerDependencies": {
     "drizzle-orm": "1.0.0-rc.4",
     "effect": "^4.0.0",
+    "foldkit-media": "workspace:^",
     "foldkit-remote": "workspace:^",
     "foldkit-remote-drizzle": "workspace:^",
     "foldkit-remote-server": "workspace:^",
@@ -73,6 +79,9 @@
   },
   "peerDependenciesMeta": {
     "drizzle-orm": {
+      "optional": true
+    },
+    "foldkit-media": {
       "optional": true
     },
     "foldkit-remote": {
@@ -90,15 +99,16 @@
   },
   "devDependencies": {
     "drizzle-orm": "1.0.0-rc.4",
-    "effect": "4.0.0",
-    "foldkit": "0.165.0",
+    "effect": "^4.0.4",
+    "foldkit": "0.168.0",
     "foldkit-agent": "workspace:*",
+    "foldkit-media": "workspace:*",
     "foldkit-remote": "workspace:*",
     "foldkit-remote-drizzle": "workspace:*",
     "foldkit-remote-server": "workspace:*",
     "foldkit-surface": "workspace:*",
     "foldkit-sync": "workspace:*",
-    "tsdown": "^0.23.0",
-    "typescript": "5.9.3"
+    "tsdown": "^0.23.1",
+    "typescript": "7.0.2"
   }
 }

@@ -3,15 +3,12 @@
  * `subtle` keeps the tone's hue over a tinted base. Mixed in OKLCH, a mix
  * mostly of a blue-grey base took the base's hue, so a success tint was blue.
  */
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import { Layers, Style } from '../src/index.js'
-import { Theme } from '../src/theme.js'
+import { Theme, type Standard, type Values } from '../src/theme.js'
 
-const theme = Theme.compose(
-  Theme.tokens,
-  // A base tinted toward the accent's blue, as the CMS's is: a mix in OKLCH
-  // took its hue (about 248°) whatever the tone.
-  Theme.oklch({ accent: { h: 265, c: 0.16, l: '52%' }, surfaceSaturation: 0.008 }),
+const theme = Theme.standard(
+  Theme.make({ accent: { hue: 265, chroma: 0.16 }, surface: { saturation: 0.008 } }),
 )
 const L = Layers.standard
 
@@ -70,6 +67,18 @@ test.each(['light', 'dark'] as const)(
       expect(chromaOf(step) / chromaOf(base), step).toBeGreaterThan(0.9)
       expect(chromaOf(step) / chromaOf(base), step).toBeLessThan(1.35)
     }
+  },
+)
+
+test.each(['light', 'dark'] as const)(
+  'in a %s scheme, the field ground stands further off the base than the quieter tint',
+  scheme => {
+    install(scheme)
+    const base = lightnessOf(computed('surface-base'))
+    const field = Math.abs(lightnessOf(computed('surface-field')) - base)
+    const subtle = Math.abs(lightnessOf(computed('surface-subtle')) - base)
+    expect(field, scheme).toBeGreaterThan(0.015)
+    expect(field, scheme).toBeGreaterThan(subtle)
   },
 )
 
@@ -157,6 +166,23 @@ test('the error fill keeps light text in a dark scheme', () => {
   )
 })
 
+test('in accent mode the state ink defaults to the accent’s ink', () => {
+  const loud = Theme.standard(
+    Theme.make({ accent: { hue: 265, chroma: 0.16 }, surface: { hover: 'accent' } }),
+  )
+  const style = document.createElement('style')
+  style.dataset['test'] = ''
+  style.textContent = Style.stylesheet(
+    L.declare,
+    L.in('tokens', Theme.root(Theme.tokens, { colorScheme: 'light' })),
+    L.in('theme', Theme.root(loud, { omit: Theme.tokens, colorScheme: 'light' })),
+  )
+  document.head.append(style)
+  const color = computed('state-ink')
+  expect(distance(hueOf(color), 265), color).toBeLessThan(10)
+  expect(chromaOf(color), color).toBeGreaterThan(chromaOf(computed('text-default')))
+})
+
 test.each(['light', 'dark'] as const)(
   'in a %s scheme, every code color reads on the base, and the hued kinds tell apart',
   scheme => {
@@ -171,3 +197,218 @@ test.each(['light', 'dark'] as const)(
     )
   },
 )
+
+test('the neutrals take a hue of their own, or the accent’s and follow it', () => {
+  const sheet = (values: Values<Standard>, knobs = '') => {
+    const style = document.createElement('style')
+    style.dataset['test'] = ''
+    style.textContent =
+      Style.stylesheet(
+        L.declare,
+        L.in('theme', Theme.root(Theme.standard(Theme.make(values)), { colorScheme: 'light' })),
+      ) + (knobs === '' ? '' : `:root{${knobs}}`)
+    document.head.append(style)
+  }
+  const accent = { hue: 265, chroma: 0.16 }
+  sheet({ accent, surface: { hue: 60, saturation: 0.02 } })
+  expect(distance(hueOf(computed('surface-base')), 60)).toBeLessThan(10)
+  expect(distance(hueOf(computed('accent-default')), 265)).toBeLessThan(10)
+  document.head.querySelectorAll('style[data-test]').forEach(element => element.remove())
+  // No neutral hue: the accent's, and a moved accent knob moves it.
+  sheet({ accent, surface: { saturation: 0.02 } }, '--fk-knob-accent-h:150;')
+  expect(distance(hueOf(computed('surface-base')), 150)).toBeLessThan(10)
+})
+
+test.each(['light', 'dark'] as const)(
+  'in a %s scheme, a shadow takes the hue it is given, and the neutrals’ without one',
+  scheme => {
+    const sheet = (values: Values<Standard>) => {
+      const style = document.createElement('style')
+      style.dataset['test'] = ''
+      style.textContent = Style.stylesheet(
+        L.declare,
+        L.in('theme', Theme.root(Theme.standard(Theme.make(values)), { colorScheme: scheme })),
+      )
+      document.head.append(style)
+    }
+    const accent = { hue: 265, chroma: 0.16 }
+    sheet({ accent, surface: { hue: 200 }, shadow: { hue: 40, chroma: 0.06 } })
+    expect(distance(hueOf(computed('shadow-color')), 40)).toBeLessThan(5)
+    expect(chromaOf(computed('shadow-color'))).toBeGreaterThan(0.05)
+    document.head.querySelectorAll('style[data-test]').forEach(element => element.remove())
+    sheet({ accent, surface: { hue: 200, saturation: 0.03 } })
+    expect(distance(hueOf(computed('shadow-color')), 200)).toBeLessThan(5)
+  },
+)
+
+describe('a menu panel', () => {
+  const install = (menu: NonNullable<Values<Standard>['menu']>) => {
+    const style = document.createElement('style')
+    style.dataset['test'] = ''
+    style.textContent = Style.stylesheet(
+      L.declare,
+      L.in(
+        'theme',
+        Theme.root(Theme.standard(Theme.make({ accent: { hue: 265, chroma: 0.16 }, menu })), {
+          colorScheme: 'light',
+        }),
+      ),
+    )
+    document.head.append(style)
+  }
+  const alphaOf = (color: string) => {
+    const alpha = /\/\s*([\d.]+)\s*\)$/.exec(color)
+    return alpha === null ? 1 : Number(alpha[1])
+  }
+
+  /** The same color, however the browser writes it (OKLab from a mix, OKLCH from a token). */
+  const same = (a: string, b: string) =>
+    Math.abs(lightnessOf(a) - lightnessOf(b)) < 0.005 &&
+    Math.abs(chromaOf(a) - chromaOf(b)) < 0.005 &&
+    (chromaOf(b) < 0.02 || distance(hueOf(a), hueOf(b)) < 2)
+
+  test('is the page’s surface and text, its lit row a faint tint, by default', () => {
+    install({})
+    expect(same(computed('popup-surface'), computed('surface-base'))).toBe(true)
+    expect(same(computed('popup-ink'), computed('text-default'))).toBe(true)
+    expect(alphaOf(computed('popup-highlight'))).toBeLessThan(0.2)
+  })
+
+  test('lights its row in the accent when bold', () => {
+    install({ highlight: 'bold' })
+    expect(same(computed('popup-highlight'), computed('accent-default'))).toBe(true)
+    expect(same(computed('popup-highlight-ink'), computed('accent-on-fill'))).toBe(true)
+  })
+
+  test('takes the other scheme’s surface and text when inverted', () => {
+    install({ panel: 'inverted' })
+    expect(lightnessOf(computed('popup-surface'))).toBeLessThan(0.4)
+    expect(lightnessOf(computed('popup-ink'))).toBeGreaterThan(0.8)
+  })
+
+  test('shows the page through a blur when translucent', () => {
+    install({ panel: 'translucent' })
+    expect(alphaOf(computed('popup-surface'))).toBeCloseTo(0.8, 2)
+    const swatch = document.createElement('div')
+    swatch.style.backdropFilter = 'blur(var(--fk-popup-blur))'
+    document.body.append(swatch)
+    expect(getComputedStyle(swatch).backdropFilter).toBe('blur(12px)')
+  })
+})
+
+test('the surface contrast knob spans steps a reader sees', () => {
+  install('light')
+  const at = (contrast: string) => {
+    document.documentElement.style.setProperty('--fk-knob-surface-contrast', contrast)
+    return lightnessOf(computed('surface-base')) - lightnessOf(computed('surface-muted'))
+  }
+  try {
+    expect(at('0%')).toBeCloseTo(0, 3)
+    // At its top a muted surface sits ten points below the base, where it sat four.
+    expect(at('100%')).toBeGreaterThan(0.08)
+  } finally {
+    document.documentElement.style.removeProperty('--fk-knob-surface-contrast')
+  }
+})
+
+/** OKLab of a computed OKLCH color, times 100, as the dataviz checks measure it. */
+const labOf = (color: string): readonly [number, number, number] => {
+  const lch = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(color)
+  if (lch === null) throw new Error(`not an OKLCH color: ${color}`)
+  const [l, c, h] = [Number(lch[1]), Number(lch[2]), (Number(lch[3]) * Math.PI) / 180]
+  return [l * 100, c * Math.cos(h) * 100, c * Math.sin(h) * 100]
+}
+
+test.each([
+  ['light', 0.43, 0.77],
+  ['dark', 0.48, 0.67],
+] as const)(
+  'in a %s scheme, the chart colors sit in the band, keep their chroma, and neighbors tell apart',
+  (scheme, low, high) => {
+    install(scheme)
+    const colors = ['1', '2', '3', '4', '5'].map(n => computed(`chart-${n}`))
+    for (const color of colors) {
+      expect(lightnessOf(color), color).toBeGreaterThanOrEqual(low)
+      expect(lightnessOf(color), color).toBeLessThanOrEqual(high)
+      expect(chromaOf(color), color).toBeGreaterThanOrEqual(0.1)
+    }
+    colors.slice(1).forEach((color, at) => {
+      const [a, b] = [labOf(colors[at]!), labOf(color)]
+      expect(
+        Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]),
+        `${at + 1} beside ${at + 2}`,
+      ).toBeGreaterThanOrEqual(15)
+    })
+  },
+)
+
+test.each(['light', 'dark'] as const)(
+  'in a %s scheme, a hard shadow is a solid offset copy, faded only by its strength',
+  scheme => {
+    const style = document.createElement('style')
+    style.dataset['test'] = ''
+    style.textContent = Style.stylesheet(
+      L.declare,
+      L.in(
+        'tokens',
+        Theme.root(Theme.standard(Theme.make({ shadow: { style: 'hard' } })), {
+          colorScheme: scheme,
+        }),
+      ),
+    )
+    document.head.append(style)
+    const raised = (strength: string) => {
+      const box = document.createElement('div')
+      box.style.boxShadow = 'var(--fk-shadow-md)'
+      // On the root, where the token is declared and so resolved.
+      document.documentElement.style.setProperty('--fk-knob-shadow-strength', strength)
+      document.body.append(box)
+      const shadow = getComputedStyle(box).boxShadow
+      document.documentElement.style.removeProperty('--fk-knob-shadow-strength')
+      return shadow
+    }
+    const full = raised('100%')
+    // The color, then x, y, blur and spread: offset 3px, and no blur at all.
+    expect(full).toMatch(/\) 3px 3px 0px 0px$/)
+    expect(Number(/\/ ([\d.]+)\)/.exec(full)?.[1] ?? '1')).toBeGreaterThan(0.8)
+    expect(raised('0%')).toMatch(/\/ 0\)|transparent|rgba\(0, 0, 0, 0\)/)
+  },
+)
+
+test('the type knobs scale the text, spread the headings and open the lines', () => {
+  const style = document.createElement('style')
+  style.dataset['test'] = ''
+  style.textContent = Style.stylesheet(L.declare, L.in('tokens', Theme.root(Theme.tokens)))
+  document.head.append(style)
+  /** A token as the browser computes it, in pixels, under `knobs` set on the root. */
+  const measured = (token: string, knobs: Readonly<Record<string, string>>) => {
+    const root = document.documentElement.style
+    for (const [name, value] of Object.entries(knobs)) root.setProperty(`--fk-knob-${name}`, value)
+    const box = document.createElement('div')
+    box.style.fontSize = 'var(--fk-size-4xl)'
+    box.style.lineHeight = token === 'leading' ? 'var(--fk-leading-normal)' : 'normal'
+    box.style.inlineSize = token === 'size-md' ? 'var(--fk-size-md)' : 'auto'
+    document.body.append(box)
+    const computed = getComputedStyle(box)
+    const value = Number.parseFloat(
+      token === 'leading'
+        ? computed.lineHeight
+        : token === 'size-md'
+          ? computed.width
+          : computed.fontSize,
+    )
+    box.remove()
+    for (const name of Object.keys(knobs)) root.removeProperty(`--fk-knob-${name}`)
+    return value
+  }
+  // The shipped sizes, unchanged.
+  expect(measured('size-4xl', {})).toBe(36)
+  expect(measured('size-4xl', { 'text-scale': '1.25' })).toBe(45)
+  // A heading at 0 stands no higher than the body; the body itself does not move.
+  expect(measured('size-4xl', { 'heading-scale': '0' })).toBe(16)
+  expect(measured('size-4xl', { 'heading-scale': '2' })).toBe(56)
+  expect(measured('size-md', { 'heading-scale': '2' })).toBe(16)
+  // 1.5 lines of 36px, then 1.8.
+  expect(measured('leading', {})).toBe(54)
+  expect(measured('leading', { leading: '1.2' })).toBeCloseTo(64.8, 1)
+})

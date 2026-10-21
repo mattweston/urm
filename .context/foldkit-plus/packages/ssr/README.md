@@ -411,8 +411,16 @@ export const site = {
 } satisfies SiteModule
 ```
 
+`emit` adds files made from the generated pages, written beside them: what the
+pages reference and the build must also serve, such as the image variants
+their `srcset`s name (`foldkit-media`'s `materialize`). It takes the pages and
+returns `{ file, contents }`s; a path that leaves the output (absolute, `..`)
+or lands on a page, the sitemap, robots or another emitted file is refused, and
+so is one the client build already wrote, a file from `public/` among them.
+
 `generateStaticSite(site)` is the same build without Vite: it renders every
-path and returns `{ pages, sitemap?, robots? }`. `fileFor(path, layout)` maps
+path and returns `{ pages, sitemap?, robots?, emitted }`; `writeEmitted(outDir,
+emitted)` writes the emitted files as the plugin does. `fileFor(path, layout)` maps
 one path to the file a host serves it from, so a caller writes the files
 itself; `generateStaticSite` refuses two paths that would claim one file.
 
@@ -683,14 +691,31 @@ POST ──▶ decode the Message ──▶ set the posted fields into it (the t
 ```
 
 The Message must be one the page's active Surfaces list. Commands run under the
-config's `resources` Layer, as Foldkit's runtime would provide them. A post the
+config's `resources` Layer, as Foldkit's runtime would provide them, and under
+the post's own, which `SSR.entry`'s `resources: request => Layer` builds once
+for it: who is asking, a client bound to them. Where both provide a service,
+the post's is the one its Commands get, so a client bound to the request
+replaces one bound to nobody. A render runs no Command; it reads the request
+through `flags`. A post the
 server cannot use is answered `400` with the reason (`FallbackRefused`); a
 Command that fails is answered `500`. The browser's loop runs for the life of
 the page, so a Command that reschedules itself, a poll or a tick, is ordinary
 there; on the server a post that has not settled within 100 Messages and
 Commands is answered `500`, naming the last Command. `SSR.handle(request,
-config, plan, { buildId, flags? })` can also be called from an entry of your
-own.
+config, plan, { buildId, flags?, resources? })` can also be called from an
+entry of your own.
+
+A form a cookie session authorizes is a cross-site request forgery target,
+and a form cannot carry a CSRF header. `SSR.entry`'s `origins` names the
+origins a form may be posted from; a post whose `Origin` (every browser sends
+one on a `POST`) is not among them is answered `403` before its body is read
+or `flags` and `resources` run. A page served with `Referrer-Policy:
+no-referrer` posts `Origin: null` even to its own site; such a post, or one
+with no `Origin` at all, is taken when its Fetch Metadata `Sec-Fetch-Site`,
+which no page or form can set, says `same-origin`, and refused without it. A plan with a server fallback requires `origins`, since a post
+runs `flags`, the config's `resources` and its own as whoever the cookie says
+posted: an entry made without them throws. An entry of your own that calls
+`SSR.handle` checks `Origin` itself.
 
 ## When a page is refused
 
@@ -747,6 +772,68 @@ SSR.hydrate(config, plan, { buildId, when, otherwise: 'render', until: Site.answ
 
 The served page stays as it was served while it waits: its links are plain
 links, and nothing it shows becomes live.
+
+## A reader's preferences in the first frame
+
+A theme, a light or dark choice, a density: a reader expects the page to open
+in what they chose, not in the default and then theirs. Under the rule above,
+the first frame shows whatever the server knew when it rendered.
+
+**Rendered per request, the server can know it, from a cookie.** It is the
+[example's](../../examples/foldkit/ssr) count, by the same route:
+
+```text
+request cookie ─▶ flags ─▶ init ─▶ Model.theme ─┬─ view draws it
+                                                 └─ plan.state carries it, so the browser resumes with it
+```
+
+```ts
+import { Option, Record, Schema, pipe } from 'effect'
+import { Cookies } from 'effect/http'
+import { Theme, Themes } from 'foldkit-mixins/theme'
+
+const themes = Themes.make(
+  { plain: Theme.make({}), dense: Theme.make({ shape: { density: 0.85 } }) },
+  { initial: 'plain' },
+)
+
+/** The kept theme for a request, or the initial one for a missing or unknown cookie. */
+export const readThemeCookie = (cookieHeader: string) =>
+  pipe(
+    Cookies.parseHeader(cookieHeader),
+    Record.get('theme'),
+    Option.flatMap(Schema.decodeUnknownOption(themes.Name)),
+    Option.getOrElse(() => themes.initial),
+  )
+```
+
+Read it in `flags: request => …`, keep it in the plan's `state` (leaving it out
+is refused: the view reads a field the browser would not have), and answer
+with `cache-control: private` and `vary: cookie`, as the example does: such a
+page is one reader's, and no shared cache may keep it.
+
+What the view draws is then right in the first frame. What it cannot draw is
+`<html>`: `Themes` shows a theme by an attribute there, and `color-scheme`
+lives there. The view renders the application's root only, so:
+
+- the host's template carries a head script, `Themes.script(themes)` (and
+  `Theme.schemeScript()`). It is static text, so a template that is the same
+  for every request holds it, and it reads the name the Command kept in
+  `localStorage`;
+- the Command that keeps a choice keeps it twice, the cookie for the server
+  and storage for the script: `Themes.choose(themes, name)`, then
+  `document.cookie = 'theme=…; Path=/; Max-Age=31536000; SameSite=Lax'`
+  (`Secure` on HTTPS);
+- the plan's `boot` applies the Model's theme (`Themes.apply`), so storage that
+  was refused or cleared costs one frame, not the visit.
+
+**Generated at build time** (`SSR.generate`), there is no reader to ask, and
+every page is built in the default. No change inside the application helps:
+its script runs after the browser may have painted. The head script alone
+draws the first frame, written through the generator's `head`; the Model
+catches up in `boot`. `foldkit-mixins/theme` ships the pairs: `schemeScript`
+and `chooseScheme`, `Themes.script` and `Themes.choose`, `Theme.knobScript`
+and `Theme.chooseKnobs`.
 
 ## Costs and limits
 
@@ -840,7 +927,7 @@ const Message = defineMessageUnion({
 
 ## See also
 
-- [The implementation plan](../../docs/design/ssr-PLAN.md): the decisions and
-  why, phase by phase.
 - [What the tests prove](./test/README.md).
 - [What this package asks of Foldkit](../../docs/upstream-foldkit-ssr.md).
+- [Site, Remote and SSR together](../../docs/site-remote-ssr.md): a routed
+  application rendered with its server data, taken over, and built statically.

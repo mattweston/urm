@@ -361,10 +361,18 @@ const overHttp = Remote.clientLayer(
 ```
 
 `headers` is read for each request, so a token that changes reaches the next
-call. A 403 whose body does not say `forbidden` itself, as Remote's server's
-does, comes from middleware in front of it refusing a session (a bare
-`{ error }` included): it fails a mutation as `Forbidden` and any other call
-with the status. Neither carries live data. For live data over the same `POST`s,
+call. A 401 fails every call kind, a read, a query, a mutation or a live
+stream, with `_tag: 'Unauthenticated'` (and `reason` when the server gave
+one): the server could not tell who is asking. `RemoteData.denied(error)`
+reads a failure as that or a 403 (`Forbidden`), typed, and as none for any
+other, so a view tells "sign in again" from "could not load" without
+comparing tags. Remote treats it as any failure: a read or query is `Failed`, and a live stream restarts with its
+backoff, refused again each time, until the application signs in again and
+calls `Remote.forget`. A 403 whose body does not
+say `forbidden` itself, as Remote's server's does, comes from middleware in
+front of it refusing a session (a bare `{ error }` included): it fails a
+mutation as `Forbidden` and any other call with the status. A 401 is read the
+same whatever its body says. Neither carries live data. For live data over the same `POST`s,
 `Remote.httpWithLive` keeps reads, queries, and mutations as `http` sends
 them and streams live requirements as a `text/event-stream` of changes;
 [`serveFetch`](../remote-server/README.md#over-fetch-workers) is the other
@@ -886,6 +894,32 @@ family instance as `Child[key]` — rather than
 rendering it loading. A read the server leaves unanswered settles as missing,
 so it ends the loop; what runs out the passes is a chain whose every read
 reveals one more.
+
+### Preloading a destination from `update`
+
+`prefetch` and `satisfy` return a Model, which suits a render that has none
+yet. A running application has one, and it moves on while a read is out, so
+writing the returned Model back would undo what happened meanwhile.
+`Data.preload` is `satisfy` as a Command: it reads what `actives` would read
+in the Model you give it (the live one with the route set to where the reader
+may go) and yields one `Preloaded`, carrying the Messages that wrote it,
+which `update` reduces into the Model as it is by then:
+
+```ts
+const project = Surface.at(ProjectPage, model =>
+  model.route._tag === 'project' ? Option.some({ projectId: model.route.projectId }) : Option.none(),
+)
+// The reader is over the link to p2: read its page before they arrive.
+const preload = Data.preload({ ...model, route: { _tag: 'project', projectId: 'p2' } }, { project })
+// update returns { model, commands: [preload] }; under Remote.fold, foldData.preload(...)
+```
+
+It never fails: a read that fails, or a client that dies, ends it with what
+was read before, and the destination reads the rest when the reader arrives.
+A Surface of another application is refused when the Command is made. What it
+reads is kept like any other read until what is retained next changes, so
+preload close to the navigation you expect (a hover, a focus), not far ahead
+of it.
 
 ### Refreshing from `update`
 
@@ -2128,3 +2162,6 @@ Remote does **not** own:
   prefetch, refresh, query, render, mutation, retention, and decode failure.
 - [`examples/kitchen-sink`](../../examples/kitchen-sink) — the same architecture
   using the real server packages.
+- [Site, Remote and SSR together](../../docs/site-remote-ssr.md) — routes that
+  activate reads, rendered on the server with their data and taken over without
+  fetching again.

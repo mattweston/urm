@@ -1,10 +1,12 @@
-import { Equal, Schema } from 'effect'
+import { Equal, Match, Schema } from 'effect'
 import {
   NodeId,
   blockAtPath,
   compareRunPlaces,
   eachBlock,
+  positionInBlock,
   locateBlock,
+  rangeStart,
   locateRun,
   pathKey,
   textContent,
@@ -19,8 +21,10 @@ import {
   type Text as Run,
 } from './document.js'
 import { withFreshIds, type Slice } from './clipboard.js'
+import { toText } from './html.js'
 import {
   markName,
+  edgeMarks,
   resolveInsertion,
   propsFailure,
   sameMark,
@@ -28,6 +32,24 @@ import {
   type MarkRegistry,
 } from './marks.js'
 import { blockKind, standsWithin, type NodeRegistry } from './kit.js'
+import { indent, indentationAt, offsetIn, outdent } from './indent.js'
+import { findMatches, type SearchMatch } from './search.js'
+import {
+  FootnoteDefinition,
+  FootnoteRef,
+  footnotesOf,
+  nextFootnoteLabel,
+  referenceLabel,
+} from './footnote.js'
+import {
+  deleteColumn,
+  deleteRow,
+  insertColumn,
+  insertRow,
+  moveToCell,
+  tableAt,
+  type TableEdit,
+} from './table.js'
 import {
   Edit,
   apply,
@@ -60,8 +82,12 @@ export type Command =
    * mark around it (`markExtent`), and does nothing outside one.
    */
   | { readonly type: 'SetMark'; readonly mark: string | MarkValue }
-  /** Takes the named mark off every run the selection covers; a caret, off its extent. */
-  | { readonly type: 'ClearMark'; readonly mark: string }
+  /**
+   * Takes the named mark off every run the selection covers; a caret, off its extent. Given a
+   * mark value, only off the runs carrying exactly that value: one discussion's highlight,
+   * leaving another's inside it.
+   */
+  | { readonly type: 'ClearMark'; readonly mark: string | MarkValue }
   | { readonly type: 'SetSelection'; readonly selection: Selection | null }
   | { readonly type: 'Paste'; readonly slice: Slice }
   /** Retypes the block the selection starts in: a paragraph, or a heading. */
@@ -105,6 +131,64 @@ export type Command =
    * own item. Given a vocabulary, props that decode as the kind's must still decode after.
    */
   | { readonly type: 'SetProps'; readonly node: NodeId; readonly props: Schema.JsonObject }
+  /**
+   * Inserts a block, and everything it holds, before or after another block, under fresh
+   * identities from `mint`: an image chosen from a file, a table from a menu, a copy of a block
+   * for its handle's Duplicate. The caret goes to the start of its first text, when it has any.
+   * Without `to` it goes beside the caret's block: before it when that block is empty, so a
+   * slash command typed on a blank line puts its block there and the line stays to type on,
+   * and after it otherwise.
+   */
+  | { readonly type: 'InsertBlock'; readonly block: Block; readonly to?: Beside | undefined }
+  /**
+   * Deletes a block and everything it holds, with any container that would be left empty by it,
+   * as a block handle's Delete does. A caret inside it moves to the nearest text that stays; a
+   * document left with no block gets an empty paragraph, so there is somewhere to type.
+   */
+  | { readonly type: 'DeleteBlock'; readonly node: NodeId }
+  /**
+   * A row above or below the caret's table cell, as wide as the table's widest row, with the caret
+   * moved into it. The table is the standard vocabulary's (`Table`, `TableRow`, `TableCell`).
+   */
+  | { readonly type: 'InsertRow'; readonly where: 'before' | 'after' }
+  /** A cell beside the caret's in every row, before or after it: a column. */
+  | { readonly type: 'InsertColumn'; readonly where: 'before' | 'after' }
+  /** The caret's row, deleted; the last one deletes the table. */
+  | { readonly type: 'DeleteRow' }
+  /** The caret's column, deleted from every row that has it; the last one deletes the table. */
+  | { readonly type: 'DeleteColumn' }
+  /**
+   * Tab. In a kind declared `indents` (code), a level of indentation at the caret, or at the
+   * start of every line a range covers; in a table cell, the caret to the next cell, adding a row
+   * after the last. Refused anywhere else (`InvalidSelection`), so Tab can move focus there.
+   */
+  | { readonly type: 'Indent' }
+  /** Shift+Tab: a level of indentation off each line in code; the previous cell in a table. */
+  | { readonly type: 'Outdent' }
+  /**
+   * Find and replace: the match at index `at` of `query` (in document order, as `findMatches`
+   * lists them), or every match when `at` is absent, becomes `replacement`, as one transaction.
+   * Case does not count unless `caseSensitive`. The caret ends after the earliest replacement.
+   */
+  | {
+      readonly type: 'Replace'
+      readonly query: string
+      readonly replacement: string
+      readonly caseSensitive?: boolean | undefined
+      readonly at?: number | undefined
+    }
+  /**
+   * A footnote at the caret, or at the end of a range: a reference showing the next free label
+   * (`nextFootnoteLabel`), and its definition after the last top-level block holding `text`, with
+   * the caret at the definition's start, ready to write the note.
+   */
+  | { readonly type: 'InsertFootnote'; readonly text?: string | undefined }
+  /**
+   * A footnote's label, `from`, becomes `to`: on its definition, and on every reference, whose
+   * text becomes `to` where it showed `from`. Refused (`InvalidInput`) when `to` is blank or
+   * another footnote's, or when no footnote is labelled `from`.
+   */
+  | { readonly type: 'RenameFootnote'; readonly from: string; readonly to: string }
 
 /** Where `MoveBlock` puts a block: before or after a sibling, named by identity. */
 export const Beside = Schema.Union([
@@ -197,6 +281,18 @@ const refusesProps = (nodes: NodeRegistry | undefined, container: Container): bo
 const declaresText = (nodes: NodeRegistry | undefined, kind: string): boolean => {
   const declared = nodes?.definitionFor(kind)
   return declared?.kind === 'node' && declared.children === textContent
+}
+
+/**
+ * Whether a block is an atom, holding neither text nor blocks, as an image is. Without a
+ * vocabulary, a node with nothing in it is one.
+ */
+export const isAtom = (nodes: NodeRegistry | undefined, block: Block): boolean => {
+  if (block.type !== 'Node') return false
+  const declared = nodes?.definitionFor(block.kind)
+  return declared === undefined
+    ? block.blocks === undefined && block.children.length === 0
+    : declared.kind === 'atom'
 }
 
 /** Whether the vocabulary names `itemKind` among the kinds `listKind` holds, as `List` names `ListItem`. */
@@ -526,6 +622,175 @@ export const blocksAt = (document: Document, selection: Selection | null): Reado
   return path.map((_, depth) => blockAtPath(document, path.slice(0, depth + 1))!)
 }
 
+/** Whether `prefix` is a path to one of the blocks `path` lies inside, or `path` itself. */
+const startsWith = (path: BlockPath, prefix: BlockPath): boolean =>
+  prefix.length <= path.length && prefix.every((index, at) => path[at] === index)
+
+/** Document order of two block paths: a container comes before what it holds. */
+const pathOrder = (left: BlockPath, right: BlockPath): number => {
+  for (let at = 0; at < Math.min(left.length, right.length); at++) {
+    if (left[at] !== right[at]) return left[at]! - right[at]!
+  }
+  return left.length - right.length
+}
+
+/** Whether two blocks can be joined into one: what `JoinNode` accepts. */
+const joinable = (survivor: Block, removed: Block): boolean => {
+  if (survivor.type === 'Unknown' || removed.type === 'Unknown') return false
+  if (nestedBlocks(survivor) !== undefined || nestedBlocks(removed) !== undefined) return false
+  if (survivor.type !== 'Node' && removed.type !== 'Node') return true
+  return (
+    survivor.type === 'Node' &&
+    removed.type === 'Node' &&
+    survivor.kind === removed.kind &&
+    Equal.equals(survivor.props, removed.props)
+  )
+}
+
+const nestedBlocks = (block: Block): ReadonlyArray<Block> | undefined =>
+  block.type === 'Node' && block.blocks !== undefined ? block.blocks : undefined
+
+/** Whether going from one block to another leaves an isolating container, as a table cell is. */
+const crossesIsolating = (
+  document: Document,
+  from: BlockPath,
+  to: BlockPath,
+  nodes: NodeRegistry | undefined,
+): boolean =>
+  [from, to].some((path, side) => {
+    const other = side === 0 ? to : from
+    for (let depth = 1; depth < path.length; depth++) {
+      const container = path.slice(0, depth)
+      if (startsWith(other, container)) continue
+      const block = blockAtPath(document, container)
+      const declared = block?.type === 'Node' ? nodes?.definitionFor(block.kind) : undefined
+      if (declared?.kind === 'node' && declared.isolating === true) return true
+    }
+    return false
+  })
+
+/** The innermost first or last block inside the block at `path`: itself when it holds none. */
+const edgeLeaf = (document: Document, path: BlockPath, last: boolean): BlockPath => {
+  let at = path
+  for (;;) {
+    const held = nestedBlocks(blockAtPath(document, at)!)
+    if (held === undefined || held.length === 0) return at
+    at = [...at, last ? held.length - 1 : 0]
+  }
+}
+
+/** The first block after the one at `path` that holds no blocks, in document order. */
+const nextLeaf = (document: Document, path: BlockPath): BlockPath | undefined => {
+  let found: BlockPath | undefined
+  eachBlock(document.children, (block, at) => {
+    if (found !== undefined || pathOrder(at, path) <= 0 || startsWith(path, at)) return
+    if ((nestedBlocks(block) ?? []).length === 0) found = at
+  })
+  return found
+}
+
+/** One result followed by another, as one: what `runAction` does for two commands. */
+const followedBy = (first: TransactionResult, second: TransactionResult): TransactionResult =>
+  !first.ok || !second.ok
+    ? second.ok
+      ? first
+      : second
+    : {
+        ok: true,
+        state: second.state,
+        changeSet: unionChangeSet(first.changeSet, second.changeSet),
+        positionMap: [...first.positionMap, ...second.positionMap],
+        transactions: [...first.transactions, ...second.transactions],
+      }
+
+/**
+ * Deletes a range that leaves its container, as selecting from one kind of block into another
+ * (or everything) and pressing Delete does: the text after `start` in its block and before
+ * `end` in its block goes, every block wholly between them goes, and the block `end` is in
+ * comes up beside the one `start` is in, joining it when the two can be one. A container it
+ * leaves empty goes too. A range that leaves a table cell (an isolating container) only loses
+ * its text: the cells stay, as a table's structure is not a selection's to remove. The caret
+ * ends at `start`.
+ */
+const clearRange = (
+  state: EditorState,
+  start: Position,
+  end: Position,
+  options: RunOptions,
+): TransactionResult => {
+  const document = state.document
+  const startAt = locate(document, start.node)
+  const endAt = locate(document, end.node)
+  if (startAt === undefined || endAt === undefined) return failure('MissingText')
+  const startPath = startAt.path
+  const endPath = endAt.path
+  const spans = covered(document, start, end)
+  if (crossesIsolating(document, startPath, endPath, options.nodes)) {
+    return apply(state, [
+      ...spans.map(span => Edit.deleteText(span.run.id, span.from, span.to)),
+      Edit.setSelection(caretAt(start)),
+    ])
+  }
+  // The ends lose what the range covers of them; everything between them goes whole.
+  const ends = spans.filter(
+    span =>
+      pathKey(span.run.path) === pathKey(startPath) || pathKey(span.run.path) === pathKey(endPath),
+  )
+  const between: Array<{ readonly id: NodeId; readonly path: BlockPath }> = []
+  eachBlock(document.children, (block, path) => {
+    if (pathOrder(path, startPath) <= 0 || pathOrder(path, endPath) >= 0) return
+    if (startsWith(endPath, path) || startsWith(startPath, path)) return
+    if (between.some(outer => startsWith(path, outer.path))) return
+    between.push({ id: block.id, path })
+  })
+  const first = apply(state, [
+    ...ends.map(span => Edit.deleteText(span.run.id, span.from, span.to)),
+    ...between.map(block => Edit.deleteBlock(block.id)),
+    Edit.setSelection(caretAt(start)),
+  ])
+  if (!first.ok) return first
+  // Bring the end block beside the start one, join them if they can be one, and take away
+  // the containers the move left empty.
+  const startBlock = blockAtPath(document, startPath)!
+  const endBlock = blockAtPath(document, endPath)!
+  const now = first.state.document
+  const survivorAt = locateBlock(now, startBlock.id)
+  const removedAt = locateBlock(now, endBlock.id)
+  if (survivorAt === undefined || removedAt === undefined) return first
+  const operations: Array<Operation> = []
+  const parentPath = survivorAt.path.slice(0, -1)
+  const parent = parentPath.length === 0 ? undefined : blockAtPath(now, parentPath)
+  const index = survivorAt.path[survivorAt.path.length - 1]!
+  const siblings = pathKey(removedAt.path.slice(0, -1)) === pathKey(parentPath)
+  // It comes up only where its kind may stand: a list holds items, not a paragraph.
+  if (
+    !siblings &&
+    parentPath.length > 0 &&
+    !acceptsChild(now, parentPath, blockKind(removedAt.block), options.nodes)
+  ) {
+    return first
+  }
+  if (!siblings) operations.push(Edit.moveBlock(endBlock.id, index + 1, parent?.id))
+  const adjacent = siblings ? removedAt.path[removedAt.path.length - 1] === index + 1 : true
+  if (adjacent && joinable(survivorAt.block, removedAt.block)) {
+    operations.push(Edit.joinBlocks(startBlock.id, endBlock.id))
+  }
+  if (!siblings) {
+    // Each container the end block was in, innermost first, goes when nothing else is left in it.
+    for (let depth = removedAt.path.length - 1; depth > 0; depth--) {
+      const container = blockAtPath(now, removedAt.path.slice(0, depth))
+      if (container === undefined || startsWith(survivorAt.path, removedAt.path.slice(0, depth))) {
+        break
+      }
+      // It held the end block, or the container holding it, and is empty once that goes.
+      if ((nestedBlocks(container) ?? []).length > 1) break
+      operations.push(Edit.deleteBlock(container.id))
+    }
+  }
+  if (operations.length === 0) return first
+  return followedBy(first, apply(first.state, [...operations, Edit.setSelection(caretAt(start))]))
+}
+
 /** The last run in a block's subtree, or undefined when it holds none. */
 const lastRunOf = (block: Block): Run | undefined => {
   if (block.type === 'Node' && block.blocks !== undefined) {
@@ -572,10 +837,14 @@ const deleteRange = (
   const blocks = containerBlocks(document, containerPath)
   const from = startAt.path[startAt.path.length - 1]!
   const to = endAt.path[endAt.path.length - 1]!
-  const survivor = blocks[from]!.id
+  const survivor = blocks[from]!
   for (let index = from + 1; index <= to; index++) {
     const block = blocks[index]
-    if (block !== undefined) deletions.push(Edit.joinBlocks(survivor, block.id))
+    if (block === undefined) continue
+    // A block between that cannot be one with the first (an image, a table, a list) is for
+    // `clearRange`, which removes it rather than joining it.
+    if (!joinable(survivor, block)) return undefined
+    deletions.push(Edit.joinBlocks(survivor.id, block.id))
   }
   return deletions
 }
@@ -972,6 +1241,27 @@ export const run = (
 ): TransactionResult => {
   // The vocabulary an edit may add: the caller's Kit, or the shipped marks.
   const declared = options.marks ?? shippedRegistry
+  // A range that leaves its container (a selection over several kinds of block, or all of
+  // them) is cleared first, and what replaces it then acts on the caret that is left.
+  const range = state.selection
+  if (
+    (command.type === 'InsertText' ||
+      command.type === 'DeleteBackward' ||
+      command.type === 'DeleteForward' ||
+      command.type === 'SplitBlock' ||
+      command.type === 'Paste') &&
+    range?.type === 'Range' &&
+    !isCollapsed(range)
+  ) {
+    const span = ordered(state.document, range)
+    if (span !== undefined && deleteRange(state.document, span.start, span.end) === undefined) {
+      const cleared = clearRange(state, span.start, span.end, options)
+      if (!cleared.ok || command.type === 'DeleteBackward' || command.type === 'DeleteForward') {
+        return cleared
+      }
+      return followedBy(cleared, run(cleared.state, command, ids, options))
+    }
+  }
   if (command.type === 'SetSelection') {
     return apply(state, [Edit.setSelection(command.selection)])
   }
@@ -987,6 +1277,138 @@ export const run = (
       return failure('InvalidInput')
     }
     return apply(state, [Edit.setProps(command.node, command.props)])
+  }
+  if (
+    command.type === 'InsertRow' ||
+    command.type === 'InsertColumn' ||
+    command.type === 'DeleteRow' ||
+    command.type === 'DeleteColumn'
+  ) {
+    const at = tableAt(state.document, state.selection)
+    if (at === undefined) return failure('InvalidSelection')
+    const edited: TableEdit = Match.value(command).pipe(
+      Match.discriminatorsExhaustive('type')({
+        InsertRow: ({ where }) => insertRow(state, at, where, ids.mint),
+        InsertColumn: ({ where }) => insertColumn(state, at, where, ids.mint),
+        DeleteRow: () => deleteRow(state, at),
+        DeleteColumn: () => deleteColumn(state, at),
+      }),
+    )
+    // The last row or column takes the table with it, as a handle's Delete would.
+    return 'deleteTable' in edited
+      ? run(state, { type: 'DeleteBlock', node: edited.deleteTable }, ids, options)
+      : edited
+  }
+  if (command.type === 'Indent' || command.type === 'Outdent') {
+    // Code inside a table cell indents: the innermost meaning of Tab wins.
+    const code = linesHolder(state, options.nodes)
+    if (code !== undefined) {
+      return command.type === 'Indent' ? indent(state, code) : outdent(state, code)
+    }
+    // A list item inside a table cell nests; a table inside a list item moves between cells.
+    const item = itemAtCaret(state, options.nodes)
+    const at = tableAt(state.document, state.selection)
+    const tableDepth =
+      at === undefined ? -1 : (locateBlock(state.document, at.table.id)?.path.length ?? -1)
+    if (item !== undefined && item.containerPath.length > tableDepth) {
+      return command.type === 'Indent'
+        ? sinkItem(state, item, ids, options)
+        : liftItem(state, item, ids, options)
+    }
+    if (at === undefined) return failure('InvalidSelection')
+    return moveToCell(state, at, command.type === 'Indent' ? 'next' : 'previous', ids.mint)
+  }
+  if (command.type === 'Replace') {
+    const matches = findMatches(state.document, command.query, command)
+    const chosen = command.at === undefined ? matches : matches.slice(command.at, command.at + 1)
+    return replaceMatches(state, chosen, command.replacement, ids, options)
+  }
+  if (command.type === 'InsertFootnote')
+    return insertFootnote(state, command.text ?? '', ids, options)
+  if (command.type === 'RenameFootnote') {
+    return renameFootnote(state, command.from, command.to.trim(), ids, options)
+  }
+  if (command.type === 'InsertBlock') {
+    const to = command.to ?? besideCaret(state)
+    if (to === undefined) return failure('InvalidSelection')
+    const beside = locateBlock(state.document, 'before' in to ? to.before : to.after)
+    if (beside === undefined) return failure('InvalidInput')
+    const containerPath = beside.path.slice(0, -1)
+    const holder =
+      containerPath.length === 0 ? undefined : blockAtPath(state.document, containerPath)
+    const kind = blockKind(command.block)
+    if (
+      (holder !== undefined && !acceptsChild(state.document, containerPath, kind, options.nodes)) ||
+      !standsWithin(
+        options.nodes?.definitionFor(kind),
+        holder === undefined ? undefined : blockKind(holder),
+      )
+    ) {
+      return failure('UnexpectedChild')
+    }
+    const [inserted] = withFreshIds({ version: 1, blocks: [command.block] }, ids.mint).blocks
+    const at = beside.path[beside.path.length - 1]! + ('after' in to ? 1 : 0)
+    const first = firstRunIn([inserted!])
+    return apply(state, [
+      Edit.insertBlock(inserted!, at, holder?.id),
+      ...(first === undefined
+        ? []
+        : [Edit.setSelection(caretAt({ node: first.id, offset: 0, affinity: 'after' }))]),
+    ])
+  }
+  if (command.type === 'DeleteBlock') {
+    const deleting = locateBlock(state.document, command.node)
+    if (deleting === undefined) return failure('InvalidInput')
+    // Never a path, so no container counts as holding where the block goes.
+    const target = emptiedBy(state.document, deleting.path.slice(0, -1), [-1]) ?? command.node
+    const gone = locateBlock(state.document, target)!
+    const inside = (path: BlockPath) => gone.path.every((index, depth) => path[depth] === index)
+    const runs: Array<{ readonly run: Run; readonly inside: boolean; readonly after: boolean }> = []
+    eachBlock(state.document.children, (block, path) => {
+      for (const run of block.children) {
+        runs.push({ run, inside: inside(path), after: pathOrder(path, gone.path) > 0 })
+      }
+    })
+    const selection = state.selection
+    const holds =
+      selection !== null &&
+      (selection.type === 'Node'
+        ? locateBlock(state.document, selection.node) !== undefined &&
+          inside(locateBlock(state.document, selection.node)!.path)
+        : [selection.anchor, selection.focus].some(end =>
+            runs.some(entry => entry.inside && entry.run.id === end.node),
+          ))
+    // By place, not by the runs the block held: an atom holds none.
+    const following = runs.find(entry => entry.after && !entry.inside)
+    const preceding = [...runs].reverse().find(entry => !entry.after && !entry.inside)
+    const landing =
+      following !== undefined
+        ? { node: following.run.id, offset: 0, affinity: 'after' as const }
+        : preceding !== undefined
+          ? {
+              node: preceding.run.id,
+              offset: preceding.run.text.length,
+              affinity: 'after' as const,
+            }
+          : undefined
+    const emptiesDocument = gone.path.length === 1 && state.document.children.length === 1
+    if (emptiesDocument) {
+      const textId = NodeId.make(ids.mint())
+      const paragraph: Block = {
+        type: 'Paragraph',
+        id: NodeId.make(ids.mint()),
+        children: [{ type: 'Text', id: textId, text: '', marks: [] }],
+      }
+      return apply(state, [
+        Edit.insertBlock(paragraph, 1),
+        Edit.deleteBlock(target),
+        Edit.setSelection(caretAt({ node: textId, offset: 0, affinity: 'after' })),
+      ])
+    }
+    return apply(state, [
+      Edit.deleteBlock(target),
+      ...(holds ? [Edit.setSelection(landing === undefined ? null : caretAt(landing))] : []),
+    ])
   }
   if (command.type === 'MoveBlock') {
     const moving = locateBlock(state.document, command.node)
@@ -1027,13 +1449,41 @@ export const run = (
     ])
   }
   const selection = state.selection
+  // A selected block is deleted by Delete or Backspace, has a paragraph opened after it by
+  // Enter, and is replaced by what is typed over it.
+  if (selection?.type === 'Node') {
+    const paragraph: Block = {
+      type: 'Paragraph',
+      id: NodeId.make('paragraph'),
+      children: [{ type: 'Text', id: NodeId.make('text'), text: '', marks: [] }],
+    }
+    const after = { type: 'InsertBlock', block: paragraph, to: { after: selection.node } } as const
+    if (command.type === 'DeleteBackward' || command.type === 'DeleteForward') {
+      return run(state, { type: 'DeleteBlock', node: selection.node }, ids, options)
+    }
+    if (command.type === 'SplitBlock') return run(state, after, ids, options)
+    if (command.type === 'InsertText') {
+      return runAction(
+        state,
+        [after, { type: 'DeleteBlock', node: selection.node }, command],
+        ids,
+        options,
+      )
+    }
+  }
   if (selection === null || selection.type === 'Node') return failure('InvalidSelection')
 
   if (command.type === 'InsertText') {
     // Stored marks are explicit: when the command carries them, the inserted
     // text must end up with exactly that set, whatever run it lands in. Without
     // them, the boundary rule decides (typing after bold continues bold).
-    const stored = command.marks
+    // At a block's outer edge, a mark that does not extend there is left behind: the text
+    // carries the rest, as stored marks would.
+    const edge =
+      command.marks === undefined && isCollapsed(selection)
+        ? edgeMarks(state.document, selection.anchor, options.marks)
+        : undefined
+    const stored = command.marks ?? edge
     const target = isCollapsed(selection)
       ? stored === undefined
         ? resolveInsertion(state.document, selection.anchor, options.marks)
@@ -1045,7 +1495,8 @@ export const run = (
     const marks: Array<RunMark> = []
     if (stored !== undefined) {
       for (const mark of stored) {
-        if (!declared.accepts(mark)) return failure('InvalidInput')
+        // Marks kept from the run were already there; only marks a caller names are checked.
+        if (edge === undefined && !declared.accepts(mark)) return failure('InvalidInput')
         marks.push(mark)
       }
       // A mark-free kind refuses the format however it arrives, so inserting text
@@ -1139,21 +1590,75 @@ export const run = (
     if (backward && block.type === 'Node' && declaresText(options.nodes, block.kind)) {
       return run(state, { type: 'RetypeBlock', to: { type: 'Paragraph' } }, ids, options)
     }
+    // A heading does too, undoing the `# ` that made it, before a second press joins it.
+    if (backward && block.type === 'Heading') {
+      return run(state, { type: 'RetypeBlock', to: { type: 'Paragraph' } }, ids, options)
+    }
     // A block edge joins the sibling in the same container, wherever it sits.
     const containerPath = at.path.slice(0, -1)
     const siblings = containerBlocks(state.document, containerPath)
     const index = at.path[at.path.length - 1]!
     const neighborBlock = siblings[backward ? index - 1 : index + 1]
-    if (neighborBlock === undefined) {
+    // An atom cannot take text, so the edge selects it, and a second press deletes it. A
+    // block left with nothing in it goes first, as Backspace on an empty line would.
+    if (neighborBlock !== undefined && isAtom(options.nodes, neighborBlock)) {
+      return apply(state, [
+        ...(textOfBlock(block) === '' ? [Edit.deleteBlock(block.id)] : []),
+        Edit.setSelection({ type: 'Node', node: neighborBlock.id }),
+      ])
+    }
+    if (neighborBlock === undefined && backward) {
       // Backspace at the start of a container's first block has nothing to join with, so
       // it lifts the block out, undoing what `> ` or `- ` did. Only with a vocabulary: it
       // is what says a list item's paragraph must leave the list too, and a table cell must
-      // not be left at all. Otherwise, and forward, the edge stays a no-op.
+      // not be left at all. Otherwise the edge stays a no-op.
       const lifted =
-        backward && containerPath.length > 0 && options.nodes !== undefined
+        containerPath.length > 0 && options.nodes !== undefined
           ? liftOperations(state.document, siblings[index]!.id, ids, options.nodes)
           : undefined
       return apply(state, lifted ?? [])
+    }
+    // Past a sibling it cannot join, or forward past the end of its container, the edge
+    // reaches the nearest block on that side that holds no blocks: inside a list or a quote,
+    // its last or first line, which joins the line at the caret as clearing the empty range
+    // between them would. A table cell or code cannot take the line, so there an emptied line
+    // goes and Backspace steps into it, and Delete beside a line with text does nothing.
+    if (
+      neighborBlock === undefined ||
+      !joinable(backward ? neighborBlock : block, backward ? block : neighborBlock)
+    ) {
+      const leafPath =
+        neighborBlock === undefined
+          ? nextLeaf(state.document, at.path)
+          : edgeLeaf(state.document, [...containerPath, index + (backward ? -1 : 1)], backward)
+      const leaf = leafPath === undefined ? undefined : blockAtPath(state.document, leafPath)
+      if (leafPath === undefined || leaf === undefined) return apply(state, [])
+      const empty = textOfBlock(block) === ''
+      if (isAtom(options.nodes, leaf)) {
+        return apply(state, [Edit.setSelection({ type: 'Node', node: leaf.id })])
+      }
+      const first = leaf.children[0]
+      const last = leaf.children[leaf.children.length - 1]
+      const target = backward ? last : first
+      if (target === undefined) return apply(state, [])
+      const edge = {
+        node: target.id,
+        offset: backward ? target.text.length : 0,
+        affinity: 'after' as const,
+      }
+      // An empty line beside a list or a quote goes, rather than taking its line out of it.
+      const stepsOnly = empty && neighborBlock !== undefined
+      // Across a table cell, clearing the range only steps the caret, as it should.
+      if (!stepsOnly && (backward ? joinable(leaf, block) : joinable(block, leaf))) {
+        return backward
+          ? clearRange(state, edge, caret, options)
+          : clearRange(state, caret, edge, options)
+      }
+      if (neighborBlock === undefined || (!backward && !empty)) return apply(state, [])
+      return apply(state, [
+        ...(empty ? [Edit.deleteBlock(block.id)] : []),
+        Edit.setSelection(caretAt(edge)),
+      ])
     }
     const survivor = backward ? neighborBlock : siblings[index]!
     const removed = backward ? siblings[index]! : neighborBlock
@@ -1180,6 +1685,53 @@ export const run = (
     if (at === undefined) return failure('MissingText')
     const deletions = span === undefined ? [] : deleteRange(state.document, span.start, span.end)
     if (deletions === undefined) return failure('InvalidParent')
+    const holder = blockAtPath(state.document, at.path)
+    const definition =
+      holder?.type === 'Node' ? options.nodes?.definitionFor(holder.kind) : undefined
+    if (holder !== undefined && definition?.kind === 'node' && definition.lineBreaks === true) {
+      const last = holder.children[holder.children.length - 1]
+      const onEmptyLastLine =
+        span === undefined &&
+        last?.id === at.id &&
+        caret.offset === at.text.length &&
+        holder.children
+          .map(run => run.text)
+          .join('')
+          .endsWith('\n')
+      // Enter on an empty last line leaves the block, so one at the end of a document can be
+      // left at all; anywhere else it is a line break in the text.
+      return onEmptyLastLine
+        ? runAction(
+            state,
+            [
+              { type: 'DeleteBackward' },
+              {
+                type: 'InsertBlock',
+                block: {
+                  type: 'Paragraph',
+                  id: NodeId.make('paragraph'),
+                  children: [{ type: 'Text', id: NodeId.make('text'), text: '', marks: [] }],
+                },
+                to: { after: holder.id },
+              },
+            ],
+            ids,
+            options,
+          )
+        : run(
+            state,
+            // In code, the new line starts as indented as the one it broke.
+            {
+              type: 'InsertText',
+              text:
+                definition.indents === true
+                  ? `\n${indentationAt(textOfBlock(holder), offsetIn(holder, caret) ?? 0)}`
+                  : '\n',
+            },
+            ids,
+            options,
+          )
+    }
     const item = itemAround(state.document, at.path, options.nodes)
     if (item !== undefined) {
       // Over a range inside an item, Enter deletes the range and then splits the item, as it
@@ -1215,7 +1767,13 @@ export const run = (
       span = ordered(state.document, extent.selection)
     }
     if (span === undefined) return failure('InvalidSelection')
-    const spans = covered(state.document, span.start, span.end)
+    // A value clears only the runs carrying exactly it, so those are all the runs it covers.
+    const spans = covered(state.document, span.start, span.end).filter(
+      entry =>
+        command.type !== 'ClearMark' ||
+        typeof mark === 'string' ||
+        entry.run.marks.some(held => sameMark(held, mark)),
+    )
     if (spans.length === 0) return apply(state, [])
     // A toggle keys on the name: the mark is present on every covered run, or
     // it is absent everywhere. Props are the mark's own business.
@@ -1261,6 +1819,12 @@ export const run = (
     const caret = span?.start ?? selection.anchor
     const at = locate(state.document, caret.node)
     if (at === undefined) return failure('MissingText')
+    // Into code, or any kind whose text keeps line breaks, what is pasted is its text.
+    const into = blockAtPath(state.document, at.path)
+    const holds = into?.type === 'Node' ? options.nodes?.definitionFor(into.kind) : undefined
+    if (holds?.kind === 'node' && holds.lineBreaks === true) {
+      return run(state, { type: 'InsertText', text: toText(content) }, ids, options)
+    }
     const index = at.path[at.path.length - 1]!
     const containerPath = at.path.slice(0, -1)
     // The content lands in the caret's own container, so pasting inside a list
@@ -1290,65 +1854,316 @@ export const run = (
     }
     const block = blockAtPath(state.document, at.path)
     if (block === undefined) return failure('MissingText')
-    const atBlockStart = at.runIndex === 0 && caret.offset === 0
-    const atBlockEnd = at.runIndex === block.children.length - 1 && caret.offset === at.text.length
-    let trailingRun: NodeId | undefined
-    if (atBlockStart) {
-      // Pasting at the very start puts the content above this block.
-      for (const [offset, piece] of inserted.entries()) {
-        operations.push(Edit.insertBlock(piece, index + offset, parent))
-      }
-    } else if (atBlockEnd) {
-      for (const [offset, piece] of inserted.entries()) {
-        operations.push(Edit.insertBlock(piece, index + 1 + offset, parent))
-      }
-    } else {
-      // Mid-block: split the block at the caret and land the content between
-      // the halves, so the text after the caret stays below what was pasted.
-      const textId = ids.mint()
-      operations.push(Edit.splitBlock(at.blockId, at.id, caret.offset, ids.mint(), textId))
-      trailingRun = NodeId.make(textId)
-      for (const [offset, piece] of inserted.entries()) {
-        operations.push(Edit.insertBlock(piece, index + 1 + offset, parent))
-      }
+    // The block splits at the caret and the content lands between the halves. The first
+    // piece joins the text before the caret and the last the text after it, when each can be
+    // one block with it, so a pasted word or line lands inside the sentence; a half left with
+    // nothing in it goes, unless it is the only place after a table or an image to type.
+    const end = span?.end ?? caret
+    const endBlock = blockAtPath(state.document, locate(state.document, end.node)?.path ?? at.path)
+    const beforeEmpty = offsetIn(block, caret) === 0
+    const afterEmpty =
+      endBlock === undefined || offsetIn(endBlock, end) === textOfBlock(endBlock).length
+    const tailText = NodeId.make(ids.mint())
+    const tail = NodeId.make(ids.mint())
+    operations.push(Edit.splitBlock(at.blockId, at.id, caret.offset, tail, tailText))
+    for (const [offset, piece] of inserted.entries()) {
+      operations.push(Edit.insertBlock(piece, index + 1 + offset, parent))
     }
-    const landing = landingAfter(
-      inserted,
-      trailingRun,
-      containerBlocks(state.document, containerPath),
-      index,
-      atBlockEnd,
+    const first = inserted[0]!
+    const last = inserted[inserted.length - 1]!
+    const lastRun = last.children[last.children.length - 1]
+    // Set before the joins, which carry it with the runs they move.
+    operations.push(
+      Edit.setSelection(
+        caretAt(
+          lastRun === undefined
+            ? { node: tailText, offset: 0, affinity: 'after' }
+            : { node: lastRun.id, offset: lastRun.text.length, affinity: 'after' },
+        ),
+      ),
     )
-    if (landing !== undefined) operations.push(Edit.setSelection(caretAt(landing)))
+    const joinsHead = joinable(block, first)
+    const joinsTail = joinable(last, block)
+    if (joinsHead) operations.push(Edit.joinBlocks(at.blockId, first.id))
+    if (joinsTail) {
+      operations.push(Edit.joinBlocks(joinsHead && last === first ? at.blockId : last.id, tail))
+    }
+    if (!joinsHead && beforeEmpty) operations.push(Edit.deleteBlock(at.blockId))
+    if (!joinsTail && afterEmpty && lastRun !== undefined) operations.push(Edit.deleteBlock(tail))
     return apply(state, operations)
   }
 
   return apply(state, [])
 }
 
+/** Where an `InsertBlock` without a place goes: beside the caret's block, before it when empty. */
+const besideCaret = (state: EditorState): Beside | undefined => {
+  if (state.selection?.type !== 'Range') return undefined
+  const run = locateRun(
+    state.document,
+    ordered(state.document, state.selection)?.start.node ?? state.selection.anchor.node,
+  )
+  const block = run === undefined ? undefined : blockAtPath(state.document, run.path)
+  if (block === undefined) return undefined
+  const empty = block.children.every(child => child.text === '')
+  return empty ? { before: block.id } : { after: block.id }
+}
+
+const textOfBlock = (block: Block): string => block.children.map(run => run.text).join('')
+
+/** The block the selection starts in when its kind indents its lines, as code does. */
+const linesHolder = (state: EditorState, nodes: NodeRegistry | undefined): Block | undefined => {
+  if (state.selection?.type !== 'Range') return undefined
+  const start = ordered(state.document, state.selection)?.start
+  const run = start === undefined ? undefined : locateRun(state.document, start.node)
+  const block = run === undefined ? undefined : blockAtPath(state.document, run.path)
+  if (block?.type !== 'Node') return undefined
+  const definition = nodes?.definitionFor(block.kind)
+  return definition?.kind === 'node' && definition.indents === true ? block : undefined
+}
+
 /**
- * Where the caret goes after a paste: the end of the last inserted run, or the
- * start of what follows when the inserted content ends without text — the
- * trailing half a split created, then the next sibling.
+ * Whether Tab means something where the selection is: in code, or in a table cell. An editor
+ * takes Tab only there, so anywhere else it still moves focus out of the editor.
  */
-const landingAfter = (
-  inserted: ReadonlyArray<Block>,
-  trailingRun: NodeId | undefined,
-  siblings: ReadonlyArray<Block>,
-  index: number,
-  atBlockEnd: boolean,
-): Position | undefined => {
-  const last = inserted[inserted.length - 1]!
-  const lastRun = last.children[last.children.length - 1]
-  if (lastRun !== undefined) {
-    return { node: lastRun.id, offset: lastRun.text.length, affinity: 'after' }
+export const takesTab = (
+  document: Document,
+  selection: Selection | null,
+  nodes?: NodeRegistry,
+): boolean =>
+  linesHolder({ document, selection }, nodes) !== undefined ||
+  itemAtCaret({ document, selection }, nodes) !== undefined ||
+  tableAt(document, selection) !== undefined
+
+/** The list item the selection starts in, when the vocabulary says its list holds it. */
+const itemAtCaret = (state: EditorState, nodes: NodeRegistry | undefined) => {
+  if (state.selection?.type !== 'Range') return undefined
+  const start = ordered(state.document, state.selection)?.start
+  const run = start === undefined ? undefined : locateRun(state.document, start.node)
+  return run === undefined ? undefined : itemAround(state.document, run.path, nodes)
+}
+
+/** Whether two props hold the same values, for a list that two items may share. */
+const sameProps = (left: Schema.JsonObject, right: Schema.JsonObject): boolean => {
+  const keys = Object.keys(left)
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every(key => Object.hasOwn(right, key) && Equal.equals(left[key], right[key]))
+  )
+}
+
+/**
+ * Tab in a list item: the item moves under the item before it, as the last item of the list
+ * that item ends with, or of a new one like its own when it ends with none. It keeps its
+ * identity, and the caret with it. The first item has nothing to go under, and stays.
+ */
+const sinkItem = (
+  state: EditorState,
+  item: ItemAround,
+  ids: CommandIds,
+  options: RunOptions,
+): TransactionResult => {
+  if (item.list.type !== 'Node') return apply(state, [])
+  const list = item.list
+  const index = item.containerPath[item.containerPath.length - 1]!
+  const previous = (list.blocks ?? [])[index - 1]
+  if (previous?.type !== 'Node') return apply(state, [])
+  const nested = previous.blocks?.at(-1)
+  const last = nested?.type === 'Node' ? nested.blocks?.at(-1) : undefined
+  if (
+    nested?.type === 'Node' &&
+    nested.kind === list.kind &&
+    sameProps(nested.props, list.props) &&
+    last !== undefined
+  ) {
+    return run(
+      state,
+      { type: 'MoveBlock', node: item.container.id, to: { after: last.id } },
+      ids,
+      options,
+    )
   }
-  if (trailingRun !== undefined) return { node: trailingRun, offset: 0, affinity: 'after' }
-  const following = siblings[index + (atBlockEnd ? 1 : 0)]
-  const followingRun = following?.children[0]
-  return followingRun === undefined
-    ? undefined
-    : { node: followingRun.id, offset: 0, affinity: 'after' }
+  const created = NodeId.make(ids.mint())
+  return apply(state, [
+    Edit.insertBlock(
+      { type: 'Node', kind: list.kind, id: created, props: list.props, children: [], blocks: [] },
+      (previous.blocks ?? []).length,
+      previous.id,
+    ),
+    Edit.moveBlock(item.container.id, 0, created),
+  ])
+}
+
+/**
+ * Shift+Tab in a list item: a nested item moves out to follow the item its list is in, and an
+ * item at the top level leaves its list, as `LiftBlock` takes it. A list the move empties goes.
+ */
+const liftItem = (
+  state: EditorState,
+  item: ItemAround,
+  ids: CommandIds,
+  options: RunOptions,
+): TransactionResult => {
+  const listPath = item.containerPath.slice(0, -1)
+  const outerItem = blockAtPath(state.document, listPath.slice(0, -1))
+  const outerList = blockAtPath(state.document, listPath.slice(0, -2))
+  const nestedInItem =
+    outerItem?.type === 'Node' &&
+    outerList?.type === 'Node' &&
+    options.nodes !== undefined &&
+    holdsItem(options.nodes, outerList.kind, outerItem.kind)
+  return nestedInItem
+    ? run(
+        state,
+        { type: 'MoveBlock', node: item.container.id, to: { after: outerItem.id } },
+        ids,
+        options,
+      )
+    : run(state, { type: 'LiftBlock' }, ids, options)
+}
+
+/**
+ * Replaces matches, last first, each read again from its block's offset in the state the one
+ * after it left: a replacement later in a block leaves an earlier match's offset alone, though
+ * the runs it touched may have merged or split, so positions found before it would not do.
+ */
+const replaceMatches = (
+  state: EditorState,
+  matches: ReadonlyArray<SearchMatch>,
+  replacement: string,
+  ids: CommandIds,
+  options: RunOptions,
+): TransactionResult => {
+  let done = apply(state, [])
+  for (const match of [...matches].reverse()) {
+    if (!done.ok) return done
+    const block = locateBlock(done.state.document, match.block)?.block
+    const from = block === undefined ? undefined : positionInBlock(block, match.at)
+    const to = block === undefined ? undefined : positionInBlock(block, match.at + match.length)
+    if (from === undefined || to === undefined) return failure('MissingText')
+    const step = runAction(
+      done.state,
+      [
+        { type: 'SetSelection', selection: { type: 'Range', anchor: from, focus: to } },
+        // Over a range, an insertion replaces it, so an empty replacement deletes the match.
+        { type: 'InsertText', text: replacement },
+      ],
+      ids,
+      options,
+    )
+    if (!step.ok) return step
+    done = {
+      ok: true,
+      state: step.state,
+      changeSet: unionChangeSet(done.changeSet, step.changeSet),
+      positionMap: [...done.positionMap, ...step.positionMap],
+      transactions: [...done.transactions, ...step.transactions],
+    }
+  }
+  return done
+}
+
+const insertFootnote = (
+  state: EditorState,
+  text: string,
+  ids: CommandIds,
+  options: RunOptions,
+): TransactionResult => {
+  const selection = state.selection
+  if (selection?.type !== 'Range') return failure('InvalidSelection')
+  const start = rangeStart(state.document, selection)
+  const last = state.document.children[state.document.children.length - 1]
+  if (start === undefined || last === undefined) return failure('InvalidSelection')
+  const end = start === selection.anchor ? selection.focus : selection.anchor
+  const label = nextFootnoteLabel(state.document)
+  // Placeholder identities: InsertBlock mints fresh ones.
+  const definition: Block = {
+    type: 'Node',
+    kind: FootnoteDefinition.name,
+    id: NodeId.make('footnote'),
+    props: { label },
+    children: [],
+    blocks: [
+      {
+        type: 'Paragraph',
+        id: NodeId.make('footnote-text'),
+        children: [{ type: 'Text', id: NodeId.make('footnote-run'), text, marks: [] }],
+      },
+    ],
+  }
+  return runAction(
+    state,
+    [
+      { type: 'SetSelection', selection: { type: 'Range', anchor: end, focus: end } },
+      { type: 'InsertText', text: label, marks: [FootnoteRef.of({ label })] },
+      { type: 'InsertBlock', block: definition, to: { after: last.id } },
+    ],
+    ids,
+    options,
+  )
+}
+
+const renameFootnote = (
+  state: EditorState,
+  from: string,
+  to: string,
+  ids: CommandIds,
+  options: RunOptions,
+): TransactionResult => {
+  const notes = footnotesOf(state.document)
+  const note = notes.find(each => each.label === from)
+  if (note === undefined || to === '' || (to !== from && notes.some(each => each.label === to))) {
+    return failure('InvalidInput')
+  }
+  const relabelled = FootnoteRef.of({ label: to })
+  const references: Array<Command> = []
+  eachBlock(state.document.children, block => {
+    for (const run of block.children) {
+      if (referenceLabel(run) !== from) continue
+      references.push(
+        {
+          type: 'SetSelection',
+          selection: {
+            type: 'Range',
+            anchor: { node: run.id, offset: 0, affinity: 'after' },
+            focus: { node: run.id, offset: run.text.length, affinity: 'before' },
+          },
+        },
+        {
+          type: 'InsertText',
+          text: run.text === from ? to : run.text,
+          marks: run.marks.map(each => (markName(each) === FootnoteRef.name ? relabelled : each)),
+        },
+      )
+    }
+  })
+  // The caret goes back where it was, unless it was in a reference the rename rewrote.
+  const selection = state.selection
+  const inReference =
+    selection?.type === 'Range' &&
+    (note.references.includes(selection.anchor.node) ||
+      note.references.includes(selection.focus.node))
+  return runAction(
+    state,
+    [
+      ...(note.definition === undefined
+        ? []
+        : [{ type: 'SetProps' as const, node: note.definition, props: { label: to } }]),
+      ...references,
+      ...(inReference || selection === null ? [] : [{ type: 'SetSelection' as const, selection }]),
+    ],
+    ids,
+    options,
+  )
+}
+
+/** The first run anywhere in these blocks, nested ones included, in document order. */
+const firstRunIn = (blocks: ReadonlyArray<Block>): Run | undefined => {
+  let found: Run | undefined
+  eachBlock(blocks, block => {
+    found ??= block.children[0]
+  })
+  return found
 }
 
 /** An ordered list of commands that commit as one action (§124 §5). */

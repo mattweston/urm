@@ -14,8 +14,12 @@
  */
 import {
   eq,
+  gt,
+  gte,
   inArray,
   is,
+  lt,
+  lte,
   isNotNull,
   isNull,
   not,
@@ -25,18 +29,21 @@ import {
   type Table,
 } from 'drizzle-orm'
 import { PgColumn, PgTable } from 'drizzle-orm/pg-core'
-import { Option } from 'effect'
-import { Query, isPredicate } from 'foldkit-entity'
+import { Match, Option } from 'effect'
+import { Query, QueryEvaluateError, decided, isPredicate } from 'foldkit-entity'
 import type {
   AnyExpr,
   AnyQuery,
   EqPredicate,
   OrderTerm as ExprOrderTerm,
   Operandish,
+  CompareOperator,
+  ComparePredicate,
   Operation,
   Predicate,
+  PredicateTruth,
 } from 'foldkit-entity'
-import type { OrderTerm } from './cursor.js'
+import { collatedColumn, type OrderTerm } from './cursor.js'
 
 /**
  * What a binding has to offer to be compiled against: a column per field key,
@@ -134,13 +141,172 @@ const truthComparison = (
   return not(predicate(asked, target, input, query))
 }
 
+/**
+ * A predicate that reads no field, decided with this request's input, so it
+ * reaches the database as a constant, or is dropped from the `and` or `or`
+ * around it: `isNull($status)` is known now, and an `or` it is in is then
+ * `true` or just its other operand.
+ */
+const decide = (
+  node: Predicate,
+  input: Readonly<Record<string, unknown>>,
+  query: string,
+): Option.Option<PredicateTruth> => {
+  try {
+    return decided(node, input)
+  } catch (error) {
+    if (error instanceof QueryEvaluateError) {
+      throw new QueryCompileError(
+        `query "${query}": ${error.message.replace('[foldkit-entity] ', '')}`,
+      )
+    }
+    throw error
+  }
+}
+
+/** A decided truth as SQL: unknown is SQL's null, which `and`, `or` and `not` keep as SQL does. */
+const constant = (truth: PredicateTruth): SQL =>
+  truth === 'unknown' ? sql`null` : truth ? sql`true` : sql`false`
+
+/**
+ * An `and` or an `or`, its decided operands settled: in an `and`, false makes
+ * the whole false and true drops out, and the reverse in an `or`; an unknown
+ * stays, as null. Every operand is compiled before any decides the whole, so
+ * one that refuses its input refuses here as `evaluate` would.
+ */
+const connective = (
+  operands: ReadonlyArray<Predicate>,
+  joiner: 'and' | 'or',
+  target: CompileTarget,
+  input: Readonly<Record<string, unknown>>,
+  query: string,
+): SQL => {
+  const decisive = joiner === 'or'
+  const parts = operands.map(each =>
+    Option.match(decide(each, input, query), {
+      onNone: (): SQL | PredicateTruth => predicate(each, target, input, query),
+      onSome: (truth): SQL | PredicateTruth => truth,
+    }),
+  )
+  if (parts.includes(decisive)) return constant(decisive)
+  const kept = parts.flatMap((part): ReadonlyArray<SQL> =>
+    typeof part === 'boolean' ? [] : part === 'unknown' ? [sql`null`] : [part],
+  )
+  if (kept.length === 0) return constant(!decisive)
+  if (kept.length === 1) return kept[0]!
+  return sql`(${sql.join(kept, joiner === 'and' ? sql` and ` : sql` or `)})`
+}
+
+/** The same comparison with its sides swapped: `3 > rank` is `rank < 3`. */
+const flipped: Readonly<Record<CompareOperator, CompareOperator>> = {
+  lt: 'gt',
+  lte: 'gte',
+  gt: 'lt',
+  gte: 'lte',
+}
+const symbols: Readonly<Record<CompareOperator, string>> = {
+  lt: '<',
+  lte: '<=',
+  gt: '>',
+  gte: '>=',
+}
+const comparing = { lt, lte, gt, gte }
+
+/**
+ * A comparison, column first as a binding writes one: Drizzle's own operator
+ * over a number, so the value is encoded as the column's type, and text under
+ * its collation as the cursor applies one (`collate binary` on SQLite,
+ * `collate "C"` on Postgres text, both sides lowered for ASCII folding).
+ */
+const comparison = (
+  node: ComparePredicate,
+  target: CompileTarget,
+  input: Readonly<Record<string, unknown>>,
+  query: string,
+): SQL => {
+  const fieldFirst = Match.value(node.left).pipe(
+    Match.tag('Field', () => true),
+    Match.orElse(() =>
+      Match.value(node.right).pipe(
+        Match.tag('Field', () => false),
+        Match.orElse(() => true),
+      ),
+    ),
+  )
+  const [first, second, operator] = fieldFirst
+    ? [node.left, node.right, node.operator]
+    : [node.right, node.left, flipped[node.operator]]
+  const left = operand(first, target, input, query)
+  const right = operand(second, target, input, query)
+  if (holdsNul(left) || holdsNul(right)) {
+    throw new QueryCompileError(
+      `query "${query}" compares text holding a NUL character, which SQL text cannot hold portably`,
+    )
+  }
+  const symbol = sql.raw(symbols[operator])
+  return Option.match(node.collation, {
+    onNone: () =>
+      Match.value(first).pipe(
+        Match.tag('Field', () => comparing[operator](left as AnyColumn, right)),
+        Match.orElse(() => sql`${left} ${symbol} ${right}`),
+      ),
+    // Text compares only against a field, which the swap above put first.
+    onSome: collation => {
+      const column = left as AnyColumn
+      const under = collatedColumn(column, collation)
+      const key = Option.match(under, { onNone: () => sql`${column}`, onSome: ({ key }) => key })
+      const value = Match.value(second).pipe(
+        Match.tag('Field', () =>
+          Option.match(collatedColumn(right as AnyColumn, collation), {
+            onNone: () => sql`${right}`,
+            onSome: ({ key }) => key,
+          }),
+        ),
+        Match.orElse(() =>
+          Option.match(under, {
+            onNone: () => sql`${right}`,
+            onSome: ({ value }) => sql`${value(right)}`,
+          }),
+        ),
+      )
+      return sql`${key} ${symbol} ${value}`
+    },
+  })
+}
+
+/**
+ * A predicate as SQL, decided first when it reads no field: such a predicate
+ * sent as parameters is not the question it was (`$1 < $2` compares untyped
+ * parameters, and matched nothing for 9 < 10), and deciding it here keeps the
+ * SQL to what the rows decide.
+ */
 const predicate = (
+  node: Predicate,
+  target: CompileTarget,
+  input: Readonly<Record<string, unknown>>,
+  query: string,
+): SQL =>
+  Option.match(decide(node, input, query), {
+    onSome: constant,
+    onNone: () => undecided(node, target, input, query),
+  })
+
+/** A predicate that reads a field, as SQL. */
+const undecided = (
   node: Predicate,
   target: CompileTarget,
   input: Readonly<Record<string, unknown>>,
   query: string,
 ): SQL => {
   switch (node._tag) {
+    case 'And':
+      return connective(node.operands, 'and', target, input, query)
+    case 'Or':
+      return connective(node.operands, 'or', target, input, query)
+    case 'Not':
+      return not(predicate(node.operand, target, input, query))
+    case 'Compare':
+      return comparison(node, target, input, query)
     case 'Eq': {
       // A predicate compared to a boolean is that predicate, or its negation.
       // The value is known here — this runs per request, with the input in
@@ -178,9 +344,10 @@ const predicate = (
       }
       // Postgres text cannot hold NUL and SQLite's `like` stops at it, so text
       // holding one means nothing portable; the reference interpreter refuses
-      // it too. A searched value that is an input or a literal is seen here; a
-      // NUL inside a stored column is not.
-      if (holdsNul(search) || holdsNul(value)) {
+      // it too. Only the search is checked: a searched value that is not a
+      // field reads none, so `predicate` decided it, and a NUL inside a stored
+      // column is not seen here.
+      if (holdsNul(search)) {
         throw new QueryCompileError(
           `query "${query}" searches text holding a NUL character, which SQL text cannot hold portably`,
         )
@@ -205,9 +372,10 @@ const predicate = (
           `query "${query}" asks whether a value is in something that is not a list`,
         )
       }
-      // An empty list matches nothing, said here: SQLite reads `in ()` as
-      // false, and Postgres refuses it.
-      if (among.length === 0) return sql`false`
+      // An empty list matches nothing, which SQLite and Postgres would say
+      // differently (`in ()`): over a field, Drizzle's `inArray` writes `false`
+      // itself, and over anything else this reads no field, so `predicate`
+      // decided it.
       const value = operand(node.value, target, input, query)
       if (holdsNul(value) || among.some(holdsNul)) {
         throw new QueryCompileError(
@@ -231,7 +399,17 @@ const predicate = (
  * which cases `predicate` happens to handle, so a body needing something else
  * is refused with a name instead of falling through.
  */
-export const supported: ReadonlyArray<Operation> = ['eq', 'isNull', 'isNotNull', 'contains', 'in']
+export const supported: ReadonlyArray<Operation> = [
+  'eq',
+  'isNull',
+  'isNotNull',
+  'contains',
+  'in',
+  'and',
+  'or',
+  'not',
+  'compare',
+]
 
 /**
  * Every field the body reads has a column here, and every operation it needs is

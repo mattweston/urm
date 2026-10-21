@@ -196,7 +196,10 @@ describe('insert text commands', () => {
       ok: false,
       error: 'InvalidSelection',
     })
-    expect(run(state({ type: 'Node', node: id('p') }), { type: 'InsertText', text: 'x' })).toEqual({
+    // A selected block is typed over; a mark has no text to land on.
+    expect(
+      run(state({ type: 'Node', node: id('p') }), { type: 'ToggleMark', mark: 'Italic' }),
+    ).toEqual({
       ok: false,
       error: 'InvalidSelection',
     })
@@ -204,6 +207,34 @@ describe('insert text commands', () => {
 })
 
 describe('delete commands', () => {
+  it('turns a heading into a paragraph at its start, and joins it on a second press', () => {
+    const titled: RichText.EditorState = {
+      document: RichText.decodeDocument({
+        version: 1,
+        children: [
+          {
+            type: 'Paragraph',
+            id: 'p',
+            children: [{ type: 'Text', id: 'a', text: 'ab', marks: [] }],
+          },
+          {
+            type: 'Heading',
+            id: 'h',
+            level: 2,
+            children: [{ type: 'Text', id: 'c', text: 'Title', marks: [] }],
+          },
+        ],
+      }),
+      selection: caret('c', 0),
+    }
+    const retyped = success(run(titled, { type: 'DeleteBackward' })).state
+    expect(retyped.document.children.map(block => block.type)).toEqual(['Paragraph', 'Paragraph'])
+    expect(retyped.document.children[1]?.children[0]?.text).toBe('Title')
+    expect(retyped.selection).toEqual(caret('c', 0))
+    const joined = success(run(retyped, { type: 'DeleteBackward' })).state
+    expect(RichText.toText(joined.document.children)).toBe('abTitle')
+  })
+
   it('deletes backward and forward within a run', () => {
     const back = success(run(state(caret('a', 2)), { type: 'DeleteBackward' }))
     expect(back.state.document.children[0]?.children[0]?.text).toBe('a')

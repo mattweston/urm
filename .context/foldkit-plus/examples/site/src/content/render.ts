@@ -3,25 +3,30 @@
  * elements, which the article's prose styling reaches by their names, and
  * code drawn by `foldkit-mixins-ui`'s `CodeBlock`, tokenized at build time.
  */
+import { Option } from 'effect'
 import type { Heading, PhrasingContent, RootContent, TableCell } from 'mdast'
 import type { Html, HtmlBuilder } from 'foldkit/html'
 
-import { Behavior, Style } from 'foldkit-mixins'
-import { CodeBlock, CodeBlockSlots, Recipes } from 'foldkit-mixins-ui'
+import { Behavior } from 'foldkit-mixins'
+import { CodeBlock, CodeBlockSlots } from 'foldkit-mixins-ui'
 
 import { COPY_ATTRIBUTE } from '../library.js'
+import { CodeStyle } from '../style.js'
+import { textOf } from './text.js'
 import type { Highlight } from './highlight.js'
 
 export interface Context {
   readonly highlight: Highlight
   readonly href: (url: string) => string
   readonly idOf: (heading: Heading) => string
+  /** Where a code span leads, when it names something the site explains (`links.ts`). */
+  readonly codeLink: (code: string) => Option.Option<string>
 }
 
-type Ih = HtmlBuilder<never>
+/** Inside a link or a heading a code span stays text: a link in a link is no link. */
+const unlinked = (context: Context): Context => ({ ...context, codeLink: () => Option.none() })
 
-/** The site's code: the shipped recipe, colored from the theme's `syntax` group. */
-const CodeStyle = Style.forSlots(CodeBlockSlots)(Recipes.CodeBlock({}))
+type Ih = HtmlBuilder<never>
 
 const CopyHook = Behavior.forSlots(CodeBlockSlots)<undefined, never>({
   copy: { attributes: ({ h }) => [h.Attribute(COPY_ATTRIBUTE, '')] },
@@ -57,7 +62,10 @@ const inline = (ih: Ih, context: Context, node: PhrasingContent): Html | string 
     case 'text':
       return node.value
     case 'inlineCode':
-      return ih.code([], [node.value])
+      return Option.match(context.codeLink(node.value), {
+        onNone: () => ih.code([], [node.value]),
+        onSome: href => ih.a([ih.Href(href), ih.Class('code-link')], [ih.code([], [node.value])]),
+      })
     case 'emphasis':
       return ih.em([], phrasing(ih, context, node.children))
     case 'strong':
@@ -70,7 +78,7 @@ const inline = (ih: Ih, context: Context, node: PhrasingContent): Html | string 
       const href = context.href(node.url)
       return ih.a(
         [ih.Href(href), ...(external(href) ? [ih.Rel('noopener')] : [])],
-        phrasing(ih, context, node.children),
+        phrasing(ih, unlinked(context), node.children),
       )
     }
     case 'image':
@@ -93,9 +101,15 @@ const cell = (
   node: TableCell,
   header: boolean,
   align: string | null | undefined,
+  /** Its column's heading, which a phone shows above a body cell. */
+  label: string,
 ) =>
   (header ? ih.th : ih.td)(
-    align === null || align === undefined ? [] : [ih.Style({ textAlign: align })],
+    [
+      ih.Role(header ? 'columnheader' : 'cell'),
+      ...(align === null || align === undefined ? [] : [ih.Style({ textAlign: align })]),
+      ...(header || label === '' ? [] : [ih.DataAttribute('label', label)]),
+    ],
     phrasing(ih, context, node.children),
   )
 
@@ -108,7 +122,7 @@ export const block = (ih: Ih, context: Context, node: RootContent): Html | strin
       return headingAt(ih, node.depth)(
         [ih.Id(id)],
         [
-          ...phrasing(ih, context, node.children),
+          ...phrasing(ih, unlinked(context), node.children),
           ih.a([ih.Href(`#${id}`), ih.AriaHidden(true), ih.Class('anchor')], ['#']),
         ],
       )
@@ -153,34 +167,37 @@ export const block = (ih: Ih, context: Context, node: RootContent): Html | strin
       return ih.hr([])
     case 'table': {
       const [head, ...rows] = node.children
+      const labels = (head?.children ?? []).map(textOf)
+      // Roles stated, since a phone lays the rows out as blocks, and a table
+      // drawn so is no table to some screen readers.
       return ih.div(
         [ih.Class('table')],
         [
           ih.table(
-            [],
+            [ih.Role('table')],
             [
               ...(head === undefined
                 ? []
                 : [
                     ih.thead(
-                      [],
+                      [ih.Role('rowgroup')],
                       [
                         ih.tr(
-                          [],
+                          [ih.Role('row')],
                           head.children.map((each, at) =>
-                            cell(ih, context, each, true, node.align?.[at]),
+                            cell(ih, context, each, true, node.align?.[at], ''),
                           ),
                         ),
                       ],
                     ),
                   ]),
               ih.tbody(
-                [],
+                [ih.Role('rowgroup')],
                 rows.map(row =>
                   ih.tr(
-                    [],
+                    [ih.Role('row')],
                     row.children.map((each, at) =>
-                      cell(ih, context, each, false, node.align?.[at]),
+                      cell(ih, context, each, false, node.align?.[at], labels[at] ?? ''),
                     ),
                   ),
                 ),

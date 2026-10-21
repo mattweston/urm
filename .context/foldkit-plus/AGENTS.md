@@ -464,20 +464,24 @@ tokens -> ref -> pieces -> slots -> sheet
 ```
 
 **Tokens are the only values.** `Theme.tokens` (`packages/mixins/src/theme/tokens.ts`)
-is the shipped scales (space, radius, size, leading, weight, motion, border,
-shadow, breakpoint); `Theme.oklch` derives a whole palette from a few knobs;
-`Theme.compose` joins them. Read every value through `Theme.ref` — a group or
+is the shipped scales (space, radius, size, leading, weight, motion, width,
+`icon` (the masks of the components' own icons), border, shadow, breakpoint, and `safe`, the screen's safe-area insets); the palette derives
+every color from knobs; `Theme.standard(Theme.make({ … }))` is both, with a theme's knob values.
+Read every value through `Theme.ref` — a group or
 name the theme lacks is a type error, and it reads names, never values, so a
 test or probe sees `var(--fk-…)` rather than a color. Never copy a literal out
 of a theme into a style; add or override a token instead.
 
-**Knobs are tokens too.** `density`, `radius-factor`, `motion`,
-`shadow-strength` (and the palette's `accent-h`, `surface-contrast`, …) live
-in the `knob` group, and the scales derive from them: space multiplies by
+**Knobs are typed values.** A theme is `Theme.make({ shape: { density: 1.1 } })`, checked
+against `Knobs.standard`; each knob writes variables of the `knob` group (`density`,
+`radius-factor`, `motion`, `shadow-strength`, `accent-h`, …), and the scales derive from them: space multiplies by
 density, radius by radius-factor, durations by motion (`motion: '0'` stills
-every recipe transition). A still/compact/rounder theme is one override, via
-`Theme.scoped` (a selector the Model selects) or an inline variable — never a
-second set of sizes. There is no `knob` helper to look for.
+every recipe transition). A duration of something that moves or resizes also
+multiplies by `travel`, which the reset zeroes under reduced motion so fades
+stay: write it so, or a transform keeps sliding for a user who asked it not
+to. A still/compact/rounder theme is one `Theme.make`, installed by name with
+`Themes.make` (the Model selects it) — never a second set of sizes, and never a
+knob string in `Theme.define({ knob })`.
 
 **Install order is the cascade.** `Layers.standard` is
 `reset, tokens, theme, defaults, components, layouts, variants, utilities, app`
@@ -487,15 +491,15 @@ second set of sizes. There is no `knob` helper to look for.
 Style.stylesheet(
   L.declare,
   L.in('reset', Defaults.reset),
-  L.in('tokens', Theme.root(Theme.tokens)),
-  L.in('theme', Theme.root(theme, { omit: Theme.tokens })),
+  L.in('theme', Theme.root(theme)),
   L.in('defaults', Defaults.body),
   ...slotStyles,
 )
 ```
 
-`Theme.root` is unlayered, so place it with `L.in`; `omit` ships shared scales
-once. `Style.stylesheet` refuses an unlayered rule — it would beat `app`. A
+`theme` is `Theme.standard` of the app's theme, composed with its own tokens. `Theme.root` is
+unlayered, so place it with `L.in`. Do not split it with `omit: Theme.tokens`: `omit` matches by
+name, and `Theme.tokens` names knobs too, so a theme's own `density` would be dropped. `Style.stylesheet` refuses an unlayered rule — it would beat `app`. A
 page without `Theme.root` has no tokens: pieces that must stand alone (see
 `prose.ts`) read `var(--fk-x, <fallback>)`, and the `missingTokens` gate
 (`packages/mixins/src/testing.ts`) treats every `var(--fk-…)` read, fallback
@@ -527,9 +531,22 @@ layer of whatever they are composed into, and a plain declaration beside them
 wins per property. That is what makes them composable — do not wrap them in
 `component`/`variant` at their definition.
 
+**A state rule in a base loses to a variant that sets the same property.**
+The Card's selected fill sat in the `components` layer, and every `surface`
+variant sets `background` in `variants`, so a chosen card showed no fill;
+the unit tests read the CSS text, which held the rule. Put a state's
+declaration beside each variant that sets its property, and check it with
+computed style in a browser test.
+
 **`Defaults.reset` zeroes margins.** Any dialog/panel relying on the user
 agent's `margin: auto` centering must restore it (`margin: 'auto'`), or it
 lands in the top corner.
+
+**A rule's declarations are sorted, so a shorthand beside a longhand can
+win.** The stylesheet writes each rule's declarations alphabetically
+(`styleRules.ts`), not as authored: the Sheet's `borderWidth: '0'` beside
+`borderLeftWidth` landed after it and took the border away. In one rule,
+write either the shorthand or the longhands, never both.
 
 ## Traps already hit here
 
@@ -592,16 +609,77 @@ you just redid. Keep each to a couple of lines, with the concrete failure.
   first). `Schema.toEncoded` keeps inner checks but drops one made
   after a transformation: `NumberFromString.check(isGreaterThan(0))` accepted
   `'-1'`. Re-check against the whole Schema.
-- **A Mount's acquire that throws halfway fails silently and leaks.** `Measure`
-  attached a MutationObserver, then `new ResizeObserver` threw in jsdom; the
-  Mount's stream neither ended nor reported, and the observer it left called
-  `measure` later ("Cannot access 'sizes' before initialization"). Make every
-  observer before any observes, and test with the constructor stubbed away.
+- **A Mount's acquire that throws halfway leaks what it attached first.**
+  `Measure` attached a MutationObserver, then `new ResizeObserver` threw in
+  jsdom, and the observer it left called `measure` later ("Cannot access
+  'sizes' before initialization"). Make every observer before any observes, and
+  test with the constructor stubbed away. Through Effect 4.0.1 such a stream
+  neither ended nor reported; since then it fails, and a merge of Mounts
+  (`Stream.mergeAll`) ends every stream in it, so one Behavior's failure took the
+  canvas's clicks with it. The resolver's composed Mount fails each alone.
+- **A positioned sibling drawn later paints over an absolute overlay.** The
+  OtpField's input lay over its cells with `position: absolute`, but each cell
+  was `position: relative` and came after it, so every press landed on a cell
+  and the input never took focus; its unit tests read only the markup. Let
+  presses through (`pointer-events: none`) or raise the overlay, and test with
+  a real click at the covered spot (`otpField.browser.test.ts`).
+- **The bundler merges emitted assets of equal bytes.** A `?image` build that
+  made every ladder width, wider than the original or not, wrote the same five
+  files as the right one: sharp does not enlarge, so the wider variants matched
+  the original's own, and Rolldown kept one of them under the name that sorts
+  first. A test of the files alone passed; only the provider's widths showed
+  the lie. Assert what the module offers, not only what it wrote.
+- **A sized `svg` in a squeezed flex row shrinks to nothing.** Its `width`
+  attribute is no floor: a 16px icon beside unshrinkable words in a 40px row
+  measured 0 wide. The CMS's hand-written icon carried `flex-shrink: 0` for
+  this, and moving it onto `Icon.draw` dropped it on a reasoned guess that the
+  automatic minimum would hold; a browser probe said otherwise. `Icon.draw`
+  now writes it. Probe a layout claim in a browser before deleting the rule.
+- **A zero-duration animation filled `forwards` shows its last frame.** The
+  Marquee filled forwards, so with the `motion` knob at 0 every copy stood
+  one length on and the copy in view was an `inert` clone; a finite round
+  ended the same way. With no fill, a round of no duration, or one that
+  ended, shows its first frame.
+- **`color-scheme: normal` resolves `light-dark()` to its light half.** A
+  mutation of the QR code's `colorScheme: 'light'` to `'normal'` survived on
+  a dark page; only deleting the declaration let the code follow the page.
+  Mutate such a declaration by deleting it.
+- **`text-box` trims a block container's lines, and nothing else.** On the
+  `inline-flex` Button it did nothing (a 20px line stayed 20px; on a block it
+  was 10px), and it does not inherit into the anonymous box holding the
+  words. Measure a trimmed element's height before claiming the trim works.
+- **A knob set on a region does not reach a portaled panel.** Upstream's
+  Menu, Listbox and Combobox portal their panel to the document by default,
+  so a popup's `size` that set the step on its `wrapper` never reached its
+  rows, and a test that drew the slots as static markup passed. Set what a
+  panel needs on the panel's own slot, and test a popup by opening the real
+  component (`popupLadder.browser.test.ts`).
+- **An element holds one Mount.** Foldkit's `OnMount` replaces the vnode's
+  `insert` hook, so a second one on an element silently drops the first. The
+  mixins resolver composes the Mounts that Mixins contribute, but not one
+  inside an upstream bundle: a `FluidHover` given to a listbox's `items` slot
+  disabled upstream's anchor there, and the panel stayed `visibility: hidden`
+  with no error. Give a Mount of your own an element of your own (the popups'
+  `rows` slot), and check a slot's upstream bundle for an `OnMount` first.
+- **Two Slots' attributes on one element keep one class.** Foldkit's `Class`
+  (and `Style`) sets the vnode's data outright (`setModuleData`,
+  `foldkit/dist/html/index.js`), so the later list wins:
+  `h.label([...option.card, ...builders.choice.attrs()])` dropped the
+  RadioGroup's `card` class, and the Questionnaire's choice rows lost their
+  layout while the unit tests and `Inert.unslotted` passed. Give each Slot
+  an element of its own, and assert the layout in a browser.
 - **Mount args are captured at insert, never refreshed.** A Mount that should
   follow the Model (focus the next OTP cell after a fill) ran once with the
   initial args and never again: `OnMount` binds `insert` and `destroy` only,
   there is no update hook. Drive Model-caused DOM effects from the Message
   that updated the Model, as a Command — the platform's own prescribed path.
+- **A Mount that sends no Message must not be on by default.** A Scene test
+  resolves every Mount a view draws with a Message, and one that sends none
+  (`ScrollBars`, `FluidHover`, `ReadingKeys`, `FollowDirection`) cannot be
+  resolved, so a component drawing it by default fails the Scene tests of
+  every application page that draws the component. Ship such a Mount as a
+  mixin passed beside the style (`Tabs.fluid`, `X.overlayBars`,
+  `X.readingKeys`).
 - **A view input may hold no nested function.** `h.submodel` throws on a
   function below the top level of `viewInputs`. The plan's sketch made each
   word that takes a value a function, and the Builder's words, a nested
@@ -615,15 +693,29 @@ you just redid. Keep each to a couple of lines, with the concrete failure.
   anything imported from `foldkit-ssr`; import `foldkit-ssr/client` in the
   browser. Check the bundle's size after adding an import from a package that
   also runs on a server.
-- **Some Foldkit attribute builders are client-only properties.** `h.Name`
-  writes the `name` property and marks it client-only, so a server-rendered
-  form has no `name` until it hydrates; a WebMCP form tool's fields, read from
-  the markup, would be nameless. Write an attribute that must be in the markup
-  with `h.Attribute('name', …)`, and check a builder's vnode (`data.props`
-  versus `data.attrs`) before relying on it in server output.
+- **Check whether a Foldkit builder reaches server markup; do not assume.**
+  A Foldkit property marked client-only is left out of a server render, and a
+  form tool reading the markup would miss it. `h.Name` was once believed to be
+  one; in Foldkit 0.168 it writes through `setDataProp`, which unmarks it, and
+  the serializer emits `name` (`datePickerView.ssr.test.ts` renders a hidden
+  input to a string, parses it back, and goes red with the name dropped). A
+  property a generic write sets (`Prop`, a custom element's) is still
+  client-only. Test server output by rendering it to a string.
+- **Foldkit's `string` route segment neither encodes nor decodes.** Built with
+  a slug `a/b` it gives `/site/a/b`, which parses as `a` plus a stray segment,
+  and a browser's `a%20b` reads back as `a%20b`, not `a b`. The CMS's hand-written
+  `pathOf` encoded and hid it until the site moved onto a Site tree. Route text
+  that is not URL-safe through `schemaSegment` with an encoding Schema
+  (`examples/cms/src/apps/siteApp.ts`'s `Slug`).
 - **Foldkit fills head tags into the template; it adds none.** A view's
   `canonical` reached no generated page until the template had an empty
   `<link rel="canonical">` (and `og:url` a `<meta property="og:url">`) to fill.
+- **`Subscription.lift` wraps every entry's dependencies (Foldkit 0.166).** A
+  lifted entry's `modelToDependencies` returns `{ maybeDependencies: Option }`,
+  gated or not. Remote lifted its entries only to map their Messages, and an
+  `as never` on the result hid that each read's `{ requirements, queries }`
+  had moved; only the api-cache tests that read them failed. To map Messages
+  alone, map each entry's `dependenciesToStream` (Remote's `messagesAs`).
 - **A URL a Command writes comes back as a `UrlChanged`.** Foldkit's
   `pushUrl`/`replaceUrl` dispatch `foldkit:urlchange`, which the runtime
   answers with `onUrlChange`; `makeApplication` itself sends nothing for the
@@ -643,6 +735,13 @@ you just redid. Keep each to a couple of lines, with the concrete failure.
   exchange only for what is not an operation at all. `foldkit-sync/journal`'s
   `journalExchange` and `serveJournal` keep this; prefer them to a new
   hand-written exchange.
+- **A durable edit shows before it is stored.** `Sync.mount` applies the
+  Message to the Model at once and persists it in a Command after, so the
+  registry's cell read "pending" while IndexedDB had nothing yet. Its e2e
+  reloaded the device on that mark and, on CI's slower runs, lost the edit
+  (`3.21` for `6.66`). Before reloading, wait for the replica's own status
+  (its `pending` count moves only once storage has the operation), not for
+  anything the Model draws.
 - **A replayed durable Message may write the shared slice and nothing else.**
   Sync replays it through `update` over the app's `initial` Model and refuses
   any other field it changes. Reconciling Remote's overlays at the end of
@@ -670,6 +769,10 @@ you just redid. Keep each to a couple of lines, with the concrete failure.
   wire the two with `Layer.provide`, so they live and close together (the
   core `Journal.layer` now does); outside Effect, keep the layer in a
   `ManagedRuntime`. `Layer.buildWithScope` is the escape hatch, not the API.
+  A `Response` whose body streams outlives the Effect that built it: `serveFetch`
+  provided the request's layer that way, and every live re-read ran after the
+  layer closed, which only a layer with a finalizer shows. Build such a layer
+  into a `Scope` the stream closes (`Stream.ensuring`).
 - **Two runtimes in one document share its ids.** Two registry panes on one
   page each drew a grid with the id `products`, and the grid finds its cells
   by id, so one pane's keys would reach the other's. Give each device a page of
@@ -687,6 +790,11 @@ you just redid. Keep each to a couple of lines, with the concrete failure.
   console: construct the worker in a probe page and read its `error` event's
   `filename`. A package with a `worker` export is fixed by adding `worker` to
   `resolve.conditions`.
+- **A browser `WebSocket` sends no header of yours.** Its constructor takes
+  a URL and subprotocols only, so a CSRF header (`x-effect-auth-csrf`) that
+  every Remote POST carries never reaches a Sync upgrade; a resolver asking
+  for one answers every socket as a visitor. Check `Origin` alone there (the
+  browser always sends it on an upgrade), or a credential in a subprotocol.
 - **An adapter's library is a peer, not a dependency.** `foldkit-remote-drizzle`
   depended on `drizzle-orm`, so an application whose Drizzle resolved with
   other optional peers (it had `@effect/sql-sqlite-wasm`) got a second copy,
@@ -711,6 +819,17 @@ you just redid. Keep each to a couple of lines, with the concrete failure.
   `pnpm dev` showed a blank page for a week: every test mounts its own
   container. Only an e2e test runs the real entry.
 
+- **A Surface's ModelRef reserves field names.** `Schema`, `optic`,
+  `dependency`, `key`, `read`, `get`, `set`, `at`, `index` and `select` name
+  its own members, so a Model holding a field so named throws "Model field
+  "index" is reserved by ModelRef" when any Surface reads it, at any depth.
+  The Carousel's `index` and the Sheet's `at` broke the site, whose Model a
+  Surface reads, and a component's Model would break any such application.
+  Name a component's Model fields outside that set (`slide`, `point`).
+- **`scrollBy` stops at every `scroll-snap-stop: always`.** A carousel drawn
+  at its third slide landed on its second: the scroll halted at the first
+  snap on the way. Scroll to a position (`scrollTo`, `scrollIntoView`) to
+  pass them.
 - **Probe, do not assume, what a library type means.** `Schema.Struct({})` is
   not an empty-object schema: it accepts `{foo:1}`, `[]` and `"str"` even with
   `onExcessProperty: 'error'`. Use `Schema.Record(Schema.String, Schema.Never)`.
@@ -784,7 +903,11 @@ you just redid. Keep each to a couple of lines, with the concrete failure.
 
 **Effect 4, not 3**
 
-foldkit pins `effect@4.0.0`, the first stable release. Since 4.0.0 there is no
+The workspace runs `effect@^4.0.4`, one copy of each Effect package;
+foldkit's exact peer (`effect@4.0.0`) is relaxed in `pnpm-workspace.yaml`, and
+published packages peer on `^4.0.0` (`foldkit-auth`, which peers Yielded Auth,
+on `^4.0.4`). Within 4.0.x, `Crypto.randomUUIDv4` became a function: `yield*
+crypto.randomUUIDv4()`. Since 4.0.0 there is no
 `effect/unstable/*`: import `effect/http`, `effect/persistence`, `effect/rpc`,
 `effect/sql` (and `effect/http-api` for the old `httpapi`). Since 4.0.0
 `Array`, `Chunk`, `Effect` and `Record` `partition` and `Option.partitionMap`
@@ -818,6 +941,25 @@ of its own named a form field "fits the Catalog". Read words with
   with `Schema.Option` fields failed to round-trip through a saved CMS draft
   ("Expected Option"). A Model that is stored or sent uses
   `Schema.OptionFromNullOr`: `Option` in code, `null` on the wire.
+- **TypeScript 7 ships no compiler API.** `import ts from 'typescript'` gets
+  only a version under 7, so what reads source through the API runs on 6:
+  `foldkit-react-codegen` and `examples/site` (its API extractor) keep
+  `typescript@6.0.3` as their own dev dependency, and `scripts/tags-check.mjs`
+  imports the root's `typescript-6` alias. Their packages' own `tsc -b` is 6;
+  the root's, which CI runs, is 7.
+- **Effect's diagnostics under TypeScript 7 are `@effect/tsgo`, not run in CI.**
+  `@effect/language-service` is a TypeScript plugin, which 7 does not load;
+  its tsconfig entry still serves an editor on a JavaScript TypeScript. Its
+  successor patches the native compiler to report inside `tsc`, or runs alone:
+  `npx @effect/tsgo diagnostics --project <tsconfig> --severity error,warning`.
+  Run over every project on 2026-10-13, its errors were all in tests (unrun
+  Effects in type tests, `return yield*` style), and its warnings mostly
+  `unstableApiUsage` for `effect/rpc` and `effect/persistence`, which are used
+  on purpose. Run it after a large Effect change.
+- **Since TypeScript 6 no `@types` package is included by itself.** Its `types`
+  defaults to none, so every `process`, `Buffer` and `node:` import failed
+  until `tsconfig.base.json` named `"types": ["node"]`. A project that sets
+  its own `types` (`vite/client`) must name `node` too.
 - **`tsc -p` in a project with references reads the stale `.d.ts`.** It checks
   one project against whatever the referenced packages last emitted, so it
   passes code that the change it depends on broke. Use `tsc -b`.
@@ -838,6 +980,12 @@ of its own named a form field "fits the Catalog". Read words with
   intersection resolves to the last signature and widened every payload to
   `any`. A conditional inside a reverse mapped type is circular and quietly
   picks one branch, which let `input` without `toMessage` compile.
+- **`infer` reads an optional property's declared type, present or not.**
+  Typing `Wiring.shared?` as `ReadonlyArray<Claims>` made Remote's wiring,
+  which shares nothing, read as sharing every tag it claims: `infer` took the
+  declared element type, and `own` got every Remote Message back. A type-level
+  reading of "what this value holds" needs a property the value's own type
+  sets (a literal), not one an interface declares for all.
 - **A function-typed property makes a generic invariant.** `EntityDescriptor.ref:
   (id: Type<F['id']>) => …` made `F` invariant, so a concrete `EntityBinding` was
   not assignable to `EntityDescriptor<any, any>` and `Remote.make({ entities:
@@ -949,6 +1097,13 @@ of its own named a form field "fits the Catalog". Read words with
   which ignores further breaks, and the late `GapCleared` then closed it:
   the stream stopped for good, and a test failed every run once it made the
   resubscribe fail. Sequence them (`Stream.concat`).
+- **An Effect handed to a loop is the one value, built once.**
+  `Effect.sleep(every).pipe(Effect.andThen(resolve(request)), Effect.forever)`
+  called `resolve` when the loop was built and re-ran that one Effect ever
+  after; a resolver answering `Effect.succeed(sessions.get(token))` had
+  decided already, so a revoked session was never seen. Pass a function
+  (`Effect.andThen(() => resolve(request))`) or `Effect.suspend` where each
+  pass must ask again, and test with a resolver that decides when called.
 - **Guard fire-and-forget work.** An un-awaited reconcile turned a failure into
   an unhandled rejection.
 - **`Effect.result` captures failures, not defects.** At an edge that must not
@@ -961,6 +1116,11 @@ of its own named a form field "fits the Catalog". Read words with
 
 **Tests**
 
+- **A mutation that names what the file does not import is killed by a
+  `ReferenceError`.** `Layer.buildWithScope(…, Scope.makeUnsafe())` in a file
+  importing no `Scope` failed every test at once, and read as a kill. Add the
+  import as a second edit of the same mutation, and check which tests killed
+  it and why (`--only`).
 - **A mutation killed by a red test proves nothing.** A test added between
   two mutation runs was already failing, so the second run "killed" its
   mutation for free. Confirm the suite is green before each run; `pnpm
@@ -969,8 +1129,10 @@ of its own named a form field "fits the Catalog". Read words with
   registry's sort into `ProductsQuery`'s body renamed
   `Registry.Product.fields.description` to `fields.description`, and
   `registry.mutations.ts` refused to run until a later change happened to
-  run it. After editing a file, run every spec that anchors into it
-  (`grep -l <file> **/*.mutations.ts`), not only the one you are writing.
+  run it; by 2026-10-12 ten anchors in seven specs had rotted the same way.
+  CI now runs `pnpm mutate:check`, which finds every anchor and test file of
+  every spec and runs none. It cannot tell whether the mutation is still
+  killed: after re-anchoring, run the mutation (`--only <name>`).
 - **Read a library's handler table before describing its semantics.** A
   comment said Foldkit keeps the last of two `OnClick`s on an element; its
   `addDataOn` chains them all, so the resumable builder dropped bindings. Cite
@@ -1064,6 +1226,30 @@ of its own named a form field "fits the Catalog". Read words with
   seen; the transition still had a frame to run, `Measure` measures every
   frame of one, and CI saw the margin early. Wait for `getAnimations()` to be
   empty before asserting what a later step alone causes.
+- **A held mouse races the other test files.** A test that pressed the
+  mouse through `cdp()` (`Input.dispatchMouseEvent`) and checked `:active`
+  failed now and then in a wide run: every test file shares one real
+  pointer, and the others moved or pressed it while this one held it down.
+  Fixing the coordinates (the frame's offset, its scale, `DOM.getBoxModel`)
+  never made it reliable. Force the state instead (`CSS.forcePseudoState`
+  on a node from `DOM.querySelector`), and look the node up once: each
+  `DOM.getDocument` hands out new ids, and a release sent to a new id left
+  the old one forced.
+- **Vitest's locator names a button its own way, not Chrome's.** `userEvent.click`
+  on an accordion trigger timed out looking for "Team Team": vitest's in-page
+  library read a hidden `::after` copy into the name, which Chrome's own
+  accessibility tree does not (it says "Team"). Check a name against
+  Chrome's tree (`Accessibility.getFullAXTree` per frame, as
+  `steady.browser.test.ts` does), and press such an element with `click()`.
+- **The browser tests share one real pointer.** A test that read a row's
+  resting fill as transparent failed in CI only: an earlier test file had left
+  the mouse where the row was drawn, so it was hovered. Before asserting
+  anything `:hover` changes, move the pointer somewhere known
+  (`userEvent.hover(document.body, { position: … })`).
+  A corner of the page is no such place: three CI runs failed a state test
+  that parked the pointer at the body's (1, 1), where its menu trigger was
+  drawn, so the next test read the trigger hovered. Draw an empty spot away
+  from the controls and hover that.
 - **A negative assertion needs a settle, not a sleep.** Registry tests
   asserted "no edit" after a 30-50ms sleep, and one absorbed-edit test failed
   only under full-suite load, when the sleep ran out before the reinstall
@@ -1077,6 +1263,57 @@ of its own named a form field "fits the Catalog". Read words with
   committed view reading the optimistic value: nothing notified between persist
   and exchange, so the wrong read was never evaluated. Force a transition
   between the two states the test tells apart.
+- **Emulate a coarse pointer through the browser, not a stubbed
+  `matchMedia`.** A cast `matchMedia` answers the one query it was written
+  for and nothing else; `cdp().send('Emulation.setTouchEmulationEnabled',
+  { enabled: true, maxTouchPoints: 5 })` makes `(hover: hover) and (pointer:
+  fine)` fail for real. But it cannot be undone in a page: on Linux, Chromium
+  turned off again reports `pointer: none`, so on CI every later file in that
+  page lost its fine pointer (the overlay bars never drew, a Sheet's flick did
+  not dismiss) while Windows, with a real mouse, came back `fine`. A coarse
+  test is a `*.touch.browser.test.ts`, run by the `browser-touch` project,
+  whose page is a touch screen from the start (`hasTouch`). Reproduce a
+  CI-only browser failure in `mcr.microsoft.com/playwright` under Docker.
+- **A layout-shift test needs files that arrive late.** A test of `Image` that
+  loaded `data:` URLs reported no shift with `width` and `height` deleted: such
+  a file arrives before the first layout, so nothing moves either way. Hold
+  the request in the browser (`cdp().send('Fetch.enable', …)`, then
+  `Fetch.fulfillRequest` after two frames) and the same deletion reports one.
+- **An indicator test can pass by an accidental re-measure.** A test that
+  flips `dir` and reads that the indicator moved also passes without the
+  fix when a sub-pixel resize or a transition still running makes `Measure`
+  measure again anyway. Fix the fixture's width and drop its transitions, so
+  only the change under test can move it.
+- **A sleep between synthetic events stretches past what reads their times.**
+  The Sheet reads a flick's speed from `event.timeStamp` over the last 100ms;
+  on a loaded CI runner even `setTimeout(1)` between press and move ran
+  past that, and every flick read as a rest. Space such events with a
+  busy-wait in one synchronous run (`flick` in `sheet.browser.test.ts`),
+  and wait for the outcome itself, not for a mark (`data-dragging`) a
+  synchronous run may never draw.
+- **A child's bookkeeping Message must not reset the parent's own state.**
+  The Sheet cleared its drag on every Dialog Message, meant for opening and
+  closing; a Dialog animation or `SucceededShowDialog` landing after the press
+  dropped the drag, and the Swipe, still holding the pointer, ignored every
+  later press. On CI that read as "the press never reaches the handle" for
+  weeks. Reset on the child's transition that means it (`isOpen` changing),
+  and when a CI-only failure resists, log the Messages `update` receives.
+- **A key the browser handles meets the last drawn page, not the Model.**
+  An edit's patch is a Command, which a loaded machine runs after the next
+  keys, so three Enters and an ArrowUp moved the caret through a page without
+  the new lines. The editor now holds caret keys, and edits behind them,
+  until every edit it asked for is answered (`Attachment.answered`).
+  Reproduce such a race locally with `Emulation.setCPUThrottlingRate`.
+- **End goes to the end of a line, not of a block, and CI wraps elsewhere.**
+  The playground's e2e pressed a callout at a fixed point, then End, and
+  typed: on CI, whose fonts (DejaVu Sans) wrap the text onto more lines, the
+  caret stopped mid-text and every run failed while Windows and the
+  Playwright image passed. Put the caret at a block's end with a press past
+  its last line (`caretAtEnd` in `playground.e2e.ts`), and reproduce in the
+  Playwright image with `fonts-dejavu-core` installed.
+- **A moving element is never stable to Playwright.** `userEvent.hover` on
+  a running Marquee's copy timed out ("element is not stable"), since the
+  locator waits for the box to stop. Hover the still region around it.
 
 **Claims about the repository**
 
@@ -1147,6 +1384,16 @@ of its own named a form field "fits the Catalog". Read words with
   `String.fromCharCode`, and check the bytes with `repr` before trusting the
   file. (The commit that met this, `9d395e1`, says a test caught it; reading the
   bytes did, and the test was shown to catch it afterwards by mutation.)
+- **A `\\n` in a Python heredoc run through the Bash tool reaches the file as a newline.**
+  Three scripted edits in one session wrote a real line break into `'\n'` string literals
+  (`endsWith('\n')`, a mutation anchor, an e2e assertion); one compiled, inside a template
+  literal, and read as a different string. A quoted bash heredoc (`cat <<'EOF'`) through the
+  tool does it too: `'\\s'` in a mutation anchor and `'\\c'` in a test reached the files as
+  `'\s'` and `'\c'`, which JavaScript reads as `s` and `c`. Write text holding escapes with the
+  Edit or Write tool (or `String.raw`), and grep the result with `grep -F` before trusting it.
+  A `\\b` in a regex went through Python as `\b`, a backspace: three regexes held `^H` where
+  the word boundary was, which the Read tool does not show. Build a backslash with `chr(92)`,
+  and check such lines with `cat -A`.
 - **Python's text mode writes CRLF on Windows.** Scripted edits with
   `open(p, 'w')` turned `tsconfig.json` and `vitest.config.ts` into CRLF files
   that failed `format:check`. Pass `newline=''` when reading and writing.
@@ -1157,11 +1404,15 @@ of its own named a form field "fits the Catalog". Read words with
   `encoding='utf-8'` on both reads and writes, write to the file only after the
   new content is fully built, and never chain a commit after a script in one
   command: check `wc -c` or `git diff --stat` first.
-- **Format with `pnpm format`, never bare `prettier`.** The config matches the
-  style already in the tree; without it prettier rewrites files to its own
-  defaults. Markdown is deliberately ignored, because prettier pads table
-  columns and reformats code inside fenced blocks, rewriting the documents'
-  illustrative snippets.
+- **Format with `pnpm format`, never bare `oxfmt`.** Bare `oxfmt` reads
+  `.oxfmtrc.jsonc` too, but formats every file it knows, not only the
+  script's `**/*.{ts,json,yaml}`: on 2026-10-16 it listed four `.html`
+  pages, two `.mjs` scripts and the `.jsonc` config as unformatted. Markdown
+  is deliberately ignored (`.prettierignore`, which oxfmt reads), because
+  formatters pad table columns and reformat code inside fenced blocks,
+  rewriting the documents' illustrative snippets. A script that writes
+  formatted files (`pnpm paths`, the `foldkit-plus` generator) calls oxfmt's
+  `format()`, which discovers no config, so it reads `.oxfmtrc.jsonc` itself.
 - **A re-exported type and a same-named const collide.** `export { type Sync }
   from './sync.js'` beside `export const Sync = {…}` is `TS2323 Cannot redeclare
   exported variable`, even though a type and a value may share a name. Both
@@ -1184,8 +1435,20 @@ of its own named a form field "fits the Catalog". Read words with
   typecheck and the tests cannot see it. Anchor on the comment's opening `/**`, or read the
   lines above the insert before committing.
 - **A pipe hides the exit status of what it pipes.** `prettier --check $F | tail -1 &&
-  git commit` committed a file prettier had just flagged, because `tail` succeeded.
+  git commit` committed a file the check had just flagged, because `tail` succeeded.
   Redirect instead (`>/dev/null &&`) when a check gates the next command.
+  `;` gates nothing either: `pnpm -s mutate:check >/dev/null; echo $?; …;
+  git commit` printed `1` and committed, twice in one session (a re-anchor
+  and an ambiguous anchor each followed). Chain every check into the commit
+  with `&&`, or read the output before committing.
+- **A check's last line is its summary, not its verdict.** `pnpm -s format:check | tail -1`
+  printed "Finished in 341ms on 3380 files", the line after "Format issues found", and
+  an unformatted mutation spec went to CI and failed lint. Read the exit status (`echo
+  $?`) or grep the verdict line, never only the tail.
+- **A heredoc ends the `&&` chain.** `cp … && python - <<'EOF' … EOF` then
+  `cp mine CHANGELOG.md && git commit` on the next line runs the commit even
+  when the script failed its own assert, with whatever `mine` an earlier run
+  left. Put the commit in a separate step after reading the script's output.
 - **A prepend that matches only the anchor line deletes it.** Matching the first
   line of a block (a changelog entry, a doc section) and replacing it with new
   text drops that line; the file stays valid and every check stays green, so
@@ -1194,6 +1457,14 @@ of its own named a form field "fits the Catalog". Read words with
 - **Run the CI sequence before committing, not after.** `format:check`,
   `typecheck`, `test`, `demo`. A commit shipped that would have failed
   `format:check` because only the last three were run.
+- **A dependency's new peer set re-resolves its optional peers to the newest.**
+  Moving the `@effect/sql-*` packages to 4.0.4 changed drizzle-orm's peer set,
+  and pnpm resolved its optional `@cloudflare/workers-types` peer again: to
+  that day's release in most projects, the pinned one in two, so two drizzles
+  existed and `examples/cloudflare` failed to typecheck. That package publishes
+  daily; the root `pnpm.overrides` pins it to the version the repository names.
+  After a version move, count the copies (`grep -o 'name@[0-9.]*'
+  pnpm-lock.yaml | sort | uniq -c`) and regenerate from the old lockfile.
 - **A `package.json` change without `pnpm install` reds every job.** CI
   installs with `--frozen-lockfile`, so a new dependency without a
   regenerated lockfile fails all jobs in 30s. Regenerate in the same change
@@ -1212,11 +1483,29 @@ of its own named a form field "fits the Catalog". Read words with
   `examples/remote`, Vitest resolved `foldkit-remote` to a stale local build,
   and a demo line that passed under `tsx` failed its test for no reason in the
   change. `npx vitest run examples/remote` from the root tests the source.
+- **`pnpm mutate`'s browser baseline sometimes fails on its first run.** It
+  can stop at "Failed to fetch dynamically imported module", before any
+  mutation runs, and pass when run again unchanged. Rerun once before reading it as a
+  red baseline; a second failure is real.
+- **Vitest 5 caches transformed modules on disk, keyed without the environment.**
+  `fsModuleCache` is on by default in 5.0.4 (5.0.1 ran without it), so a
+  plugin whose output depends on an environment variable (`pnpm mutate`'s
+  edits) is skipped on a cached module: the fixture's mutations all read "not
+  applied", and a mutated run was served an earlier run's transform without
+  the plugin seeing it. `scripts/mutate.mjs` passes `--fsModuleCache=false`;
+  any other env-driven transform must too. The cache also served a stale
+  transform for a browser test file whose imports had changed: every test in
+  it failed with "Failed to fetch dynamically imported module" while a
+  renamed copy passed. Run browser tests with `--fsModuleCache=false`, and
+  the `unit` and `browser` projects in separate runs (`--project`): one run
+  given a file of each failed to load the browser one.
 - **Read `Test Files`, not only `Tests`.** A file that fails to load, from a
   module-level `window` read in a node test or the machine running out of
   memory under a wide run ("22 failed" with every test passing), counts no
-  failed test. A grep for `Tests` showed all green twice here. Grep both lines,
-  and run wide sets with `--maxWorkers=2` on this machine.
+  failed test. A grep for `Tests` showed all green twice here. Grep both lines.
+  The root config sizes its workers by the memory free at start
+  (`vitest.config.ts`), so a wide run no longer needs `--maxWorkers`; pass a
+  smaller one if something else is using the memory as the run goes.
 - **Vitest does not typecheck.** A demo line mapped over the dependencies of a
   `Data.subscriptions` entry (typed `any`) passed its test and failed
   `pnpm typecheck` with an implicit `any`, after it was pushed. After editing an
@@ -1232,6 +1521,10 @@ of its own named a form field "fits the Catalog". Read words with
   A whole phase of `foldkit-ssr` shipped under a Remote docs commit that way.
   Stage only in the command that commits, and commit with explicit paths
   (`git commit -- <paths>`) so nothing staged by someone else rides along.
+  `git mv` stages as it moves: a `describe.ts` moved early in a bout rode
+  the other session's next commit as a bare rename, its imports not yet
+  fixed, and HEAD did not compile until the bout's own commit. Move a file
+  in the command that commits it, or with a plain `mv`.
   The worktree is shared too: another session's checkout or revert can move
   files under you, so re-check `git status` at the start of a bout of work
   and after anything surprising — an edit whose old text matches twice, or a
@@ -1242,6 +1535,14 @@ of its own named a form field "fits the Catalog". Read words with
   hunk (`git apply --reverse --cached`) does not keep it out, and it rode a
   Dialog test into an unrelated commit that way. Extract the foreign hunk
   from the file first (or wait), then commit.
+- **`git apply --cached --unidiff-zero` places an insertion by the wrong line.** To commit
+  only my hunks of files another session was editing too, I applied a zero-context patch
+  holding just mine; a pure insertion (`@@ -4698,0 +5460,401 @@`) landed at its new-side
+  number, past the foreign hunks left out, so 400 lines went inside `sheetDrawer` and a fold
+  split in two, and `oxfmt --check` on the working tree (which was right) saw nothing. Build
+  the staged file yourself (HEAD's blob with your hunks applied by content, `git hash-object
+  -w` and `git update-index --cacheinfo`), diff it against the working tree to see only the
+  foreign hunks remain, and parse `git show HEAD:<file>` after committing.
 - **But a pathspec that names only the new half of a rename ships both files.**
   `git mv old new` stages a rename; `git commit -- new` then commits the addition
   while the deletion of `old` stays in the index, so HEAD holds two copies and a
@@ -1326,7 +1627,7 @@ of its own named a form field "fits the Catalog". Read words with
 ## Repository
 
 - Workspace: pnpm, `packages/*` and `examples/*`.
-- Build: `tsdown`. Tests: `vitest`. Types: `tsc -b`. Format: `prettier`.
+- Build: `tsdown`. Tests: `vitest`. Types: `tsc -b`. Format: `oxfmt` (`examples/site`'s API extractor keeps `prettier` as a library).
 - CI runs `format:check`, `typecheck`, `test`, `e2e`, and `demo` on push and
   PR. Run them locally before committing; `pnpm e2e` starts servers and a
   browser, so run it when a change reaches an example with a server.

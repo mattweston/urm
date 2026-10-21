@@ -28,8 +28,18 @@
       "foldkit-guard": ["../../packages/guard/src/index.ts"],
       "foldkit-guard/agent": ["../../packages/guard/src/agent.ts"],
       "foldkit-guard/drizzle": ["../../packages/guard/src/drizzle.ts"],
+      "foldkit-guard/media": ["../../packages/guard/src/media.ts"],
       "foldkit-guard/server": ["../../packages/guard/src/server.ts"],
       "foldkit-guard/sync": ["../../packages/guard/src/sync.ts"],
+      "foldkit-media": ["../../packages/media/src/index.ts"],
+      "foldkit-media/browser": ["../../packages/media/src/browser/index.ts"],
+      "foldkit-media/client": ["../../packages/media/client.d.ts"],
+      "foldkit-media/cloudflare": ["../../packages/media/src/cloudflare/index.ts"],
+      "foldkit-media/icons": ["../../packages/media/src/icons/index.ts"],
+      "foldkit-media/server": ["../../packages/media/src/server/index.ts"],
+      "foldkit-media/sharp": ["../../packages/media/src/sharp/index.ts"],
+      "foldkit-media/unpic": ["../../packages/media/src/unpic/index.ts"],
+      "foldkit-media/vite": ["../../packages/media/src/vite/index.ts"],
       "foldkit-metadata": ["../../packages/metadata/src/index.ts"],
       "foldkit-mirror": ["../../packages/mirror/src/index.ts"],
       "foldkit-mixins": ["../../packages/mixins/src/index.ts"],
@@ -75,6 +85,7 @@
       "foldkit-richtext-dom/toolbar": ["../../packages/richtext-dom/src/toolbar.ts"],
       "foldkit-richtext-dom/view": ["../../packages/richtext-dom/src/view.ts"],
       "foldkit-richtext-markdown": ["../../packages/richtext-markdown/src/index.ts"],
+      "foldkit-site": ["../../packages/site/src/index.ts"],
       "foldkit-ssr": ["../../packages/ssr/src/index.ts"],
       "foldkit-ssr/client": ["../../packages/ssr/src/client.ts"],
       "foldkit-ssr/vite": ["../../packages/ssr/src/vite.ts"],
@@ -82,8 +93,11 @@
     },
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["e2e/**/*.ts", "src/**/*.ts", "test/**/*.ts", "vite.config.ts"],
+  "include": ["bench/**/*.ts", "e2e/**/*.ts", "src/**/*.ts", "test/**/*.ts", "vite.config.ts"],
   "references": [
+    {
+      "path": "../../packages/media/tsconfig.build.json"
+    },
     {
       "path": "../site/tsconfig.json"
     },
@@ -131,6 +145,9 @@
     },
     {
       "path": "../../packages/ssr/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/site/tsconfig.build.json"
     },
     {
       "path": "../../packages/remote/tsconfig.build.json"

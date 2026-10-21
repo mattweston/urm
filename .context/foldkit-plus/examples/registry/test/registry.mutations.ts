@@ -150,8 +150,8 @@ export default [
     edits: [
       {
         file: '../src/journal.ts',
-        find: "    if (missing) throw new Error('An edit names a product the table has not got')",
-        replace: '',
+        find: '    admit: GuardSync.admit(Policy, ProductDocument, {',
+        replace: '    _admit: GuardSync.admit(Policy, ProductDocument, {',
       },
     ],
     tests: ['examples/registry/test/journal.test.ts'],
@@ -302,6 +302,17 @@ export default [
     tests,
   },
   {
+    name: 'a search finds a description only, not a UPC',
+    edits: [
+      {
+        file: '../src/operations.ts',
+        find: '          Expr.contains(fields.upc, input.search),\n',
+        replace: '',
+      },
+    ],
+    tests,
+  },
+  {
     name: 'the server does not filter by the search',
     edits: [
       {
@@ -317,8 +328,8 @@ export default [
     edits: [
       {
         file: '../../../packages/remote/src/model.ts',
-        find: 'const agrees = served.every((key, index) => key === asPlaced[index])',
-        replace: 'const agrees = false',
+        find: 'served.every((key, index) => key === asPlaced[index]) &&',
+        replace: 'false &&',
       },
     ],
     tests,

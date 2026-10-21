@@ -24,6 +24,12 @@ Self-contained orientation. Verify anything here before relying on it; things mo
 
 ### 1.1 What the repo is
 
+> **Since then (2026-10-13):** §1.1 and §1.2 describe the repository when this
+> plan began. Every package now publishes (none is private), at the versions
+> [releases.md](../releases.md) lists (v0.19.0 is the last tag), and
+> `examples/` holds 42 applications, Foldkit's own ports included; the [examples index](../../examples/README.md)
+> names them.
+
 `doeixd/foldkit-plus` — a pnpm workspace of Foldkit/Effect packages plus examples.
 
 ```text
@@ -63,13 +69,13 @@ AGENTS.md             working agreements and a trap list — read it
 
 - pnpm workspace; `pnpm-workspace.yaml` pins the Node/package-manager versions.
 - Build: `tsdown`. Tests: `vitest`. Types: `tsc -b` (project references, one
-  `tsconfig.json` per package)`. Format: `prettier`.
+  `tsconfig.json` per package)`. Format: `oxfmt`.
 - The workspace runtime resolves to Node 22.21.1 via `pnpm exec node --version`.
   `foldkit-durable` needs Node 22 (`node:sqlite`).
 - Run the full CI sequence before every commit:
 
 ```sh
-pnpm format          # writes; run this, never bare prettier
+pnpm format          # writes; run this, never bare oxfmt
 pnpm format:check
 pnpm typecheck
 pnpm test
@@ -79,7 +85,7 @@ pnpm bench           # sync bench + durable storage script (not a gate)
 ```
 
 - `pnpm format` covers `**/*.{ts,json,yaml}` only. **Markdown is deliberately
-  ignored** — write docs by hand and do not run bare `prettier` on them.
+  ignored** — write docs by hand and do not run bare `oxfmt` on them.
 - Tests live in `packages/*/test/**/*.test.ts` and `examples/*/test/**/*.test.ts`
   (see `vitest.config.ts`). A `*.test-d.ts` is **type-checked but not executed**
   (vitest's include is `*.test.ts`), so type tests run under `pnpm typecheck`.
@@ -2181,6 +2187,13 @@ installable; CI is green.
 ---
 
 ## 20. Immediate next step and open questions
+
+> **Since then (2026-10-13):** `foldkit-remote-drizzle` shipped (open question
+> 7), and its query semantics and pagination run against Postgres itself
+> through PGlite (`test/conformance.test.ts`, `test/writer.test.ts`), as do
+> Phase 14's batched relations and nested per-parent pages
+> (`test/nested.test.ts`, every case on SQLite and Postgres). The rest of this
+> section is as it was written.
 
 **Next step:** Phases 0-13 and 15 are executed; Phase 14
 (`foldkit-remote-drizzle`) is implemented but its Postgres acceptance is not run

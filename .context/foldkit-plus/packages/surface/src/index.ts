@@ -768,7 +768,8 @@ type ParamsOf<P> = P extends Schema.Top
 
 /** What a Surface's `model` may return: a Projection, or an object of Projections and refs to lift. */
 type ModelShape<Root> =
-  Projection<Root, unknown> | Record<string, Projection<Root, any> | ModelRef<Root, any>>
+  | Projection<Root, unknown>
+  | Record<string, Projection<Root, any> | ModelRef<Root, any>>
 
 type ModelOf<Root, R> = R extends Projection<Root, infer M> ? M : StructValue<R>
 
@@ -1527,11 +1528,17 @@ export interface Contract {
  * `update`, initial state, runtime config, and Module from a list of them.
  * `R` is the services its Commands and Subscriptions need.
  */
-export interface Wiring<Model, Message, R = never> {
+export interface Wiring<Model, Message, R = never, Claims extends string = string> {
   /** Names the integration in errors and the Module: `remote:Board`, `mirror:filters`. */
   readonly key: string
-  /** Message tags `route` handles. Two integrations handling one tag is an error unless it is `shared`. */
-  readonly handles: readonly string[]
+  /**
+   * Message tags `route` handles. Two integrations handling one tag is an error
+   * unless it is `shared`. Typed as literals (`Claims`), the tags it does not
+   * share leave the parent's own update in `foldkit-bundle`'s assembly. A wiring
+   * with literal `Claims` that shares some gives `shared` a literal type too: a
+   * plain `string[]` there reads as sharing none.
+   */
+  readonly handles: ReadonlyArray<Claims>
   /** Tags several integrations may handle, each for its own values (Mirror's `MirrorRestored`, by name). */
   readonly shared?: readonly string[] | undefined
   /**
@@ -1546,7 +1553,8 @@ export interface Wiring<Model, Message, R = never> {
   readonly onUrl?: ((model: Model, url: Url) => Model) | undefined
   readonly subscriptions?: Subscriptions<Model, Message, R> | undefined
   readonly resources?:
-    Readonly<Record<string, ManagedResourceEntry<Model, Message, any, any, any>>> | undefined
+    | Readonly<Record<string, ManagedResourceEntry<Model, Message, any, any, any>>>
+    | undefined
   /** Its Module contract; absent for wiring that owns and observes nothing. */
   readonly contract?: Contract | undefined
 }
@@ -1590,7 +1598,9 @@ export interface ModuleManifest {
 
 /** A value `Module.make` accepts: a contract, a value carrying one, or a Surface without params. */
 export type ModuleItem<Root> =
-  Contract | { readonly contract: Contract } | Surface<Root, any, any, void>
+  | Contract
+  | { readonly contract: Contract }
+  | Surface<Root, any, any, void>
 
 const label = (contract: Contract): string => `${contract.kind}:${contract.name}`
 /** Metadata summaries are application data (a query's input), so they cannot break the table. */

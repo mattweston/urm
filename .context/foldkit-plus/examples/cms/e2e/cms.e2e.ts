@@ -104,3 +104,44 @@ test('a writer’s draft is saved but not public, and an editor’s publish make
   await wren.page.close()
   await edda.page.close()
 })
+
+test('pointing at a post reads it ahead, so it draws with no server left to ask', async () => {
+  const { page, errors } = await open('/site/blog')
+  const link = page.locator('main li h3 a').first()
+  await link.waitFor({ timeout: 120_000 })
+  const title = (await link.textContent()) ?? ''
+  // The blog has read its list; what is asked next is the post's own read.
+  await page.waitForLoadState('networkidle')
+  const asked = page.waitForRequest(request => request.url().includes('/remote'))
+  await link.hover()
+  await asked
+  await page.waitForLoadState('networkidle')
+  // From here the server answers nothing: what the post draws, it already has.
+  await page.route('**/remote**', route => route.abort())
+  await link.click()
+  await expect.poll(() => page.locator('main h1').textContent(), { timeout: 5_000 }).toBe(title)
+  expect(await page.getByText('Loading…').count()).toBe(0)
+  expect(errors).toEqual([])
+  await page.close()
+}, 180_000)
+
+test('pointing at the pages section reads it ahead, so it draws with no server left to ask', async () => {
+  const { page, errors } = await open('/?as=edda')
+  const link = page.locator('a[href="/pages?as=edda"]').first()
+  await link.waitFor({ timeout: 120_000 })
+  // The posts have read what they show; what is asked next is the pages section's.
+  await page.waitForLoadState('networkidle')
+  const asked = page.waitForRequest(request => request.url().includes('/remote'))
+  await link.hover()
+  await asked
+  await page.waitForLoadState('networkidle')
+  // From here the server answers nothing: what the pages section draws, it already has.
+  await page.route('**/remote**', route => route.abort())
+  await link.click()
+  const list = page.locator('#pages')
+  await list.waitFor({ timeout: 5_000 })
+  await expect.poll(() => list.textContent(), { timeout: 5_000 }).toContain('About')
+  expect(await list.getByText('Loading').count()).toBe(0)
+  expect(errors).toEqual([])
+  await page.close()
+}, 180_000)

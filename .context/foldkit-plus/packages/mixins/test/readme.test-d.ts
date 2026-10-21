@@ -5,10 +5,20 @@
 import { Schema } from 'effect'
 import type { HtmlBuilder } from 'foldkit/html'
 import { defineMessageUnion } from 'foldkit/message'
-import { Attr, Behavior, Capability, Event, Slot, Slots, SlotView, Style } from '../src/index.js'
+import {
+  Attr,
+  Behavior,
+  Capability,
+  Event,
+  Layers,
+  Slot,
+  Slots,
+  SlotView,
+  Style,
+} from '../src/index.js'
 import { Inert } from '../src/testing.js'
 import { AppStyle } from '../src/app.js'
-import { Theme } from '../src/theme.js'
+import { Theme, Themes } from '../src/theme.js'
 import { Utilities as U } from '../src/utilities.js'
 
 const Message = defineMessageUnion({ ChangedValue: { value: Schema.String } })
@@ -104,7 +114,7 @@ void Rows
 // "An application's own look".
 {
   const { t, slots, forSlots, stylesheet } = AppStyle.make({
-    palette: Theme.oklch({ accent: { h: 260, c: 0.21, l: '62%' } }),
+    theme: Theme.make({ accent: { hue: 260, chroma: 0.21, lightness: 62 } }),
     colorScheme: 'light',
   })
   const Page = slots({
@@ -120,4 +130,26 @@ void Rows
   void Counter
   void forSlots
   Style.install(stylesheet)
+}
+
+// Themes as typed knobs.
+export const themesReadme = () => {
+  const cobalt = Theme.make({
+    accent: { hue: 235, chroma: 0.225, lightness: 55 },
+    surface: { saturation: 0, contrast: 24 },
+    shape: { radius: 1.8, density: 1.1, controls: 'pill' },
+    menu: { panel: 'inverted' },
+  }).pipe(Theme.describe({ title: 'Cobalt' }))
+
+  const cobaltDense = cobalt.pipe(Theme.set({ shape: { density: 0.9 } }))
+
+  const sheet = Style.stylesheet(
+    Layers.standard.declare,
+    Layers.standard.in('theme', Theme.root(Theme.standard(cobaltDense))),
+  )
+  // Installed by name.
+  const themes = Themes.make({ cobalt, cobaltDense }, { initial: 'cobalt' })
+  const { t: themed, stylesheet: themedSheet } = AppStyle.make({ themes })
+  const Model = Schema.Struct({ theme: themes.Name })
+  return { sheet, themes, themed, themedSheet, Model }
 }

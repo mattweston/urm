@@ -20,7 +20,8 @@ vocabulary validation, a command layer resolving intent into transactions (and
 `runAction`, which commits an ordered command list as one step, so removing what a rule
 matched and acting on it is one transition), input rules (`InputRule` is
 `{ name, match(textBefore, within) }`, `within` the kinds around the caret's block,
-innermost first, and `applyInputRules(rules, { textBefore, text, insertion })`
+innermost first, and `applyInputRules(rules, { textBefore, text, insertion })` (or `resolveInputRules`, which also
+returns a rule's `storedMarks`, the marks the next typing carries)
 builds the action — the insertion, a backward delete per character the rule consumed, then
 its commands, so a marker and the change it made are one edit), reads for
 the marks a selection carries (`marksInRange`, for a toolbar's active button) and for
@@ -84,7 +85,12 @@ and marks a document uses to mean what Markdown and HTML also mean (`Quote`, `Li
 `TableCell`; `Bold`, `Italic`, `Code`, `Strikethrough`, `Link`) — spread into an
 application's Kit. `Code` is the inline-code mark, so there is no `InlineCode`, and
 `HardBreak` is absent until inline atoms exist. `RichText.standardRendering` gives each
-kind its element (a `List` an `ol`/`ul`, an `Image` an `img` with its `src`), and
+kind its element (a `List` an `ol`/`ul`, an `Image` an `img` with its `src`; an `Image` also
+carries optional `caption`, `width`, `align`, and `asset`, `foldkit-media`'s `ImageAsset` as
+stored, from which the `img` gets its `width` and `height`; `imageBox(props)` gives a rendering
+of its own the same), an entry's `adornments` are non-content
+elements drawn before a block's content (a checkbox, a figure's picture; `toggles: 'checked'`
+makes a click flip that prop), and
 `renderingOver(base, extra)` builds a registry over another, so an application adds its own
 kinds beside the standard ones.
 
@@ -97,8 +103,9 @@ collaborative undo is not implemented.
 trimmed to the selection), `serializeSlice`/`deserializeSlice` round-trip it
 with a strict decoder, `withFreshIds` remints identities for a paste, and
 `sliceFromText` is the plain-text fallback. `run(state, { type: 'Paste', slice },
-ids)` places a slice at the caret — above the block at its start, below at its
-end, and mid-block by splitting the block so trailing text stays below. `toHtml(blocks)` / `documentToHtml(document)` export HTML (marks as
+ids)` places a slice at the caret: its first and last blocks join the text before
+and after the caret when they can (a pasted word lands in the sentence), blocks that
+cannot (an image, a table) stand between the halves, and into code it pastes text. `toHtml(blocks)` / `documentToHtml(document)` export HTML (marks as
 `strong`/`em`/`code`, unknown marks as `data-marks`, unknown blocks as a
 placeholder, everything escaped) and `toText`/`documentToText` give plain text.
 `toHtml(blocks, renderer?)` takes a `rendering({ marks, nodes })` vocabulary — built
@@ -136,7 +143,9 @@ recovers after an IME or an outside mutation,
 `Range`, and `attach(dom, { onIntent })` turns `beforeinput`/`keydown`/composition
 and clipboard events into editor intent while preventing the browser from mutating
 the subtree behind the document. `onSelection` reports a caret the application did
-not just commit, and `mountInto(host, content, options)` at
+not just commit; a press on an atom, or an arrow reaching it, reports a node selection of it, marked `data-selected`
+(Delete removes it, Enter opens a paragraph after it, typing replaces it), and a press below the
+last block writes after it (a new paragraph after a table or code), and `mountInto(host, content, options)` at
 `foldkit-richtext-dom/host` renders into a view's host element and records the
 attachment a patch Command later finds; if the host already holds exactly the subtree it would
 build (server markup), it keeps those elements (`adopt`), and otherwise replaces what is there. A registry can also be `placeRendering`d for
@@ -150,7 +159,7 @@ dispatch their Messages, each active when the caret carries it or every run the
 selection covers does (`markActive` is that rule on its own). A floating toolbar is those
 buttons, drawn while `RichText.coversText(selection)` in an element carrying
 `h.OnMount(selectionAnchor({ hostId, gap }))`, which fixes it above the page's selection in
-that host; `blockAnchor({ hostId, node, gap })` places a block handle beside its
+that host (`caret: true` follows a caret too, under it, for a slash menu); `blockAnchor({ hostId, node, gap })` places a block handle beside its
 block the same way, on an element keyed by `node`, because a Mount reads its args once.
 `foldkit-mixins-richtext` draws that toolbar through Mixins slots instead
 (`MarkToolbarSlots`, `markToolbar<Message>()`), for an application that restyles or
@@ -162,7 +171,9 @@ and the editor Message choosing it), `matchingEntries(entries, query)`, and
 `slashMenu(entries, textBefore, index)` — the one value a menu's view and the editor's
 `update` share: the query, the matches, and the entry Enter would send, with a stale index
 falling back to the first match. The editor's Bundle carries `EditorState.menuIndex`, the
-highlighted entry the application moves with the keys, and its `update` resolves `Entered`
+highlighted entry the application moves with the keys, and `slashDismissed`, set by
+`Message.DismissedSlash` (Escape) and ended with its query; a menu reads `menuTextOf(view)`,
+empty while dismissed. Its `update` resolves `Entered`
 against a live query by handling the chosen entry as the Message a click would send — so
 the view never sends Enter, a mark entry updates the caret's stored marks, and the query
 the entry was typed into is removed in the same action (`runAction`). `foldkit-mixins-richtext`
@@ -171,12 +182,16 @@ Message wrapped for the caller, as the toolbar's `toggled` is) and `slashMove(en
 textBefore, index, key, modifiers)` — the keys a menu owns, using `foldkit-primitives`'
 `RovingTabindex.move`, so ArrowUp/Down, Home/End, wrapping, and a modified key behave as in
 any other list — and draws it with `slashMenuView<Message>()`: `SlashMenuSlots` (`root`,
-`list`, `item`), one `data-entry` item per match with `role="menuitem"`, `aria-current` on
-the highlighted one, and the entry's own Message on click. `blockStyles<Message>()` is the
+`list`, `heading`, `item`, `icon`, `label`, `description`, `empty`), one `data-entry` item per
+match with `role="menuitem"`, `aria-current` on the highlighted one, and the entry's own Message
+on click; entries carry `description`, `group` and `icon`, grouped under `/` alone and ranked
+under a query (`matchingEntries`). `richTextIcon(h, name)` / `richTextIconUrl(name)` are the
+chrome's icon set (Lucide, ISC). `blockStyles<Message>()` is the
 style picker: `{ document, selection, wrap }` in, `BlockStyleSlots` (`root`, `toolbar`,
 `button`) out, one `data-style` button per retype entry (Paragraph, Heading 1–3), pressed from
-`RichText.textBlockAt`, all disabled without a text selection. `linkEditor<Message>()` is the link
-editor: `{ document, selection, draft, drafted, wrap }` in, `LinkEditorSlots` (`root`, `input`,
+`RichText.textBlockAt`, all disabled without a text selection; `blockStyleMenu<Message>()` is the
+same as one trigger and a menu (`{ …, open, toggled }`, `BlockStyleMenuSlots`). `linkEditor<Message>()` is the link
+editor: `{ document, selection, draft, drafted, wrap, closed?, submitted? }` in (Escape sends `closed`; Enter sends `submitted`, for `update` to apply `linkEdit(document, selection, draft)` to the Model's draft), `LinkEditorSlots` (`root`, `input`,
 `apply`, `remove`) out; it opens on `RichText.linkAt`, sends `AppliedMark` with
 `RichText.safeUrl(draft)` (disabled when the policy refuses it, or when there is neither a range
 nor a link at the caret) and `ClearedMark` from inside a link, and keeps no state.
@@ -188,7 +203,11 @@ beside it is split mode: `{ session, document, rendering? }`, the draft rendered
 the document it would become. `editorStatus<Message>()` is the status line: `{ document,
 diagnostics? }` in, `EditorStatusSlots` (`root`, `counts`, `problems`, `problem`) out; the counts
 are `RichText.count(document)` (`{ words, characters }`), the problems whatever the caller passes,
-usually `RichText.validate` against its Kit. `blockHandle<Message>()` is the block handle:
+usually `RichText.validate` against its Kit. `tableToolbar<Message>()` (`{ document, selection,
+wrap }`, `TableToolbarSlots`) edits the table around the caret's cell (rows, columns, header,
+delete), disabled outside one; `codeToolbar<Message>()` (`{ document, node, languages, wrap,
+copied }`, `CodeToolbarSlots`) sets a code block's language and sends the caller's Copy; draw
+either above its block with `blockAnchor({ …, side: 'above' })`, or in its top right corner with `side: 'inside-end'`. `blockHandle<Message>()` is the block handle:
 `{ document, hostId, node, wrap }` in, `BlockHandleSlots` (`root`, `grip`, `up`, `down`) out; the
 grip drags the block wherever `RichText.moveTargets` allows (`blockDrag` from
 `foldkit-richtext-dom/toolbar`, keyed by the block), up sends
@@ -208,13 +227,17 @@ host element's `OnMount`, and `patchEditor`, the work a patch Command runs again
 element that host names. `RetypedBlock` is a Message an application sends itself — no
 browser event means "make this block a heading" — and `editor-bundle` exposes
 `retyped(block)` for it, as it exposes `wrapped(containers)`, `converted(to)`, `lifted()`, and
-`moved(node, to)` for the wrap, convert, lift, and move commands, and `applied(mark)` and `cleared(name)` for
+`moved(node, to)` for the wrap, convert, lift, and move commands, `inserted(block, to?)`,
+`deleted(node)` and `changedProps(node, props)` for the insert, delete and props commands, and `applied(mark)` and `cleared(name)` for
 `SetMark` and `ClearMark`, which a link editor sends. `foldkit-richtext-dom/editor-bundle` is the editor as a
-Bundle (§27): `Editor`, `editorAt(hostId, { rendering, vocabulary, inputRules, decorate, placeholder })`
-(`placeholder` marks a blank document's block with `data-placeholder` for a stylesheet's
+Bundle (§27): `Editor`, `editorAt(hostId, { rendering, vocabulary, inputRules, decorate, placeholder, lineHint, keymap, slashEntries })`
+(`slashEntries` is the catalogue Enter in a query resolves against, an application's own;
+`keymap` adds chords, `{ chord: 'Mod-u', command }`, beside Mod+B/I/E and Mod+Shift+S)
+(`lineHint` marks the empty paragraph the caret is in with `data-hint`; `placeholder` marks a blank document's block with `data-placeholder` for a stylesheet's
 `::before`, and the textbox root with `aria-placeholder`; `decorate` sees the document only,
 and `overlay(hostId, decorations)` is the Command for decorations from application state,
-such as other people's carets),
+such as other people's carets; `focus(hostId, selection)` focuses the editor with a selection,
+scrolled into view, for a control outside it such as a table of contents),
 `application`/`update`, and the Messages a host dispatches (the host is a `<foldkit-richtext>`
 custom element; with `serverRendered: SSR.serving` the server sends the document's markup in it,
 and the browser's editor adopts it); every accepted edit returns
@@ -241,9 +264,20 @@ Decorations (§64, §126) are derived, ephemeral presentation over a document ra
 search match, a lint warning, a syntax token — and never document content:
 `Decoration` / `DecorationSet` are plain data, `decorationsIn(document, set)` projects a
 set onto runs (cut at each run's edge, unresolvable endpoints skipped, text order),
-`searchDecorations(document, query)` produces them for every occurrence of a query (one
-decoration per occurrence, across runs but never across blocks; `positionInBlock(block,
-offset)` is the offset-to-position read it shares), `codeDecorations(document, tokenizers)`
+`findMatches(document, query, { caseSensitive })` lists a query's occurrences (case ignored
+unless asked; across runs but never across blocks) and `searchDecorations(document, query,
+{ caseSensitive, current })` draws them, the `current` one as `search-current`
+(`positionInBlock(block, offset)` is the offset-to-position read they share); the `Replace`
+command (`{ query, replacement, caseSensitive, at }`, the editor's `ReplacedText`) replaces
+one match or all as one undo step, and `foldkit-mixins-richtext`'s `findReplace` is the bar
+(it sends `stepped(1 | -1)`, which `update` applies with `stepMatch` to the current match);
+`outlineOf(document)` lists the headings with text and `sectionAt(document, selection)` the
+one whose section holds the caret, which `foldkit-mixins-richtext`'s `tableOfContents` draws;
+footnotes are opt-in vocabulary (`FootnoteRef` mark, `FootnoteDefinition` node, tied by `label`):
+`footnotesOf`, `footnoteAt`, `nextFootnoteLabel`, the `InsertFootnote` and `RenameFootnote` commands
+(the editor's `InsertedFootnote`, `RenamedFootnote`), and `footnotePreview` as the card at a reference;
+media is opt-in too (`mediaNodes`: `Video`, `Audio`, `Attachment`; `mediaRendering` draws them with
+the browser's controls and a download link; `mediaBlock(file)` picks the kind by type), `codeDecorations(document, tokenizers)`
 runs the `CodeTokenizer` registered in a `Map` for each `CodeBlock`'s `language` and returns
 its tokens as decorations (a token outside the text throws; `foldkit-richtext-code`'s
 `jsonTokenizer` is the first grammar, and never throws on half-typed JSON;
@@ -292,10 +326,19 @@ kind, the kind must stand there (`node(..., { within: ['List'] })`, reported by 
 kind, and a container it empties is deleted;
 `moveTargets(document, node, nodes?)` lists where it may go. `SetProps { node, props }` sets
 the named props of a node block by identity and keeps the rest (a task item's `checked`); with a
-vocabulary, props that decode as the kind's must still decode after. `LiftBlock` is the inverse of a wrap, and
+vocabulary, props that decode as the kind's must still decode after. `InsertBlock { block, to? }`
+inserts a block under fresh ids beside another (without `to`, beside the caret's block: before
+it when empty), and `DeleteBlock { node }` deletes one with any container it empties. `InsertRow`/`InsertColumn`
+(`{ where }`), `DeleteRow` and `DeleteColumn` edit the table around the caret's cell
+(`tableAt`); `Indent`/`Outdent` are Tab and Shift+Tab: indentation in an `indents` kind (Enter
+keeps a line's), the next or previous cell in a table, a list item nested under the one before it
+or moved back out; `takesTab` says where Tab applies. `LiftBlock` is the inverse of a wrap, and
 with a vocabulary Backspace at the start of a container's first block lifts it out (never out
-of a kind declared `isolating`, such as `TableCell`), and at the start of a `CodeBlock` retypes
-it to a paragraph; Enter in a list item starts a new item
+of a kind declared `isolating`, such as `TableCell`), and at the start of a `CodeBlock` or a
+heading retypes it to a paragraph; beside a block it cannot join, Backspace and Delete reach
+the nearest line (a list's or a quote's last or first line joins the caret's; a table or code is
+only stepped into, and an empty line beside one is removed); Enter in a kind declared `lineBreaks` (the standard `CodeBlock`, or a callout of several
+lines) is a newline, and on an empty last line leaves it; Enter in a list item starts a new item
 with the old one's props under the kind's `splitProps` (a `TaskItem` starts unchecked), and
 Enter in an empty one leaves the list.
 `InsertText` takes an optional `marks`: with it the inserted span carries
@@ -321,8 +364,9 @@ become markup (a letter beside a delimiter may print as a character reference, s
 delimiter still opens or closes), and a table's first row is printed as its header, which is where GFM puts it;
 `TableRow` carries a `header` prop that HTML round-trips as `data-header`, and a header row
 anywhere but first is reported. `parse(markdown, { mint })` returns `{ document, diagnostics }` through
-micromark and `mdast`, reading the same set back; raw HTML, a link definition, a footnote,
-and a hard line break are reported rather than guessed at, and a link or image URL passes
+micromark and `mdast`, reading the same set back; raw HTML, a link definition, a footnote
+(unless `footnotes: true` reads it as `FootnoteRef`/`FootnoteDefinition`, which `print`
+writes as `[^label]`), and a hard line break are reported rather than guessed at, and a link or image URL passes
 the same `safeUrl` policy HTML import uses (refused ones are reported as `UnsafeUrl`).
 The two directions are tested
 against each other: `print(parse(markdown))` returns the Markdown it started from.
@@ -330,7 +374,9 @@ against each other: `print(parse(markdown))` returns the Markdown it started fro
 `###### ` retype a block as the space is typed, and `> `, `- `, and `1. ` wrap it in a quote
 or a list (`WrapBlock`), a fence such as `` ```ts `` converts it to a `CodeBlock`
 (`ConvertBlock`), and `[ ] ` or `[x] ` at the start of a list item's first block makes the
-item a task in place (`RetypeContainer`) — where the editor applies the rules its placement names
+item a task in place (`RetypeContainer`), then the inline markers (`markdownInlineRules`:
+`**bold**`, `*italic*`, `_italic_`, `` `code` ``, `~~struck~~`, closed as typed, typing on
+plain) — where the editor applies the rules its placement names
 (`editorAt(hostId, { inputRules })`), so it carries no Markdown itself. A source session edits
 the Markdown itself: `openSource(document, { style?, selection? })` gives `{ printed, draft,
 unprintable, style, caret }` (a `SourceSession` schema the Model holds; `caret` is where the
@@ -409,7 +455,8 @@ selection)` reads it for `Link`: the `href` and range a link editor opens on). `
 `UnknownMark` for an
 undeclared name and `InvalidProps` for props its schema refuses, including a mark
 that declares props but carries none. `resolveInsertion` honors the policy, with
-an undeclared mark expanding `both`. Application node kinds are
+an undeclared mark expanding `both`; at a block's outer edge, typed text gets its own
+run with only the marks that extend (typing after a link ending a paragraph leaves it). Application node kinds are
 first-class: `RichText.node(name, { Props })` declares a `Node` block whose JSON
 props the Kit validates (`UnsupportedNode` / `InvalidProps`), with text-run
 children so positions and operations work unchanged. Migrations move persisted

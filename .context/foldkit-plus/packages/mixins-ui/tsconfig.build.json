@@ -5,5 +5,9 @@
     "tsBuildInfoFile": ".tsbuild/build/tsconfig.build.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
-  "references": [{ "path": "../mixins/tsconfig.build.json" }]
+  "references": [
+    { "path": "../media/tsconfig.build.json" },
+    { "path": "../mixins/tsconfig.build.json" },
+    { "path": "../primitives/tsconfig.build.json" }
+  ]
 }

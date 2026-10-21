@@ -47,6 +47,44 @@ const days = (resolved: ResolvedCalendar<CalendarUi.Message>): ResolvedDays<Cale
 }
 
 describe('Calendar adapter', () => {
+  const Drawn = Style.forSlots(CalendarSlots)({
+    header: Style.class('cal-header'),
+    dayButton: Style.class('cal-choice'),
+    monthButton: Style.class('cal-choice'),
+    yearButton: Style.class('cal-choice'),
+  })
+
+  // February 2026 starts on a Sunday; a calendar draws six weeks of it.
+  it.each([
+    ['Days', /February 2026/, 42],
+    ['Months', /2026/, 12],
+    ['Years', /20\d\d/, 12],
+  ] as const)(
+    'draws %s when given no draw, its header through the header slot',
+    (viewMode, heading, choices) => {
+      Scene.scene(
+        {
+          update: CalendarUi.update,
+          view: (model, h) =>
+            CalendarUi.view(
+              model,
+              {
+                maybeSelectedDate: Option.none(),
+                toView: Calendar.toView(Calendar.empty('Single'), [Drawn.mixin], { h }),
+              },
+              h,
+            ),
+        },
+        Scene.given({
+          ...CalendarUi.init({ id: 'drawn', today: { year: 2026, month: 2, day: 11 } }),
+          viewMode,
+        }),
+        Scene.expect(Scene.selector('.cal-header')).toHaveText(heading),
+        Scene.expectAll(Scene.all.selector('.cal-choice')).toHaveCount(choices),
+      )
+    },
+  )
+
   it('preserves the real ChildAttribute bundles by identity', () => {
     let captured: Captured | undefined
     runCalendar([], value => {
@@ -60,7 +98,7 @@ describe('Calendar adapter', () => {
     for (const child of base.root) expect(holds(resolved.root, child)).toBe(true)
     for (const child of base.grid) expect(holds(resolved.grid, child)).toBe(true)
     for (const child of base.previousMonthButton) {
-      expect(holds(resolved.previousMonthButton, child)).toBe(true)
+      expect(holds(Option.getOrThrow(resolved.previousMonthButton), child)).toBe(true)
     }
     for (const child of base.headerRow) expect(holds(resolved.headerRow, child)).toBe(true)
     for (const child of base.columnHeaders[0]!.attributes) {

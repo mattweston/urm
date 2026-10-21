@@ -12,7 +12,10 @@ what does each place show. Foldkit's Router already answers the URL half with
 bidirectional parsers. `foldkit-site` answers the structural half: a tree of
 stable route nodes over those parsers, with one annotated place for the
 metadata (titles, sections, history intent) that applications otherwise
-recompute in four parallel tables.
+recompute in four parallel tables. [Site and Foldkit's Router](../../docs/site-and-router.md)
+draws the line between the two and shows how the Site works, and
+[Site, Remote and SSR together](../../docs/site-remote-ssr.md) builds a routed
+application with its data rendered on the server.
 
 ## When it owns the problem
 
@@ -52,7 +55,7 @@ pnpm add foldkit-site
 ```
 
 Peers: `effect`, `foldkit`. `foldkit-surface` is a dependency (for
-`Site.sources`).
+`Site.sources`), and `foldkit-ssr` for the `Meta` a node's head returns.
 
 ## 60-second example
 
@@ -65,7 +68,7 @@ const Person = Site.route(personRouter, AppRoute.Person, {
   section: 'People',
 })
 
-const AppSite = Site.make(Home, Site.mount(People, []))
+const AppSite = Site.make(Home, Site.mount(People, [Person]))
 
 // One declaration builds the value and the address together.
 const target = Site.target(Person, { personId: 3 })
@@ -87,8 +90,8 @@ without re-parsing anything.
 
 **Nodes.** `Site.route(router, case, options?)` declares one location. Options
 are `title` (a function of the route value), `section`, `landing` (the
-section's nav address as this node's params), `shortcut` (the keys that go
-here), `history`, and `surface` (below). The node is frozen; keep the
+section's nav address as this node's params), `shortcut` (the keys that go to
+its landing, as Foldkit's key bindings name them: `'/'`, `['G', 'H']`), `history`, `access` (who may be shown it: see Common workflows), and `surface` (below). The node is frozen; keep the
 exported value and use it for targets and hrefs. To annotate in steps, or to
 share an annotation bundle across nodes, build incrementally instead — the
 options are sugar over this builder:
@@ -117,6 +120,41 @@ throw at `make`: both would make chain inspection ambiguous.
 URL is built by the node's own router, a round trip holds by construction: a
 built URL parses back to the target's route (there is a test proving it).
 
+**Both directions.** A tree's type carries its routes, so the tree is the
+one declaration of address to route and back. `Site.parse(site, NotFound)`
+is the application's parser: the first node, in tree order (depth-first,
+parents first), whose router takes the whole address, or the fallback; put a
+node that takes any segment (`/:slug`) after the nodes whose literal it would
+take too. `Site.hrefOf(site, route)` builds a route's address with its node's
+router, and refuses at compile time a route no node holds.
+
+**One tree, one document.** A tree holds the routes one application draws.
+`Site.routeAt(site, url)` is the route a node reads at an address, as
+`Site.parse` reads it, or `None` when no node takes it: an address the tree
+does not hold is another document's, reached with a full load, not a
+Navigate Command that could only draw NotFound.
+
+**Every address.** `Site.targets(site, paths)` lists the site in tree order:
+a node whose route has no params once, and a node with params by its
+`Site.paths(node, list)`, where `list` is an Effect giving each address's
+params and, for a sitemap, when it last changed:
+
+```ts
+const list = Site.paths(People, Effect.succeed([{ params: { searchText: Option.none() } }]))
+const people = Site.paths(
+  Person,
+  Effect.succeed([{ params: { personId: 3 }, modified: '2026-10-01' }]),
+)
+const listed = Site.targets(AppSite, [list, people])
+// an Effect of [..., { node: Person, route, url: '/people/3', modified: '2026-10-01' }]
+```
+
+A build renders what it lists, a sitemap keeps what `Site.indexedOf` keeps,
+and prefetch can warm it. A node with params and no `paths`, `paths` for a
+node the tree does not hold, and `paths` given twice are refused, so no page
+is left out unsaid; `Site.paths(node, Effect.succeed([]))` lists none. Its
+failures and services are those of the lists, typed.
+
 **Inspection.** `Site.nodeOf(site, route)` and `Site.chainOf(site, route)`
 resolve a route value to its node and its root-first chain (`[]` for a tag
 the tree does not hold, as an inactive Surface resolves to nothing).
@@ -134,9 +172,40 @@ rule by hand.
 **Navigation metadata.** Titles and sections read with `Site.titleOf` and
 `Site.sectionOf`. `Site.landing(site, section)` is where the section's nav
 item points: the first node of the section that declares a landing, as a
-target. Shortcuts ride beside their destinations; key bindings stay
-application-owned, derived with each name validated against the application's
-union. Annotate once; derive nav, titles, shortcuts, and breadcrumbs from it.
+target. `Site.shortcuts(site, toMessage)` is the tree's shortcuts as key
+bindings for `Dom.streamFromKeyBindings`, each sending the Message
+`toMessage` makes of its node's landing target; a shortcut with no landing,
+or one used twice, is refused. Annotate once; derive nav, titles, shortcuts,
+and breadcrumbs from it.
+
+**Head metadata.** `meta` is what a node says of itself to a search result
+and a link preview: a function of its route and the Model, since a post's
+excerpt is data, not an address. It returns `foldkit-ssr`'s `Meta`
+(description, image, type, article dates, JSON-LD, ...). `indexed: false`
+keeps a node, and every node below it that does not say otherwise, out of
+search engines. `Site.metaOf(site, route, model)` reads the route's chain
+root first, a deeper node's field replacing its ancestor's, the preview
+title falling back to the node's `title`, and `noindex` for an unindexed
+route whatever its `meta` says. It is an SSR plan's `meta` as it stands:
+
+```ts
+const Person = Site.node(personRouter, AppRoute.Person)
+  .title(({ personId }) => `Person ${personId} | Routing`)
+  .meta<Model>(({ route, model }) => ({ description: model.bios[route.personId] }))
+  .node
+const Nested = Site.route(nestedRouter, AppRoute.Nested, { indexed: false })
+
+const plan = SSR.plan(App, {
+  id: 'site',
+  state: Projection.pick(App.model.route, App.model.bios),
+  meta: model => Site.metaOf(AppSite, model.route, model),
+})
+```
+
+The plan writes it into the generated page and keeps the head in step as the
+reader moves; the Site only says what it is. `meta` must read what crosses
+to the browser (the route, a resumed read), as any plan's `meta` must.
+`Site.indexedOf(site, route)` is the same flag for a sitemap.
 
 ## Nested rendering
 
@@ -241,13 +310,17 @@ const update = assembly.update((model, message) =>
 )
 ```
 
-A click on an internal link navigates — pushing or replacing per
+A click on a link the tree holds navigates — pushing or replacing per
 `Site.historyOf`, computed from the current route, so entries stay entries.
-An external link loads. A URL change sets the route field, or returns the
+Any other link loads, on this origin or not (`Site.routeAt`): another
+application serves it. A URL change sets the route field, or returns the
 same Model when the address parses to the route already shown, so an echo of
 our own write never re-renders or clears pending state. The application's own
 update answers nothing for either message; `reduces` names them for its
-guard, the way `Remote.reduces` does.
+guard, the way `Remote.reduces` does. What a new route does beyond setting
+the field is `arrived: (model, route) => ({ model, commands })`, run after the
+routed pages are told and never for an echo: the CMS site moves focus to what
+it drew there (`examples/cms/src/apps/siteApp.ts`).
 
 The wiring claims the click tag and shares the change tag with URL mirrors,
 which read their slices first. `CompletedNavigation` is one completion for
@@ -259,7 +332,7 @@ placements land; until then informing them stays hand-written.
 
 **Navigation rendering.** Derive the nav from the tree instead of keeping
 parallel tables: sections in tree order, hrefs from `Site.landing`, titles
-from `Site.titleOf`, shortcuts from the annotated nodes, and the current
+from `Site.titleOf`, key bindings from `Site.shortcuts`, and the current
 section by comparing tags.
 
 **Route changes.** On a URL change, resolve the route value once, then
@@ -267,6 +340,32 @@ section by comparing tags.
 step — or hand both branches to `Site.routing` (with `pages` for the routed
 placements) and keep only the guard in `update`. What each route *does* with
 the change beyond informing its page is still the application's `update`.
+
+**Who may be shown a page.** A route carries no authorization: the server
+guards what a page reads, whatever the route says. What a route may decide is
+presentation, sending a visitor to sign in rather than drawing an empty
+page. `access` on a node says who may be shown it and the nodes below it,
+from what the application knows of the reader (its `Me` row), and where
+anyone else goes (from `access.test.ts`):
+
+```ts
+const Projects = Site.node(pipe(literal('projects'), mapTo(AppRoute.Projects)), AppRoute.Projects)
+  .access<Me>({ allow: me => me.signedIn, otherwise: toSignIn })
+  .node
+```
+
+`Site.accessOf(site, route, who)` decides it, root first: `Allowed`;
+`Pending` while `who` is `Option.none()` (the reader's `Me` still loading),
+for a loading state rather than a sign-in page flashed at someone signed in;
+`Denied` with the URL to go to (`otherwise` gets the address asked for, so a
+sign-in page can return to it). Read it with `Access.match`. The view draws
+from it, `update` replaces the URL on `Denied` after a route change or when
+`Me` arrives, and a server answers `Denied` with a 303 before rendering. An
+`otherwise` whose target the same rule covers throws, at any address: a
+sign-in page mounted under the rule it serves would otherwise send each
+refused reader to a longer `returnTo` for ever. A rule given in a node's
+options names the reader it reads (`allow: (me: Me) => …`); `accessOf`
+cannot check that its `who` is that reader, so pass the one the rules read.
 
 **Prefetch and SSR.** `Site.target` plus `Site.chainOf` say which Surfaces a
 destination will activate; `Site.sourcesFor(site, owner, place, target.route)`
@@ -277,7 +376,6 @@ caller-composed — there is no `prepare` in any plan.
 ## Limits / when not to use it
 
 - A single-screen application has one node; the tree buys nothing.
-- Keyboard shortcuts are still hand-written per application.
 - Bundles with OutMessages, and children that are not Bundles, stay on
   `Bundle.at` and `Link.child`: `Site.placement` takes neither `onOut` nor a
   non-Bundle child.

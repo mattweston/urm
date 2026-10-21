@@ -18,12 +18,11 @@ import type { Html, HtmlBuilder } from 'foldkit/html'
 import { defineView, type View as SubmodelView } from 'foldkit/submodel'
 import {
   computeRender,
-  type ComboboxGroupRender,
-  type ComboboxHeadingRender,
-  type ComboboxItemRender,
   type ComboboxRenderInfo,
+  type ExtraInputs,
   type NormalizedInputs,
 } from './comboboxShared.js'
+import { drawCombobox } from './popupView.js'
 
 export type SharedViewInputs = NormalizedInputs<string> & {
   toView?: ((render: ComboboxRenderInfo) => Html) | undefined
@@ -34,69 +33,8 @@ export type SharedBehavior = Readonly<{ ariaMultiSelectable: boolean }>
 /** Upstream's markup from the computed bundles: the default `toView`. */
 export const defaultToView =
   (h: HtmlBuilder<Message>) =>
-  (render: ComboboxRenderInfo): Html => {
-    const drawItem = (item: ComboboxItemRender): Html =>
-      h.keyed('div')(item.key, [...item.attributes], [item.content])
-    const drawGroup = (group: ComboboxGroupRender): ReadonlyArray<Html> => {
-      const drawn = group.items.map(drawItem)
-      if (group.group === undefined) return drawn
-      const headed: ReadonlyArray<Html> =
-        group.heading === undefined
-          ? []
-          : [
-              h.keyed('div')(
-                group.heading.id,
-                [...group.heading.attributes],
-                [group.heading.content],
-              ),
-            ]
-      const grouped = h.keyed('div')(
-        group.group.key,
-        [...group.group.attributes],
-        [...headed, ...drawn],
-      )
-      return [
-        ...(group.separator === undefined
-          ? []
-          : [h.keyed('div')(group.separator.key, [...group.separator.attributes])]),
-        grouped,
-      ]
-    }
-    const grouped = render.groups.flatMap(drawGroup)
-    return h.div(
-      [...render.wrapper],
-      [
-        h.div(
-          [...render.inputWrapper],
-          [
-            h.input([...render.input]),
-            ...(render.toggleButton === undefined
-              ? []
-              : [
-                  h.keyed('button')(
-                    render.toggleButton.key,
-                    [...render.toggleButton.attributes],
-                    [render.toggleButton.content],
-                  ),
-                ]),
-          ],
-        ),
-        ...(render.backdrop === undefined
-          ? []
-          : [h.keyed('div')(render.backdrop.key, [...render.backdrop.attributes])]),
-        ...(render.items === undefined
-          ? []
-          : [
-              h.keyed('div')(
-                render.items.key,
-                [...render.items.attributes],
-                render.scroll === undefined ? grouped : [h.div([...render.scroll], grouped)],
-              ),
-            ]),
-        ...render.hiddenInputs,
-      ],
-    )
-  }
+  (render: ComboboxRenderInfo): Html =>
+    drawCombobox(render, h)
 
 const makeSharedView = (
   behavior: SharedBehavior,
@@ -115,15 +53,24 @@ const makeSharedView = (
 const singleShared = makeSharedView({ ariaMultiSelectable: false })
 const multiShared = makeSharedView({ ariaMultiSelectable: true })
 
-export type { ComboboxGroupRender, ComboboxHeadingRender, ComboboxItemRender, ComboboxRenderInfo }
+export type {
+  ComboboxChipRender,
+  ComboboxGroupRender,
+  ComboboxHeadingRender,
+  ComboboxItemRender,
+  ComboboxRenderInfo,
+  ExtraInputs,
+} from './comboboxShared.js'
 
-/** Upstream single view inputs plus the seam. */
+/** Upstream single view inputs plus the seam and this package's extras. */
 export type SingleViewInputs<Item extends string> = UpstreamSingleInputs<Item> &
-  Readonly<{ toView?: (render: ComboboxRenderInfo) => Html }>
+  Readonly<{ toView?: (render: ComboboxRenderInfo) => Html }> &
+  ExtraInputs
 
-/** Upstream multi view inputs plus the seam. */
+/** Upstream multi view inputs plus the seam and this package's extras. */
 export type MultiViewInputs<Item extends string> = UpstreamCombobox.Multi.ViewInputs<Item> &
-  Readonly<{ toView?: (render: ComboboxRenderInfo) => Html }>
+  Readonly<{ toView?: (render: ComboboxRenderInfo) => Html }> &
+  ExtraInputs
 
 type MultiModel = UpstreamCombobox.Multi.Model
 

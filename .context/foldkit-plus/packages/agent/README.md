@@ -566,7 +566,7 @@ cannot infer `Model` from an `available` callback alone, so `available: model =>
 it when there is no application. `Agent.make` is still there when the Model does
 not matter.
 
-**Effect 4, not 3.** Foldkit `0.165.0` peer-depends on `effect@4.0.0`, so
+**Effect 4, not 3.** Foldkit `0.168.0` peer-depends on `effect@4.0.0`, so
 snippets written against Effect 3 need translating: `Schema.OptionFromSelf` is
 `Schema.Option` here.
 
@@ -575,9 +575,6 @@ application exactly the way a person does: by causing a Message the
 application already handles, which `update` (normally via `modifyFields`) reduces.
 There is no agent-side Model write, so nothing the agent does can bypass
 transition semantics or diverge from what replay shows.
-
-The [design rationale](https://github.com/doeixd/foldkit-plus/blob/main/docs/design/agent-DESIGN.md) records the
-alternatives that were considered and rejected.
 
 ## See also
 

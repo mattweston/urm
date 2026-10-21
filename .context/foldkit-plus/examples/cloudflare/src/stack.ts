@@ -50,6 +50,9 @@ const migrate = async (db: StackDatabase) => {
   }
 }
 
+/** The upload secret the local stack runs with, new each run; a deployment sets its own. */
+export const UPLOAD_TOKEN = crypto.randomUUID()
+
 export const startStack = async (): Promise<CloudflareStack> => {
   const bundled = await bundleWorker()
   const script = bundled.outputFiles?.[0]?.text
@@ -59,6 +62,10 @@ export const startStack = async (): Promise<CloudflareStack> => {
     script,
     durableObjects: { SYNC_HOST: 'SyncHost' },
     d1Databases: ['DB'],
+    r2Buckets: ['MEDIA'],
+    images: { binding: 'IMAGES' },
+    ratelimits: { LIMITER: { namespace_id: '1001', simple: { limit: 100, period: 60 } } },
+    bindings: { UPLOAD_TOKEN },
     compatibilityFlags: ['streams_enable_constructors'],
     host: '127.0.0.1',
     port: 0,

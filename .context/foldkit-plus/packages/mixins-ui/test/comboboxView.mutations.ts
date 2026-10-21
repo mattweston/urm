@@ -85,4 +85,26 @@ export default [
     ],
     tests,
   },
+  {
+    name: 'a portaled combobox panel still claims the top layer',
+    edits: [
+      {
+        file: '../src/comboboxShared.ts',
+        find: '...(anchor.portal === false',
+        replace: '...(anchor.portal !== false',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the panel never reaches the top layer',
+    edits: [
+      {
+        file: '../src/comboboxShared.ts',
+        find: "    h.Attribute('popover', 'manual'),\n",
+        replace: '',
+      },
+    ],
+    tests,
+  },
 ]

@@ -1,20 +1,18 @@
 /**
  * What every recipe shares: typed token references, the layer each piece is
  * emitted in, and the focus and disabled treatments. The recipes assume a page
- * that ships `Theme.root` of `Theme.tokens` and a `Theme.oklch` palette from
- * `foldkit-mixins/theme`; a token name either lacks is a type error here.
+ * that ships `Theme.root` of `Theme.standard(theme)` from `foldkit-mixins/theme`;
+ * a token name it lacks is a type error here.
  */
 import { Layers, Style, type Declarations, type StyleValue } from 'foldkit-mixins'
 import { Theme } from 'foldkit-mixins/theme'
+import { Utilities } from 'foldkit-mixins/utilities'
 
 /**
- * `var(--fk-group-name)` for every token the shipped scales and palette
- * define. The palette is built only for its names: `Theme.ref` never reads a
- * value, so the accent here is irrelevant and the page's own palette applies.
+ * `var(--fk-group-name)` for every shipped token. `Theme.ref` reads names,
+ * never values, so the page's own theme applies.
  */
-export const ref = Theme.ref(
-  Theme.compose(Theme.tokens, Theme.oklch({ accent: { h: 0, c: 0, l: '50%' } })),
-)
+export const ref = Theme.ref(Theme.standard())
 
 /** The base of a recipe, in the `components` layer. */
 export const component = (...pieces: ReadonlyArray<StyleValue>): StyleValue =>
@@ -24,13 +22,100 @@ export const component = (...pieces: ReadonlyArray<StyleValue>): StyleValue =>
 export const variant = (...pieces: ReadonlyArray<StyleValue>): StyleValue =>
   Layers.standard.in('variants', Style.compose(...pieces))
 
-/** One density step: padding with a font size, for controls sized by padding. */
-export const density = (block: string, inline: string, font: string): StyleValue =>
-  variant(Style.self({ paddingBlock: block, paddingInline: inline, fontSize: font }))
+/**
+ * A control's corner: `md`, and inside a container that `nests` (a card, a
+ * dialog) concentric with its corner, though never sharper than `sm`.
+ */
+export const controlCorner = Theme.concentric({ min: ref.radius.sm, max: ref.radius.md })
+/** A pressable control's corner (a button, a segmented tray), a pill when `control-round` is 1. */
+export const pressCorner = `calc(${controlCorner} + ${ref.knob['control-round']} * 9999px)`
 
-/** A hover rule that skips a disabled element. */
+/**
+ * A control's height on the size ladder, and on a touch screen at least the 44px a finger
+ * needs: `Defaults.reset` sets `--fk-touch-floor` only where the pointer is coarse, so a
+ * desktop keeps its density, and a region that must stay dense sets it to 0.
+ */
+export const controlHeight = `max(${Theme.ladder('height')}, var(--fk-touch-floor, 0px))`
+
+/**
+ * A bounded control on the size ladder: its height, padding, gap and text
+ * follow the `step` knob, so a region set compact shrinks it whole.
+ */
+export const onLadder: Declarations = {
+  minBlockSize: controlHeight,
+  paddingBlock: '0',
+  paddingInline: Theme.ladder('pad'),
+  gap: Theme.ladder('gap'),
+  ...Theme.role('body'),
+}
+
+/**
+ * Letterforms centered in a box the ladder sizes: the line box trimmed to the
+ * capital height and the baseline, so a label in a fixed-height control sits
+ * optically centered. A browser without `text-box` draws the same box, since
+ * the height is the ladder's, not the text's. It trims a block container's
+ * lines only: on a flex container (the Button, whose icon and words are flex
+ * items) it does nothing, and it does not inherit. It trims the top of the
+ * first line and the bottom of the last, so a hidden line after the words
+ * (`Utilities.steady`'s copy) takes the bottom trim: trim the words' own box.
+ */
+export const trimmed: Declarations = { textBox: 'trim-both cap alphabetic' }
+
+/**
+ * A field's text at 16px or more on a coarse pointer, where iOS Safari zooms
+ * the page into any smaller focused field. Size only: the role's leading and
+ * the field's height stay, and a fine pointer keeps the role.
+ */
+export const touchText: StyleValue = Style.media('(pointer: coarse)', {
+  fontSize: `max(1rem, ${Theme.role('body').fontSize})`,
+})
+
+/** A row of a list on the ladder: a control's height, so it lines up with the trigger that opened it. */
+export const rowOnLadder: Declarations = { ...onLadder, paddingInline: Theme.ladder('row-pad') }
+
+/**
+ * The steps a `size` axis chooses, set on the recipe's own element so a
+ * chosen size beats the region it sits in; a recipe with no size follows the
+ * region. `lg` is shadcn's third size, a half step up the ladder (40px).
+ */
+export const steps = {
+  sm: variant(Style.self({ '--fk-knob-step': '1' })),
+  md: variant(Style.self({ '--fk-knob-step': '0' })),
+  lg: variant(Style.self({ '--fk-knob-step': '-0.5' })),
+} as const
+
+/** What a hover skips: a control the reader cannot use shows no state of its own. */
+const unpressable = '[aria-disabled="true"], :disabled'
+
+/**
+ * The hover's selector, and the press's beside it. A rule that must sit under a
+ * parent of its own (a list that draws its own hover until a fluid highlight
+ * runs) composes these, since `hover` can only reach `&` itself.
+ */
+export const HOVERED = `:hover:not(${unpressable})`
+export const PRESSED = `:active:not(${unpressable})`
+
+/**
+ * A hover rule that skips a disabled element, and the press rule beside it: on a touch
+ * screen, where nothing hovers (the stylesheet writes hover only where a pointer can), a
+ * finger on the control shows the press, and lifting takes it away. A press is the hover
+ * held down: where the hover lays the state film (`unfilledHover`), the press lays it
+ * stronger (`pressedHover`). Any other declaration is the same while pressed, since a
+ * border's color or a tone's fill is the component's own look, and a press does not
+ * invent one.
+ */
 export const hover = (declarations: Declarations): StyleValue =>
-  Style.pseudo(':hover:not([aria-disabled="true"], :disabled)', declarations)
+  Style.compose(Style.pseudo(HOVERED, declarations), Style.pseudo(PRESSED, held(declarations)))
+
+const held = (declarations: Declarations): Declarations => {
+  if (declarations.background === unfilledHover) {
+    return { ...declarations, background: pressedHover }
+  }
+  if (declarations.backgroundColor === unfilledHover) {
+    return { ...declarations, backgroundColor: pressedHover }
+  }
+  return declarations
+}
 
 export const focusRing: StyleValue = Style.pseudo(':focus-visible', {
   outline: `${ref.border.thick} solid ${ref.outline.focus}`,
@@ -47,13 +132,22 @@ export const focusWithin: StyleValue = Style.pseudo(':focus-within', {
   outlineOffset: '2px',
 })
 
-/** One capped scroll region for popup lists, in the `components` layer. */
+/**
+ * One capped scroll region for popup lists, in the `components` layer: at most 16rem, and
+ * no more than 40% of the screen a keyboard leaves on a phone. Scrolled to its end, a swipe
+ * stays in it rather than moving the page behind.
+ */
 export const listScroll: StyleValue = component(
-  Style.self({ maxBlockSize: '16rem', overflowY: 'auto' }),
+  Style.self({
+    maxBlockSize: 'min(16rem, 40dvh)',
+    overflowY: 'auto',
+    overscrollBehavior: 'contain',
+  }),
+  Utilities.scrollFade('block'),
 )
 
 export const disabled: StyleValue = Style.pseudo(':is([aria-disabled="true"], :disabled)', {
-  opacity: '0.5',
+  opacity: ref.knob['state-disabled'],
   cursor: 'not-allowed',
 })
 
@@ -62,6 +156,150 @@ export const transition = (properties: string): Declarations => ({
   transitionDuration: ref.motion.fast,
   transitionTimingFunction: ref.motion.ease,
 })
+
+/**
+ * The right and bottom sides of a box, which a rotation turns into a chevron
+ * or a check. Physical, not logical: the mark is a drawing, and logical sides
+ * mirrored it under `dir="rtl"`, so every turn a recipe gives for right to
+ * left landed a quarter off (a shut row's chevron pointed up).
+ */
+export const cornerSides = (width: string, color: string): Declarations => ({
+  borderRight: `${width} solid ${color}`,
+  borderBottom: `${width} solid ${color}`,
+})
+
+/** A duration for something that moves or resizes: reduced motion snaps it, while fades keep theirs. */
+export const travelled = (duration: string) => `calc(${duration} * ${ref.knob.travel})`
+
+/**
+ * No animation where `when` (a selector on `&`) matches under reduced
+ * motion: the reset runs every animation for 0.01ms, and a loop left running
+ * would land at random each frame. `when` must weigh as much as the rule
+ * that starts the loop, which comes first.
+ */
+export const stillWhenReduced = (when: string): StyleValue =>
+  Style.at('@media (prefers-reduced-motion: reduce)', Style.nest(when, { animation: 'none' }))
+
+const spin = Style.keyframes({ to: { rotate: '360deg' } })
+
+/**
+ * A loading ring's turn, once every `cycle` while `when` (a selector on `&`)
+ * matches: a travel, so a still theme holds it, and none under reduced
+ * motion (`stillWhenReduced`).
+ */
+export const turning = (cycle: string, when = '&'): StyleValue =>
+  Style.compose(
+    spin.style,
+    Style.nest(when, { animation: `${spin.name} ${travelled(cycle)} linear infinite` }),
+    stillWhenReduced(when),
+  )
+
+/**
+ * A chevron of `size`, two sides of a box turned: along the row while shut,
+ * down once its parent matches `open`. Right to left, along the row is the
+ * other way; `:dir()` rather than an ancestor's `[dir]`, which a
+ * left-to-right island in the page also has.
+ */
+export const turningChevron = (open: string, size: string): StyleValue =>
+  Style.compose(
+    Style.self({
+      flex: 'none',
+      inlineSize: size,
+      blockSize: size,
+      ...cornerSides(ref.border.glyph, 'currentColor'),
+      rotate: '-45deg',
+      transitionProperty: 'rotate',
+      transitionDuration: travelled(ref.motion.fast),
+      transitionTimingFunction: ref.motion.settle,
+    }),
+    Style.nest(`:where(${open}) > &`, { rotate: '45deg' }),
+    Style.nest('&:where(:dir(rtl))', { rotate: '135deg' }),
+    Style.nest(`:where(${open}) > &:where(:dir(rtl))`, { rotate: '45deg' }),
+  )
+
+/**
+ * A trigger's chevron of `size`: down while shut, up once `open` (a selector
+ * on `&`) matches. A turned box draws its tip off centre, toward where it
+ * points, so the chevron moves the other way by as much and the tip stays on
+ * the words' line. Down and up are the same right to left. It never shrinks:
+ * a phone's row squeezed one to its borders alone, which the turn drew as a
+ * slanted tick.
+ */
+export const triggerChevron = (open: string, size: string): StyleValue =>
+  Style.compose(
+    Style.self({
+      flex: 'none',
+      inlineSize: size,
+      blockSize: size,
+      marginBlockStart: '-0.2em',
+      ...cornerSides(ref.border.glyph, 'currentColor'),
+      rotate: '45deg',
+      transitionProperty: 'rotate, margin-block-start',
+      transitionDuration: travelled(ref.motion.fast),
+      transitionTimingFunction: ref.motion.settle,
+    }),
+    Style.nest(open, { rotate: '225deg', marginBlockStart: '0.2em' }),
+  )
+
+/**
+ * A surface that enters and leaves with `@foldkit/ui`'s animation states
+ * (`isAnimated`): it fades and grows from `closed` on `tier`, and a leave
+ * runs the quicker exit tween, since CSS takes the duration of the state it
+ * enters. The growth travels, so reduced motion keeps only the fade. A
+ * surface drawn without `isAnimated` carries no state and simply shows.
+ */
+export const presence = (tier: 'fast' | 'slow', closed: Declarations): StyleValue => {
+  const timing = (duration: string, ease: string): Declarations => ({
+    transitionDuration: `${duration}, ${travelled(duration)}, ${travelled(duration)}`,
+    transitionTimingFunction: `${ease}, ${ease}, ${ease}`,
+  })
+  return Style.compose(
+    Style.self({
+      transitionProperty: 'opacity, scale, translate',
+      ...timing(ref.motion[tier], ref.motion.ease),
+    }),
+    Style.pseudo('[data-closed]', { opacity: '0', ...closed }),
+    Style.pseudo('[data-leave]', timing(ref.motion[`${tier}-exit`], ref.motion['ease-exit'])),
+  )
+}
+
+/**
+ * A heading row over a part that opens beneath it, `0fr` to `1fr` with no
+ * measured height; the part clips itself (`minBlockSize: 0`, `overflow`).
+ * Between the two, the container is taller than its rows, and `align-content`
+ * left at `normal` stretched the heading into that room: the heading grew and
+ * the opening part's text dropped, then rose back.
+ */
+export const opensBelow = (open: string): StyleValue =>
+  Style.compose(
+    Style.self({
+      display: 'grid',
+      gridTemplateRows: 'auto 0fr',
+      alignContent: 'start',
+      transitionProperty: 'grid-template-rows',
+      transitionDuration: travelled(ref.motion['fast-exit']),
+      transitionTimingFunction: ref.motion['ease-exit'],
+    }),
+    Style.pseudo(open, {
+      gridTemplateRows: 'auto 1fr',
+      transitionDuration: travelled(ref.motion.fast),
+      transitionTimingFunction: ref.motion.ease,
+    }),
+  )
+
+/**
+ * The transition of an overlay a Mount places (a highlight, a chosen marker):
+ * its place and size settle on `tier`, scaled by `moving` (a Mount's 0 or 1,
+ * so a highlight appearing lands where it is), and its fade runs on `fast`.
+ */
+export const glide = (tier: 'fast' | 'moderate', moving: string): Declarations => {
+  const duration = travelled(`calc(${ref.motion[tier]} * ${moving})`)
+  return {
+    transitionProperty: 'translate, inline-size, block-size, opacity',
+    transitionDuration: `${duration}, ${duration}, ${duration}, ${ref.motion.fast}`,
+    transitionTimingFunction: `${ref.motion.settle}, ${ref.motion.settle}, ${ref.motion.settle}, ${ref.motion.ease}`,
+  }
+}
 
 /**
  * A tone is four private custom properties that the variants read: the fill,
@@ -73,10 +311,18 @@ export const transition = (properties: string): Declarations => ({
 interface Tone {
   readonly fill: string
   readonly fillHover: string
+  /** The fill while it is pressed: the family's `active`, a step deeper than its hover. */
+  readonly fillActive: string
   readonly onFill: string
   readonly ink: string
   /** The line an outlined control draws: the fill, unless the fill is too pale for a line. */
   readonly line: string
+  /**
+   * What a hover over the tone is made of: its fill where hued, the theme's
+   * ink elsewhere. A hued ancestor (an alert band) must not tint a neutral
+   * control sitting on it, so the neutral tones name the theme's ink back.
+   */
+  readonly stateInk: string
 }
 
 const tone = (value: Tone): StyleValue =>
@@ -84,37 +330,86 @@ const tone = (value: Tone): StyleValue =>
     Style.self({
       '--_fk-tone-fill': value.fill,
       '--_fk-tone-fill-hover': value.fillHover,
+      '--_fk-tone-fill-active': value.fillActive,
       '--_fk-tone-on-fill': value.onFill,
       '--_fk-tone-ink': value.ink,
       '--_fk-tone-line': value.line,
+      '--_fk-state-ink': value.stateInk,
     }),
   )
 
 /**
- * The ground under an unfilled control on hover: its own text color, faint.
- * A solid wash was near-white under the white text a colored band sets.
+ * What a painted surface names as the state ink: its paint where the theme
+ * lets surfaces name one, the element's own text elsewhere (`neutral`, as
+ * before). A `var()` in a token substitutes where the token is declared, so
+ * the ink cannot travel inside `state.hover`; it travels as its own property,
+ * read where the film is drawn.
  */
-export const unfilledHover = 'color-mix(in oklab, currentColor 12%, transparent)'
+export const surfaceInk = (paint: string): string =>
+  `color-mix(in oklab, ${paint} calc(${ref.knob['surface-ink']} * 100%), currentColor)`
 
-export const toneVar = (name: 'fill' | 'fill-hover' | 'on-fill' | 'ink' | 'line'): string =>
-  `var(--_fk-tone-${name})`
+/**
+ * The ground under an unfilled control on hover: the state ink, faint. The
+ * ink is the theme's (`--fk-state-ink`: the text, or the accent's ink) unless
+ * a painted surface above set `--_fk-state-ink` to its paint (an alert band,
+ * a tone's fill), so a hover on blue is a deeper blue. The local name is
+ * separate so that a neutral tone can name the theme's ink back: writing the
+ * theme's own name on the element would hide the root's value from it. A
+ * solid wash was near-white under the white text a colored band sets, and a
+ * surface step vanished on a page of that step.
+ */
+export const unfilledHover = `color-mix(in oklab, var(--_fk-state-ink, ${ref.state.ink}) ${ref.knob['state-hover']}, transparent)`
+
+/**
+ * The same film held down: a press lays the hover's ink at 1.75, so a row, a
+ * tab or a menu item answers a click instead of looking untouched once the
+ * pointer is already on it. The twin of `unfilledHover` for the same reason
+ * (`state.press` cannot carry a surface's ink either).
+ */
+export const pressedHover = `color-mix(in oklab, var(--_fk-state-ink, ${ref.state.ink}) calc(${ref.knob['state-hover']} * 1.75), transparent)`
+
+/**
+ * The fluid highlight, deeper while the item it lights is held: `FluidHover`
+ * marks its container (`data-fluid-held`), so the press shows on that one
+ * highlight rather than on the row under it, which has none of its own.
+ */
+export const heldHighlight: StyleValue = Style.nest(':where([data-fluid-held]) > &', {
+  background: pressedHover,
+})
+
+/** A 1px hairline inside an image's edge, so a pale picture keeps its shape without a border changing its box. */
+export const imageEdge: Declarations = {
+  outline: `${ref.border.thin} solid ${ref.state.edge}`,
+  outlineOffset: `calc(-1 * ${ref.border.thin})`,
+}
+
+export const toneVar = (
+  name: 'fill' | 'fill-hover' | 'fill-active' | 'on-fill' | 'ink' | 'line',
+): string => `var(--_fk-tone-${name})`
 
 export const tones = {
   accent: tone({
     fill: ref.accent.default,
     fillHover: ref.accent.hover,
+    fillActive: ref.accent.active,
     onFill: ref.accent['on-fill'],
     ink: ref.accent.ink,
     line: ref.accent.default,
+    stateInk: surfaceInk(ref.accent.default),
   }),
   // A quiet grey that still reads as a control: the neutral surface step was
   // barely off the page, and as an outline's line it all but vanished.
+  // See-through, as Fluid's secondary: it takes on the surface or tinted
+  // band it sits on and never seams against it.
   neutral: tone({
-    fill: ref.outline.subtle,
-    fillHover: ref.outline.default,
+    fill: ref.state.tint,
+    fillHover: ref.state['tint-hover'],
+    // Hovered it lightens, as Fluid's; pressed it darkens with its own text.
+    fillActive: `color-mix(in oklab, ${ref.state.tint}, currentColor 10%)`,
     onFill: ref.text.overt,
     ink: ref.text.default,
     line: ref.outline.default,
+    stateInk: ref.state.ink,
   }),
   /**
    * Neutral as dark as the page's text: a checked control that stands out
@@ -123,15 +418,19 @@ export const tones = {
   ink: tone({
     fill: ref.text.default,
     fillHover: ref.text.overt,
+    fillActive: ref.text.overt,
     onFill: ref.surface.base,
     ink: ref.text.default,
     line: ref.text.default,
+    stateInk: ref.state.ink,
   }),
   danger: tone({
     fill: ref.error.default,
     fillHover: ref.error.hover,
+    fillActive: ref.error.active,
     onFill: ref.error['on-fill'],
     ink: ref.error.ink,
     line: ref.error.outline,
+    stateInk: surfaceInk(ref.error.default),
   }),
 } as const

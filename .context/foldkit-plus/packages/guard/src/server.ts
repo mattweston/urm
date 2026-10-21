@@ -6,7 +6,7 @@
  * brings the server along.
  */
 import { Effect, Match, Option, Schema } from 'effect'
-import type { AnyEntity } from 'foldkit-entity'
+import { Query, type AnyEntity, type AnyQuery } from 'foldkit-entity'
 import type { MutationDescriptor, RemoteForbidden } from 'foldkit-remote'
 import {
   RemoteServer,
@@ -25,6 +25,7 @@ import { attached, readRowsRuled, readRuled, type Deny, type InteractionKey } fr
 import { Condition, type RowRule } from './condition.js'
 import type { Policy } from './index.js'
 import type { MayAnswer } from './may.js'
+import { ME, type MeEntity } from './me.js'
 import { memberRules, rowRules, writeRules } from './placed.js'
 
 const noMembers = (record: EntityRecord) => record
@@ -39,6 +40,54 @@ const refOf = (value: unknown): Option.Option<{ readonly entity: string; readonl
 }
 
 export const GuardServer = {
+  /**
+   * `Guards.me`'s Source: the one row, `me`, as the asker is, with `may`
+   * answered by `policy`. `signedIn` is whether the server answered as
+   * someone; `key` is their `key`. Any other id is no row.
+   *
+   * ```ts
+   * RemoteServer.make({ entities: [GuardServer.me(Me, Policy), …] })
+   * ```
+   */
+  me: <User, R>(
+    entity: MeEntity,
+    policy: Policy<User, R>,
+  ): EntitySource<Option.Option<User>, R> => {
+    // Otherwise every read would die deciding another set's guards.
+    Option.map(attached(entity), ({ set }) => {
+      if (set !== policy.set) {
+        throw new Error(
+          `[foldkit-guard] GuardServer.me: Me carries the guards of ${set}, not ${policy.set}`,
+        )
+      }
+    })
+    return {
+      ...RemoteServer.entity<Option.Option<User>, R>(entity, {
+        read: ({ ids, principal }) =>
+          Effect.succeed(
+            ids
+              .filter(id => id === ME)
+              .map(id => ({
+                id,
+                values: {
+                  signedIn: Option.isSome(principal),
+                  // Encoded, as a Source answers: `null` for a visitor.
+                  key: Option.match(principal, {
+                    onNone: () => null,
+                    onSome: policy.key,
+                  }),
+                },
+              })),
+          ),
+        filter: GuardServer.filter(entity, policy),
+      }),
+      // Its Read rule as this Source applies it: only the asker's own row,
+      // which `Guards.me` lets anyone read. One per call: the registry is keyed
+      // by it, and another call is for another Policy.
+      visible: rowRules.add(Object.freeze({ reads: 'the asker’s own row' }), policy, [entity]),
+    }
+  },
+
   /**
    * An `EntitySource.filter` for `entity`: each requested member with a Read
    * rule is decided per record, omitted or redacted where the rule refuses.
@@ -549,10 +598,12 @@ export const GuardServer = {
    * query listing it apply its row's Read rules (`GuardDrizzle.visible`, or
    * `GuardServer.memory`), its Source applies its members' and relations'
    * (`GuardServer.filter`), and each declared write of it lands through
-   * `GuardServer.writer`, all built from `policy`. A hand-written Source over
-   * a guarded Entity would serve every row, and a bare writer would take every
-   * write; this throws instead, naming each. A handler (`RemoteServer.mutation`)
-   * writes what its code writes, which no check at startup can read.
+   * `GuardServer.writer`, all built from `policy`; and that no query's body
+   * filters or orders by a member with a Read rule, which would answer for the
+   * value it hides. A hand-written Source over a guarded Entity would serve
+   * every row, and a bare writer would take every write; this throws instead,
+   * naming each. A handler (`RemoteServer.mutation`) writes what its code
+   * writes, which no check at startup can read.
    *
    * ```ts
    * GuardServer.validate(Policy, { entities: [Todo, Project], domain: Data, server: Server })
@@ -564,7 +615,12 @@ export const GuardServer = {
       readonly entities: ReadonlyArray<AnyEntity>
       /** The Remote domain the server answers, for which Entity each query lists. */
       readonly domain: {
-        readonly registry: { readonly queries: ReadonlyMap<string, { readonly Result: unknown }> }
+        readonly registry: {
+          readonly queries: ReadonlyMap<
+            string,
+            { readonly Result: unknown; readonly body?: AnyQuery | undefined }
+          >
+        }
       }
       readonly server: ServerDefinition<any, any>
     },
@@ -611,6 +667,29 @@ export const GuardServer = {
                 : []
             },
           )
+          // A row the reader may see with a member it may not still answers a
+          // filter or an order on that member: `cost < $max`, halved twenty
+          // times, reads the cost the row came back without.
+          const bodyProblems = [...config.domain.registry.queries].flatMap(
+            ([queryName, { body }]) => {
+              if (body === undefined || body.entity.name !== name) return []
+              const { predicate, order } = Query.dependencies(body)
+              const hidden = (fields: typeof predicate) => [
+                ...new Set(
+                  fields.map(field => field.key).filter(key => readRuled(attachment, key)),
+                ),
+              ]
+              return [
+                ...hidden(predicate).map(
+                  member =>
+                    `query ${queryName} filters ${name} by ${member}, which has a Read rule`,
+                ),
+                ...hidden(order).map(
+                  member => `query ${queryName} orders ${name} by ${member}, which has a Read rule`,
+                ),
+              ]
+            },
+          )
           const writeProblems = [...config.server.mutations].flatMap(([mutation, source]) =>
             source.writes !== undefined &&
             source.writes.entity === name &&
@@ -650,6 +729,7 @@ export const GuardServer = {
           return [
             ...sourceProblems,
             ...queryProblems,
+            ...bodyProblems,
             ...writeProblems,
             ...sharedProblems,
             ...liveProblems,

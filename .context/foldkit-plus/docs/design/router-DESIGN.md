@@ -6,7 +6,7 @@ That distinction matters because, after looking through the current `foldkit-plu
 
 Your own design docs almost predicted this. `data-query-DESIGN.md` says a `Page/RouteContract` would become justified once several things repeatedly needed one route-associated value: Surface activation, head metadata, SSR/preload policy, actions, layout metadata. I think you've now crossed that threshold. [See §31.11](https://github.com/doeixd/foldkit-plus/blob/main/docs/design/data-query-DESIGN.md).
 
-# Status (2026-10-07)
+# Status (2026-10-12)
 
 The core thesis held: there is no router runtime. `foldkit-site` (0.1.0,
 `packages/site`) is a thin topology — stable nodes, hierarchy, typed targets,
@@ -15,7 +15,18 @@ placement shape — compiling to the Foldkit Router, `Surface.when`, Bundle
 placements, and wirings the runtime already runs. `SurfaceSource` is the
 centre, as §32 says; Site is one producer, Composition another.
 
-## Built (§31 steps 1–6 and 8, step 7's mechanism, §§33–34 slices)
+## Built (§31 steps 1–8, §§33–34 slices)
+
+- **A Site + Remote + SSR application (§§16, 23, 33.9, 33.10):** the CMS
+  public site is a Site tree. `Site.parse` and `Site.hrefOf` are its two
+  directions; `Site.routeAt` says an address is another document's, which
+  `Site.routing` loads; each node's `meta` and `indexed` feed the SSR plan
+  through `Site.metaOf`; `Site.paths` and `Site.targets` list what the build
+  renders and the sitemap names; `Site.routing`'s `arrived` moves focus; and
+  pointing at a link (`pointedLinks`) runs `Data.preload`, so the page there
+  draws at once. Navigating to a generated page was measured against its
+  full load and chosen (open question 4). `Site.shortcuts` makes key
+  bindings from the annotated nodes (`examples/foldkit/routing`).
 
 - **Sources and activation (§31.1):** `SurfaceSource` / `SurfaceInstance` /
   `Surface.each` in `foldkit-surface`; `at` / `when` resolve their lone
@@ -67,8 +78,8 @@ centre, as §32 says; Site is one producer, Composition another.
 ## Deliberately not built
 
 - **No `SitePlan` object (§28):** the chain is `Site.chainOf`, the route-level
-  Sources are `Site.sourcesFor`; head/access/metadata arrive with real
-  consumers (§31.9), not ahead of them.
+  Sources are `Site.sourcesFor`, the head is `Site.metaOf` (§23); access
+  arrives with a real consumer, not ahead of it.
 - **No `Site.prefetch` / `prepare`:** preparation stays caller-composed
   (`Data.satisfy`), for hover, programmatic, and SSR alike.
 - **No route actions (§24)** and **no server authorization in access (§25)**:
@@ -81,24 +92,10 @@ centre, as §32 says; Site is one producer, Composition another.
 
 ## Still to do, and why each waits
 
-- **Prefetch adoption:** hover/programmatic prefetch in a Remote-backed app.
-  The routing example is Remote-free, so adopting there would prove nothing.
-- **Head metadata (§§23, 33.9):** `meta` as a function of the Model feeding
-  SSR's head, indexed flags, per-page descriptions/images/article facts.
-  Waits for a Site + SSR consumer; the CMS prerender hand-writes all of it
-  today (`examples/cms/src/ssr/`).
 - **Access policy (§25):** `Site.access`-shaped navigation/SSR presentation
   policy. Waits for a consumer; server authority stays `RemoteServer`.
-- **Paths and targets (§33.9):** `Site.paths(node, source)` enumerating a
-  node's addresses from a query, `Site.targets(site)` for builds/sitemaps/
-  prefetch, one declaration giving both `routeOf` and `pathOf`. (Half held:
-  `Site.target` already builds route + URL from one declaration; the parser
-  direction is still each app's own `urlToRoute`.)
 - **Scaffold derivation (§35):** entities to a sectioned site — proposed,
   unbuilt. `paths` comes first; everything else hangs off enumeration.
-- **Document-aware targets (§§33.7, 33.10):** nodes saying which
-  application/document serves them, so `Site.navigate` chooses Navigate
-  Command vs full load (and generated pages state their preference).
 - **Locales (§33.11)** with the first localized content, and **themes**
   staying preferences (§33.12, decided: not routes).
 - **Single flight (§§27, 31.10), last:** starts with a request-count
@@ -111,33 +108,29 @@ centre, as §32 says; Site is one producer, Composition another.
   view for facts drawn before they are read, and whether the convention
   generalizes from crud to `foldkit-mixins` as sketched.
 
-## The binding constraint
+## The binding constraint, met
 
-The only Site consumer is `examples/foldkit/routing` — no Remote, no SSR,
-no prerender. The CMS, the app with real data/SSR/static pipelines, is not
-on Site: its studio and site hand-roll addresses (`linkIn` /
-`writeAddress`), its prerender lists SQL rows into paths by hand, and its
-head/meta is bespoke per page. Every item above is adoption-gated on a
-Site + Remote (+ SSR) application. Until one exists — a Remote-backed page
-in the routing example, or a CMS section ported to Site — **no further
-Site API**. Small slices before the graph, each in its owning package,
-is still the rule (§33's preamble); elimination (§34.5) is still the test.
+Until 2026-10-12 the only Site consumer was `examples/foldkit/routing`, with
+no Remote, SSR or prerender, and the rule was no further Site API until a
+Site + Remote (+ SSR) application existed. The CMS public site is now one
+(above), and every API added since answered something it hand-wrote. The
+rule that remains is elimination (§34.5): an API lands when it deletes an
+application's own code, in its owning package.
 
 ## Open questions
 
-1. **Who ports first?** A Remote-backed routing-example page proves
-   prefetch/SSR adoption cheaply but invents demand; a CMS section port
-   proves them against real demand expensively (its addresses, mirrors, and
-   editor holds are load-bearing). Undecided.
-2. **What carries a node's data source for `paths`?** A Remote query read
-   through the same `satisfy` as the page (§33.9's sketch) is the lead, but
-   no caller has forced the shape.
-3. **What is the `meta` function of?** Whole-Model access (the CMS's need:
-   a post's excerpt for its description) vs a declared Surface projection
-   (§23's preference). Undecided; the consumer decides.
-4. **Which document does a target prefer?** For generated pages, full load
-   (HTML + metadata at once) vs Navigate + prefetch (§33.10). Needs
-   measurement, not principle.
+1. **Who ports first?** Answered: the CMS public site, against real demand.
+2. **What carries a node's data source for `paths`?** Answered: an Effect,
+   which the CMS build makes from a Remote query read as a visitor
+   (`examples/cms/src/ssr/prerender.ts`); `Site.paths` asks nothing more.
+3. **What is the `meta` function of?** Answered by the consumer: the
+   route and the whole Model, since a post's description is its excerpt,
+   which only the Model holds.
+4. **Which document does a target prefer?** Answered 2026-10-12 by
+   measurement (`docs/benchmarks.md`, "Navigating to a generated page"): a
+   Navigate Command, 1.3 to 4 times faster than a full load (over HTTP and
+   in the sandbox), 3 to 6 after a hover's read-ahead. A generated page of the same
+   application is navigated to; no target states a preference.
 5. **What is the single-flight wire?** `refresh` list vs declarative
    requirement diff vs connection-change subscription; server evaluation
    cost vs second round trip. Needs the benchmark first, then the wire
@@ -6393,9 +6386,11 @@ This is an extremely strong unification.
 
 # 23. Head metadata should be pure Site metadata
 
-> Status 2026-10-07: open. Only title/section annotations exist;
-> meta-as-function-of-Model, indexed flags, and the SSR head feed wait for a
-> Site + SSR consumer. The CMS prerender still hand-writes all of it.
+> Status 2026-10-12: built. A node's `meta` (`({ route, model }) => Meta`,
+> SSR's own type) and `indexed` flag; `Site.metaOf` merges the chain
+> root-to-leaf, a deeper field winning, the preview title falling back to
+> `title`, and is an SSR plan's `meta` as it stands. The CMS site, which has
+> no Site tree, still writes its own.
 
 What a page's metadata must hold, learned from a generated site: see §33.9.
 
@@ -7050,7 +7045,7 @@ can add what only topology knows: which container scrolls, such as a nested
 layout's panel rather than the window.
 
 > Built 2026-09-29 as `keepScroll(options)` in `foldkit-primitives/dom`: a
-> stream lifted with `Subscription.persistent`, window only, with the three
+> stream lifted with `Subscription.persistentEntry`, window only, with the three
 > browser tests moved beside it (each kills its rule). The CMS example
 > adopts it in its studio and site subscriptions.
 
@@ -7077,9 +7072,11 @@ the rest.
 
 ## 33.7 Document boundaries: Vite and SSR
 
-> Status 2026-10-07: foundations-in-HTML built (`foundations` plugin + SSR
-> head); one studio application built. Open: document-aware targets (which
-> application serves a node) and prefetch closing the remaining waits.
+> Status 2026-10-12: foundations-in-HTML built (`foundations` plugin + SSR
+> head); one studio application built; document-aware targets built (a tree
+> is one document: `Site.routeAt` is `None` where no node takes an address,
+> and `Site.routing` loads it); prefetch built (`Data.preload`, the CMS
+> site's links).
 
 Posts, pages and the site are three applications, so moving between them is a
 full document load. That load painted white with a line of text, because the
@@ -7118,10 +7115,11 @@ still shows is a wait prefetch removes.
 
 ## 33.9 What a static site asked of the route graph
 
-> Status 2026-10-07: open. Nothing enumerates a node's addresses from a query
-> yet (`Site.paths` / `Site.targets`), and `routeOf` / `pathOf` remain each
-> app's own pair — except that `Site.target` already builds route + URL from
-> one declaration. Meta/indexed are §31.9.
+> Status 2026-10-12: built. `Site.paths(node, list)` lists a node's
+> addresses from an Effect (a Remote read), `Site.targets(site, paths)` the
+> whole site; a tree is typed by its routes, so `Site.parse` and
+> `Site.hrefOf` are the pair no application writes. Meta and indexed are
+> built too (§23: a node's `meta`, `Site.metaOf`).
 
 The example's public site is now rendered at build time and taken over in
 the browser ([ssr-PLAN.md](./ssr-PLAN.md) Phase S has the rendering half). The
@@ -7152,9 +7150,10 @@ is none yet, and so hand-wrote:
 
 ## 33.10 Documents, and taking a page over
 
-> Status 2026-10-07: open — targets do not know their document yet, so link
-> handlers cannot tell Navigate from full load, and generated pages state no
-> preference. See open question 4.
+> Status 2026-10-12: built and decided — a link the tree does not hold is
+> a full load (`Site.routeAt`, `Site.routing`), and a generated page of the
+> same application is navigated to, which measured 1.3 to 4 times
+> faster than its full load (open question 4, `docs/benchmarks.md`).
 
 §33.7 said a target must know its document. With generated pages there are
 three kinds of navigation, and the Site graph is what tells them apart:

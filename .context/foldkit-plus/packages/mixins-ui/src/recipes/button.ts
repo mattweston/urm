@@ -1,24 +1,30 @@
 /**
  * A button: `tone` picks the colors, `variant` how they are applied, `size`
- * the density. Tone and variant are independent because a tone only sets the
- * private custom properties the variants read — except `primary`, which is
- * ink by definition, and `icon`, which fixes its own square geometry (combine
- * it with `size: null`, since a density would un-square it).
+ * its step on the size ladder (unset, it follows the region it sits in). Tone
+ * and variant are independent because a tone only sets the private custom
+ * properties the variants read — except `primary`, which is ink by
+ * definition, and `icon`, a square one rung of the ladder on a side.
+ * `shape: 'square'` draws any variant as that square, its icon alone.
  */
-import { Style } from 'foldkit-mixins'
+import { Style, type Declarations, type StyleValue } from 'foldkit-mixins'
+import { ladder } from 'foldkit-mixins/theme'
 import { ButtonSlots } from '../button.js'
 import {
   component,
-  density,
+  controlHeight,
   disabled,
   focusRing,
+  hover,
+  onLadder,
+  pressCorner,
   ref,
+  steps,
   tones,
   toneVar,
   transition,
+  trimmed,
   unfilledHover,
   variant,
-  hover,
 } from './design.js'
 
 /**
@@ -28,6 +34,85 @@ import {
  */
 const unfilledInk = `var(--fk-ink, ${toneVar('ink')})`
 
+/**
+ * A toggle button that is on (`aria-pressed="true"`), beside each variant
+ * that sets the same properties, since a state in the base would lose to them.
+ */
+const on = (declarations: Declarations): StyleValue =>
+  Style.pseudo('[aria-pressed="true"]', declarations)
+const held = ':active:not([aria-disabled="true"], :disabled)'
+/**
+ * A toggle that is on, hovered and not held. The plain hover and held rules
+ * are more specific than `on`, so each state of a toggle that is on needs a
+ * rule of its own, or the hover's or the press's look replaces the fill.
+ */
+const onHovered = '[aria-pressed="true"]:hover:not(:active, [aria-disabled="true"], :disabled)'
+const onHeld = '[aria-pressed="true"]:active:not([aria-disabled="true"], :disabled)'
+
+/**
+ * A button with a face of its own (solid, outline, primary) stands off the
+ * page by the theme's relief, and is pressed into it while held or on. Flat
+ * unless the theme gives its controls relief (the `shadow.relief` knob); the unfilled
+ * ghost and icon buttons stay flat, as text on the page does.
+ */
+const raised: ReadonlyArray<StyleValue> = [
+  Style.self({ boxShadow: ref.shadow.raised }),
+  Style.pseudo(`:is(${held}, [aria-pressed="true"])`, { boxShadow: ref.shadow.pressed }),
+]
+
+/**
+ * On, an unfilled toggle is filled with its tone, as a solid button is, and
+ * keeps a fill and the text on it when hovered (the tone's hover fill) and
+ * when held (its active fill): the plain hover and held films would
+ * otherwise lay a tint where the fill was, under text meant for the fill.
+ */
+const unfilledOn: ReadonlyArray<StyleValue> = [
+  on({ background: toneVar('fill'), color: toneVar('on-fill') }),
+  Style.pseudo(onHovered, { background: toneVar('fill-hover'), color: toneVar('on-fill') }),
+  Style.pseudo(onHeld, { background: toneVar('fill-active'), color: toneVar('on-fill') }),
+]
+
+/** Held, an unfilled button is grounded in its tone's ink, faint, deeper than its hover. */
+const unfilledActive = Style.pseudo(held, {
+  background: `color-mix(in oklab, ${toneVar('ink')} 16%, transparent)`,
+})
+
+/**
+ * A square that centers the icon and hides the words, which stay the
+ * accessible name: the icon variant's shape, and `shape: 'square'` for one
+ * with a face (an outlined icon button in a toolbar).
+ */
+const square: Declarations = {
+  inlineSize: controlHeight,
+  blockSize: controlHeight,
+  padding: '0',
+  fontSize: '0',
+  // The words are hidden, not gone: a gap beside them pushed the icon off center.
+  gap: '0',
+}
+
+/**
+ * A press that shrinks a fill by exactly 1px a side, as Fluid
+ * Functionalism's: the fill stops at the padding box and the 1px border
+ * carries its color, which a press clears, while the fill deepens to the
+ * family's `active`. It presses on the fast tier and springs back on the
+ * moderate one.
+ */
+const press = (fill: string, fillHover: string, fillActive: string): ReadonlyArray<StyleValue> => [
+  Style.self({
+    backgroundClip: 'padding-box',
+    borderColor: fill,
+    transitionDuration: ref.motion.moderate,
+    transitionTimingFunction: ref.motion.settle,
+  }),
+  hover({ borderColor: fillHover }),
+  Style.pseudo(held, {
+    background: fillActive,
+    borderColor: 'transparent',
+    transitionDuration: ref.motion.fast,
+  }),
+]
+
 export const Button = Style.recipeFor(ButtonSlots)({
   base: {
     button: component(
@@ -35,19 +120,36 @@ export const Button = Style.recipeFor(ButtonSlots)({
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: ref.space.xs,
+        ...onLadder,
         border: `${ref.border.thin} solid transparent`,
-        borderRadius: ref.radius.md,
+        borderRadius: pressCorner,
         font: 'inherit',
         fontWeight: ref.weight.medium,
-        lineHeight: ref.leading.tight,
         // A link drawn as a button (`Anchor`) is not underlined like one in running text.
         textDecoration: 'none',
         cursor: 'pointer',
-        ...transition('background-color, border-color, color'),
+        ...transition('background-color, border-color, color, scale, box-shadow'),
       }),
+      // Held, every variant gives a little. The scale is the motion: reduced
+      // motion zeroes `travel`, and the button holds its size.
+      Style.pseudo(held, { scale: `calc(1 - 0.02 * ${ref.knob.travel})` }),
       focusRing,
       disabled,
+    ),
+    // On the size ladder, as an Icon is. Its own font size keeps a glyph
+    // drawn in `em` (or as text) at that size inside the icon variant, whose
+    // font size is zero to hide the words.
+    icon: component(
+      Style.self({
+        display: 'inline-flex',
+        flex: 'none',
+        alignItems: 'center',
+        justifyContent: 'center',
+        inlineSize: ladder('icon'),
+        blockSize: ladder('icon'),
+        fontSize: ladder('icon'),
+        lineHeight: '1',
+      }),
     ),
   },
   variants: {
@@ -61,6 +163,13 @@ export const Button = Style.recipeFor(ButtonSlots)({
         button: variant(
           Style.self({ background: toneVar('fill'), color: toneVar('on-fill') }),
           hover({ background: toneVar('fill-hover') }),
+          ...press(toneVar('fill'), toneVar('fill-hover'), toneVar('fill-active')),
+          ...raised,
+          // On, a solid toggle rests on the active fill, and keeps it hovered:
+          // the hover fill, a step from the resting one, read as off. Held,
+          // the press applies.
+          on({ background: toneVar('fill-active') }),
+          Style.pseudo(onHovered, { background: toneVar('fill-active') }),
         ),
       },
       outline: {
@@ -71,12 +180,17 @@ export const Button = Style.recipeFor(ButtonSlots)({
             borderColor: toneVar('line'),
           }),
           hover({ background: unfilledHover }),
+          unfilledActive,
+          ...unfilledOn,
+          ...raised,
         ),
       },
       ghost: {
         button: variant(
           Style.self({ background: 'transparent', color: unfilledInk }),
           hover({ background: unfilledHover }),
+          unfilledActive,
+          ...unfilledOn,
         ),
       },
       /**
@@ -89,6 +203,12 @@ export const Button = Style.recipeFor(ButtonSlots)({
           hover({
             background: `color-mix(in oklch, ${ref.text.overt} 85%, ${ref.surface.base})`,
           }),
+          ...press(
+            ref.text.overt,
+            `color-mix(in oklch, ${ref.text.overt} 85%, ${ref.surface.base})`,
+            `color-mix(in oklch, ${ref.text.overt} 72%, ${ref.surface.base})`,
+          ),
+          ...raised,
         ),
       },
       /**
@@ -98,27 +218,23 @@ export const Button = Style.recipeFor(ButtonSlots)({
        */
       icon: {
         button: variant(
-          Style.self({
-            background: 'transparent',
-            color: ref.text.muted,
-            width: '2rem',
-            height: '2rem',
-            padding: '0',
-            fontSize: '0',
-            // The words are hidden, not gone: a gap beside them pushed the icon off center.
-            gap: '0',
-          }),
+          Style.self({ background: 'transparent', color: ref.text.muted, ...square }),
           hover({ background: unfilledHover, color: ref.text.overt }),
+          unfilledActive,
+          ...unfilledOn,
         ),
       },
     },
     size: {
-      sm: { button: density(ref.space['2xs'], ref.space.sm, ref.size.sm) },
-      md: { button: density(ref.space.xs, ref.space.md, ref.size.md) },
-      lg: { button: density(ref.space.sm, ref.space.lg, ref.size.lg) },
+      sm: { button: steps.sm },
+      md: { button: steps.md },
+      lg: { button: steps.lg },
+    },
+    shape: {
+      square: { button: variant(Style.self(square)) },
     },
   },
-  defaults: { tone: 'accent', variant: 'solid', size: 'md' },
+  defaults: { tone: 'accent', variant: 'solid' },
   compound: [
     {
       // A destructive primary action announces itself on focus too.

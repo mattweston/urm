@@ -1,6 +1,6 @@
 /**
- * Badge: one Container slot, a view carrying its tone in `data-tone`, over
- * the option-driven recipe that maps values to families.
+ * Badge: one Container slot, and a view carrying its tone in `data-tone`.
+ * How each appearance draws its tone is `badge.browser.test.ts`.
  */
 import { describe, expect, it } from 'vitest'
 import { Capability, SlotView, Style } from 'foldkit-mixins'
@@ -34,14 +34,5 @@ describe('Badge view', () => {
     expect(Inert.text(toned)).toBe('Live')
     const plain = view({ text: 'New' }, h)
     expect(Inert.value(Inert.byTag(plain, 'span')[0], 'data-tone')).toBeUndefined()
-  })
-})
-
-describe('Badge recipe', () => {
-  it('tones mapped values, keeps the base for the rest', () => {
-    const sheet = Style.forSlots(BadgeSlots)(Recipes.Badge({ attribute: 'data-tone', tones })).css
-    expect(sheet).toContain('[data-tone="success"]')
-    expect(sheet).toContain('background:var(--fk-success-subtle)')
-    expect(sheet).toContain('border-radius:var(--fk-radius-full)')
   })
 })

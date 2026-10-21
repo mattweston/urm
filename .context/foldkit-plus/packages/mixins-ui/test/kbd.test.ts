@@ -1,19 +1,20 @@
 /**
- * Kbd: one Container slot, a view naming the key, and a variant-free recipe
- * (a keycap looks one way; the look is chosen once).
+ * Kbd: Container slots, a view naming the key, and a combination drawn as a
+ * `kbd` of keys. The keycap's look is `kbd.browser.test.ts`.
  */
 import { describe, expect, it } from 'vitest'
-import { Capability, SlotView, Style } from 'foldkit-mixins'
+import { Capability, SlotView } from 'foldkit-mixins'
 import { Inert } from 'foldkit-mixins/testing'
-import { KbdSlots, view } from '../src/kbd.js'
-import { Recipes } from '../src/index.js'
+import { KbdSlots, combo, view } from '../src/kbd.js'
 
 const h = SlotView.inertBuilder<never>()
 
 describe('KbdSlots', () => {
-  it('publishes one container and nothing stateful', () => {
-    expect(Object.keys(KbdSlots)).toEqual(['key'])
-    expect(KbdSlots.key?.capability).toBe(Capability.Container)
+  it('publishes containers and nothing stateful', () => {
+    expect(Object.keys(KbdSlots)).toEqual(['key', 'combo', 'joiner'])
+    for (const slot of Object.values(KbdSlots)) {
+      expect(slot.capability).toBe(Capability.Container)
+    }
   })
 })
 
@@ -25,11 +26,23 @@ describe('Kbd view', () => {
   })
 })
 
-describe('Kbd recipe', () => {
-  it('sets a mono keycap with a pressed lower edge', () => {
-    const sheet = Style.forSlots(KbdSlots)(Recipes.Kbd({})).css
-    expect(sheet).toContain('font-family:var(--fk-font-mono)')
-    expect(sheet).toContain('border-block-end-width:var(--fk-border-thick)')
-    expect(sheet).toContain('white-space:nowrap')
+describe('Kbd.combo', () => {
+  it('draws one kbd holding a kbd per key, in order', () => {
+    const keys = combo({ keys: ['⌘', 'Shift', 'K'] }, h)
+    const kbds = Inert.byTag(keys, 'kbd')
+    // The combination itself, then each key.
+    expect(kbds).toHaveLength(4)
+    expect(kbds.slice(1).map(kbd => Inert.text(kbd))).toEqual(['⌘', 'Shift', 'K'])
+    expect(Inert.text(keys)).toBe('⌘ShiftK')
+  })
+
+  it('writes the joiner between the keys only', () => {
+    const keys = combo({ keys: ['Ctrl', 'Alt', 'Del'], joiner: '+' }, h)
+    expect(Inert.byTag(keys, 'span')).toHaveLength(2)
+    expect(Inert.text(keys)).toBe('Ctrl+Alt+Del')
+  })
+
+  it('refuses a combination of no keys', () => {
+    expect(() => combo({ keys: [] }, h)).toThrow(/at least one key/)
   })
 })

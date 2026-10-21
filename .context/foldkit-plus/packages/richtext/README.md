@@ -114,8 +114,8 @@ RichText.run(state, { type: 'RetypeBlock', to: { type: 'Heading', level: 2 } }, 
 
 `InsertText`, `DeleteBackward`, `DeleteForward`, `SplitBlock`, `ToggleMark`, `SetMark`,
 `ClearMark`, `SetSelection`, `Paste`, and the block commands below (`RetypeBlock`,
-`WrapBlock`, `ConvertBlock`, `RetypeContainer`, `LiftBlock`) read the current selection; `MoveBlock` and `SetProps` name their
-blocks instead. Each resolves to transactions applied as one step, usually one (Enter over
+`WrapBlock`, `ConvertBlock`, `RetypeContainer`, `LiftBlock`) read the current selection; `MoveBlock`,
+`SetProps`, `InsertBlock` and `DeleteBlock` name their blocks instead. Each resolves to transactions applied as one step, usually one (Enter over
 a range in a list item is two: the delete, then the split); the returned `ChangeSet` and
 `positionMap` describe the effect, and `transactions` holds what was applied, in order, an
 empty one for a command that changed nothing. Nothing mints
@@ -141,7 +141,7 @@ interface InputRule {
   match: (
     textBefore: string,
     within: ReadonlyArray<string>,
-  ) => { remove: number; commands: Action } | undefined
+  ) => { remove: number; commands: Action; storedMarks?: ReadonlyArray<string> } | undefined
 }
 ```
 
@@ -158,6 +158,10 @@ claims to consume more than the text it was shown throws, because those deletes 
 past the block's start and join it to the one before. `textBefore` for a selection that is
 a range is read from `rangeStart(document, range)` — the end that comes first, whichever
 way the range was made — since that is where what is typed over it lands.
+`resolveInputRules` returns the same action with the matching rule's `storedMarks`: the marks
+the text typed next carries, which an editor keeps, so `**bold**` closed as typed ends its bold
+rather than letting the bold run continue. A delete removes a whole grapheme, so `remove` counts
+graphemes.
 
 `RetypeBlock` changes the type of the block the selection starts in — `Paragraph`, or
 a `Heading` at a level — and keeps that block's runs, so identities and the caret
@@ -225,12 +229,53 @@ vocabulary, props that decode as the kind declares them must still decode after,
 command is refused with `InvalidInput`, as it is for a block that is not a node. Props that
 already fail (a key an older version wrote, which cannot be deleted) can still be changed.
 
+`InsertBlock` puts a block, with everything it holds, beside another:
+`{ type: 'InsertBlock', block, to: { after: other } }`. Its identities are minted afresh, so
+the same block value can be inserted twice (a handle's Duplicate sends the block it stands for).
+Without `to` it goes beside the caret's block: before it when that block is empty, so a slash
+command typed on a blank line leaves the line below to type on, and after it otherwise. The
+caret moves to the start of its first text, when it has any. With a vocabulary, the container
+has to hold the kind and the kind has to stand there, as for a move (`UnexpectedChild`).
+
+`DeleteBlock` deletes a block and everything it holds: `{ type: 'DeleteBlock', node }`. A
+container it leaves empty goes with it, as a move's does. A caret inside it moves to the start of
+the text after it, or the end of the text before; a document it would empty gets an empty
+paragraph, so there is always somewhere to type.
+
+A table is edited as a grid from the cell the caret is in (`tableAt(document, selection)` reads
+which: the table, its rows, the row and the column). `InsertRow` and `InsertColumn` (`{ where:
+'before' | 'after' }`) add a row as wide as the widest, or a cell beside the caret's in every row,
+at the end of a row too short for that column; `DeleteRow` and `DeleteColumn` remove them, a row a
+column empties with it, and the last row or column takes the table. The caret goes to the new
+cell, or to its neighbour. Each is one transaction, so one undo step, and each is refused outside
+a table (`InvalidSelection`).
+
+`Indent` and `Outdent` are Tab and Shift+Tab. In a kind declared `indents` (code) they add or
+remove a level of indentation (`INDENT`, two spaces): at the caret, or at the start of every line
+a range covers; Enter there starts the new line as indented as the one it broke. In a table cell
+they move the caret to the next or previous cell, and Tab in the last cell adds a row. In a list
+item, Tab nests it under the item before it (in the list that item ends with, or a new one of its
+own kind), and Shift+Tab moves a nested item out to follow its parent item, or takes a top-level
+item out of its list; the first item has nothing to nest under and stays. The innermost wins: code
+in a cell indents, a list in a cell nests. Anywhere else they are refused, and `takesTab(document, selection, nodes)` says so
+beforehand, which is how an editor leaves Tab to move focus there.
+
 `DeleteBackward` at the start of a container's first block used to do nothing, having no
 sibling to join. With a vocabulary it now lifts the block, which is how Backspace undoes a
 `> ` or `- ` typed at a block's start. Without a vocabulary, in a table cell, and forwards, the
 edge still does nothing. At the start of a kind the vocabulary declares as holding text, such
 as a `CodeBlock`, Backspace retypes it to a paragraph instead of joining it to the block
-above, which undoes a fence the way a lift undoes a list marker.
+above, which undoes a fence the way a lift undoes a list marker. A heading does the same with
+or without a vocabulary, undoing its `# `; a second press joins it.
+
+Beside a block it cannot be joined with, Backspace and Delete reach the nearest line on that
+side. Inside a list or a quote that is its last or first line, which the line at the caret
+joins, as clearing the empty range between them would; Delete at the end of a list item's last
+line reaches the next item's in the same way. A table cell or code cannot take the line, so
+there Backspace only moves the caret in, and Delete beside a line with text does nothing. An
+empty line goes, the caret stepping into its neighbour, rather than taking a line out of a
+list. An image or a divider reached this way is selected. Each was refused (`InvalidRange`),
+which left an empty line after a table that nothing could remove.
 
 `SplitBlock` at the end of a heading starts a paragraph under it, since what follows a title is
 text; in the middle of one, both halves stay headings. Over a selection, the range's end
@@ -259,7 +304,8 @@ decides what the caret carries and passes it back on the next `InsertText`.
 
 A toggle can take a link off but cannot change where it points. `SetMark` puts exactly
 the given mark on every run a range covers, replacing the props of a same-named mark,
-and `ClearMark` takes a mark off by name. At a caret both act on the mark's extent
+and `ClearMark` takes a mark off by name, or, given a mark value, off only the runs carrying
+exactly that value (one discussion's highlight, leaving another's inside it). At a caret both act on the mark's extent
 around it, so an editor changes or removes the link the caret sits in without selecting
 it first; outside a mark they do nothing. `markExtent(document, position, name)` is that
 extent as a read: the mark, and the range of adjacent runs carrying it with the same
@@ -345,7 +391,10 @@ The shipped policy is `Bold`/`Italic` → `after`, `Code` → `none`, and a mark
 registry declares → `both` (so preservation never retargets an unknown mark
 away). `resolveInsertion` retargets a boundary insertion when the current run
 carries marks that forbid the edge and the neighbor carries exactly the marks
-that remain; a registry changes which marks those are, not the rule. Declared
+that remain, in nested blocks as at the top level; a registry changes which marks
+those are, not the rule. At a block's outer edge there is no neighbor, so text typed
+there with no stored marks gets a run of its own carrying only the marks that
+extend: typing after a link or inline code that ends a paragraph leaves it. Declared
 names are also what `run` may add, so a Kit's marks are usable by name or value.
 
 `validate(document, kit)` is the publishing gate: it reports `UnknownMark` for a
@@ -380,7 +429,7 @@ RichText.validate(document, ArticleKit)
 ```
 
 `children` defaults to `RichText.textContent`, so a node holds runs; `blockContent`
-says it holds nested blocks (§116). `RichText.block(name)` declares one of the
+says it holds nested blocks. `RichText.block(name)` declares one of the
 built-in blocks and `RichText.atom(name)` declares a kind holding nothing, so an
 atom is exactly an application node with no content. `validate` walks nested blocks
 and reports `MismatchedDefinition` when a declaration and the document disagree
@@ -394,7 +443,7 @@ clipboard slices, history, and the interpreters all work on it unchanged — a
 split keeps its kind and props on both halves. `data-node="Kind"` is the default
 rendering in HTML and in the view until a Kit renderer replaces it.
 
-A node block may also accept **nested blocks** in `blocks` (§116), which is how a
+A node block may also accept **nested blocks** in `blocks`, which is how a
 List holds ListItems. The HTML serializer renders them inside the node's element
 and `toText` gives one line per text block; the read-only view and the editable
 adapter do the same, so a list keeps its items in every interpreter. HTML import
@@ -515,8 +564,7 @@ asserted.
 
 ## Migrations
 
-Migrations move semantic data forward when a deployment changes its vocabulary
-(§73) — a preserved node that is now implemented, a prop renamed, a kind
+Migrations move semantic data forward when a deployment changes its vocabulary — a preserved node that is now implemented, a prop renamed, a kind
 replaced:
 
 ```ts
@@ -576,7 +624,7 @@ framework-free. Nothing parses HTML back into authority without that walk.
 
 Three interpreters need to know which element a declared mark or node kind
 produces — this serializer, the read-only view, and the editable DOM interpreter —
-and they must not answer that three different ways (design §121). `rendering(...)`
+and they must not answer that three different ways. `rendering(...)`
 is that answer: a vocabulary built *over* a Kit, never inside one, holding per-name
 entries that are either fixed data or a function of the mark or block.
 
@@ -618,7 +666,7 @@ interpreter share this one answer.
 ## Decorations
 
 A decoration is derived, ephemeral presentation over a document range — a search match, a
-lint warning, a remote cursor, a syntax token — and never document content (§64):
+lint warning, a remote cursor, a syntax token — and never document content:
 
 ```ts
 const matches: RichText.DecorationSet = [{ from: at(0), to: at(7), kind: 'search' }]
@@ -634,12 +682,41 @@ shares — a decoration crossing runs is cut at each run's edge, an endpoint tha
 resolve skips the decoration, a backwards range is honoured, and one run's spans come back
 in text order.
 
-A producer comes with it. `searchDecorations(document, query)` returns every occurrence of a
-query as a decoration of kind `search` (`SEARCH_DECORATION`), changing nothing: one
-decoration per occurrence, a match across two runs kept whole, and no match across two blocks,
-because what a document has between blocks is structure rather than text. `positionInBlock(block,
+A producer comes with it. `findMatches(document, query, { caseSensitive })` lists every
+occurrence (its block, its offset there, and its ends as positions), case not counting unless
+asked: a match across two runs kept whole, and no match across two blocks, because what a
+document has between blocks is structure rather than text. `searchDecorations(document, query,
+{ caseSensitive, current })` draws them as decorations of kind `search` (`SEARCH_DECORATION`),
+the one at index `current` as `search-current`, changing nothing. `Replace` (`{ query,
+replacement, caseSensitive, at }`) replaces the match at `at`, or every match without it, as one
+transaction, reading each match again where the replacements after it left the text. `positionInBlock(block,
 offset)` is the read it shares with `textRangeBefore` — the position a block's own text offset
 addresses — and the one any producer of ranges needs.
+
+The outline is a read of the same kind. `outlineOf(document)` lists the headings that have text,
+in document order and inside containers too, as `{ node, level, text }`; `sectionAt(document,
+selection)` is the heading of the section the selection starts in, the last such heading at or
+before its block, and undefined before the first. A table of contents draws the one and marks the
+other.
+
+Footnotes are opt-in vocabulary: add `FootnoteRef` to the kit's marks and `FootnoteDefinition` to
+its nodes. A reference is the `FootnoteRef` mark (`{ label }`) on the run that shows the label, so
+it moves and undoes with the text; a definition is a block of blocks with the same label, so its
+note is ordinary editable text. The label is all that ties them. `footnotesOf(document)` lists
+every footnote by first reference, as `{ label, definition, references, text }`, then the
+definitions nothing refers to; `footnoteAt(document, selection)` is the label of the reference the
+caret is in. `InsertFootnote` (`{ text? }`) puts a reference showing `nextFootnoteLabel` at the
+caret, its definition after the last block, and the caret in the note; `RenameFootnote` (`{ from,
+to }`) relabels the definition and every reference, refusing a label another footnote has.
+
+Media beside `Image` is opt-in the same way: `mediaNodes` declares `Video` and `Audio` (`{ src,
+title? }`, a video also `width?`) and `Attachment` (`{ src, name, size?, type? }`), and
+`mediaRendering`, laid under a rendering with `renderingOver`, draws them as `video` and `audio`
+with the browser's controls and an attachment as a download link showing its name and size.
+`mediaBlock(file)` is the block for a file a reader added, by its type. Where the file lives is
+the application's. A source must pass the URL policy, or be a `data:` URL of the kind's own
+family (`video/…`, `audio/…`); an attachment's may be any `data:` type that cannot run as a page
+(not HTML, SVG or XML), since it is only downloaded.
 
 Code highlighting is the second producer. A `CodeBlock` holds its `language` and plain text,
 and a `CodeTokenizer` — a pure `(text) => ReadonlyArray<{ from, to, kind }>` over that text —
@@ -649,7 +726,7 @@ token. The registry is a `Map` keyed by language, and a block whose language not
 registered for yields nothing. A token outside its block's text, covering nothing, or at a
 fractional offset throws, naming the language: a tokenizer's bug should not become a
 highlight over the wrong text. The grammars themselves are not here — they are
-format-specific, and belong to `foldkit-richtext-code` (§130).
+format-specific, and belong to `foldkit-richtext-code`.
 
 ```ts
 const numbers: RichText.CodeTokenizer = text =>
@@ -683,12 +760,16 @@ Identities always come from the caller, like every other identity a live edit
 mints.
 
 Paste is a command (`{ type: 'Paste', slice }`): it remints every identity, then
-places the content relative to the caret — above the block at its start, below
-it at its end, and mid-block by splitting the block and landing the content
-between the halves, so text after the caret stays below what was pasted. A range
-selection is replaced first, and the caret lands at the end of the pasted text
-(or at the start of what follows when the pasted content has none). The DOM
-clipboard events that carry these payloads are not wired yet.
+splits the caret's block and lands the content between the halves. The first
+pasted block joins the text before the caret and the last joins the text after
+it, when each can be one block with it, so a copied word or line lands inside the
+sentence and several lines keep the sentence's two ends. A block that cannot join
+(an image, a table, a list) stands between the halves, and a half left empty goes,
+except the line after a pasted image or table, which is where writing goes on.
+Into a kind whose text keeps line breaks (code), the paste is its plain text. A
+range selection is replaced first, and the caret lands at the end of the pasted
+text. `foldkit-richtext-dom` reads the clipboard into a slice (its own payload,
+then HTML, then plain text) and sends this command.
 
 ## Undo history
 
@@ -750,14 +831,52 @@ its element — a `List` an `ol` or `ul`, an `Image` an `img` with its `src`, a 
 application adds its own kinds beside the standard ones. A `TableRow` that is the header
 renders `data-header`, and a `Table`'s rows go in a `tbody` (the entry's `inner`), because an
 HTML parser inserts one around bare rows, and markup sent from a server has to parse to the tree
-that was rendered. A link's `href` and an image's `src` pass `safeUrl` again as they are
+that was rendered. An entry's `adornments` are elements drawn inside the block before its content
+that are not content: a task's checkbox, a figure's picture and caption, a callout's icon. They
+carry `data-adornment`, hold no position, and an HTML import drops them; one with `toggles: 'open'`
+flips that boolean prop when clicked, through the editor's `ChangedProps`, and one with an `action`
+(`'copy'`) is reported to the application with its block, for something that is not an edit:
+
+```ts
+RichText.renderingOver(RichText.standardRendering, {
+  nodes: {
+    TaskItem: block => ({
+      tag: 'li',
+      attributes: {},
+      adornments: [
+        {
+          tag: 'input',
+          attributes: { type: 'checkbox', ...(block.props.checked === true ? { checked: '' } : {}) },
+          toggles: 'checked',
+        },
+      ],
+    }),
+  },
+})
+```
+ A standard `Image` also carries an optional `caption`, a `width` in CSS
+pixels, and an `align` (`start`, `center`, `end`); the standard rendering draws the `img`
+alone, and a rendering that draws a figure reads the rest. It may carry its `asset` too:
+`foldkit-media`'s `ImageAsset`, the size, hash and placeholder of what `src` names, as stored
+(`null` for what it lacks). With it, the `img` has `width` and `height` (at the drawn `width`
+when there is one), so the page holds its box before the file arrives; a rendering of its own,
+such as a figure, spreads `imageBox(block.props)` on its `img` for the same. The rendering
+trusts the facts to be `src`'s, so whatever changes `src` (an editor's control, an agent's
+`SetProps`) replaces `asset` or clears it in the same change. HTML and Markdown
+carry no facts, so a round trip through either leaves them out; they can be read again from
+the image. A link's `href` and an image's `src` pass `safeUrl` again as they are
 rendered, and one it refuses is left out, so a `javascript:` URL that reached the document
 by decoding, sync, or `SetMark` rather than import is drawn inert.
 
 A kind can state rules stricter than its content mode. `blocksOf(...kinds)` accepts only
 those block kinds, `marks: 'none'` forbids marks on the kind's own runs, `isolating: true`
 makes the kind a boundary a lift never crosses, as a table cell is, `splitProps` names
-props an item split off one of this kind starts with (typed from the kind's `Props`), and `within` names the kinds it may stand
+props an item split off one of this kind starts with (typed from the kind's `Props`), `lineBreaks:
+true` makes Enter a newline in the kind's text rather than a split (Enter on an empty last line
+leaves it for a paragraph after; the standard `CodeBlock` declares it, and so may a callout of
+several lines), `indents: true` makes Tab indent its lines and Enter keep a line's indentation, as
+code does (`CodeBlock` declares both; without it, Tab still leaves the editor), and `within`
+names the kinds it may stand
 in, so a `ListItem` stands only in a `List` and never at the top level:
 
 ```ts
@@ -907,7 +1026,7 @@ text is added after them; block identities are stable for a block's whole life.
 - Empty documents, empty blocks, and empty text runs are valid. No normalization
   creates nodes or merges text runs yet.
 - A `Node` block may carry nested blocks in `blocks`, and its presence is what
-  says the kind accepts them (§116): a List holds ListItems, a Quote paragraphs.
+  says the kind accepts them: a List holds ListItems, a Quote paragraphs.
   Nested content decodes, round-trips byte-equal, is counted by `inspect` and the
   decode limits, survives a deploy that lost its kind, and a selection or
   reference inside it resolves. Commands reach a run wherever it sits, so typing,
@@ -916,9 +1035,22 @@ text is added after them; block identities are stable for a block's whole life.
   interpreter renders one, with the HTML importer reading a container back.
   Structural placement works at depth too: a split keeps its halves in the block's
   own container, siblings join within theirs, and a move or insert takes an
-  optional `parent` to enter or leave a container. What is still refused with
-  `InvalidParent` is a range that would have to merge across containers, and a
-  parent that cannot hold blocks.
+  optional `parent` to enter or leave a container. A range across containers or
+  kinds of block (a selection from a list into the paragraph after it, or the
+  whole document) is cleared as an editor clears one: the ends lose what it
+  covers, every block wholly between goes, the far end comes up beside the near
+  one and joins it when the two can be one (where the near end's container
+  takes its kind), and containers left empty go. A range that leaves a table
+  cell only loses its text. Typing, Enter or a paste over such a range clears it
+  first. What is still refused with `InvalidParent` is a parent that cannot hold
+  blocks.
+- An atom (an image, a divider) has no text for a caret, so it is selected whole.
+  Backspace at the start of the block after it, or Delete at the end of the block
+  before it, selects it, taking away the line the caret was on when that line is
+  empty; a second press deletes it, and the caret lands where it was. Over a node
+  selection, Enter opens an empty paragraph after the block, and typing replaces
+  the block with a paragraph of what was typed. `isAtom(nodes, block)` is the test:
+  the vocabulary's `atom` declaration, or, without one, a node holding nothing.
 - `InsertText` targets one run and inherits that run's marks. When the command
   carries `marks`, the inserted span is split out of its run and given exactly
   that set instead — that is how a caller's stored marks reach the document.
@@ -976,7 +1108,8 @@ text is added after them; block identities are stable for a block's whole life.
 - Marks carry boundary expansion (`Bold`/`Italic`: `after`, `Code`: `none`).
   `resolveInsertion(document, position)` retargets edge insertions whose marks
   forbid the edge to the neighbor carrying exactly the remaining marks; mixed
-  edges stay put rather than swapping formatting. Unknown marks default to
+  edges stay put rather than swapping formatting. At a block's outer edge, the
+  typed text takes its own run with only the marks that extend there. Unknown marks default to
   expanding both ways so preservation never retargets them away.
 - Every transaction ends by running its transforms (by default
   `mergeAdjacentRuns`): adjacent same-mark runs within touched blocks merge, the
@@ -1027,5 +1160,3 @@ so a container is checked again whenever anything inside it changes, and indexes
 text runs. Edits copy the affected arrays and preserve untouched nodes. The
 performance section records the measured cases, the collaborative path included
 (`bench/replicated.bench.ts`).
-
-See the [design and phase status](../../docs/design/richtext-DESIGN.md#101-phase-1--pure-semantics-and-integration-feasibility).

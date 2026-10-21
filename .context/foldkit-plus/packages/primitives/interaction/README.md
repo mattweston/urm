@@ -289,7 +289,10 @@ attaches it. `targetOf(container, from, attribute)` is the pure lookup.
 
 **`PointerDrag`** is dragging one marked descendant onto another, marked the
 way `Targets` marks them. A primary press on one that moves more than
-`DRAG_THRESHOLD` (4px) starts a drag (`DragStarted { id }`); then, once per
+`DRAG_THRESHOLD` (4px) starts a drag (`DragStarted { id }`; a finger's press
+starts one once held still `HOLD_TO_DRAG_MS`, 400ms, while one that moves
+`HOLD_SLOP`, 8px, first is a scroll, so a list of marked rows still scrolls
+under a finger and the page is kept still only once the drag is on); then, once per
 change, `DraggedOver { over }` says which other marked descendant the pointer
 is over and in which third of its box, `{ id, zone: 'before' | 'inside' |
 'after' }`, or `null`. Releasing is `DragDropped { id, over }`, and Escape, a
@@ -498,6 +501,28 @@ space toggled, which is what makes a screen reader read it again.
 `LiveAnnounce.view(slice, h)` renders the two regions: put it once in the page
 and hide them visually with a rule on `[data-foldkit-plus-live]`, never
 `display: none`.
+
+## In the examples
+
+Each of these composes the primitives above into a working widget. Read
+`app.ts` for the placements and `update`, and `view.ts` for the Behaviors on
+the slots.
+
+| Widget | Primitives |
+| --- | --- |
+| [Toolbar](../../../examples/widgets/src/toolbar) | `RovingTabindex` |
+| [One-time code field](../../../examples/widgets/src/otp-field) | `RovingTabindex`, a filled cell moving focus with a Command |
+| [Toggle group](../../../examples/widgets/src/toggle-group), [checkbox group](../../../examples/widgets/src/checkbox-group) | `Selection` |
+| [Command menu](../../../examples/widgets/src/command) | `ListNavigation`, `Selection`, `Placing` |
+| [Autocomplete](../../../examples/widgets/src/autocomplete) | `ListNavigation`, `Selection`, `DismissLayer`, `Overlay.nonModal`, `Placing` |
+| [Context menu](../../../examples/widgets/src/context-menu) | `ListNavigation`, `Selection`, `DismissLayer`, `Overlay.nonModal`, `Placing` |
+| [Menubar](../../../examples/widgets/src/menubar) | `RovingTabindex` across the bar, `ListNavigation` in each menu |
+| [Alert dialog](../../../examples/widgets/src/alert-dialog) | `DismissLayer`, `Overlay.modal` with outside press and Escape turned off |
+| [Drawer](../../../examples/drawer) | `DismissLayer`, `Overlay.modal` |
+| [File tree](../../../examples/tree) | `TreeNavigation`, `Selection` |
+
+The widgets run together at
+[foldkit-widgets-demo.pages.dev](https://foldkit-widgets-demo.pages.dev/).
 
 ## Failure
 

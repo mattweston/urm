@@ -40,4 +40,48 @@ export default [
     ],
     tests: gate,
   },
+  {
+    name: 'a date picker given no draw draws nothing',
+    edits: [
+      {
+        file: '../src/datePicker.ts',
+        find: '=> Html = defaultToView,',
+        replace: '=> Html = (_, h) => h.div([], []),',
+      },
+    ],
+    tests: ['packages/mixins-ui/test/datePicker.test.ts'],
+  },
+  {
+    name: 'an unfinished range closes the picker',
+    edits: [
+      {
+        file: '../src/datePicker.ts',
+        find: 'Option.filter(date => !isComplete(picked(selection, date))),',
+        replace: 'Option.filter(() => false),',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'a finished pick never reaches upstream',
+    edits: [
+      {
+        file: '../src/datePicker.ts',
+        find: 'onNone: () => upstreamUpdate(model, message),',
+        replace: 'onNone: () => ({ model }),',
+      },
+    ],
+    tests,
+  },
+  {
+    name: 'the first end of a range closes the popover',
+    edits: [
+      {
+        file: '../src/datePicker.ts',
+        find: 'Option.filter(date => !isComplete(picked(selection, date))),',
+        replace: 'Option.filter(() => false),',
+      },
+    ],
+    tests: ['packages/mixins-ui/test/datePicker.browser.test.ts'],
+  },
 ]

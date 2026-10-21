@@ -1,5 +1,5 @@
 /**
- * A specimen of the shipped defaults: `Theme.oklch`'s palette and surfaces,
+ * A specimen of the shipped defaults: the palette and surfaces,
  * plain HTML under `Defaults`, and every recipe in every variant and state,
  * on one static page, for looking at the design whole while changing it:
  * `pnpm --filter foldkit-mixins-ui specimen <out.html> [hue]`, then open the
@@ -13,6 +13,7 @@ import {
   ButtonSlots,
   CheckboxSlots,
   ComboboxSlots,
+  CalendarSlots,
   DatePickerSlots,
   DialogSlots,
   FileDropSlots,
@@ -33,10 +34,7 @@ import {
 } from '../src/index.js'
 
 const [, , out = 'specimen.html', hue = '265'] = process.argv
-const theme = Theme.compose(
-  Theme.tokens,
-  Theme.oklch({ accent: { h: Number(hue), c: 0.16, l: '52%' } }),
-)
+const theme = Theme.standard(Theme.make({ accent: { hue: Number(hue), chroma: 0.16 } }))
 const sheets: Array<string> = []
 
 /** The classes of each slot of a recipe's pieces; their CSS is kept for the page. */
@@ -92,7 +90,7 @@ const plain = section(
   'Plain HTML under Defaults',
   `<h1>Heading one</h1><h2>Heading two</h2><h3>Heading three</h3><h4>Heading four</h4>
   <p>Running text with <a href="#">a link</a>, <code>inline code</code>, <kbd>Ctrl</kbd> and <strong>strong</strong> words. A paragraph long enough to wrap shows the measure and the leading of body text as a reader meets it.</p>
-  <pre><code>const theme = Theme.oklch({ accent: { h: 265 } })</code></pre>
+  <pre><code>const theme = Theme.make({ accent: { hue: 265 } })</code></pre>
   ${row('<input placeholder="A text input">', '<select><option>A select</option></select>', '<button>A button</button>', '<button disabled>Disabled</button>')}
   <textarea placeholder="A textarea"></textarea>`,
 )
@@ -237,7 +235,11 @@ const choices = section(
   ) +
     row(
       label('slider 60'),
-      `<span class="${slider['root']}" style="min-inline-size:12rem"><span class="${slider['label']}">Volume</span><span class="${slider['track']}" style="display:block;position:relative"><span class="${slider['filledTrack']}" style="position:absolute;inset:0 auto 0 0;inline-size:60%"></span><span class="${slider['thumb']}" style="position:absolute;inset-inline-start:60%"></span></span></span>`,
+      `<span class="${slider['root']}"><span class="${slider['label']}">Volume</span><span class="${slider['control']}" style="display:block;--fk-slider-low:0;--fk-slider-high:0.6"><span class="${slider['track']}" style="display:block"><span class="${slider['fill']}" style="display:block"></span></span><input type="range" class="${slider['thumb']}" data-thumb="value" value="60" aria-label="Volume"></span></span>`,
+    ) +
+    row(
+      label('slider 20–70'),
+      `<span class="${slider['root']}" role="group" aria-label="Price"><span class="${slider['label']}">Price</span><span class="${slider['control']}" data-range style="display:block;--fk-slider-low:0.2;--fk-slider-high:0.7"><span class="${slider['track']}" style="display:block"><span class="${slider['fill']}" style="display:block"></span></span><input type="range" class="${slider['thumb']}" data-thumb="low" max="70" value="20" aria-label="Minimum"><input type="range" class="${slider['thumb']}" data-thumb="high" min="20" value="70" aria-label="Maximum"></span></span>`,
     ),
 )
 
@@ -283,6 +285,22 @@ const pickers = section(
   ),
 )
 
+const calendar = classesOf(CalendarSlots, Recipes.Calendar({}))
+const day = (label: string, state: string) =>
+  `<span class="${calendar['dayCell']}" ${state}><button class="${calendar['dayButton']}">${label}</button></span>`
+const calendars = section(
+  'Recipes.Calendar',
+  `<div class="${calendar['root']}"><button class="${calendar['headingButton']}">October 2026</button><div class="${calendar['grid']}" aria-rowcount="1"><div class="${calendar['weekRow']}">${[
+    day('28', 'data-outside-month'),
+    day('29', 'data-outside-month'),
+    day('30', 'data-outside-month'),
+    day('1', ''),
+    day('2', 'data-today'),
+    day('3', 'data-selected'),
+    day('4', 'data-disabled'),
+  ].join('')}</div></div></div>`,
+)
+
 const popover = classesOf(PopoverSlots, Recipes.Popover({}))
 const popovers = section(
   'Recipes.Popover',
@@ -317,6 +335,6 @@ const page = `<!doctype html><html><head><meta charset="utf-8"><title>Specimen</
 .spec-inline{display:inline-flex;gap:0.4rem;align-items:center}
 .spec-label{font-size:0.75rem;color:var(--fk-text-muted);min-inline-size:3.5rem}
 .spec-swatch{inline-size:2.5rem;block-size:2rem;border-radius:6px;border:1px solid var(--fk-outline-subtle)}
-</style></head><body><main class="spec">${[palette, plain, buttons, fields, selects, toggles, choices, tabs, popups, badges, dialogs, pickers, popovers, tooltips, toasts, drops].join('')}</main></body></html>`
+</style></head><body><main class="spec">${[palette, plain, buttons, fields, selects, toggles, choices, tabs, popups, badges, dialogs, calendars, pickers, popovers, tooltips, toasts, drops].join('')}</main></body></html>`
 writeFileSync(out, page)
 console.log(`wrote ${out} (${page.length} bytes)`)

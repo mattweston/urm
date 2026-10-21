@@ -67,6 +67,9 @@ const markChord = (event: KeyboardEvent): string | undefined => {
       return 'Italic'
     case 'e':
       return 'Code'
+    // Without Shift, the browser's save.
+    case 's':
+      return event.shiftKey ? 'Strikethrough' : undefined
     default:
       return undefined
   }
@@ -136,22 +139,42 @@ export const intentFor = (
  * The semantic selection the browser is currently showing, if it resolves: null when the
  * page's selection is outside the editor, which is not the editor's to read.
  */
+/**
+ * The atom a range holds whole, as a node selection is drawn: an atom has no text for a caret,
+ * so the browser is given the range around its element.
+ */
+const selectedAtom = (dom: EditorDom, selection: Selection): RichText.NodeId | undefined => {
+  const parent = selection.anchorNode
+  if (parent === null || parent !== selection.focusNode) return undefined
+  if (Math.abs(selection.focusOffset - selection.anchorOffset) !== 1) return undefined
+  const child = parent.childNodes[Math.min(selection.anchorOffset, selection.focusOffset)]
+  const id = child instanceof Element ? child.getAttribute('data-block') : null
+  if (id === null) return undefined
+  const block = RichText.locateBlock(dom.content, RichText.NodeId.make(id))?.block
+  return block !== undefined && RichText.isAtom(undefined, block) ? block.id : undefined
+}
+
 export const readSelection = (dom: EditorDom): RichText.Selection | null => {
   const selection = dom.root.ownerDocument.defaultView?.getSelection()
   if (selection === null || selection === undefined || selection.rangeCount === 0) return null
+  const selected = selectedAtom(dom, selection)
+  if (selected !== undefined) return { type: 'Node', node: selected }
   const anchor = rangeToPosition(dom, selection.anchorNode ?? dom.root, selection.anchorOffset)
   const focus = rangeToPosition(dom, selection.focusNode ?? dom.root, selection.focusOffset)
   if (anchor === undefined || focus === undefined) return null
   return { type: 'Range', anchor, focus }
 }
 
-const textFor = (
+/**
+ * Where a position is in the DOM: a text node and an offset into it, or, on an empty line, the
+ * line's element and the index of its `<br>`, where a browser draws a caret.
+ */
+const endpointFor = (
   dom: EditorDom,
   position: RichText.Position,
-): { node: Text; offset: number } | undefined => {
+): { node: Node; offset: number } | undefined => {
   const range = positionToRange(dom, position)
-  const container = range?.startContainer
-  return container instanceof Text ? { node: container, offset: range!.startOffset } : undefined
+  return range === undefined ? undefined : { node: range.startContainer, offset: range.startOffset }
 }
 
 /**
@@ -164,9 +187,17 @@ export const restoreSelection = (dom: EditorDom, selection: RichText.Selection |
   const live = window?.getSelection()
   if (window === null || window === undefined || live === null || live === undefined) return
   live.removeAllRanges()
-  if (selection === null || selection.type === 'Node') return
-  const anchor = textFor(dom, selection.anchor)
-  const focus = textFor(dom, selection.focus)
+  if (selection === null) return
+  if (selection.type === 'Node') {
+    const element = dom.elements.get(selection.node)
+    if (element === undefined || element.parentNode === null) return
+    const range = dom.root.ownerDocument.createRange()
+    range.selectNode(element)
+    live.addRange(range)
+    return
+  }
+  const anchor = endpointFor(dom, selection.anchor)
+  const focus = endpointFor(dom, selection.focus)
   if (anchor === undefined || focus === undefined) return
   if (typeof live.setBaseAndExtent === 'function') {
     live.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset)
@@ -211,6 +242,19 @@ export interface AttachOptions {
   readonly decorate?: Decorate | undefined
   /** What a blank document shows (`RichText.isBlank`): "Write something…". */
   readonly placeholder?: string | undefined
+  /**
+   * What the empty paragraph a collapsed caret is in shows, as `data-hint` on it, which a
+   * stylesheet draws as it draws the placeholder (usually only while the editor has the focus).
+   * A blank document's block shows the placeholder instead.
+   */
+  readonly lineHint?: string | undefined
+  /**
+   * The node vocabulary, which says where Tab means something (`RichText.takesTab`): code and
+   * table cells take it as `Indent` and `Outdent`; anywhere else it moves focus as it always does.
+   */
+  readonly nodes?: RichText.NodeRegistry | undefined
+  /** Called with a block and an adornment's `action` when that adornment is clicked. */
+  readonly onAction?: ((node: RichText.NodeId, action: string) => void) | undefined
 }
 
 /** What is drawn over a document, derived from it on every render (§129). */
@@ -241,13 +285,51 @@ export interface Attachment {
    */
   readonly redecorate: () => void
   /**
+   * Takes the focus with the caret or range at `selection`, scrolled into view when it is out
+   * of it: for a control outside the editor that sends the reader into the text, such as a table
+   * of contents or a find bar closing on its match.
+   */
+  readonly focus: (selection: RichText.Selection) => void
+  /**
    * The latest document synced: the one waiting on a composition, or else the one drawn. A
    * patch computed from here to the next state is what brings the subtree up to it.
    */
   readonly held: () => RichText.Document
   /** True between compositionstart and compositionend. */
   readonly composing: () => boolean
+  /**
+   * Tells it an edit it asked for is drawn, or refused: input that came after the ask was held
+   * until then, and goes on when every ask is answered. The editor answers each, in order.
+   */
+  readonly answered: () => void
   readonly detach: () => void
+}
+
+/** A caret key's move, as `Selection.modify` makes it. */
+interface CaretMove {
+  readonly extend: boolean
+  readonly direction: 'backward' | 'forward' | 'left' | 'right'
+  readonly granularity: 'character' | 'line' | 'lineboundary'
+}
+
+const CARET_KEYS: Readonly<Record<string, Omit<CaretMove, 'extend'>>> = {
+  ArrowUp: { direction: 'backward', granularity: 'line' },
+  ArrowDown: { direction: 'forward', granularity: 'line' },
+  // Left and right, not backward and forward: the arrows go the way they point in any direction.
+  ArrowLeft: { direction: 'left', granularity: 'character' },
+  ArrowRight: { direction: 'right', granularity: 'character' },
+  Home: { direction: 'backward', granularity: 'lineboundary' },
+  End: { direction: 'forward', granularity: 'lineboundary' },
+}
+
+/** How long held input waits for an edit nothing answers. */
+const UNANSWERED_MS = 1000
+
+/** The move a caret key makes, with Shift or none: other modifiers keep the browser's. */
+const caretMoveOf = (event: KeyboardEvent): CaretMove | undefined => {
+  if (event.altKey || event.ctrlKey || event.metaKey) return undefined
+  const move = Object.hasOwn(CARET_KEYS, event.key) ? CARET_KEYS[event.key] : undefined
+  return move === undefined ? undefined : { ...move, extend: event.shiftKey }
 }
 
 const samePosition = (left: RichText.Position, right: RichText.Position): boolean =>
@@ -286,6 +368,45 @@ const drawPlaceholder = (
   return target
 }
 
+/** The empty paragraph a collapsed caret is in, in a document that is not blank. */
+const emptyLineAt = (dom: EditorDom, selection: RichText.Selection | null): Element | undefined => {
+  if (selection?.type !== 'Range' || !samePosition(selection.anchor, selection.focus)) {
+    return undefined
+  }
+  if (RichText.isBlank(dom.content)) return undefined
+  const run = RichText.locateRun(dom.content, selection.focus.node)
+  const block = run === undefined ? undefined : RichText.blockAtPath(dom.content, run.path)
+  return block?.type === 'Paragraph' && block.children.every(each => each.text === '')
+    ? dom.elements.get(block.id)
+    : undefined
+}
+
+/**
+ * The caret in the nearest text before or after a block, as an arrow key leaves a selected
+ * image: null when there is no text on that side.
+ */
+const caretBeside = (
+  document: RichText.Document,
+  node: RichText.NodeId,
+  after: boolean,
+): RichText.Selection | null => {
+  let seen = false
+  let before: RichText.Block['children'][number] | undefined
+  let next: RichText.Block['children'][number] | undefined
+  RichText.eachBlock(document.children, block => {
+    if (block.id === node) seen = true
+    else if (!seen) before = block.children.at(-1) ?? before
+    else next ??= block.children[0]
+  })
+  const run = after ? next : before
+  if (!seen || run === undefined) return null
+  const at = { node: run.id, offset: after ? 0 : run.text.length, affinity: 'after' as const }
+  return { type: 'Range', anchor: at, focus: at }
+}
+
+/** What a press inside an atom belongs to rather than the editor: a control, a link. */
+const INTERACTIVE = 'a, button, input, select, textarea, video, audio'
+
 /**
  * Wires the owned subtree to an application. The adapter never decides what an
  * edit means: it translates events into commands, hands them to `onIntent`, and
@@ -296,14 +417,6 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
   // Every replacement of the subtree goes through here: a repair or a patch can render the
   // blank block fresh, without the attribute the last one carried.
   let marked: Element | undefined
-  const redraw = (next: EditorDom): void => {
-    current = next
-    if (options.placeholder !== undefined) {
-      marked = drawPlaceholder(current, options.placeholder, marked)
-    }
-  }
-  redraw(dom)
-  let composing = false
   /**
    * The selection the application last committed, or the adapter last reported.
    * Restoring it fires `selectionchange`, so without this the adapter would
@@ -311,6 +424,37 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
    * Affinity is ignored: it is derived from the range, not carried by it.
    */
   let lastSelection: RichText.Selection | null = null
+  let hinted: Element | undefined
+  let selectedBlock: Element | undefined
+  /**
+   * Marks the block a node selection holds with `data-selected`: the browser draws no
+   * selection of its own for one, so this is the only sign of it.
+   */
+  const markSelected = (): void => {
+    const target =
+      lastSelection?.type === 'Node' ? current.elements.get(lastSelection.node) : undefined
+    if (selectedBlock !== target) selectedBlock?.removeAttribute('data-selected')
+    target?.setAttribute('data-selected', '')
+    selectedBlock = target
+  }
+  /** Moves `data-hint` to the empty line the caret is on, or takes it away. */
+  const hint = (): void => {
+    if (options.lineHint === undefined) return
+    const target = emptyLineAt(current, lastSelection)
+    if (hinted !== target) hinted?.removeAttribute('data-hint')
+    target?.setAttribute('data-hint', options.lineHint)
+    hinted = target
+  }
+  const redraw = (next: EditorDom): void => {
+    current = next
+    if (options.placeholder !== undefined) {
+      marked = drawPlaceholder(current, options.placeholder, marked)
+    }
+    hint()
+    markSelected()
+  }
+  redraw(dom)
+  let composing = false
   /**
    * Only a range that resolves inside the editor is news. A selection elsewhere on the page
    * (another editor, an input) leaves the editor's own where it was, and so does a live
@@ -323,6 +467,17 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
     const selection = readSelection(current)
     if (selection === null || sameSelection(selection, lastSelection)) return
     lastSelection = selection
+    hint()
+    markSelected()
+    options.onSelection?.(selection)
+  }
+  /** Takes a selection the editor made itself, as a click on an image or an arrow key does. */
+  const select = (selection: RichText.Selection): void => {
+    restoreSelection(current, selection)
+    if (sameSelection(selection, lastSelection)) return
+    lastSelection = selection
+    hint()
+    markSelected()
     options.onSelection?.(selection)
   }
   /**
@@ -342,13 +497,175 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
    * sets are unioned, which never under-invalidates.
    */
   let deferred: { state: RichText.EditorState; changeSet: RichText.ChangeSet } | undefined
+  /**
+   * Input held after asking for an edit until what is drawn holds it, in the order it came.
+   * The browser moves the caret through what is drawn, and the edit is drawn by a Command
+   * that a loaded machine runs after the next keys: three Enters and an ArrowUp went up from
+   * the old last line, two lines too far. A caret key waits, and an edit asked behind it
+   * waits too, so it lands where the move took the caret. The editor answers every edit once
+   * it is drawn or refused (`answered`); when none is unanswered they are made in order, and
+   * one that asks for another edit holds the rest again. An edit nothing answers (a command
+   * the editor has no Message for) lets them go after `UNANSWERED_MS`.
+   */
+  let held: Array<() => void> = []
+  let unanswered = 0
+  let fallback: ReturnType<typeof setTimeout> | undefined
+  const release = (): void => {
+    while (held.length > 0 && unanswered === 0) held.shift()!()
+  }
+  const answered = (): void => {
+    unanswered = Math.max(0, unanswered - 1)
+    if (unanswered > 0) return
+    clearTimeout(fallback)
+    release()
+  }
+  const holdMove = (move: CaretMove): void => {
+    held.push(() => {
+      const live = current.root.ownerDocument.defaultView?.getSelection()
+      if (live === null || live === undefined || !ownsSelection()) return
+      live.modify(move.extend ? 'extend' : 'move', move.direction, move.granularity)
+      reportSelection()
+    })
+  }
+  const ask = (command: RichText.Command): void => {
+    unanswered++
+    clearTimeout(fallback)
+    fallback = setTimeout(() => {
+      unanswered = 0
+      release()
+    }, UNANSWERED_MS)
+    options.onIntent(command)
+  }
+  const onIntent = (command: RichText.Command): void => {
+    if (held.length === 0) return ask(command)
+    held.push(() => {
+      reportSelection()
+      ask(command)
+    })
+  }
   const draw = (state: RichText.EditorState, changeSet: RichText.ChangeSet): void => {
     const owned = ownsSelection()
-    redraw(patchInto(current, state.document, changeSet, options.decorate?.(state.document)))
     lastSelection = state.selection
+    redraw(patchInto(current, state.document, changeSet, options.decorate?.(state.document)))
     if (owned) restoreSelection(current, state.selection)
   }
+  /** For Mod+A in a kind whose text keeps line breaks (code), its text, unless that is selected. */
+  const codeToSelect = (event: KeyboardEvent): RichText.Selection | undefined => {
+    if (event.key.toLowerCase() !== 'a' || !MOD(event) || event.shiftKey || event.altKey) {
+      return undefined
+    }
+    const selection = readSelection(current)
+    if (selection?.type !== 'Range') return undefined
+    const found = RichText.locateRun(current.content, selection.focus.node)
+    const block =
+      found === undefined ? undefined : RichText.blockAtPath(current.content, found.path)
+    if (block?.type !== 'Node') return undefined
+    const declared = options.nodes?.definitionFor(block.kind)
+    if (declared?.kind !== 'node' || declared.lineBreaks !== true) return undefined
+    const first = block.children[0]
+    const last = block.children[block.children.length - 1]
+    if (first === undefined || last === undefined) return undefined
+    const whole: RichText.Selection = {
+      type: 'Range',
+      anchor: { node: first.id, offset: 0, affinity: 'after' },
+      focus: { node: last.id, offset: last.text.length, affinity: 'after' },
+    }
+    return sameSelection(selection, whole) ? undefined : whole
+  }
+  /**
+   * The atom an arrow key reaches from a caret at the edge it leaves its block by: the end or
+   * start for Right and Left, the last or first line for Down and Up, with an atom beside the
+   * block in its container.
+   */
+  const atomReached = (event: KeyboardEvent): RichText.NodeId | undefined => {
+    const key = event.key
+    const after = key === 'ArrowRight' || key === 'ArrowDown'
+    if (!after && key !== 'ArrowLeft' && key !== 'ArrowUp') return undefined
+    // With Shift a range grows, and with the others a word or a line is skipped.
+    if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return undefined
+    // Read live: a click just before may not have been reported yet.
+    const selection = readSelection(current)
+    if (selection?.type !== 'Range' || !samePosition(selection.anchor, selection.focus)) {
+      return undefined
+    }
+    const content = current.content
+    const found = RichText.locateRun(content, selection.focus.node)
+    if (found === undefined) return undefined
+    const index = found.path[found.path.length - 1]!
+    const holder =
+      found.path.length > 1 ? RichText.blockAtPath(content, found.path.slice(0, -1)) : undefined
+    const siblings = holder?.type === 'Node' ? (holder.blocks ?? []) : content.children
+    const block = siblings[index]
+    const neighbour = siblings[index + (after ? 1 : -1)]
+    if (block === undefined || neighbour === undefined) return undefined
+    if (!RichText.isAtom(options.nodes, neighbour)) return undefined
+    const lead = block.children.slice(0, found.index).reduce((sum, run) => sum + run.text.length, 0)
+    const offset = lead + selection.focus.offset
+    const length = block.children.reduce((sum, run) => sum + run.text.length, 0)
+    if (offset === (after ? length : 0)) return neighbour.id
+    if (key === 'ArrowRight' || key === 'ArrowLeft') return undefined
+    // Down and Up leave from the last or first line, which only the layout knows.
+    const caret = positionToRange(current, selection.focus)?.getBoundingClientRect()
+    const box = current.elements.get(block.id)?.getBoundingClientRect()
+    if (caret === undefined || box === undefined || caret.height === 0) return undefined
+    const onEdgeLine = after
+      ? caret.bottom > box.bottom - caret.height
+      : caret.top < box.top + caret.height
+    return onEdgeLine ? neighbour.id : undefined
+  }
   const onEvent = (event: Event): void => {
+    if (unanswered > 0 && event.type === 'keydown' && !composing) {
+      const move = caretMoveOf(event as KeyboardEvent)
+      if (move !== undefined) {
+        event.preventDefault()
+        holdMove(move)
+        return
+      }
+    }
+    // From a selected atom, an arrow goes to the text beside it, where a browser would step
+    // into the atom's own markup.
+    // Read live, as a click just before may not have been reported yet.
+    const live = event.type === 'keydown' && !composing ? readSelection(current) : null
+    if (live?.type === 'Node') {
+      const key = (event as KeyboardEvent).key
+      const after = key === 'ArrowRight' || key === 'ArrowDown'
+      if (after || key === 'ArrowLeft' || key === 'ArrowUp') {
+        event.preventDefault()
+        const beside = caretBeside(current.content, live.node, after)
+        if (beside !== null) select(beside)
+        return
+      }
+    }
+    // In code, the first select-all selects the code, and a second the document.
+    if (event.type === 'keydown' && !composing) {
+      const code = codeToSelect(event as KeyboardEvent)
+      if (code !== undefined) {
+        event.preventDefault()
+        select(code)
+        return
+      }
+    }
+    // An arrow leaving a block for an atom beside it selects the atom, which a browser would
+    // step over.
+    if (event.type === 'keydown' && !composing) {
+      const reached = atomReached(event as KeyboardEvent)
+      if (reached !== undefined) {
+        event.preventDefault()
+        select({ type: 'Node', node: reached })
+        return
+      }
+    }
+    // Tab is taken only where it means something, so it still leaves the editor elsewhere.
+    if (event.type === 'keydown' && !composing) {
+      const key = event as KeyboardEvent
+      if (key.key === 'Tab' && !key.altKey && !key.ctrlKey && !key.metaKey) {
+        if (!RichText.takesTab(current.content, readSelection(current), options.nodes)) return
+        event.preventDefault()
+        reportSelection()
+        onIntent({ type: key.shiftKey ? 'Outdent' : 'Indent' })
+        return
+      }
+    }
     const intent = intentFor(event, composing, options.keymap)
     if (intent === undefined) return
     if (intent.preventDefault) event.preventDefault()
@@ -356,7 +673,7 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
     // been reported yet: report it first, or the edit lands at the caret before the click.
     if (intent.command !== undefined) {
       reportSelection()
-      options.onIntent(intent.command)
+      onIntent(intent.command)
     }
     if (intent.history !== undefined) options.onHistory?.(intent.history)
   }
@@ -379,7 +696,7 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
     if (deferred !== undefined) draw(deferred.state, deferred.changeSet)
     else if (lastSelection !== null) restoreSelection(current, lastSelection)
     deferred = undefined
-    if (data != null && data.length > 0) options.onIntent({ type: 'InsertText', text: data })
+    if (data != null && data.length > 0) onIntent({ type: 'InsertText', text: data })
   }
   const writeClipboard = (clipboard: ClipboardLike, slice: RichText.Slice): void => {
     clipboard.setData(SLICE_CLIPBOARD_TYPE, RichText.serializeSlice(slice))
@@ -411,7 +728,7 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
       selection?.type === 'Range' &&
       selection.anchor.node === selection.focus.node &&
       selection.anchor.offset === selection.focus.offset
-    if (!collapsed) options.onIntent({ type: 'DeleteBackward' })
+    if (!collapsed) onIntent({ type: 'DeleteBackward' })
   }
   const onPaste = (event: Event): void => {
     const clipboard = (event as Event & { readonly clipboardData?: ClipboardLike }).clipboardData
@@ -436,7 +753,111 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
     if (slice === undefined || slice.blocks.length === 0) return
     event.preventDefault()
     reportSelection()
-    options.onIntent({ type: 'Paste', slice })
+    onIntent({ type: 'Paste', slice })
+  }
+  // A click on an adornment that toggles a prop (a task's checkbox, a toggle's arrow) flips it in
+  // the document; the browser's own change to a checkbox is refused, since the patch that
+  // follows draws what the document says.
+  const onClick = (event: MouseEvent): void => {
+    const origin = event.target
+    if (!(origin instanceof Element)) return
+    const acting = origin.closest(`[${RichText.ACTION_ATTRIBUTE}]`)
+    const actedOn = acting?.closest('[data-block]')?.getAttribute('data-block')
+    if (
+      acting !== null &&
+      actedOn !== null &&
+      actedOn !== undefined &&
+      current.root.contains(acting)
+    ) {
+      event.preventDefault()
+      options.onAction?.(
+        RichText.NodeId.make(actedOn),
+        acting.getAttribute(RichText.ACTION_ATTRIBUTE)!,
+      )
+      return
+    }
+    const adornment = origin.closest(`[${RichText.TOGGLES_ATTRIBUTE}]`)
+    if (adornment === null || !current.root.contains(adornment)) return
+    const prop = adornment.getAttribute(RichText.TOGGLES_ATTRIBUTE)!
+    const id = adornment.closest('[data-block]')?.getAttribute('data-block')
+    const block =
+      id === null || id === undefined
+        ? undefined
+        : RichText.locateBlock(current.content, RichText.NodeId.make(id))?.block
+    if (block?.type !== 'Node') return
+    event.preventDefault()
+    onIntent({
+      type: 'SetProps',
+      node: block.id,
+      props: { [prop]: block.props[prop] !== true },
+    })
+  }
+  /**
+   * A press in the space below the last block writes after it, as below the last line of a
+   * page: at the end of a paragraph or heading, or on a new paragraph after anything else (a
+   * table, code, an image), which no caret could otherwise get below.
+   */
+  const pressBelow = (event: MouseEvent): boolean => {
+    const last = current.content.children.at(-1)
+    const element = last === undefined ? undefined : current.elements.get(last.id)
+    if (last === undefined || element === undefined) return false
+    if (event.clientY <= element.getBoundingClientRect().bottom) return false
+    event.preventDefault()
+    current.root.focus({ preventScroll: true })
+    const run =
+      last.type === 'Paragraph' || last.type === 'Heading' ? last.children.at(-1) : undefined
+    if (run !== undefined) {
+      const end = { node: run.id, offset: run.text.length, affinity: 'after' as const }
+      select({ type: 'Range', anchor: end, focus: end })
+      return true
+    }
+    onIntent({
+      type: 'InsertBlock',
+      block: {
+        type: 'Paragraph',
+        id: RichText.NodeId.make('paragraph'),
+        children: [{ type: 'Text', id: RichText.NodeId.make('text'), text: '', marks: [] }],
+      },
+      to: { after: last.id },
+    })
+    return true
+  }
+  // A press on an atom (an image, a divider) selects it whole, as there is no text in it for
+  // a caret, and keeps the browser from dragging it or putting the caret elsewhere.
+  const onMouseDown = (event: MouseEvent): void => {
+    const origin = event.target
+    if (event.button !== 0 || !(origin instanceof Element)) return
+    if (origin === current.root && pressBelow(event)) return
+    // An adornment (a task's checkbox, a code block's Copy) acts on its click; the press keeps
+    // the caret where it was, so writing goes on there after it.
+    if (
+      origin.closest(`[${RichText.ACTION_ATTRIBUTE}], [${RichText.TOGGLES_ATTRIBUTE}]`) !== null
+    ) {
+      event.preventDefault()
+      return
+    }
+    if (origin.closest(INTERACTIVE) !== null) return
+    const id = origin.closest('[data-block]')?.getAttribute('data-block')
+    if (id === null || id === undefined || !current.root.contains(origin)) return
+    const block = RichText.locateBlock(current.content, RichText.NodeId.make(id))?.block
+    if (block === undefined) return
+    // A third press selects its block's text. The browser's own selection runs on to the
+    // start of the next block, so what is typed over it would swallow that block too.
+    const first = block.children[0]
+    const last = block.children[block.children.length - 1]
+    if (event.detail === 3 && first !== undefined && last !== undefined) {
+      event.preventDefault()
+      select({
+        type: 'Range',
+        anchor: { node: first.id, offset: 0, affinity: 'after' },
+        focus: { node: last.id, offset: last.text.length, affinity: 'after' },
+      })
+      return
+    }
+    if (!RichText.isAtom(options.nodes, block)) return
+    event.preventDefault()
+    current.root.focus({ preventScroll: true })
+    select({ type: 'Node', node: block.id })
   }
   const target = dom.root
   // The caret belongs to the document, not the subtree: a click elsewhere on the
@@ -450,15 +871,29 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
   target.addEventListener('copy', onCopy)
   target.addEventListener('cut', onCut)
   target.addEventListener('paste', onPaste)
+  target.addEventListener('click', onClick)
+  target.addEventListener('mousedown', onMouseDown)
   return {
     current: () => current,
     held: () => deferred?.state.document ?? current.content,
     composing: () => composing,
+    answered,
     redecorate: () => {
       if (composing) return
       const selection = readSelection(current)
       redraw(patchInto(current, current.content, unchanged, options.decorate?.(current.content)))
       if (selection !== null) restoreSelection(current, selection)
+    },
+    focus: selection => {
+      current.root.focus({ preventScroll: true })
+      restoreSelection(current, selection)
+      if (selection.type !== 'Range') return
+      const at = positionToRange(current, selection.focus)?.startContainer
+      const element = at instanceof Element ? at : at?.parentElement
+      const box = element?.getBoundingClientRect()
+      const view = current.root.ownerDocument.defaultView
+      if (box === undefined || view === null) return
+      if (box.top < 0 || box.bottom > view.innerHeight) element?.scrollIntoView({ block: 'center' })
     },
     sync: (state, changeSet) => {
       if (!composing) return draw(state, changeSet)
@@ -471,6 +906,7 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
       }
     },
     detach: () => {
+      clearTimeout(fallback)
       ownerDocument.removeEventListener('selectionchange', reportSelection)
       target.removeEventListener('beforeinput', onEvent)
       target.removeEventListener('keydown', onEvent)
@@ -479,6 +915,8 @@ export const attach = (dom: EditorDom, options: AttachOptions): Attachment => {
       target.removeEventListener('copy', onCopy)
       target.removeEventListener('cut', onCut)
       target.removeEventListener('paste', onPaste)
+      target.removeEventListener('click', onClick)
+      target.removeEventListener('mousedown', onMouseDown)
     },
   }
 }
