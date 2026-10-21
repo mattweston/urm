@@ -1,7 +1,7 @@
 import { Schema as S, SchemaAST, SchemaRepresentation } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SCHEMA REPRESENTATION EXAMPLES
@@ -654,7 +654,7 @@ type CompileCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSchemaRepresentationStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -662,7 +662,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaRepresentationRepresentCase: ({
             representCase,
         }: RepresentCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 representCase: () => representCase,
             }),
         }),
@@ -670,7 +670,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaRepresentationPersistCase: ({
             persistCase,
         }: PersistCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 persistCase: () => persistCase,
             }),
         }),
@@ -678,7 +678,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaRepresentationReviveCase: ({
             reviveCase,
         }: ReviveCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 reviveCase: () => reviveCase,
             }),
         }),
@@ -686,7 +686,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaRepresentationCompileCase: ({
             compileCase,
         }: CompileCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 compileCase: () => compileCase,
             }),
         }),

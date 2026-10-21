@@ -2,7 +2,7 @@ import { Array, Effect, Match as M, Option, Schema as S, pipe } from "effect"
 import { Command, File } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // MODEL
 
@@ -83,7 +83,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         resumeDrop: () => nextDrop,
                         maybeResume: () => nextMaybeResume,
                     }),
@@ -122,7 +122,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         additionalFilesDrop: () => nextDrop,
                         additionalFiles: () => nextAdditionalFiles,
                     }),
@@ -138,12 +138,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             RemovedResume: () => [
-                evo(model, { maybeResume: () => Option.none() }),
+                modifyFields(model, { maybeResume: () => Option.none() }),
                 [],
             ],
 
             RemovedAdditionalFile: ({ fileIndex }) => [
-                evo(model, {
+                modifyFields(model, {
                     additionalFiles: () =>
                         Array.remove(model.additionalFiles, fileIndex),
                 }),

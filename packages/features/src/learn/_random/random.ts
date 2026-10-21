@@ -1,7 +1,7 @@
 import { Effect, Random, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL RANDOM PROGRAMS
@@ -413,13 +413,13 @@ type SeedCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedRandomStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedRandomServiceCase: ({ serviceCase }: ServiceCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 serviceCase: () => serviceCase,
             }),
         }),
@@ -427,7 +427,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRandomGenerateCase: ({
             generateCase,
         }: GenerateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 generateCase: () => generateCase,
             }),
         }),
@@ -435,13 +435,13 @@ export const update = (model: Model, message: Message) =>
         SelectedRandomCollectionsCase: ({
             collectionsCase,
         }: CollectionsCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 collectionsCase: () => collectionsCase,
             }),
         }),
 
         SelectedRandomSeedCase: ({ seedCase }: SeedCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 seedCase: () => seedCase,
             }),
         }),

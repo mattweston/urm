@@ -21,7 +21,7 @@ export class ResendConfig extends Context.Service<
         Effect.gen(function* () {
             const config = yield* Config.all({
                 resendWebhookSecret: Config.option(
-                    Config.string("RESEND_WEBHOOK_SECRET")
+                    Config.String("RESEND_WEBHOOK_SECRET")
                 ),
             }).pipe(
                 Config.map((c) => ({

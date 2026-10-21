@@ -1,7 +1,7 @@
 import { Effect, Order, Schema as S, TxPriorityQueue } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXPRIORITYQUEUE PROGRAMS
@@ -495,26 +495,26 @@ type RefineCasePayload = Readonly<{ refineCase: RefineCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxPriorityQueueStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxPriorityQueueCreateCase: ({
             createCase,
         }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxPriorityQueueEnqueueCase: ({
             enqueueCase,
         }: EnqueueCasePayload) => ({
-            model: evo(model, { enqueueCase: () => enqueueCase }),
+            model: modifyFields(model, { enqueueCase: () => enqueueCase }),
         }),
         SelectedTxPriorityQueueDequeueCase: ({
             dequeueCase,
         }: DequeueCasePayload) => ({
-            model: evo(model, { dequeueCase: () => dequeueCase }),
+            model: modifyFields(model, { dequeueCase: () => dequeueCase }),
         }),
         SelectedTxPriorityQueueRefineCase: ({
             refineCase,
         }: RefineCasePayload) => ({
-            model: evo(model, { refineCase: () => refineCase }),
+            model: modifyFields(model, { refineCase: () => refineCase }),
         }),
     })

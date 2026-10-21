@@ -130,7 +130,7 @@ export type BlogTemplate = typeof BlogTemplate.Type
 
 export type BlogLibraryRecord = typeof BlogLibraryRecord.Type
 
-export class BlogWriteError extends Schema.TaggedErrorClass<BlogWriteError>()(
+export class BlogWriteError extends Schema.TaggedError<BlogWriteError>()(
     "BlogWriteError",
     { message: Schema.String }
 ) {}

@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import type { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -14,9 +14,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ChangedSearchInput: ({ value }) => [
-                evo(model, { search: () => value }),
+                modifyFields(model, { search: () => value }),
                 [],
             ],
-            ClickedClearSearch: () => [evo(model, { search: () => "" }), []],
+            ClickedClearSearch: () => [modifyFields(model, { search: () => "" }), []],
         })
     )

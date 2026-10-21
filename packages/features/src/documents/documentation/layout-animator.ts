@@ -1,7 +1,7 @@
 import { Schema as S } from "effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { IconPause, IconPlay } from "@urm/ui/foldkit/icons/view.ts"
 
@@ -20,7 +20,7 @@ export type Message = typeof Message.Type
 export const init = (): Model => ({ paused_ids: [] })
 
 export const update = (model: Model, message: Message): Model =>
-    evo(model, {
+    modifyFields(model, {
         paused_ids: (paused_ids) =>
             paused_ids.includes(message.id)
                 ? paused_ids.filter((id) => id !== message.id)

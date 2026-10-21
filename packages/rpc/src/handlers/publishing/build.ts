@@ -32,7 +32,7 @@ export const build_publication = Effect.fn("Publishing.build")(function* (
             yield* writer.write({
                 assets,
                 public_config: {
-                    mapbox_access_token: yield* Config.string(
+                    mapbox_access_token: yield* Config.String(
                         "VITE_MAPBOX_ACCESS_TOKEN"
                     ).pipe(Config.withDefault("")),
                 },

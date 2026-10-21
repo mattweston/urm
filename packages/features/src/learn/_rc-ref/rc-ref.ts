@@ -1,7 +1,7 @@
 import { Effect, RcRef, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL RCREF PROGRAMS
@@ -368,25 +368,25 @@ type InvalidateCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedRcRefStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedRcRefBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedRcRefBorrowCase: ({ borrowCase }: BorrowCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 borrowCase: () => borrowCase,
             }),
         }),
 
         SelectedRcRefIdleCase: ({ idleCase }: IdleCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 idleCase: () => idleCase,
             }),
         }),
@@ -394,7 +394,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRcRefInvalidateCase: ({
             invalidateCase,
         }: InvalidateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 invalidateCase: () => invalidateCase,
             }),
         }),

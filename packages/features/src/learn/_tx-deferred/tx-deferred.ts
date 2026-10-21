@@ -9,7 +9,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXDEFERRED PROGRAMS
@@ -466,22 +466,22 @@ type InspectCasePayload = Readonly<{ inspectCase: InspectCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxDeferredStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxDeferredCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxDeferredWaitCase: ({ waitCase }: WaitCasePayload) => ({
-            model: evo(model, { waitCase: () => waitCase }),
+            model: modifyFields(model, { waitCase: () => waitCase }),
         }),
         SelectedTxDeferredCompleteCase: ({
             completeCase,
         }: CompleteCasePayload) => ({
-            model: evo(model, { completeCase: () => completeCase }),
+            model: modifyFields(model, { completeCase: () => completeCase }),
         }),
         SelectedTxDeferredInspectCase: ({
             inspectCase,
         }: InspectCasePayload) => ({
-            model: evo(model, { inspectCase: () => inspectCase }),
+            model: modifyFields(model, { inspectCase: () => inspectCase }),
         }),
     })

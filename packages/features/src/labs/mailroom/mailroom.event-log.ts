@@ -1,8 +1,8 @@
 import { Effect, Layer, Redacted, Schema as S } from "effect"
-import * as Msgpack from "effect/unstable/encoding/Msgpack"
-import * as EventGroup from "effect/unstable/eventlog/EventGroup"
-import * as EventJournal from "effect/unstable/eventlog/EventJournal"
-import * as EventLog from "effect/unstable/eventlog/EventLog"
+import * as Msgpack from "effect/encoding/Msgpack"
+import * as EventGroup from "effect/eventlog/EventGroup"
+import * as EventJournal from "effect/eventlog/EventJournal"
+import * as EventLog from "effect/eventlog/EventLog"
 
 import { randomHexId } from "@urm/utils"
 

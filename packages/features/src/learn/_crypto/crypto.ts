@@ -1,7 +1,7 @@
 import { Clock, Crypto, Effect, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Deterministic Crypto service used by the teaching demo
@@ -421,12 +421,12 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedCryptoStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
         ClickedCycleCryptoByteSize: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 byteSize: (size) =>
                     size === "Eight"
                         ? "Sixteen"
@@ -436,24 +436,24 @@ export const update = (model: Model, message: Message) =>
             }),
         }),
         ClickedToggleCryptoRangeMode: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 rangeMode: (mode) =>
                     mode === "Inclusive" ? "HalfOpen" : "Inclusive",
             }),
         }),
         ClickedToggleCryptoIdClock: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 idClock: (preset) =>
                     preset === "Epoch" ? "DemoTime" : "Epoch",
             }),
         }),
         SelectedCryptoDigestAlgorithm: ({ algorithm }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 digestAlgorithm: () => algorithm,
             }),
         }),
         ClickedToggleCryptoDigestInput: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 digestInput: (input) =>
                     input === "Effect" ? "Foldkit" : "Effect",
             }),

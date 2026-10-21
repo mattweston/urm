@@ -12,7 +12,7 @@ import {
     Stream,
 } from "effect"
 import { Command, ManagedResource, Subscription, type Update } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     next_sound_preference,
@@ -1124,7 +1124,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ChangedExampleRoute: ({ route }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     route: () => route,
                     selected_example_key: () => example_key_for_route(route),
                     ...idle_run_fields(example_key_for_route(route)),
@@ -1145,15 +1145,15 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ],
             }),
             HighlightedCode: ({ code }) => ({
-                model: evo(model, { code: () => code }),
+                model: modifyFields(model, { code: () => code }),
                 commands: [],
             }),
             MeasuredHighlights: ({ rects }) => ({
-                model: evo(model, { highlight_rects: () => rects }),
+                model: modifyFields(model, { highlight_rects: () => rects }),
                 commands: [],
             }),
             HoveredStep: ({ index }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     hovered_step: () => Option.some(index),
                     hover_token: (token) => token + 1,
                 }),
@@ -1162,7 +1162,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             // The box lingers briefly rather than snapping back to the result,
             // so sweeping across a row of nodes does not strobe.
             UnhoveredStep: () => ({
-                model: evo(model, { hover_token: (token) => token + 1 }),
+                model: modifyFields(model, { hover_token: (token) => token + 1 }),
                 commands: [ClearStepHover({ token: model.hover_token + 1 })],
             }),
             // Only the most recent unhover may clear; an intervening hover has
@@ -1170,12 +1170,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ClearedStepHover: ({ token }) => ({
                 model:
                     token === model.hover_token
-                        ? evo(model, { hovered_step: () => Option.none() })
+                        ? modifyFields(model, { hovered_step: () => Option.none() })
                         : model,
                 commands: [],
             }),
             RaisedNotification: ({ notification }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     notification: () => Option.some(notification),
                     is_notification_visible: () => true,
                 }),
@@ -1190,7 +1190,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             // Only the notification still on screen may dismiss itself; a
             // newer run's bubble must not be cancelled by an older timer.
             DismissedNotification: ({ id }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     is_notification_visible: (visible) =>
                         Option.match(model.notification, {
                             onNone: () => visible,
@@ -1201,19 +1201,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             HoveredNode: () => ({
-                model: evo(model, { is_node_hovered: () => true }),
+                model: modifyFields(model, { is_node_hovered: () => true }),
                 commands: [],
             }),
             UnhoveredNode: () => ({
-                model: evo(model, { is_node_hovered: () => false }),
+                model: modifyFields(model, { is_node_hovered: () => false }),
                 commands: [],
             }),
             HoveredControl: () => ({
-                model: evo(model, { is_control_hovered: () => true }),
+                model: modifyFields(model, { is_control_hovered: () => true }),
                 commands: [],
             }),
             UnhoveredControl: () => ({
-                model: evo(model, { is_control_hovered: () => false }),
+                model: modifyFields(model, { is_control_hovered: () => false }),
                 commands: [],
             }),
             // Run, interrupt, or reset — which one depends on where the run is,
@@ -1229,7 +1229,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         ],
                     })),
                     M.tag("Running", ({ elapsed_millis }) => ({
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             state: () =>
                                 Interrupted({
                                     duration_millis: elapsed_millis,
@@ -1257,7 +1257,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         ],
                     })),
                     M.orElse(() => ({
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             state: () => Idle(),
                             next_run_id: (next_run_id) => next_run_id + 1,
                             ...idle_run_fields(model.selected_example_key),
@@ -1266,11 +1266,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     }))
                 ),
             ChangedReducedMotion: ({ prefers }) => ({
-                model: evo(model, { prefers_reduced_motion: () => prefers }),
+                model: modifyFields(model, { prefers_reduced_motion: () => prefers }),
                 commands: [],
             }),
             ToggledSound: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     sound_preference: next_sound_preference,
                 }),
                 commands: [],
@@ -1282,7 +1282,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         options: () => options,
                         state: () => Idle(),
                         next_run_id: (next_run_id) => next_run_id + 1,
@@ -1307,7 +1307,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         options: () => options,
                         state: () => Idle(),
                         next_run_id: (next_run_id) => next_run_id + 1,
@@ -1324,7 +1324,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
             },
             SetRefValue: ({ value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     ref_value: (ref_value) =>
                         Option.map(ref_value, (ref) =>
                             RefValue.make({
@@ -1340,7 +1340,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ],
             }),
             ClearedRefFlash: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     ref_value: (ref_value) =>
                         Option.map(ref_value, (ref) =>
                             RefValue.make({
@@ -1353,11 +1353,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             ChangedScopeState: ({ state }) => ({
-                model: evo(model, { scope_state: () => state }),
+                model: modifyFields(model, { scope_state: () => state }),
                 commands: [],
             }),
             AddedFinalizer: ({ finalizer }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     finalizers: (finalizers) =>
                         finalizers.some(
                             (existing) => existing.id === finalizer.id
@@ -1368,7 +1368,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: play_sound(model, AudioFinalizerCreated()),
             }),
             ChangedFinalizerState: ({ id, state }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     finalizers: (finalizers) =>
                         finalizers.map((finalizer) =>
                             finalizer.id === id
@@ -1393,7 +1393,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.tag("Running", (state) => ({
                         model:
                             state.run_id === run_id
-                                ? evo(model, {
+                                ? modifyFields(model, {
                                       concurrency_steps: (steps) =>
                                           steps.map((step) =>
                                               step.index === index
@@ -1428,7 +1428,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.tag("Running", (state) => ({
                         model:
                             state.run_id === run_id
-                                ? evo(model, {
+                                ? modifyFields(model, {
                                       concurrency_steps: (steps) =>
                                           steps.map((step) =>
                                               step.index === index
@@ -1474,7 +1474,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.tag("Running", (state) => ({
                         model:
                             state.run_id === run_id
-                                ? evo(model, {
+                                ? modifyFields(model, {
                                       concurrency_steps: (steps) =>
                                           steps.map((step) =>
                                               step.index === index
@@ -1522,7 +1522,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.tag("Running", (state) => ({
                         model:
                             state.run_id === run_id
-                                ? evo(model, {
+                                ? modifyFields(model, {
                                       concurrency_steps: (steps) =>
                                           steps.map((step) =>
                                               step.index === index
@@ -1566,7 +1566,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.orElse(() => ({ model, commands: [] }))
                 ),
             StartedSleep: ({ run_id, started_at_millis }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     state: () =>
                         Running({
                             run_id,
@@ -1607,7 +1607,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [PlaySound({ cue: AudioRunStarted() })],
             }),
             AudioUnavailable: () => ({
-                model: evo(model, { sound_preference: () => "Off" }),
+                model: modifyFields(model, { sound_preference: () => "Off" }),
                 commands: [],
             }),
             AudioReleased: () => ({ model, commands: [] }),
@@ -1617,7 +1617,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.tag("Running", (state) =>
                         state.run_id === run_id
                             ? {
-                                  model: evo(model, {
+                                  model: modifyFields(model, {
                                       state: () => {
                                           const duration_millis =
                                               completed_at_millis -
@@ -1710,7 +1710,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             // Every frame advances the spring, whether or not a run is in
             // flight — the box is still settling after the run finishes.
             TickedElapsed: () => {
-                const ticked = evo(model, {
+                const ticked = modifyFields(model, {
                     highlight: (spring) =>
                         step_spring(spring, highlight_target_for(model)),
                 })
@@ -1730,7 +1730,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.tag("Running", (state) =>
                         state.run_id === run_id
                             ? {
-                                  model: evo(model, {
+                                  model: modifyFields(model, {
                                       state: () =>
                                           Running({
                                               run_id: state.run_id,

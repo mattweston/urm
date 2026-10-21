@@ -1,7 +1,7 @@
 import { Deferred, Effect, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // MODEL
@@ -442,27 +442,27 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedDeferredStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
         SelectedDeferredWaitStep: ({ waitStep }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 waitStep: () => waitStep,
             }),
         }),
         SelectedDeferredCompletionOrder: ({ completionOrder }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 completionOrder: () => completionOrder,
             }),
         }),
         SelectedDeferredOutcome: ({ outcome }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 outcome: () => outcome,
             }),
         }),
         SelectedDeferredMemoMode: ({ memoMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 memoMode: () => memoMode,
             }),
         }),

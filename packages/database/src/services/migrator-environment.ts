@@ -3,7 +3,7 @@
  *
  * MigratorService that picks a strategy from the loaded environment config.
  */
-import type { SqlError } from "effect/unstable/sql/SqlError"
+import type { SqlError } from "effect/sql/SqlError"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { existsSync } from "node:fs"

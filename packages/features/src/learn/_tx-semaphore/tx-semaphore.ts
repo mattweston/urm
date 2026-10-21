@@ -1,7 +1,7 @@
 import { Effect, Schema as S, TxRef, TxSemaphore } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXSEMAPHORE PROGRAMS
@@ -464,22 +464,22 @@ type ScopeCasePayload = Readonly<{ scopeCase: ScopeCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxSemaphoreStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxSemaphoreCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxSemaphoreAcquireCase: ({
             acquireCase,
         }: AcquireCasePayload) => ({
-            model: evo(model, { acquireCase: () => acquireCase }),
+            model: modifyFields(model, { acquireCase: () => acquireCase }),
         }),
         SelectedTxSemaphoreReleaseCase: ({
             releaseCase,
         }: ReleaseCasePayload) => ({
-            model: evo(model, { releaseCase: () => releaseCase }),
+            model: modifyFields(model, { releaseCase: () => releaseCase }),
         }),
         SelectedTxSemaphoreScopeCase: ({ scopeCase }: ScopeCasePayload) => ({
-            model: evo(model, { scopeCase: () => scopeCase }),
+            model: modifyFields(model, { scopeCase: () => scopeCase }),
         }),
     })

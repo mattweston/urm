@@ -2,7 +2,7 @@ import type { LinkSuggestion } from "@urm/ui/foldkit/rich-text-editor/rich-text-
 import { Array, Effect, Match as M, Option, Schema as S, Stream } from "effect"
 import { Command, Navigation, Runtime, Subscription } from "foldkit"
 import { type Document, type Html, type HtmlBuilder } from "foldkit/html"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { toString as urlToString, type Url } from "foldkit/url"
 import { DragAndDrop, Tooltip } from "@foldkit/ui"
 import { content_item_href } from "../content/route.ts"
@@ -519,17 +519,17 @@ const addTag = (model: Model): Model => {
         return model
     }
 
-    return evo(model, {
+    return modifyFields(model, {
         tags: () => [...model.tags, nextTag],
         tagInput: () => "",
     })
 }
 
 const removeTag = (model: Model, value: string): Model =>
-    evo(model, { tags: () => model.tags.filter((tag) => tag !== value) })
+    modifyFields(model, { tags: () => model.tags.filter((tag) => tag !== value) })
 
 const markBlogDraftReady = (model: Model): Model =>
-    evo(model, {
+    modifyFields(model, {
         status: () => "ready",
         maybeError: () => Option.none(),
     })
@@ -560,7 +560,7 @@ const updateLoadedBlogDraft = (
     entityTags: ReadonlyArray<typeof EntityTagSchema.Type>
 ): Model => {
     if (isListRouteKind(model.routeKind) || model.routeKind === "new") {
-        return evo(model, {
+        return modifyFields(model, {
             status: () => "ready",
             maybeError: () => Option.none(),
             documents: () => documents,
@@ -590,7 +590,7 @@ const updateLoadedBlogDraft = (
     )
 
     if (maybeDocument === undefined) {
-        return evo(model, {
+        return modifyFields(model, {
             status: () => "ready",
             maybeError: () => Option.none(),
             documents: () => documents,
@@ -634,7 +634,7 @@ const updateLoadedBlogDraft = (
             .concat(maybeContent?.tags ?? [])
     )
 
-    return evo(model, {
+    return modifyFields(model, {
         documentId: () => maybeDocument.id,
         status: () => "ready",
         maybeError: () => Option.none(),
@@ -658,7 +658,7 @@ const updateLoadedBlogDraft = (
                 return editor
             }
 
-            return evo(editor, {
+            return modifyFields(editor, {
                 document: () => maybeContent.document,
             })
         },
@@ -724,7 +724,7 @@ const updateBlogEditor = (
     const [editor, commands] = updateRichTextEditor(model.editor, message)
 
     return [
-        evo(model, {
+        modifyFields(model, {
             editor: () => editor,
             status: () => "ready",
             maybeError: () => Option.none(),
@@ -738,7 +738,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             UpdatedBlogTitle: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     title: () => value,
                     status: () => "ready",
                     maybeError: () => Option.none(),
@@ -746,7 +746,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedBlogSlug: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     slug: () => value,
                     status: () => "ready",
                     maybeError: () => Option.none(),
@@ -754,7 +754,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedBlogAuthor: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     author: () => value,
                     status: () => "ready",
                     maybeError: () => Option.none(),
@@ -762,7 +762,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedBlogExcerpt: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     excerpt: () => value,
                     status: () => "ready",
                     maybeError: () => Option.none(),
@@ -770,7 +770,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedBlogSeoTitle: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     seoTitle: () => value,
                     status: () => "ready",
                     maybeError: () => Option.none(),
@@ -778,7 +778,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedBlogSeoDescription: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     seoDescription: () => value,
                     status: () => "ready",
                     maybeError: () => Option.none(),
@@ -786,7 +786,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedBlogTagInput: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     tagInput: () => value,
                     status: () => "ready",
                     maybeError: () => Option.none(),
@@ -794,7 +794,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedBlogPublished: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     published: () => value,
                     sidebarRouteKind: () => (value ? "published" : "drafts"),
                     status: () => "ready",
@@ -811,7 +811,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const slug = model.slug.trim().toLowerCase()
                 if (slug !== "" && !S.is(DocumentSlug)(slug)) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             status: () => "error",
                             maybeError: () =>
                                 Option.some(
@@ -821,7 +821,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         [],
                     ]
                 }
-                const saving_model = evo(model, {
+                const saving_model = modifyFields(model, {
                     slug: () => slug,
                     status: () => "saving",
                     maybeError: () => Option.none(),
@@ -829,7 +829,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 return [saving_model, [saveBlogDraft(saving_model)]]
             },
             ChangedBlogTemplateMetadata: ({ field, value }) => [
-                evo(model, {
+                modifyFields(model, {
                     template_name: (current) =>
                         field === "name" ? value : current,
                     template_description: (current) =>
@@ -865,7 +865,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     Option.isNone(tags)
                 ) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             template_feedback: () =>
                                 "Enter a template name, with no more than 12 tags of 40 characters each.",
                         }),
@@ -874,7 +874,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         template_save_status: () => "saving",
                         template_feedback: () => "",
                     }),
@@ -889,7 +889,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             SavedBlogTemplate: () => [
-                evo(model, {
+                modifyFields(model, {
                     template_name: () => "",
                     template_description: () => "Reusable blog post template.",
                     template_tags: () => "",
@@ -899,7 +899,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             FailedSavingBlogTemplate: ({ reason }) => [
-                evo(model, {
+                modifyFields(model, {
                     template_save_status: () => "idle",
                     template_feedback: () =>
                         `Could not save template: ${reason}`,
@@ -926,13 +926,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             GotSidebarTooltipMessage: ({ tooltipId: key, message }) =>
                 delegateSidebarTooltip(model, key, message),
             ToggledBlogSidebarIsCollapsed: () => [
-                evo(model, {
+                modifyFields(model, {
                     isSidebarCollapsed: (isCollapsed) => !isCollapsed,
                 }),
                 [],
             ],
             ToggledBlogSidebarMobileIsOpen: () => [
-                evo(model, {
+                modifyFields(model, {
                     isSidebarMobileOpen: (isOpen) => !isOpen,
                 }),
                 [],
@@ -944,7 +944,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return [
                     updateLoadedBlogDraft(
-                        evo(model, {
+                        modifyFields(model, {
                             routeKind: () => routeKind,
                             sidebarRouteKind: () => sidebarRouteKind,
                             routeBase: () => routeBaseFor(pathname),
@@ -967,7 +967,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 entityTags,
             }) => [
                 updateLoadedBlogDraft(
-                    evo(model, {
+                    modifyFields(model, {
                         sourceDocuments: () => documents,
                         postMetadata: () => postMetadata,
                         documents: () =>
@@ -989,7 +989,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
                 return [
                     updateLoadedBlogDraft(
-                        evo(model, {
+                        modifyFields(model, {
                             assignments: () => assignments,
                             documents: () => documents,
                         }),
@@ -1002,7 +1002,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             SavedBlogDraft: ({ document, metadata }) => [
-                evo(model, {
+                modifyFields(model, {
                     documentId: () => document.id,
                     sourceDocuments: () =>
                         upsertBlogDocument(model.sourceDocuments, document),
@@ -1035,14 +1035,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })(),
             ],
             FailedLoadingBlogDraft: ({ reason }) => [
-                evo(model, {
+                modifyFields(model, {
                     status: () => "error",
                     maybeError: () => Option.some(reason),
                 }),
                 [],
             ],
             FailedSavingBlogDraft: ({ reason }) => [
-                evo(model, {
+                modifyFields(model, {
                     status: () => "error",
                     maybeError: () => Option.some(reason),
                 }),

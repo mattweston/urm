@@ -1,6 +1,6 @@
 import { Array, Match as M, Option, pipe } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { FetchTelemetry, SyncChart } from "./command.ts"
 import type { Telemetry } from "./domain.ts"
 import { type Message } from "./message.ts"
@@ -57,7 +57,7 @@ const refetchTelemetry = (model: Model): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             TelemetryNotAsked: () => [
-                evo(model, {
+                modifyFields(model, {
                     telemetry: () => TelemetryLoading(),
                 }),
                 [FetchTelemetry()],
@@ -65,7 +65,7 @@ const refetchTelemetry = (model: Model): UpdateReturn =>
             TelemetryLoading: () => [model, []],
             TelemetryRefreshing: () => [model, []],
             TelemetryFailure: ({ maybeData }) => [
-                evo(model, {
+                modifyFields(model, {
                     telemetry: () =>
                         Option.match(maybeData, {
                             onNone: () => TelemetryLoading(),
@@ -75,7 +75,7 @@ const refetchTelemetry = (model: Model): UpdateReturn =>
                 [FetchTelemetry()],
             ],
             TelemetryOk: ({ data }) => [
-                evo(model, {
+                modifyFields(model, {
                     telemetry: () => TelemetryRefreshing({ data }),
                 }),
                 [FetchTelemetry()],
@@ -88,7 +88,7 @@ const selectedControl = (
     updateModel: (model: Model) => Model
 ): UpdateReturn => {
     const nextModel = updateModel(
-        evo(model, { maybeSelectedDatumId: () => Option.none() })
+        modifyFields(model, { maybeSelectedDatumId: () => Option.none() })
     )
 
     return [
@@ -110,16 +110,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.tagsExhaustive({
             SelectedChartMode: ({ chartMode }) =>
                 selectedControl(model, (current) =>
-                    evo(current, { chartMode: () => chartMode })
+                    modifyFields(current, { chartMode: () => chartMode })
                 ),
             SelectedPeriod: ({ period }) =>
                 selectedControl(model, (current) =>
-                    evo(current, { period: () => period })
+                    modifyFields(current, { period: () => period })
                 ),
             ClickedRefresh: () => refetchTelemetry(model),
             ClickedRetry: () => refetchTelemetry(model),
             ClickedChartDatum: ({ datumId }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeSelectedDatumId: () => Option.some(datumId),
                 }),
                 syncChart({
@@ -132,7 +132,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }),
             ],
             SucceededFetchTelemetry: ({ telemetry }) => {
-                const nextModel = evo(model, {
+                const nextModel = modifyFields(model, {
                     telemetry: () =>
                         TelemetryOk({ data: telemetry, warning: "" }),
                 })
@@ -149,7 +149,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             FetchedSampleTelemetry: ({ telemetry, warning }) => {
-                const nextModel = evo(model, {
+                const nextModel = modifyFields(model, {
                     telemetry: () => TelemetryOk({ data: telemetry, warning }),
                 })
                 return [
@@ -165,7 +165,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             FailedFetchTelemetry: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     telemetry: () =>
                         TelemetryFailure({
                             error,
@@ -175,7 +175,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             SucceededMountChart: ({ hostId }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeChartHostId: () => Option.some(hostId),
                     maybeChartError: () => Option.none(),
                 }),
@@ -189,26 +189,26 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }),
             ],
             FailedMountChart: ({ reason }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeChartError: () => Option.some(reason),
                 }),
                 [],
             ],
             CompletedSyncChart: () => [
-                evo(model, {
+                modifyFields(model, {
                     maybeChartError: () => Option.none(),
                 }),
                 [],
             ],
             FailedSyncChart: ({ reason }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeChartError: () => Option.some(reason),
                 }),
                 [],
             ],
             SelectedPackage: ({ packageId }) =>
                 selectedControl(model, (current) =>
-                    evo(current, { selectedPackageId: () => packageId })
+                    modifyFields(current, { selectedPackageId: () => packageId })
                 ),
         })
     )

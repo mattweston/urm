@@ -1,7 +1,7 @@
 import { Effect, Exit, Pull, Schema as S, Take } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TAKE PROGRAMS
@@ -413,20 +413,20 @@ type CompleteCasePayload = Readonly<{ completeCase: CompleteCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTakeStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTakeRepresentCase: ({
             representCase,
         }: RepresentCasePayload) => ({
-            model: evo(model, { representCase: () => representCase }),
+            model: modifyFields(model, { representCase: () => representCase }),
         }),
         SelectedTakeEmitCase: ({ emitCase }: EmitCasePayload) => ({
-            model: evo(model, { emitCase: () => emitCase }),
+            model: modifyFields(model, { emitCase: () => emitCase }),
         }),
         SelectedTakeFailCase: ({ failCase }: FailCasePayload) => ({
-            model: evo(model, { failCase: () => failCase }),
+            model: modifyFields(model, { failCase: () => failCase }),
         }),
         SelectedTakeCompleteCase: ({ completeCase }: CompleteCasePayload) => ({
-            model: evo(model, { completeCase: () => completeCase }),
+            model: modifyFields(model, { completeCase: () => completeCase }),
         }),
     })

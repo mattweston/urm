@@ -9,7 +9,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Cache examples
@@ -304,14 +304,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedCacheStage: ({ stage }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     stage: () => stage,
                 }),
                 commands: [],
             }),
 
             SelectedCacheLookupKey: ({ lookup_key }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     lookup_key: () => lookup_key,
                 }),
                 commands: [],
@@ -322,7 +322,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const cached = lookup_is_cached(model, key)
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         lookup_ada_cached: (value) =>
                             key === "ada" ? true : value,
                         lookup_grace_cached: (value) =>
@@ -344,7 +344,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const cached = lookup_is_cached(model, key)
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         lookup_ada_cached: (value) =>
                             key === "ada" ? true : value,
                         lookup_grace_cached: (value) =>
@@ -362,7 +362,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedResetCacheLookup: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     lookup_ada_cached: () => false,
                     lookup_grace_cached: () => false,
                     lookup_count: () => 0,
@@ -380,7 +380,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         ttl_cached: () => true,
                         ttl_expires_at: () => model.ttl_now + 30,
                         ttl_version: (version) => version + 1,
@@ -391,21 +391,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedAdvanceCacheTTL20: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     ttl_now: (now) => now + 20,
                 }),
                 commands: [],
             }),
 
             ClickedAdvanceCacheTTL15: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     ttl_now: (now) => now + 15,
                 }),
                 commands: [],
             }),
 
             ClickedResetCacheTTL: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     ttl_now: () => 0,
                     ttl_cached: () => false,
                     ttl_expires_at: () => 0,
@@ -416,7 +416,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedFillCacheCapacity: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     capacity_keys: () => ["a", "b", "c"],
                     capacity_log: () => [
                         "set a → [a]",
@@ -433,7 +433,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         capacity_keys: (keys) => [
                             ...keys.filter((key) => key !== "b"),
                             "b",
@@ -457,7 +457,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const next = appended.length > 3 ? appended.slice(1) : appended
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         capacity_keys: () => next,
                         capacity_log: (log) => [
                             ...log,
@@ -471,7 +471,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedResetCacheCapacity: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     capacity_keys: () => [],
                     capacity_log: () => [],
                 }),
@@ -479,7 +479,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedCacheGetOption: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     control_log: (log) => [
                         ...log,
                         model.control_cached
@@ -491,7 +491,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedCacheGetSuccess: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     control_log: (log) => [
                         ...log,
                         model.control_cached
@@ -505,7 +505,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ClickedControlCacheGet: () => {
                 if (model.control_cached) {
                     return {
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             control_log: (log) => [
                                 ...log,
                                 `get(user) → HIT ${model.control_value}`,
@@ -518,7 +518,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const version = model.control_version + 1
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         control_cached: () => true,
                         control_version: () => version,
                         control_lookup_count: (count) => count + 1,
@@ -533,7 +533,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedCacheSet: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     control_cached: () => true,
                     control_value: () => "user:manual",
                     control_log: (log) => [
@@ -548,7 +548,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const version = model.control_version + 1
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         control_cached: () => true,
                         control_version: () => version,
                         control_lookup_count: (count) => count + 1,
@@ -563,7 +563,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedCacheInvalidate: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     control_cached: () => false,
                     control_value: () => "",
                     control_log: (log) => [
@@ -575,7 +575,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedResetCacheControl: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     control_cached: () => false,
                     control_value: () => "",
                     control_version: () => 0,

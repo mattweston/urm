@@ -1,7 +1,7 @@
 import { Effect, Fiber, Schema as S, TxPubSub, TxQueue } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXPUBSUB PROGRAMS
@@ -534,22 +534,22 @@ type ShutdownCasePayload = Readonly<{ shutdownCase: ShutdownCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxPubSubStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxPubSubCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxPubSubSubscribeCase: ({
             subscribeCase,
         }: SubscribeCasePayload) => ({
-            model: evo(model, { subscribeCase: () => subscribeCase }),
+            model: modifyFields(model, { subscribeCase: () => subscribeCase }),
         }),
         SelectedTxPubSubPublishCase: ({ publishCase }: PublishCasePayload) => ({
-            model: evo(model, { publishCase: () => publishCase }),
+            model: modifyFields(model, { publishCase: () => publishCase }),
         }),
         SelectedTxPubSubShutdownCase: ({
             shutdownCase,
         }: ShutdownCasePayload) => ({
-            model: evo(model, { shutdownCase: () => shutdownCase }),
+            model: modifyFields(model, { shutdownCase: () => shutdownCase }),
         }),
     })

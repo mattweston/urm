@@ -1,6 +1,6 @@
 import { Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import {
     LoadCartlaneStorage,
     PersistCartlane,
@@ -23,7 +23,7 @@ const persist = (model: Model) =>
 const submit = (model: Model): UpdateReturn => {
     if (!model.is_online)
         return [
-            evo(model, {
+            modifyFields(model, {
                 checkout_result: () =>
                     Option.some({
                         _tag: "Failed",
@@ -46,7 +46,7 @@ const submit = (model: Model): UpdateReturn => {
         agree_to_terms: model.checkout_form.agree_to_terms,
     }
     return [
-        evo(model, {
+        modifyFields(model, {
             submission_state: () => "Submitting",
             checkout_result: () => Option.none(),
             last_submitted_cart: () => model.cart,
@@ -60,11 +60,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             ChangedRoute: ({ route }) => [
-                evo(model, { route: () => route }),
+                modifyFields(model, { route: () => route }),
                 [],
             ],
             ClickedAddProduct: ({ product_id }) => {
-                const next = evo(model, {
+                const next = modifyFields(model, {
                     cart: () => addCartLine(model.cart, product_id),
                     notice: () =>
                         Option.map(
@@ -79,7 +79,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     (candidate) => candidate.product_id === product_id
                 )
                 if (line === undefined) return [model, []]
-                const next = evo(model, {
+                const next = modifyFields(model, {
                     cart: () =>
                         updateCartLine(
                             model.cart,
@@ -94,7 +94,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     (candidate) => candidate.product_id === product_id
                 )
                 if (line === undefined) return [model, []]
-                const next = evo(model, {
+                const next = modifyFields(model, {
                     cart: () =>
                         updateCartLine(
                             model.cart,
@@ -105,70 +105,70 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 return [next, [persist(next)]]
             },
             ClickedRemoveProduct: ({ product_id }) => {
-                const next = evo(model, {
+                const next = modifyFields(model, {
                     cart: () => updateCartLine(model.cart, product_id, 0),
                 })
                 return [next, [persist(next)]]
             },
             ChangedCheckoutName: ({ value }) => [
-                evo(model, {
-                    checkout_form: (form) => evo(form, { name: () => value }),
+                modifyFields(model, {
+                    checkout_form: (form) => modifyFields(form, { name: () => value }),
                 }),
                 [],
             ],
             ChangedCheckoutEmail: ({ value }) => [
-                evo(model, {
-                    checkout_form: (form) => evo(form, { email: () => value }),
+                modifyFields(model, {
+                    checkout_form: (form) => modifyFields(form, { email: () => value }),
                 }),
                 [],
             ],
             ChangedCheckoutAddress: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     checkout_form: (form) =>
-                        evo(form, { address: () => value }),
+                        modifyFields(form, { address: () => value }),
                 }),
                 [],
             ],
             ChangedCheckoutCity: ({ value }) => [
-                evo(model, {
-                    checkout_form: (form) => evo(form, { city: () => value }),
+                modifyFields(model, {
+                    checkout_form: (form) => modifyFields(form, { city: () => value }),
                 }),
                 [],
             ],
             ChangedCheckoutPostalCode: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     checkout_form: (form) =>
-                        evo(form, { postal_code: () => value }),
+                        modifyFields(form, { postal_code: () => value }),
                 }),
                 [],
             ],
             ChangedCheckoutCardNumber: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     checkout_form: (form) =>
-                        evo(form, { card_number: () => value }),
+                        modifyFields(form, { card_number: () => value }),
                 }),
                 [],
             ],
             ToggledCheckoutTerms: () => [
-                evo(model, {
+                modifyFields(model, {
                     checkout_form: (form) =>
-                        evo(form, { agree_to_terms: (value) => !value }),
+                        modifyFields(form, { agree_to_terms: (value) => !value }),
                 }),
                 [],
             ],
             SubmittedCheckout: () => submit(model),
             ClickedSubmitDuplicate: () =>
-                submit(evo(model, { cart: () => model.last_submitted_cart })),
+                submit(modifyFields(model, { cart: () => model.last_submitted_cart })),
             ToggledOnline: () => [
-                evo(model, { is_online: (value) => !value }),
+                modifyFields(model, { is_online: (value) => !value }),
                 [],
             ],
             DismissedNotice: () => [
-                evo(model, { notice: () => Option.none() }),
+                modifyFields(model, { notice: () => Option.none() }),
                 [],
             ],
             LoadedCartlaneStorage: ({ cart, last_order, idempotency_key }) => [
-                evo(model, {
+                modifyFields(model, {
                     cart: () => cart,
                     last_order: () => last_order,
                     idempotency_key: () => idempotency_key,
@@ -177,21 +177,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             FailedCartlaneStorage: () => [
-                evo(model, { storage_state: () => "Failed" }),
+                modifyFields(model, { storage_state: () => "Failed" }),
                 [],
             ],
             PersistedCartlane: () => [model, []],
             CompletedCheckout: ({ ledger, result }) => {
                 if (result._tag !== "Succeeded")
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             ledger: () => ledger,
                             checkout_result: () => Option.some(result),
                             submission_state: () => "Idle",
                         }),
                         [],
                     ]
-                const next = evo(model, {
+                const next = modifyFields(model, {
                     route: () =>
                         Route.cases.Order.make({ order_id: result.order.id }),
                     ledger: () => ledger,

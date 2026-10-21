@@ -2,7 +2,7 @@ import { Effect, Option, Schema as S, Struct } from "effect"
 import { Command, File, Navigation, Submodel } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
-import { Remote } from "foldkit-remote"
+import { Remote, RemoteData } from "foldkit-remote"
 import { Surface } from "foldkit-surface"
 import {
     BlogLibrary,
@@ -127,10 +127,13 @@ const query = (domain_id: string, subdomain_slug: string | null) =>
         { domain_id, subdomain_slug },
         { select: BlogLibrarySummary, first: 1 }
     )
-export const library = (model: Model) => {
-    const result = query(model.domain_id, model.subdomain_slug).read({
+const read = (model: Model) =>
+    query(model.domain_id, model.subdomain_slug).read({
         remote: model.remote,
     })
+/** The row on its own, for callers that need only the value. */
+export const library = (model: Model) => {
+    const result = read(model)
     return result._tag === "Ready" ? result.value.items[0] : undefined
 }
 const feature_post = (
@@ -154,25 +157,60 @@ const metadata = (post: typeof BlogPost.Type) => ({
     template_source: post.template_source,
 })
 export const project = (model: Model): Blog.ModelType => {
-    const data = library(model)
-    const posts = data?.posts ?? []
-    const assignments = data?.assignments ?? []
-    return {
+    const base = {
         ...model.ui,
-        documents: posts.map((post) =>
-            feature_post(
-                post,
-                assignments.find((item) => item.blog_post_id === post.id)
-            )
-        ),
-        sourceDocuments: posts.map((post) => feature_post(post)),
-        postMetadata: posts.map(metadata),
-        assignments,
         availableTags: [],
         entityTags: [],
         can_write: model.can_write && !model.pending,
     }
+    const none = {
+        documents: [],
+        sourceDocuments: [],
+        postMetadata: [],
+        assignments: [],
+    } as const
+    return RemoteData.render(read(model), {
+        loading: (): Blog.ModelType => ({
+            ...base,
+            ...none,
+            maybeError: Option.none(),
+        }),
+        notFound: (): Blog.ModelType => ({
+            ...base,
+            ...none,
+            maybeError: Option.none(),
+        }),
+        failed: (error): Blog.ModelType => ({
+            ...base,
+            ...none,
+            maybeError: Option.some(error.message),
+        }),
+        data: (page, freshness): Blog.ModelType => {
+            const data = page.items[0]
+            const posts = data?.posts ?? []
+            const assignments = data?.assignments ?? []
+            return {
+                ...base,
+                documents: posts.map((post) =>
+                    feature_post(
+                        post,
+                        assignments.find(
+                            (item) => item.blog_post_id === post.id
+                        )
+                    )
+                ),
+                sourceDocuments: posts.map((post) => feature_post(post)),
+                postMetadata: posts.map(metadata),
+                assignments,
+                maybeError:
+                    freshness._tag === "Stale"
+                        ? Option.some(freshness.error.message)
+                        : Option.none(),
+            }
+        },
+    })
 }
+
 export const content_blog_path = (
     pathname: string,
     search: string

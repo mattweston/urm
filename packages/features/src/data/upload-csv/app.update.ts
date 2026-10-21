@@ -2,7 +2,7 @@ import { focus } from "foldkit/dom"
 import { Array, Effect, Match as M, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./app.message.ts"
 import {
@@ -197,7 +197,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                       ]
                     : [model, []],
             LoadedUploads: ({ uploads }) => [
-                evo(model, {
+                modifyFields(model, {
                     loading: () => false,
                     error: () => null,
                     uploads: () =>
@@ -209,7 +209,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             FailedLoadingUploads: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     loading: () => false,
                     error: () => error,
                     uploadBusy: () => false,
@@ -242,7 +242,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         uploadDrop: () => nextDrop,
                         selectedUploadFiles: () => nextFiles,
                     }),
@@ -266,7 +266,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                         uploadBusy: () => true,
                     }),
@@ -280,7 +280,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ImportedUpload: ({ uploadId }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => null,
                     uploadBusy: () => false,
                     importedUploadIds: () => [
@@ -292,7 +292,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             ImportUploadFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     uploadBusy: () => false,
                     error: () => error,
                 }),
@@ -300,7 +300,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             RemovedSelectedUploadFile: ({ fileIndex }) => [
-                evo(model, {
+                modifyFields(model, {
                     selectedUploadFiles: () =>
                         model.selectedUploadFiles.filter(
                             (_, index) => index !== fileIndex
@@ -367,7 +367,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                         uploadBusy: () => true,
                     }),
@@ -376,7 +376,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             UploadedCsv: () => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => null,
                     uploadBusy: () => false,
                     selectedUploadFiles: () => [],
@@ -385,7 +385,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             UploadCsvFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     uploadBusy: () => false,
                     error: () => error,
                 }),
@@ -404,7 +404,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         pendingDeleteUploadId: () => uploadId,
                         deleteConfirmationDialog: () =>
                             deleteConfirmationDialog,
@@ -424,7 +424,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     Ui.Dialog.update(model.deleteConfirmationDialog, message)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         deleteConfirmationDialog: () =>
                             deleteConfirmationDialog,
                     }),
@@ -466,7 +466,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                         uploadBusy: () => true,
                         pendingDeleteUploadId: () => null,
@@ -489,7 +489,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             DeletedUpload: ({ uploadId }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => null,
                     uploadBusy: () => false,
                     importedUploadIds: () =>
@@ -499,7 +499,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             DeleteUploadFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     uploadBusy: () => false,
                     error: () => error,
                 }),

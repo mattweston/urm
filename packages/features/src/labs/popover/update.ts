@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { Popover } from "@foldkit/ui"
 
@@ -27,7 +27,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { basic: () => basic }),
+                    modifyFields(model, { basic: () => basic }),
                     Command.mapMessages(commands, (message) =>
                         GotBasicMessage({ message })
                     ),
@@ -39,7 +39,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { animated: () => animated }),
+                    modifyFields(model, { animated: () => animated }),
                     Command.mapMessages(commands, (message) =>
                         GotAnimatedMessage({ message })
                     ),

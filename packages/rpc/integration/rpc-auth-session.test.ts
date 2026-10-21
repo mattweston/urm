@@ -23,7 +23,7 @@ import {
     RpcAuthorizationPersistenceLive,
 } from "../src/handlers/middleware/index.ts"
 import { Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect"
-import { Rpc, RpcGroup, RpcTest } from "effect/unstable/rpc"
+import { Rpc, RpcGroup, RpcTest } from "effect/rpc"
 import { sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 

@@ -3,7 +3,7 @@ import {
     FetchHttpClient,
     HttpClient,
     HttpClientRequest,
-} from "effect/unstable/http"
+} from "effect/http"
 import { Command } from "foldkit"
 
 import { EventWeatherFailed, EventWeatherLoaded } from "./app.message.ts"
@@ -11,7 +11,7 @@ import { EventWeather } from "./event-weather.model.ts"
 
 const WEATHER_API = "https://api.open-meteo.com/v1/forecast"
 
-class EventWeatherRequestError extends S.TaggedErrorClass<EventWeatherRequestError>()(
+class EventWeatherRequestError extends S.TaggedError<EventWeatherRequestError>()(
     "Events.EventWeatherRequestError",
     { reason: S.String }
 ) {}

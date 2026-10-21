@@ -1,7 +1,7 @@
 import { Match as M, Schema as S } from "effect"
 import { Command } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // MODEL
 
@@ -36,7 +36,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedContent: ({ value }) => [
-                evo(model, { content: () => value }),
+                modifyFields(model, { content: () => value }),
                 [],
             ],
         })

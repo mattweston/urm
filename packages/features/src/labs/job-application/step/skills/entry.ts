@@ -10,7 +10,7 @@ import {
 } from "foldkit/fieldValidation"
 import type { Rules } from "foldkit/fieldValidation"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as ProficiencyLevel from "../../domain/proficiencyLevel.ts"
 
@@ -60,12 +60,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedName: ({ value }) => [
-                evo(model, { name: () => validateName(value) }),
+                modifyFields(model, { name: () => validateName(value) }),
                 [],
             ],
 
             SelectedProficiency: ({ value }) => [
-                evo(model, { proficiency: () => value }),
+                modifyFields(model, { proficiency: () => value }),
                 [],
             ],
         })

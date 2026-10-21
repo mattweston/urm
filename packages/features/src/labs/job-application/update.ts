@@ -1,7 +1,7 @@
 import { Array, Effect, Match as M, Option, pipe } from "effect"
 import { Calendar, Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { SubmitApplication } from "./command.ts"
 import { Step as StepSchema } from "./domain/step.ts"
@@ -81,7 +81,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { personalInfo: () => nextPersonalInfo }),
+                    modifyFields(model, { personalInfo: () => nextPersonalInfo }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>
@@ -99,7 +99,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { workHistory: () => nextWorkHistory }),
+                    modifyFields(model, { workHistory: () => nextWorkHistory }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>
@@ -117,7 +117,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { education: () => nextEducation }),
+                    modifyFields(model, { education: () => nextEducation }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>
@@ -135,7 +135,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { skills: () => nextSkills }),
+                    modifyFields(model, { skills: () => nextSkills }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>
@@ -153,7 +153,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { coverLetter: () => nextCoverLetter }),
+                    modifyFields(model, { coverLetter: () => nextCoverLetter }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>
@@ -171,7 +171,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { attachments: () => nextAttachments }),
+                    modifyFields(model, { attachments: () => nextAttachments }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>
@@ -198,7 +198,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         currentStep: () => nextStep,
                         stepMenu: () => nextStepMenu,
                     }),
@@ -213,39 +213,39 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             NavigatedToStep: ({ step }) => [
-                evo(model, { currentStep: () => step }),
+                modifyFields(model, { currentStep: () => step }),
                 [],
             ],
 
             ClickedNext: () => [
-                evo(model, { currentStep: () => nextStep(model.currentStep) }),
+                modifyFields(model, { currentStep: () => nextStep(model.currentStep) }),
                 [],
             ],
 
             ClickedPrevious: () => [
-                evo(model, {
+                modifyFields(model, {
                     currentStep: () => previousStep(model.currentStep),
                 }),
                 [],
             ],
 
             ToggledPreview: () => [
-                evo(model, { isPreviewVisible: (isVisible) => !isVisible }),
+                modifyFields(model, { isPreviewVisible: (isVisible) => !isVisible }),
                 [],
             ],
 
             SubmittedApplication: () => [
-                evo(model, { submission: () => Submitting() }),
+                modifyFields(model, { submission: () => Submitting() }),
                 [SubmitApplication()],
             ],
 
             SucceededSubmitApplication: () => [
-                evo(model, { submission: () => SubmitSuccess() }),
+                modifyFields(model, { submission: () => SubmitSuccess() }),
                 [],
             ],
 
             FailedSubmitApplication: ({ error }) => [
-                evo(model, { submission: () => SubmitError({ error }) }),
+                modifyFields(model, { submission: () => SubmitError({ error }) }),
                 [],
             ],
         })

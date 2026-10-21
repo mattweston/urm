@@ -1,0 +1,10 @@
+{
+    "extends": "@urm/config/tsconfig.base.json",
+    "include": [
+        "alchemy.run.ts",
+        "src/**/*.ts",
+        "scripts/**/*.ts",
+        "test/**/*.ts"
+    ],
+    "exclude": ["node_modules", "dist"]
+}

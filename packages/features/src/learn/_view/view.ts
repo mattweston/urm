@@ -3,7 +3,7 @@ import { Submodel, type Update } from "foldkit"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
 import { inertHtml as ih } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Child Submodel used by the composition example
@@ -22,7 +22,7 @@ export type ChildMessage = typeof ChildMessage.Type
 export const childUpdate = (model: ChildModel, message: ChildMessage) =>
     ChildMessage.match<Update.Return<ChildModel, ChildMessage>>(message, {
         ClickedIncrement: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: (count) => count + 1,
             }),
         }),
@@ -93,27 +93,27 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         ClickedIncrement: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: (count) => count + 1,
                 eventLog: (log) => [...log, "ClickedIncrement"],
             }),
         }),
 
         UpdatedSearch: ({ value }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 search: () => value,
                 eventLog: (log) => [...log, `UpdatedSearch("${value}")`],
             }),
         }),
 
         PressedSearchKey: ({ key }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 eventLog: (log) => [...log, `PressedSearchKey("${key}")`],
             }),
         }),
 
         SelectedLocale: ({ locale }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 locale: () => locale,
                 eventLog: (log) => [...log, `SelectedLocale(${locale})`],
             }),
@@ -123,7 +123,7 @@ export const update = (model: Model, message: Message) =>
             const child = childUpdate(model.child, message)
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     child: () => child.model,
                 }),
             }
@@ -306,7 +306,7 @@ type DemoUpdateReturn = Update.Return<DemoModel, DemoMessage>
 export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
     DemoMessage.match<DemoUpdateReturn>(message, {
         SelectedViewStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -315,14 +315,14 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
             const next = update(model.app, message)
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     app: () => next.model,
                 }),
             }
         },
 
         SelectedClaimedKey: ({ key }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 claimedKey: () => key,
             }),
         }),

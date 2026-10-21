@@ -9,7 +9,7 @@ import {
 } from "@urm/auth/legacy"
 import { ServerConfig } from "@urm/env/server"
 import { Effect, Layer } from "effect"
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpServerRequest, HttpServerResponse } from "effect/http"
 import { validateGoogleCallbackState } from "../src/oauth/google-handlers.ts"
 import { AuthPersistenceTestLive } from "./auth-persistence-test-layer.ts"
 

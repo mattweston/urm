@@ -1,7 +1,7 @@
 import { Optic, Option, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN
@@ -631,31 +631,31 @@ type TraverseCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedOpticStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedOpticKindsCase: ({ kindsCase }: KindsCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 kindsCase: () => kindsCase,
             }),
         }),
 
         SelectedOpticFocusCase: ({ focusCase }: FocusCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 focusCase: () => focusCase,
             }),
         }),
 
         SelectedOpticFailureCase: ({ failureCase }: FailureCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 failureCase: () => failureCase,
             }),
         }),
 
         SelectedOpticTraverseCase: ({ traverseCase }: TraverseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 traverseCase: () => traverseCase,
             }),
         }),

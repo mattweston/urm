@@ -6,7 +6,7 @@ import { update as updateTables } from "./tables/update.ts"
 import { GotTableMessage } from "./message.ts"
 import { Effect, Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as CsvUpload from "./upload-csv/index.ts"
 import { isCsvPath, isSpreadsheetsPath } from "./route.ts"
 import { GotCsvUploadMessage, type Message } from "./message.ts"
@@ -65,7 +65,7 @@ export const activateDomain = (
 ): UpdateReturn => {
     const [csvUpload, commands] = CsvUpload.init(domain_id)
     return [
-        evo(model, {
+        modifyFields(model, {
             csvUpload: () => csvUpload,
             csv_import_open: () => false,
             tables: () => initTables(domain_id),
@@ -131,12 +131,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ChangedPath: ({ pathname }) => [
-                evo(model, {
+                modifyFields(model, {
                     route: () => routeForPath(pathname),
                     tables: (tables) =>
                         routeForPath(pathname) !== "Csv" &&
                         tables.contact_import
-                            ? evo(tables, { contact_import: () => false })
+                            ? modifyFields(tables, { contact_import: () => false })
                             : tables,
                 }),
                 [],
@@ -197,10 +197,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         csvUpload: () => csvUpload,
                         tables: (tables) =>
-                            evo(tables, {
+                            modifyFields(tables, {
                                 uploads: () =>
                                     csvUpload.uploads
                                         .filter(

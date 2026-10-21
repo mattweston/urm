@@ -1,7 +1,7 @@
 import * as Ui from "@foldkit/ui"
 import { Array, Effect, Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import {
     GotBasicMessage,
     GotGroupedMessage,
@@ -42,7 +42,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const maybeOut = Option.fromUndefinedOr(maybeOut_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         basic: () => basic,
                         maybeSelectedItem: () =>
                             Option.match(maybeOut, {
@@ -78,7 +78,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             : Array.append(model.selectedMultiItems, value),
                 })
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         multi: () => multi,
                         selectedMultiItems: () => selectedMultiItems,
                     }),
@@ -100,7 +100,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const maybeOut = Option.fromUndefinedOr(maybeOut_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         grouped: () => grouped,
                         maybeSelectedGroupedItem: () =>
                             Option.match(maybeOut, {

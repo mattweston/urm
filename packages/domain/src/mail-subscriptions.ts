@@ -40,7 +40,7 @@ export const SetSubscriptionInput = Schema.Struct({
 })
 export type SetSubscriptionInput = typeof SetSubscriptionInput.Type
 
-export class SubscriptionWriteError extends Schema.TaggedErrorClass<SubscriptionWriteError>()(
+export class SubscriptionWriteError extends Schema.TaggedError<SubscriptionWriteError>()(
     "SubscriptionWriteError",
     { message: Schema.String }
 ) {}

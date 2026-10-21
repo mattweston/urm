@@ -1,7 +1,7 @@
 import { Data, Effect, Fiber, Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect fiber examples
@@ -227,12 +227,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedFiberStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             ClickedStartFork: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     fork_status: () => "Running",
                     fork_progress: () => 8,
                 }),
@@ -246,7 +246,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     24
                 )
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         fork_status: () => next.status,
                         fork_progress: () => next.progress,
                     }),
@@ -255,7 +255,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedResetFork: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     fork_status: () => "Idle",
                     fork_progress: () => 0,
                 }),
@@ -263,7 +263,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedStartConcurrent: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     left_status: () => "Running",
                     left_progress: () => 5,
                     right_status: () => "Running",
@@ -286,7 +286,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         left_status: () => left.status,
                         left_progress: () => left.progress,
                         right_status: () => right.status,
@@ -297,14 +297,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedJoinConcurrent: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     concurrent_has_joined: () => true,
                 }),
                 commands: [],
             }),
 
             ClickedResetConcurrent: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     left_status: () => "Idle",
                     left_progress: () => 0,
                     right_status: () => "Idle",
@@ -315,7 +315,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             SelectedFiberOutcome: ({ outcome }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     observe_outcome: () => outcome,
                     observe_has_run: () => false,
                 }),
@@ -323,7 +323,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             SelectedFiberObserveMode: ({ mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     observe_mode: () => mode,
                     observe_has_run: () => false,
                 }),
@@ -331,17 +331,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedObserveFiber: () => ({
-                model: evo(model, { observe_has_run: () => true }),
+                model: modifyFields(model, { observe_has_run: () => true }),
                 commands: [],
             }),
 
             ClickedResetFiberObservation: () => ({
-                model: evo(model, { observe_has_run: () => false }),
+                model: modifyFields(model, { observe_has_run: () => false }),
                 commands: [],
             }),
 
             ClickedStartInterruptibleFiber: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     interrupt_status: () => "Running",
                     interrupt_progress: () => 5,
                     finalizer_ran: () => false,
@@ -365,7 +365,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         interrupt_status: () => next.status,
                         interrupt_progress: () => next.progress,
                         interrupt_log: (log) => [...log, "worker · heartbeat"],
@@ -380,7 +380,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         interrupt_status: () => "Interrupted",
                         finalizer_ran: () => true,
                         interrupt_log: (log) => [
@@ -395,7 +395,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedResetInterruptibleFiber: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     interrupt_status: () => "Idle",
                     interrupt_progress: () => 0,
                     finalizer_ran: () => false,

@@ -40,9 +40,9 @@
         "drizzle-orm": "catalog:database",
         "effect": "catalog:",
         "foldkit": "catalog:",
-        "foldkit-remote": "0.3.0",
-        "foldkit-remote-server": "0.3.0",
-        "foldkit-surface": "0.2.0",
+        "foldkit-remote": "catalog:",
+        "foldkit-remote-server": "catalog:",
+        "foldkit-surface": "catalog:",
         "shiki": "4.1.0",
         "twoslash": "^0.3.9"
     },

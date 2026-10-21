@@ -1,9 +1,9 @@
 import { Effect, Layer, Match as M, Ref, Schema as S } from "effect"
-import { ClusterSchema, Entity, TestRunner } from "effect/unstable/cluster"
-import { Rpc } from "effect/unstable/rpc"
+import { ClusterSchema, Entity, TestRunner } from "effect/cluster"
+import { Rpc } from "effect/rpc"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Cluster example
@@ -185,26 +185,26 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedClusterStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             ClickedIncrementCounterA: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     counter_a: (count) => count + 1,
                 }),
                 commands: [],
             }),
 
             ClickedIncrementCounterB: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     counter_b: (count) => count + 1,
                 }),
                 commands: [],
             }),
 
             ClickedResetClusterCounters: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     counter_a: () => 0,
                     counter_b: () => 0,
                 }),
@@ -212,21 +212,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             SelectedClusterEntityId: ({ entity_id }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     routing_entity_id: () => entity_id,
                 }),
                 commands: [],
             }),
 
             ClickedToggleThirdRunner: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     has_third_runner: (value) => !value,
                 }),
                 commands: [],
             }),
 
             ClickedActivateClusterEntity: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     lifecycle_status: () => "Active",
                     lifecycle_generation: (generation) => generation + 1,
                     lifecycle_count: () => 0,
@@ -246,7 +246,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         lifecycle_count: (count) => count + 1,
                         lifecycle_log: (log) => [
                             ...log,
@@ -263,7 +263,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         lifecycle_status: () => "Passivated",
                         lifecycle_log: (log) => [
                             ...log,
@@ -282,7 +282,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         lifecycle_status: () => "Active",
                         lifecycle_generation: (generation) => generation + 1,
                         lifecycle_count: () => 0,
@@ -298,7 +298,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedResetClusterLifecycle: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     lifecycle_status: () => "Dormant",
                     lifecycle_count: () => 0,
                     lifecycle_generation: () => 0,

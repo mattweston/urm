@@ -6,7 +6,7 @@ import {
     validate,
     Rule,
 } from "foldkit/fieldValidation"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./register.message.ts"
 import type { Model } from "./register.model.ts"
 
@@ -40,13 +40,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             ChangedEmail: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     email: () => validateEmail(value),
                 }),
                 [],
             ],
             ChangedPassword: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     password: () => validatePassword(value),
                 }),
                 [],

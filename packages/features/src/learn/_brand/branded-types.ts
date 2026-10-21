@@ -1,7 +1,7 @@
 import { Brand, Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 export type StructuralUserId = number
 export type StructuralProductId = number
@@ -112,30 +112,30 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedBrandedTypesStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
             ClickedStructuralMixup: () => ({
-                model: evo(model, { structural_was_sent: () => true }),
+                model: modifyFields(model, { structural_was_sent: () => true }),
                 commands: [],
             }),
             SelectedNominalKind: ({ kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     nominal_kind: () => kind,
                     nominal_was_sent: () => false,
                 }),
                 commands: [],
             }),
             ClickedNominalGate: () => ({
-                model: evo(model, { nominal_was_sent: () => true }),
+                model: modifyFields(model, { nominal_was_sent: () => true }),
                 commands: [],
             }),
             UpdatedRefinedInput: ({ value }) => ({
-                model: evo(model, { refined_input: () => value }),
+                model: modifyFields(model, { refined_input: () => value }),
                 commands: [],
             }),
             UpdatedCombinedInput: ({ value }) => ({
-                model: evo(model, { combined_input: () => value }),
+                model: modifyFields(model, { combined_input: () => value }),
                 commands: [],
             }),
         })

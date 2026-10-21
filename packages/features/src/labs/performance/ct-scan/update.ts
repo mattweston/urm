@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./message.ts"
 import { initialModel, type Model } from "./model.ts"
@@ -14,7 +14,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ClickedToggle: () => [
-                evo(model, { is_active: (is_active) => !is_active }),
+                modifyFields(model, { is_active: (is_active) => !is_active }),
                 [],
             ],
             CompletedMountedCtScan: () => [model, []],

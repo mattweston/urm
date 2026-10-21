@@ -10,7 +10,7 @@ import {
 } from "effect"
 import { AsyncData, Command, Navigation, Update } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { RemoteContactsPage } from "../crm-remote/crm-remote.domain.ts"
 import {
@@ -239,7 +239,7 @@ const ensurePages = (
     )
 
     return {
-        model: evo(model, {
+        model: modifyFields(model, {
             pageByQueryKey: () => cache.pageByQueryKey,
             cacheKeysByRecency: () => cache.cacheKeysByRecency,
         }),
@@ -276,7 +276,7 @@ const ensureDetail = (model: Model, contactId: string): UpdateReturn =>
     AsyncData.isPending(detailFor(model, contactId))
         ? { model, commands: [] }
         : {
-              model: evo(model, {
+              model: modifyFields(model, {
                   detailByContactId: (details) =>
                       HashMap.set(
                           details,
@@ -303,7 +303,7 @@ const restoreListScroll = (model: Model): UpdateReturn => {
     )
 
     return {
-        model: evo(model, {
+        model: modifyFields(model, {
             list: () => list,
             isListScrollPending: () => false,
         }),
@@ -334,7 +334,7 @@ const scrollListToTop = (model: Model): UpdateReturn => {
     )
 
     return {
-        model: evo(model, { list: () => evo(list, { scrollTop: () => 0 }) }),
+        model: modifyFields(model, { list: () => modifyFields(list, { scrollTop: () => 0 }) }),
         commands: mapVirtualListCommands(commands),
     }
 }
@@ -384,7 +384,7 @@ const verifyAgainstScreen = (
 ): UpdateReturn =>
     Option.match(AsyncData.getData(currentPageData(model)), {
         onNone: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 source: () => "Local",
                 hydrationState: () => "Complete",
             }),
@@ -393,14 +393,14 @@ const verifyAgainstScreen = (
         onSome: (shown) =>
             sameContactIds(contactIdsOf(shown), contactIdsOf(localPage))
                 ? {
-                      model: evo(model, {
+                      model: modifyFields(model, {
                           source: () => "Local",
                           hydrationState: () => "Complete",
                       }),
                       commands: [],
                   }
                 : {
-                      model: evo(model, {
+                      model: modifyFields(model, {
                           hydrationState: () => "Complete",
                           maybeMismatch: () =>
                               Option.some(
@@ -419,7 +419,7 @@ const withOverlay = (
     contactId: string,
     maybeName: Option.Option<string>
 ): Model =>
-    evo(model, {
+    modifyFields(model, {
         editedNameByContactId: (edits) =>
             Option.match(maybeName, {
                 onNone: () => Record.remove(edits, contactId),
@@ -428,7 +428,7 @@ const withOverlay = (
     })
 
 const withoutPendingWrite = (model: Model, contactId: string): Model =>
-    evo(model, {
+    modifyFields(model, {
         pendingWriteContactIds: Array.filter(
             (pendingId) => pendingId !== contactId
         ),
@@ -462,7 +462,7 @@ export const update = (
             GotSyncVirtualListMessage: ({ message: listMessage }) => {
                 const { model: list, commands: listCommands = [] } =
                     Ui.VirtualList.update(model.list, listMessage)
-                const measured = evo(model, { list: () => list })
+                const measured = modifyFields(model, { list: () => list })
                 // The measurement that follows a remount is the signal that the
                 // container is back in the DOM, and the only moment at which the
                 // saved position can be applied to it.
@@ -489,7 +489,7 @@ export const update = (
             SettledSyncRemotePage: ({ queryKey, result }) =>
                 model.source === "Remote"
                     ? ensureWindowPages(
-                          evo(model, {
+                          modifyFields(model, {
                               ...settledCache(model, queryKey, result),
                               remoteRequests: (count) => count + 1,
                           })
@@ -502,7 +502,7 @@ export const update = (
                 if (isVerification) {
                     return Result.match(result, {
                         onFailure: (error) => ({
-                            model: evo(model, {
+                            model: modifyFields(model, {
                                 hydrationState: () => "Complete",
                                 maybeMismatch: () =>
                                     Option.some(
@@ -518,7 +518,7 @@ export const update = (
 
                 return model.source === "Local"
                     ? ensureWindowPages(
-                          evo(model, {
+                          modifyFields(model, {
                               ...settledCache(model, queryKey, result),
                               localRequests: (count) => count + 1,
                           })
@@ -528,7 +528,7 @@ export const update = (
             SettledSyncHydrationBatch: ({ hydratedContacts }) =>
                 hydratedContacts >= TOTAL_CONTACTS
                     ? {
-                          model: evo(model, {
+                          model: modifyFields(model, {
                               hydratedContacts: () => hydratedContacts,
                               hydrationState: () => "Verifying",
                           }),
@@ -542,7 +542,7 @@ export const update = (
                           ],
                       }
                     : {
-                          model: evo(model, {
+                          model: modifyFields(model, {
                               hydratedContacts: () => hydratedContacts,
                           }),
                           commands: [
@@ -571,7 +571,7 @@ export const update = (
                             // did not originate. While typing it is already equal.
                             // Leaving the contact selected is what marks the list as
                             // needing its position pushed back into a fresh container.
-                            const listed = evo(model, {
+                            const listed = modifyFields(model, {
                                 searchText: () => searchText,
                                 maybeSelectedContactId: () => Option.none(),
                                 isListScrollPending: (isPending) =>
@@ -594,7 +594,7 @@ export const update = (
                                 model: scrolled,
                                 commands: scrollCommands = [],
                             } = scrollListToTop(
-                                evo(listed, {
+                                modifyFields(listed, {
                                     activeSearchText: () => searchText,
                                     activeTagIds: () => tagIds,
                                     activeRecency: () => recency,
@@ -612,7 +612,7 @@ export const update = (
                         // nothing writing over it while the detail is on screen.
                         CrmSyncContact: ({ contactId }) =>
                             ensureDetail(
-                                evo(model, {
+                                modifyFields(model, {
                                     maybeSelectedContactId: () =>
                                         Option.some(contactId),
                                 }),
@@ -621,7 +621,7 @@ export const update = (
                     })
                 ),
             SettledSyncContactDetail: ({ contactId, result }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     detailByContactId: HashMap.modify(
                         contactId,
                         AsyncData.settle(result)
@@ -642,7 +642,7 @@ export const update = (
             // went in. That is what `displayedFilterKeyFor` fixes, and until it did,
             // dispatching per keystroke here strobed.
             UpdatedSyncSearchText: ({ value }) => ({
-                model: evo(model, { searchText: () => value }),
+                model: modifyFields(model, { searchText: () => value }),
                 commands:
                     model.source === "Local"
                         ? [
@@ -704,7 +704,7 @@ export const update = (
                 ],
             }),
             ClickedSyncRebuild: () => ({
-                model: evo(emptyModel(), {
+                model: modifyFields(emptyModel(), {
                     list: () => model.list,
                     searchText: () => model.searchText,
                     activeSearchText: () => model.activeSearchText,
@@ -718,14 +718,14 @@ export const update = (
                     hydrateBatch({ startIndex: 0 }),
                 ]),
             FailedSyncOperation: ({ error }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     hydrationState: () => "Failed",
                     maybeError: () => Option.some(error),
                 }),
                 commands: [],
             }),
             ClickedEditSyncContact: ({ contactId }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     maybeEditingContactId: () => Option.some(contactId),
                     editedName: () => currentNameFor(model, contactId),
                     maybeWriteError: () => Option.none(),
@@ -733,11 +733,11 @@ export const update = (
                 commands: [],
             }),
             UpdatedSyncEditedName: ({ value }) => ({
-                model: evo(model, { editedName: () => value }),
+                model: modifyFields(model, { editedName: () => value }),
                 commands: [],
             }),
             ClickedCancelSyncContactEdit: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     maybeEditingContactId: () => Option.none(),
                     editedName: () => "",
                 }),
@@ -750,7 +750,7 @@ export const update = (
                 Option.match(model.maybeEditingContactId, {
                     onNone: (): UpdateReturn => ({ model, commands: [] }),
                     onSome: (contactId) => ({
-                        model: evo(
+                        model: modifyFields(
                             withOverlay(
                                 model,
                                 contactId,
@@ -784,7 +784,7 @@ export const update = (
                     // optimistic apply, which for a first edit means removing it rather
                     // than writing an empty string.
                     onFailure: (error) => ({
-                        model: evo(
+                        model: modifyFields(
                             withoutPendingWrite(
                                 withOverlay(model, contactId, previousName),
                                 contactId
@@ -801,7 +801,7 @@ export const update = (
                     }),
                 }),
             SettledSyncEditsLoad: ({ edits }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     // Loaded edits lose to anything written this session: a write
                     // made while the read was in flight is newer than the row it
                     // returns.

@@ -1,6 +1,6 @@
 import { Array, Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { Dialog, Listbox } from "@foldkit/ui"
 
@@ -59,7 +59,7 @@ const applyGridSizeChange = (
     model: PixelArtModel,
     size: number
 ): UpdateReturn => [
-    evo(model, {
+    modifyFields(model, {
         grid: () => createEmptyGrid(size),
         gridSize: () => size,
         undoStack: () => [],
@@ -89,7 +89,7 @@ const requestGridSizeChange = (
     )
 
     return [
-        evo(model, {
+        modifyFields(model, {
             maybePendingGridSize: () => Option.some(size),
             gridSizeConfirmDialog: () => nextDialog,
         }),
@@ -113,7 +113,7 @@ export const pixelArtUpdate = (
                 M.value(model.tool).pipe(
                     withUpdateReturn,
                     M.when("Brush", () => [
-                        evo(model, {
+                        modifyFields(model, {
                             grid: () => applyBrush(model, x, y),
                             undoStack: () =>
                                 pushHistory(model.undoStack, model.grid),
@@ -123,7 +123,7 @@ export const pixelArtUpdate = (
                         [],
                     ]),
                     M.when("Fill", () => {
-                        const nextModel = evo(model, {
+                        const nextModel = modifyFields(model, {
                             grid: () => applyFill(model, x, y),
                             undoStack: () =>
                                 pushHistory(model.undoStack, model.grid),
@@ -133,7 +133,7 @@ export const pixelArtUpdate = (
                         return [nextModel, [saveCanvas(nextModel)]]
                     }),
                     M.when("Eraser", () => [
-                        evo(model, {
+                        modifyFields(model, {
                             grid: () => applyEraser(model, x, y),
                             undoStack: () =>
                                 pushHistory(model.undoStack, model.grid),
@@ -146,20 +146,20 @@ export const pixelArtUpdate = (
                 ),
 
             EnteredCell: ({ x, y }) => {
-                const withHover = evo(model, {
+                const withHover = modifyFields(model, {
                     maybeHoveredCell: () => Option.some({ x, y }),
                 })
 
                 if (model.isDrawing && model.tool === "Brush") {
                     return [
-                        evo(withHover, { grid: () => applyBrush(model, x, y) }),
+                        modifyFields(withHover, { grid: () => applyBrush(model, x, y) }),
                         [],
                     ]
                 }
 
                 if (model.isDrawing && model.tool === "Eraser") {
                     return [
-                        evo(withHover, {
+                        modifyFields(withHover, {
                             grid: () => applyEraser(model, x, y),
                         }),
                         [],
@@ -170,7 +170,7 @@ export const pixelArtUpdate = (
             },
 
             LeftCanvas: () => [
-                evo(model, { maybeHoveredCell: () => Option.none() }),
+                modifyFields(model, { maybeHoveredCell: () => Option.none() }),
                 [],
             ],
 
@@ -179,20 +179,20 @@ export const pixelArtUpdate = (
                     return [model, []]
                 }
 
-                const nextModel = evo(model, { isDrawing: () => false })
+                const nextModel = modifyFields(model, { isDrawing: () => false })
 
                 return [nextModel, [saveCanvas(nextModel)]]
             },
 
             SelectedColor: ({ colorIndex }) => {
-                const nextModel = evo(model, {
+                const nextModel = modifyFields(model, {
                     selectedColorIndex: () => colorIndex,
                 })
 
                 return [nextModel, [saveCanvas(nextModel)]]
             },
 
-            SelectedTool: ({ tool }) => [evo(model, { tool: () => tool }), []],
+            SelectedTool: ({ tool }) => [modifyFields(model, { tool: () => tool }), []],
 
             SelectedGridSize: ({ size }) => requestGridSizeChange(model, size),
 
@@ -206,7 +206,7 @@ export const pixelArtUpdate = (
                     M.exhaustive
                 )
 
-                return [evo(model, { mirrorMode: () => nextMirrorMode }), []]
+                return [modifyFields(model, { mirrorMode: () => nextMirrorMode }), []]
             },
 
             ToggledMirrorVertical: () => {
@@ -219,7 +219,7 @@ export const pixelArtUpdate = (
                     M.exhaustive
                 )
 
-                return [evo(model, { mirrorMode: () => nextMirrorMode }), []]
+                return [modifyFields(model, { mirrorMode: () => nextMirrorMode }), []]
             },
 
             // Undo and redo are a pair of stacks over whole-grid snapshots.
@@ -229,7 +229,7 @@ export const pixelArtUpdate = (
                 Array.match(model.undoStack, {
                     onEmpty: () => [model, []],
                     onNonEmpty: (nonEmptyUndoStack) => {
-                        const nextModel = evo(model, {
+                        const nextModel = modifyFields(model, {
                             grid: () => Array.lastNonEmpty(nonEmptyUndoStack),
                             undoStack: () =>
                                 Array.initNonEmpty(nonEmptyUndoStack),
@@ -244,7 +244,7 @@ export const pixelArtUpdate = (
                 Array.match(model.redoStack, {
                     onEmpty: () => [model, []],
                     onNonEmpty: (nonEmptyRedoStack) => {
-                        const nextModel = evo(model, {
+                        const nextModel = modifyFields(model, {
                             grid: () => Array.lastNonEmpty(nonEmptyRedoStack),
                             undoStack: () => [...model.undoStack, model.grid],
                             redoStack: () =>
@@ -267,7 +267,7 @@ export const pixelArtUpdate = (
                             stepIndex + 1
                         )
 
-                        const nextModel = evo(model, {
+                        const nextModel = modifyFields(model, {
                             grid: () => targetGrid,
                             undoStack: () =>
                                 Array.take(model.undoStack, stepIndex),
@@ -291,7 +291,7 @@ export const pixelArtUpdate = (
                             stepIndex + 1
                         )
 
-                        const nextModel = evo(model, {
+                        const nextModel = modifyFields(model, {
                             grid: () => targetGrid,
                             undoStack: () => [
                                 ...model.undoStack,
@@ -307,7 +307,7 @@ export const pixelArtUpdate = (
                 }),
 
             ClickedClear: () => {
-                const nextModel = evo(model, {
+                const nextModel = modifyFields(model, {
                     grid: () => createEmptyGrid(model.gridSize),
                     undoStack: () => pushHistory(model.undoStack, model.grid),
                     redoStack: () => [],
@@ -338,7 +338,7 @@ export const pixelArtUpdate = (
                 } = Dialog.open(model.errorDialog)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         maybeExportError: () => Option.some(error),
                         errorDialog: () => nextErrorDialog,
                     }),
@@ -366,20 +366,20 @@ export const pixelArtUpdate = (
 
                 return Option.match(maybeOutMessage, {
                     onNone: () => [
-                        evo(model, { errorDialog: () => nextErrorDialog }),
+                        modifyFields(model, { errorDialog: () => nextErrorDialog }),
                         mappedCommands,
                     ],
                     onSome: M.type<Dialog.OutMessage>().pipe(
                         withUpdateReturn,
                         M.tagsExhaustive({
                             Opened: () => [
-                                evo(model, {
+                                modifyFields(model, {
                                     errorDialog: () => nextErrorDialog,
                                 }),
                                 mappedCommands,
                             ],
                             Closed: () => [
-                                evo(model, {
+                                modifyFields(model, {
                                     errorDialog: () => nextErrorDialog,
                                     maybeExportError: () => Option.none(),
                                 }),
@@ -408,7 +408,7 @@ export const pixelArtUpdate = (
 
                 return Option.match(maybeOutMessage, {
                     onNone: () => [
-                        evo(model, { themeListbox: () => nextThemeListbox }),
+                        modifyFields(model, { themeListbox: () => nextThemeListbox }),
                         mappedCommands,
                     ],
                     onSome: M.type<Listbox.OutMessage>().pipe(
@@ -421,7 +421,7 @@ export const pixelArtUpdate = (
                                     Array.get(PALETTE_THEMES, themeIndex),
                                     {
                                         onNone: () => [
-                                            evo(model, {
+                                            modifyFields(model, {
                                                 themeListbox: () =>
                                                     nextThemeListbox,
                                             }),
@@ -433,7 +433,7 @@ export const pixelArtUpdate = (
                                             // theme, so the selection resets
                                             // rather than silently changing
                                             // what the brush paints.
-                                            const nextModel = evo(model, {
+                                            const nextModel = modifyFields(model, {
                                                 paletteThemeIndex: () =>
                                                     themeIndex,
                                                 selectedColorIndex: () =>
@@ -477,7 +477,7 @@ export const pixelArtUpdate = (
                             model,
                             pendingSize
                         )
-                        const nextModel = evo(resizedModel, {
+                        const nextModel = modifyFields(resizedModel, {
                             gridSizeConfirmDialog: () => nextDialog,
                             maybePendingGridSize: () => Option.none(),
                         })
@@ -509,7 +509,7 @@ export const pixelArtUpdate = (
 
                 return Option.match(maybeOutMessage, {
                     onNone: () => [
-                        evo(model, {
+                        modifyFields(model, {
                             gridSizeConfirmDialog: () => nextDialog,
                         }),
                         mappedCommands,
@@ -518,13 +518,13 @@ export const pixelArtUpdate = (
                         withUpdateReturn,
                         M.tagsExhaustive({
                             Opened: () => [
-                                evo(model, {
+                                modifyFields(model, {
                                     gridSizeConfirmDialog: () => nextDialog,
                                 }),
                                 mappedCommands,
                             ],
                             Closed: () => [
-                                evo(model, {
+                                modifyFields(model, {
                                     gridSizeConfirmDialog: () => nextDialog,
                                     maybePendingGridSize: () => Option.none(),
                                 }),

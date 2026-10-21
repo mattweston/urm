@@ -8,7 +8,7 @@ import {
 } from "foldkit/fieldValidation"
 import { Rule } from "foldkit/fieldValidation"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import {
     ClearSession,
     LoadSession,
@@ -115,27 +115,27 @@ const syncLoggedOutRoute = (
         withUpdateReturn,
         M.tagsExhaustive({
             AuthHome: (authRoute) => [
-                evo(model, { route: () => authRoute }),
+                modifyFields(model, { route: () => authRoute }),
                 [],
                 noOutMessage,
             ],
             AuthLogin: (authRoute) => [
-                evo(model, { route: () => authRoute }),
+                modifyFields(model, { route: () => authRoute }),
                 [],
                 noOutMessage,
             ],
             AuthNotFound: (authRoute) => [
-                evo(model, { route: () => authRoute }),
+                modifyFields(model, { route: () => authRoute }),
                 [],
                 noOutMessage,
             ],
             AuthDashboard: () => [
-                evo(model, { route: () => AuthLoginRoute() }),
+                modifyFields(model, { route: () => AuthLoginRoute() }),
                 [],
                 redirectTo(AuthLoginRoute()),
             ],
             AuthSettings: () => [
-                evo(model, { route: () => AuthLoginRoute() }),
+                modifyFields(model, { route: () => AuthLoginRoute() }),
                 [],
                 redirectTo(AuthLoginRoute()),
             ],
@@ -150,17 +150,17 @@ const syncLoggedInRoute = (
         withUpdateReturn,
         M.tagsExhaustive({
             AuthDashboard: (authRoute) => [
-                evo(model, { route: () => authRoute }),
+                modifyFields(model, { route: () => authRoute }),
                 [],
                 noOutMessage,
             ],
             AuthSettings: (authRoute) => [
-                evo(model, { route: () => authRoute }),
+                modifyFields(model, { route: () => authRoute }),
                 [],
                 noOutMessage,
             ],
             AuthNotFound: (authRoute) => [
-                evo(model, { route: () => authRoute }),
+                modifyFields(model, { route: () => authRoute }),
                 [],
                 noOutMessage,
             ],
@@ -266,9 +266,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     withUpdateReturn,
                     M.tagsExhaustive({
                         LoggedOut: (loggedOutModel) => [
-                            evo(loggedOutModel, {
+                            modifyFields(loggedOutModel, {
                                 loginModel: (loginModel) =>
-                                    evo(loginModel, {
+                                    modifyFields(loginModel, {
                                         email: () => validateEmail(value),
                                     }),
                             }),
@@ -283,9 +283,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     withUpdateReturn,
                     M.tagsExhaustive({
                         LoggedOut: (loggedOutModel) => [
-                            evo(loggedOutModel, {
+                            modifyFields(loggedOutModel, {
                                 loginModel: (loginModel) =>
-                                    evo(loginModel, {
+                                    modifyFields(loginModel, {
                                         password: () => validatePassword(value),
                                     }),
                             }),
@@ -305,9 +305,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             }
 
                             return [
-                                evo(loggedOutModel, {
+                                modifyFields(loggedOutModel, {
                                     loginModel: (loginModel) =>
-                                        evo(loginModel, {
+                                        modifyFields(loginModel, {
                                             isSubmitting: () => true,
                                         }),
                                 }),
@@ -333,9 +333,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     withUpdateReturn,
                     M.tagsExhaustive({
                         LoggedOut: (loggedOutModel) => [
-                            evo(loggedOutModel, {
+                            modifyFields(loggedOutModel, {
                                 loginModel: (loginModel) =>
-                                    evo(loginModel, {
+                                    modifyFields(loginModel, {
                                         password: () =>
                                             Invalid({
                                                 value: loginModel.password

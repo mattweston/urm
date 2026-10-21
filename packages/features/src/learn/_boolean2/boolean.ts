@@ -1,7 +1,7 @@
 import { Boolean as Bool, Match, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Boolean examples
@@ -169,55 +169,55 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedBooleanStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedBooleanCoerceCase: ({ coerceCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 coerceCase: () => coerceCase,
             }),
         }),
 
         SelectedBooleanLogicMode: ({ logicMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 logicMode: () => logicMode,
             }),
         }),
 
         ToggledBooleanLogicLeft: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 logicLeft: (value) => !value,
             }),
         }),
 
         ToggledBooleanLogicRight: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 logicRight: (value) => !value,
             }),
         }),
 
         ToggledBooleanMatchValue: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 matchValue: (value) => !value,
             }),
         }),
 
         ToggledBooleanOrderOther: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 orderOther: (value) => !value,
             }),
         }),
 
         SelectedBooleanAggregatePreset: ({ aggregatePreset }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 aggregatePreset: () => aggregatePreset,
             }),
         }),
 
         SelectedBooleanAggregateMode: ({ aggregateMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 aggregateMode: () => aggregateMode,
             }),
         }),

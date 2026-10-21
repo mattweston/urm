@@ -1,7 +1,7 @@
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { Effect, Match as M, Option } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./share-document.message.ts"
 import { GotPermissionListboxMessage } from "./share-document.message.ts"
 import type { Model } from "./share-document.model.ts"
@@ -93,7 +93,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     Listbox.selectItem(maybePerson.permissionListbox, value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         people: () =>
                             model.people.map((person, personIndex) =>
                                 personIndex === index
@@ -134,7 +134,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         people: () =>
                             model.people.map((person, personIndex) =>
                                 personIndex === index

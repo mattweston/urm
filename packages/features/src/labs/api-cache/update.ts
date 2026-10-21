@@ -1,7 +1,7 @@
 import { Array, HashMap, Match as M, Option } from "effect"
 import { AsyncData, Command } from "foldkit"
 import { Tabs } from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import {
     FetchApiCachePostDetail,
     FetchApiCachePosts,
@@ -34,7 +34,7 @@ const applyPostsTransition = (
     Option.match(maybePosts, {
         onNone: () => [model, []],
         onSome: (posts) => [
-            evo(model, { posts: () => posts }),
+            modifyFields(model, { posts: () => posts }),
             [FetchApiCachePosts()],
         ],
     })
@@ -46,13 +46,13 @@ const applyStatsTransition = (
     Option.match(maybeStats, {
         onNone: () => [model, []],
         onSome: (stats) => [
-            evo(model, { stats: () => stats }),
+            modifyFields(model, { stats: () => stats }),
             [FetchApiCacheStats()],
         ],
     })
 
 const activateTab = (model: Model, activeTab: ApiCacheTab): UpdateReturn => {
-    const nextModel = evo(model, { activeTab: () => activeTab })
+    const nextModel = modifyFields(model, { activeTab: () => activeTab })
 
     return M.value(activeTab).pipe(
         withUpdateReturn,
@@ -90,7 +90,7 @@ export const update = (model: Model, message: ApiCacheMessage): UpdateReturn =>
                     maybeOutMessage_value
                 )
 
-                const nextModel = evo(model, { tabs: () => tabs })
+                const nextModel = modifyFields(model, { tabs: () => tabs })
                 const mappedCommands = Command.mapMessages(
                     commands,
                     (message) => GotApiCacheTabsMessage({ message })
@@ -116,12 +116,12 @@ export const update = (model: Model, message: ApiCacheMessage): UpdateReturn =>
                 })
             },
             ClickedApiCachePost: ({ postId }): UpdateReturn => {
-                const selectedModel = evo(model, {
+                const selectedModel = modifyFields(model, {
                     maybeSelectedPostId: () => Option.some(postId),
                 })
                 return Option.match(HashMap.get(model.postDetailById, postId), {
                     onNone: (): UpdateReturn => [
-                        evo(selectedModel, {
+                        modifyFields(selectedModel, {
                             postDetailById: setPostDetail(
                                 postId,
                                 PostDetailDataSchema.Loading()
@@ -133,7 +133,7 @@ export const update = (model: Model, message: ApiCacheMessage): UpdateReturn =>
                 })
             },
             ClickedApiCacheBackToPosts: () => [
-                evo(model, { maybeSelectedPostId: () => Option.none() }),
+                modifyFields(model, { maybeSelectedPostId: () => Option.none() }),
                 [],
             ],
             ClickedApiCacheInvalidatePosts: () =>
@@ -147,7 +147,7 @@ export const update = (model: Model, message: ApiCacheMessage): UpdateReturn =>
                     AsyncData.revalidateOrLoad(model.posts)
                 ),
             ClickedApiCacheRetryPostDetail: ({ postId }) => [
-                evo(model, {
+                modifyFields(model, {
                     postDetailById: setPostDetail(
                         postId,
                         PostDetailDataSchema.Loading()
@@ -168,11 +168,11 @@ export const update = (model: Model, message: ApiCacheMessage): UpdateReturn =>
             TickedApiCacheRevalidateStats: () =>
                 applyStatsTransition(model, AsyncData.revalidate(model.stats)),
             SettledApiCacheFetchPosts: ({ result }) => [
-                evo(model, { posts: AsyncData.settle(result) }),
+                modifyFields(model, { posts: AsyncData.settle(result) }),
                 [],
             ],
             SettledApiCacheFetchPostDetail: ({ postId, result }) => [
-                evo(model, {
+                modifyFields(model, {
                     postDetailById: HashMap.modify(
                         postId,
                         AsyncData.settle(result)
@@ -181,7 +181,7 @@ export const update = (model: Model, message: ApiCacheMessage): UpdateReturn =>
                 [],
             ],
             SettledApiCacheFetchStats: ({ result }) => [
-                evo(model, { stats: AsyncData.settle(result) }),
+                modifyFields(model, { stats: AsyncData.settle(result) }),
                 [],
             ],
         })

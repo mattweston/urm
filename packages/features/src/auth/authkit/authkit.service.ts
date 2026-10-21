@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema"
 
 import type { Profile } from "./authkit.model.ts"
 
-export class OperationError extends Schema.TaggedErrorClass<OperationError>()(
+export class OperationError extends Schema.TaggedError<OperationError>()(
     "AuthKit.OperationError",
     { operation: Schema.String, cause: Schema.Defect() }
 ) {}

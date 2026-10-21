@@ -95,7 +95,7 @@ export type ContactEmails = typeof ContactEmails.Type
 
 export type ContactEmailRecord = typeof ContactEmailRecord.Type
 
-export class ContactWriteError extends Schema.TaggedErrorClass<ContactWriteError>()(
+export class ContactWriteError extends Schema.TaggedError<ContactWriteError>()(
     "ContactWriteError",
     { message: Schema.String }
 ) {}

@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit, Pull, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL PULL VALUES
@@ -447,31 +447,31 @@ type MatchCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedPullStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedPullModelCase: ({ modelCase }: ModelCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 modelCase: () => modelCase,
             }),
         }),
 
         SelectedPullDetectCase: ({ detectCase }: DetectCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 detectCase: () => detectCase,
             }),
         }),
 
         SelectedPullFilterCase: ({ filterCase }: FilterCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 filterCase: () => filterCase,
             }),
         }),
 
         SelectedPullMatchCase: ({ matchCase }: MatchCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 matchCase: () => matchCase,
             }),
         }),

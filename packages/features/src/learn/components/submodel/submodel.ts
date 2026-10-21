@@ -2,7 +2,7 @@ import { Option, Schema as S } from "effect"
 import { Submodel, Update } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // CHILD SUBMODEL — Settings
@@ -50,7 +50,7 @@ export const settingsUpdate = (
 ) =>
     SettingsMessage.match<SettingsUpdateReturn>(message, {
         ChangedTheme: ({ theme }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 theme: () => theme,
             }),
             outMessage: SettingsOutMessage.SelectedTheme({
@@ -59,14 +59,14 @@ export const settingsUpdate = (
         }),
 
         ToggledNotifications: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 notificationsEnabled: (enabled) => !enabled,
             }),
         }),
     })
 
 // Parent-initiated changes still enter through a child-owned helper.
-// The parent does not reach into SettingsModel with evo itself.
+// The parent does not reach into SettingsModel with modifyFields itself.
 export const setTheme = (model: SettingsModel, theme: Theme) =>
     settingsUpdate(
         model,
@@ -177,7 +177,7 @@ export const foldSettingsOutMessage = (
             SelectedTheme:
                 ({ theme }) =>
                 (model) => ({
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         lastChildFact: () => `SelectedTheme(${theme})`,
                     }),
                 }),
@@ -191,7 +191,7 @@ export const foldSettings = Update.foldChild({
     read: (model: ParentModel) => Option.some(model.settings),
 
     write: (model, nextSettings) =>
-        evo(model, {
+        modifyFields(model, {
             settings: () => nextSettings,
         }),
 
@@ -210,7 +210,7 @@ export const foldSettingsTheme = Update.foldChild({
     read: (model: ParentModel) => Option.some(model.settings),
 
     write: (model, nextSettings) =>
-        evo(model, {
+        modifyFields(model, {
             settings: () => nextSettings,
         }),
 
@@ -293,7 +293,7 @@ type DemoUpdateReturn = Update.Return<DemoModel, DemoMessage>
 export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
     DemoMessage.match<DemoUpdateReturn>(message, {
         SelectedSubmodelStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -302,14 +302,14 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
             const next = parentUpdate(model.parent, message)
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     parent: () => next.model,
                 }),
             }
         },
 
         ClickedSimulateLateMessage: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 simulatedLateMessage: () => true,
             }),
         }),

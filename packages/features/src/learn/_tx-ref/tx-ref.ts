@@ -1,7 +1,7 @@
 import { Effect, Schema as S, TxRef } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXREF PROGRAMS
@@ -413,18 +413,18 @@ type ComposeCasePayload = Readonly<{ composeCase: ComposeCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxRefStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxRefCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxRefReadCase: ({ readCase }: ReadCasePayload) => ({
-            model: evo(model, { readCase: () => readCase }),
+            model: modifyFields(model, { readCase: () => readCase }),
         }),
         SelectedTxRefUpdateCase: ({ updateCase }: UpdateCasePayload) => ({
-            model: evo(model, { updateCase: () => updateCase }),
+            model: modifyFields(model, { updateCase: () => updateCase }),
         }),
         SelectedTxRefComposeCase: ({ composeCase }: ComposeCasePayload) => ({
-            model: evo(model, { composeCase: () => composeCase }),
+            model: modifyFields(model, { composeCase: () => composeCase }),
         }),
     })

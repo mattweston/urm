@@ -3,7 +3,7 @@ import { Command, File, Navigation, Submodel } from "foldkit"
 import type { Url } from "foldkit/url"
 import { taggedStruct } from "foldkit/schema"
 import { defineMessageUnion } from "foldkit/message"
-import { Remote, RemoteMutationError } from "foldkit-remote"
+import { Remote, RemoteData, RemoteMutationError } from "foldkit-remote"
 import { Surface } from "foldkit-surface"
 import * as Events from "@urm/features/events/submodel"
 import { EventAction } from "@urm/domain/events"
@@ -94,20 +94,72 @@ export const Data = Remote.make({
 })
 const query = (domain_id: string) =>
     Data.query(DomainEvents, { domain_id }, { select: EventSummary, first: 1 })
-export const library = (model: Model) => {
-    const result = query(model.domain_id).read({ remote: model.remote })
-    return result._tag === "Ready" ? result.value.items[0] : undefined
+/**
+ * The read itself. It used to return `Ready ? items[0] : undefined`, which made
+ * a failed read indistinguishable from a domain with no events and discarded
+ * the value `Refreshing` and `Failed.previous` still carry. Callers fold the
+ * state; `project` below maps it onto the fields the view already renders.
+ */
+export const library = (model: Model) =>
+    query(model.domain_id).read({ remote: model.remote })
+export const project = (model: Model): Events.ModelType => {
+    const base = { ...model.ui, can_write: model.can_write && !model.pending }
+    const none = { events: [], menuItems: [] } as const
+    const settled = { loadingEvents: false, loadingMenuItems: false }
+    // Generic so the spread keeps every other field of the row; naming the two
+    // it rewrites would narrow the element type and drop the rest.
+    const menu = <
+        T extends {
+            readonly price: number
+            readonly order_position: number
+        },
+    >(
+        rows: ReadonlyArray<T>
+    ) =>
+        rows.map((row) => ({
+            ...row,
+            price: (row.price / 100).toFixed(2),
+            order_position: String(row.order_position),
+        }))
+    return RemoteData.render(library(model), {
+        loading: (): Events.ModelType => ({
+            ...base,
+            ...none,
+            loadingEvents: true,
+            loadingMenuItems: true,
+            error: null,
+        }),
+        notFound: (): Events.ModelType => ({
+            ...base,
+            ...none,
+            ...settled,
+            error: null,
+        }),
+        // Reaches the view's existing `errorBanner`, which `model.error` fed
+        // only for mutations before this.
+        failed: (error): Events.ModelType => ({
+            ...base,
+            ...none,
+            ...settled,
+            error: error.message,
+        }),
+        data: (page, freshness): Events.ModelType => {
+            const row = page.items[0]
+            const refreshing = freshness._tag === "Refreshing"
+            return {
+                ...base,
+                loadingEvents: refreshing,
+                loadingMenuItems: refreshing,
+                error:
+                    freshness._tag === "Stale"
+                        ? freshness.error.message
+                        : null,
+                events: row?.events ?? [],
+                menuItems: menu(row?.menu_items ?? []),
+            }
+        },
+    })
 }
-export const project = (model: Model): Events.ModelType => ({
-    ...model.ui,
-    can_write: model.can_write && !model.pending,
-    events: library(model)?.events ?? [],
-    menuItems: (library(model)?.menu_items ?? []).map((row) => ({
-        ...row,
-        price: (row.price / 100).toFixed(2),
-        order_position: String(row.order_position),
-    })),
-})
 const LoadEventCatalog = Command.define("LoadEventCatalog", {
     args: {
         account_id: S.String,

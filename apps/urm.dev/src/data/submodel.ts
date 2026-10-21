@@ -23,7 +23,7 @@ export const Message = S.Union([Data.Message, LoadedWorkspace, FailedWorkspace])
 export type Message = typeof Message.Type
 type Commands = ReadonlyArray<Command.Command<Message, never, ContactsApi>>
 export type UpdateReturn = readonly [Model, Commands]
-class CsvRecoveryError extends S.TaggedErrorClass<CsvRecoveryError>()(
+class CsvRecoveryError extends S.TaggedError<CsvRecoveryError>()(
     "CsvRecoveryError",
     { message: S.String }
 ) {}

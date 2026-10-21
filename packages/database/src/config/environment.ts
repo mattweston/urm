@@ -58,20 +58,20 @@ export const getDatabaseUrlEnvVar = (env: Environment): string => {
     }
 }
 
-const nodeEnvConfig = Config.string("NODE_ENV").pipe(
+const nodeEnvConfig = Config.String("NODE_ENV").pipe(
     Config.withDefault("development")
 )
 
-const isDemoConfig = Config.boolean("IS_DEMO").pipe(Config.withDefault(false))
+const isDemoConfig = Config.Boolean("IS_DEMO").pipe(Config.withDefault(false))
 
 export const loadEnvironmentConfig = Effect.gen(function* () {
     const node_env = yield* nodeEnvConfig
     const env = yield* validateEnvironment(node_env)
     const db_url_var = getDatabaseUrlEnvVar(env)
-    const database_url = yield* Config.string(db_url_var)
+    const database_url = yield* Config.String(db_url_var)
     const is_demo = yield* isDemoConfig
     if (is_demo) {
-        const demo_url = yield* Config.string("DATABASE_URL_DEMO")
+        const demo_url = yield* Config.String("DATABASE_URL_DEMO")
         if (demo_url === database_url) {
             return yield* Effect.fail(
                 makeConfigError(
@@ -89,7 +89,7 @@ export const loadEnvironmentConfig = Effect.gen(function* () {
 })
 
 export const getDemoDatabaseUrl = Effect.gen(function* () {
-    const demo_config = Config.option(Config.string("DATABASE_URL_DEMO"))
+    const demo_config = Config.option(Config.String("DATABASE_URL_DEMO"))
     return yield* demo_config
 })
 
@@ -103,7 +103,7 @@ export const validateAllEnvVars = Effect.gen(function* () {
     ]
 
     for (const var_name of required_vars) {
-        const config = Config.option(Config.string(var_name))
+        const config = Config.option(Config.String(var_name))
         const value = yield* config
 
         if (Option.isNone(value)) {

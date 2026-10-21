@@ -15,7 +15,7 @@ export interface SocialPrincipal extends AccountPrincipal {
     readonly domain_id: string
 }
 
-export class SocialStoreError extends Schema.TaggedErrorClass<SocialStoreError>()(
+export class SocialStoreError extends Schema.TaggedError<SocialStoreError>()(
     "SocialStoreError",
     { message: Schema.String }
 ) {}

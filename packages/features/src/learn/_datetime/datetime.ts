@@ -1,7 +1,7 @@
 import { DateTime, Duration, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // MODEL
@@ -496,32 +496,32 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedDateTimeStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
         SelectedDateTimeInstantCase: ({ instantCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 instantCase: () => instantCase,
             }),
         }),
         SelectedDateTimeZoneCase: ({ zoneCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 zoneCase: () => zoneCase,
             }),
         }),
         SelectedDateTimeDisambiguation: ({ disambiguation }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 disambiguation: () => disambiguation,
             }),
         }),
         SelectedDateTimeMathMode: ({ mathMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 mathMode: () => mathMode,
             }),
         }),
         SelectedDateTimeFormatZone: ({ formatZone }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 formatZone: () => formatZone,
             }),
         }),

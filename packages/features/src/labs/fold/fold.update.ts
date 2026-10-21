@@ -1,6 +1,6 @@
 import { Effect, Match as M, Schema as S } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { play_note } from "./fold.audio.ts"
 import { CompletedPlayNote } from "./fold.message.ts"
@@ -31,17 +31,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const frequency = note_frequencies[model.step]
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         step: (step) => Math.min(step + 1, LAST_STEP),
                     }),
                     frequency === undefined ? [] : [PlayNote({ frequency })],
                 ]
             },
             ClickedPrevious: () => [
-                evo(model, { step: (step) => Math.max(step - 1, 0) }),
+                modifyFields(model, { step: (step) => Math.max(step - 1, 0) }),
                 [],
             ],
-            ClickedRestart: () => [evo(model, { step: () => 0 }), []],
+            ClickedRestart: () => [modifyFields(model, { step: () => 0 }), []],
             CompletedPlayNote: () => [model, []],
         })
     )

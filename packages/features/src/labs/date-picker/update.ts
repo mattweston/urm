@@ -1,7 +1,7 @@
 import * as Ui from "@foldkit/ui"
 import { Effect, Match as M, Option } from "effect"
 import { Calendar, Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { GotDatePickerMessage, type Message } from "./message.ts"
 import type { Model } from "./model.ts"
 type UpdateReturn = readonly [Model, ReadonlyArray<Command.Command<Message>>]
@@ -47,7 +47,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.orElse(() => model.maybeSelectedDate)
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         datePicker: () => datePicker,
                         maybeSelectedDate: () => maybeSelectedDate,
                     }),

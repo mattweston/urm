@@ -9,7 +9,7 @@ import {
 } from "effect"
 import { Subscription, type Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Child Submodel subscription used by Subscription.lift
@@ -305,34 +305,34 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedSubscriptionsStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         // Results from real active Subscriptions.
         Ticked: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: (count) => count + 1,
                 lifetimeLog: (log) => [...log, "Ticked → count + 1"],
             }),
         }),
 
         PressedEscape: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 eventLog: (log) => [...log, "PressedEscape"],
             }),
         }),
 
         ReadLiveClientY: ({ clientY }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 liveReadCount: (count) => count + 1,
                 lastReadClientY: () => clientY,
             }),
         }),
 
         Heartbeat: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 heartbeatCount: (count) => count + 1,
             }),
         }),
@@ -340,7 +340,7 @@ export const update = (model: Model, message: Message) =>
         GotChildMessage: ({ message }) =>
             ChildMessage.match<UpdateReturn>(message, {
                 TickedChild: () => ({
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         childTickCount: (count) => count + 1,
                         liftLog: (log) => [
                             ...log,
@@ -356,7 +356,7 @@ export const update = (model: Model, message: Message) =>
             const next = !model.isAutoCounting
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     isAutoCounting: () => next,
                     lifetimeGeneration: (generation) => generation + 1,
                     lifetimeLog: (log) => [
@@ -370,7 +370,7 @@ export const update = (model: Model, message: Message) =>
         },
 
         ClickedUnrelatedModelChange: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 unrelatedVersion: (version) => version + 1,
                 lifetimeLog: (log) => [
                     ...log,
@@ -380,7 +380,7 @@ export const update = (model: Model, message: Message) =>
         }),
 
         ClickedResetLifetime: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: () => 0,
                 isAutoCounting: () => false,
                 unrelatedVersion: () => 0,
@@ -391,7 +391,7 @@ export const update = (model: Model, message: Message) =>
 
         // DOM event visual controls.
         ClickedToggleListening: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 isListening: (listening) => !listening,
                 eventLog: (log) => [
                     ...log,
@@ -403,7 +403,7 @@ export const update = (model: Model, message: Message) =>
         }),
 
         SelectedSubscriptionEventKey: ({ key }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 eventKey: () => key,
             }),
         }),
@@ -411,7 +411,7 @@ export const update = (model: Model, message: Message) =>
         ClickedSimulateWindowKey: () => {
             if (!model.isListening) {
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         eventLog: (log) => [
                             ...log,
                             `${model.eventKey}: listener inactive`,
@@ -422,7 +422,7 @@ export const update = (model: Model, message: Message) =>
 
             if (model.eventKey === "Escape") {
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         eventLog: (log) => [
                             ...log,
                             "Escape → Some(PressedEscape) → preventDefault + dispatch",
@@ -432,7 +432,7 @@ export const update = (model: Model, message: Message) =>
             }
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     eventLog: (log) => [
                         ...log,
                         `${model.eventKey} → None → browser default untouched`,
@@ -442,7 +442,7 @@ export const update = (model: Model, message: Message) =>
         },
 
         ClickedResetEvents: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 isListening: () => true,
                 eventKey: () => "Escape",
                 eventLog: () => [],
@@ -454,7 +454,7 @@ export const update = (model: Model, message: Message) =>
             const next = !model.isDragging
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     isDragging: () => next,
                     dragGeneration: (generation) => generation + 1,
                     lastReadClientY: () => model.clientY,
@@ -463,20 +463,20 @@ export const update = (model: Model, message: Message) =>
         },
 
         SelectedClientY: ({ clientY }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 clientY: () => clientY,
             }),
         }),
 
         ClickedReadLatestDependencies: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 liveReadCount: (count) => count + 1,
                 lastReadClientY: () => model.clientY,
             }),
         }),
 
         ClickedResetKeepAlive: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 isDragging: () => false,
                 clientY: () => 120,
                 dragGeneration: () => 0,
@@ -490,7 +490,7 @@ export const update = (model: Model, message: Message) =>
             const next = !model.routeActive
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     routeActive: () => next,
                     childGeneration: (generation) =>
                         next ? generation + 1 : generation,
@@ -509,7 +509,7 @@ export const update = (model: Model, message: Message) =>
 
             if (!model.routeActive) {
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         child: (child) => ({
                             ...child,
                             isOnline: next,
@@ -523,7 +523,7 @@ export const update = (model: Model, message: Message) =>
             }
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     child: (child) => ({
                         ...child,
                         isOnline: next,
@@ -538,7 +538,7 @@ export const update = (model: Model, message: Message) =>
         },
 
         ClickedSimulateChildTick: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 liftLog: (log) => [
                     ...log,
                     model.routeActive && model.child.isOnline
@@ -553,7 +553,7 @@ export const update = (model: Model, message: Message) =>
         }),
 
         ClickedResetLift: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 routeActive: () => true,
                 child: () =>
                     ChildModel.make({

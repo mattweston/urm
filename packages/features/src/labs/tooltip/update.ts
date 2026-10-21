@@ -1,7 +1,7 @@
 import { Effect, Match as M } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { GotBasicMessage, GotNoDelayMessage, type Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -29,7 +29,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { basic: () => basic }),
+                    modifyFields(model, { basic: () => basic }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>
@@ -45,7 +45,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { noDelay: () => noDelay }),
+                    modifyFields(model, { noDelay: () => noDelay }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>

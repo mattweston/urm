@@ -1,5 +1,5 @@
 import { Array, Match as M, Option, Schema as S, pipe } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { generateKeyBetween } from "fractional-indexing"
 import type { Card } from "./kanban.card.ts"
 import { Card as CardSchema } from "./kanban.card.ts"
@@ -38,7 +38,7 @@ export const removeCard = (
     const maybeCard = Array.findFirst(column.cards, ({ id }) => id === cardId)
 
     return {
-        column: evo(column, {
+        column: modifyFields(column, {
             cards: () => Array.filter(column.cards, ({ id }) => id !== cardId),
         }),
         maybeCard,
@@ -51,9 +51,9 @@ export const insertCard = (
     targetIndex: number
 ): Column => {
     const sortKey = generateSortKeyAtIndex(column.cards, targetIndex)
-    const updatedCard = evo(card, { sortKey: () => sortKey })
+    const updatedCard = modifyFields(card, { sortKey: () => sortKey })
 
-    return evo(column, {
+    return modifyFields(column, {
         cards: () =>
             pipe(
                 column.cards,
@@ -66,8 +66,8 @@ export const insertCard = (
 export const appendCard = (column: Column, card: Card): Column => {
     const sortKey = generateSortKeyAtIndex(column.cards, column.cards.length)
 
-    return evo(column, {
-        cards: () => [...column.cards, evo(card, { sortKey: () => sortKey })],
+    return modifyFields(column, {
+        cards: () => [...column.cards, modifyFields(card, { sortKey: () => sortKey })],
     })
 }
 

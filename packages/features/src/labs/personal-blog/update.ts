@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as Counter from "./island/counter.ts"
 import { GotCounterMessage, type PersonalBlogMessage } from "./message.ts"
@@ -25,7 +25,7 @@ export const personalBlogUpdate = (
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ChangedBlogRoute: ({ route }) => [
-                evo(model, { route: () => route }),
+                modifyFields(model, { route: () => route }),
                 [],
             ],
 
@@ -36,7 +36,7 @@ export const personalBlogUpdate = (
                 )
 
                 return [
-                    evo(model, { counter: () => counter }),
+                    modifyFields(model, { counter: () => counter }),
                     Command.mapMessages(counterCommands, (childMessage) =>
                         GotCounterMessage({ message: childMessage })
                     ),

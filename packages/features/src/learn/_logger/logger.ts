@@ -1,7 +1,7 @@
 import { Effect, Logger, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL LOGGER EXAMPLES
@@ -467,31 +467,31 @@ type InstallCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedLoggerStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedLoggerBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedLoggerFormatCase: ({ formatCase }: FormatCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 formatCase: () => formatCase,
             }),
         }),
 
         SelectedLoggerRouteCase: ({ routeCase }: RouteCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 routeCase: () => routeCase,
             }),
         }),
 
         SelectedLoggerInstallCase: ({ installCase }: InstallCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 installCase: () => installCase,
             }),
         }),

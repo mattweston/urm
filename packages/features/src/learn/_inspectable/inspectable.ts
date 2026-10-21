@@ -1,7 +1,7 @@
 import { Formatter, Inspectable, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DEMO TYPES
@@ -485,7 +485,7 @@ type PrototypeCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedInspectableStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -493,19 +493,19 @@ export const update = (model: Model, message: Message) =>
         SelectedInspectableConvertCase: ({
             convertCase,
         }: ConvertCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 convertCase: () => convertCase,
             }),
         }),
 
         SelectedInspectableClassCase: ({ classCase }: ClassCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 classCase: () => classCase,
             }),
         }),
 
         SelectedInspectableCustomCase: ({ customCase }: CustomCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 customCase: () => customCase,
             }),
         }),
@@ -513,7 +513,7 @@ export const update = (model: Model, message: Message) =>
         SelectedInspectablePrototypeCase: ({
             prototypeCase,
         }: PrototypeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 prototypeCase: () => prototypeCase,
             }),
         }),

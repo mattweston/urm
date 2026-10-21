@@ -2,7 +2,7 @@ import { Array, Effect, Match as M, Option, Schema as S, pipe } from "effect"
 import { Calendar, Command } from "foldkit"
 import { type CalendarDate } from "foldkit/calendar"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as Entry from "./entry.ts"
 
@@ -72,7 +72,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ClickedAddEntry: () => [model, [AddEntry()]],
 
             AddedEntry: ({ entryId }) => [
-                evo(model, {
+                modifyFields(model, {
                     entries: () => [
                         ...model.entries,
                         Entry.init(entryId, model.today),
@@ -82,7 +82,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             RemovedEntry: ({ entryId }) => [
-                evo(model, {
+                modifyFields(model, {
                     entries: () =>
                         Array.filter(
                             model.entries,
@@ -105,7 +105,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             )
 
                             return [
-                                evo(model, {
+                                modifyFields(model, {
                                     entries: () =>
                                         Array.map(model.entries, (entry) =>
                                             entry.id === entryId

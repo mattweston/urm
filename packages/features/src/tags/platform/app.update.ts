@@ -1,7 +1,7 @@
 import { Effect, Match as M, Schema as S, String } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./app.message.ts"
 import { DEFAULT_TAG_COLOR, TAG_COLOR_OPTIONS } from "./app.model.ts"
@@ -103,7 +103,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             LoadedTags: ({ tags, entityTags }) => [
-                evo(model, {
+                modifyFields(model, {
                     loading: () => false,
                     error: () => null,
                     tags: () => tags,
@@ -115,12 +115,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
             SyncedDirectoryTags: () => [model, []],
             DirectoryTagSyncFailed: ({ error }) => [
-                evo(model, { error: () => error }),
+                modifyFields(model, { error: () => error }),
                 [],
             ],
 
             FailedLoadingTags: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     loading: () => false,
                     error: () => error,
                     mutating: () => false,
@@ -129,27 +129,27 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             SearchQueryChanged: ({ value }) => [
-                evo(model, { searchQuery: () => value }),
+                modifyFields(model, { searchQuery: () => value }),
                 [],
             ],
 
             SortByChanged: ({ value }) => [
-                evo(model, { sortBy: () => value }),
+                modifyFields(model, { sortBy: () => value }),
                 [],
             ],
 
             CreateTagNameChanged: ({ value }) => [
-                evo(model, { creatingName: () => value }),
+                modifyFields(model, { creatingName: () => value }),
                 [],
             ],
 
             CreateTagColorChanged: ({ value }) => [
-                evo(model, { creatingColor: () => value }),
+                modifyFields(model, { creatingColor: () => value }),
                 [],
             ],
 
             CreateTagDescriptionChanged: ({ value }) => [
-                evo(model, { creatingDescription: () => value }),
+                modifyFields(model, { creatingDescription: () => value }),
                 [],
             ],
 
@@ -163,7 +163,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                         mutating: () => true,
                     }),
@@ -172,7 +172,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             CreatedTag: () => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => null,
                     mutating: () => false,
                     creatingName: () => "",
@@ -183,7 +183,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             CreateTagFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     mutating: () => false,
                     error: () => error,
                 }),
@@ -202,7 +202,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         editingTagId: () => tag.id,
                         editingName: () => tag.name,
                         editingColor: () => normalizeTagColor(tag.color),
@@ -213,7 +213,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClosedTagEditor: () => [
-                evo(model, {
+                modifyFields(model, {
                     editingTagId: () => null,
                     editingName: () => "",
                     editingColor: () => DEFAULT_TAG_COLOR,
@@ -223,17 +223,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             EditingTagNameChanged: ({ value }) => [
-                evo(model, { editingName: () => value }),
+                modifyFields(model, { editingName: () => value }),
                 [],
             ],
 
             EditingTagColorChanged: ({ value }) => [
-                evo(model, { editingColor: () => value }),
+                modifyFields(model, { editingColor: () => value }),
                 [],
             ],
 
             EditingTagDescriptionChanged: ({ value }) => [
-                evo(model, { editingDescription: () => value }),
+                modifyFields(model, { editingDescription: () => value }),
                 [],
             ],
 
@@ -248,7 +248,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                         mutating: () => true,
                     }),
@@ -257,7 +257,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             SavedTagEdits: () => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => null,
                     mutating: () => false,
                     editingTagId: () => null,
@@ -269,7 +269,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             TagEditsSaveFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     mutating: () => false,
                     error: () => error,
                 }),
@@ -297,7 +297,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         pendingDeleteTagId: () => tagId,
                         deleteConfirmationDialog: () =>
                             deleteConfirmationDialog,
@@ -317,7 +317,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     Ui.Dialog.update(model.deleteConfirmationDialog, message)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         deleteConfirmationDialog: () =>
                             deleteConfirmationDialog,
                     }),
@@ -351,7 +351,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     Ui.Dialog.Message.RequestedClose()
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                         mutating: () => true,
                         pendingDeleteTagId: () => null,
@@ -374,7 +374,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             DeletedTag: ({ tagId }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => null,
                     mutating: () => false,
                     editingTagId: (current) =>
@@ -392,7 +392,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             DeleteTagFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     mutating: () => false,
                     error: () => error,
                 }),

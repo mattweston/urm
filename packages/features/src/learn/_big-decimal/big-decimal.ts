@@ -1,7 +1,7 @@
 import { BigDecimal, Match, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 BigDecimal examples
@@ -211,43 +211,43 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedBigDecimalStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedBigDecimalParseCase: ({ parseCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 parseCase: () => parseCase,
             }),
         }),
 
         SelectedBigDecimalArithmeticMode: ({ arithmeticMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 arithmeticMode: () => arithmeticMode,
             }),
         }),
 
         SelectedBigDecimalRoundMode: ({ roundMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 roundMode: () => roundMode,
             }),
         }),
 
         SelectedBigDecimalRoundInput: ({ roundInput }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 roundInput: () => roundInput,
             }),
         }),
 
         SelectedBigDecimalRoundScale: ({ roundScale }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 roundScale: () => roundScale,
             }),
         }),
 
         SelectedBigDecimalCompareMode: ({ compareMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 compareMode: () => compareMode,
             }),
         }),

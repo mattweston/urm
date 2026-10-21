@@ -1,7 +1,7 @@
 import { Match, Match as M, Option, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Match examples
@@ -252,54 +252,54 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedMatchStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             SelectedMatchEntryMode: ({ entry_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     entry_mode: () => entry_mode,
                 }),
                 commands: [],
             }),
 
             SelectedMatchPrimitiveKind: ({ primitive_kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     primitive_kind: () => primitive_kind,
                 }),
                 commands: [],
             }),
 
             SelectedMatchPatternRole: ({ pattern_role }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     pattern_role: () => pattern_role,
                 }),
                 commands: [],
             }),
 
             ToggledMatchPatternActive: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     pattern_active: (active) => !active,
                 }),
                 commands: [],
             }),
 
             SelectedMatchStateKind: ({ state_kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     state_kind: () => state_kind,
                 }),
                 commands: [],
             }),
 
             SelectedMatchCompletionMode: ({ completion_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     completion_mode: () => completion_mode,
                 }),
                 commands: [],
             }),
 
             SelectedMatchCompletionRole: ({ completion_role }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     completion_role: () => completion_role,
                 }),
                 commands: [],

@@ -95,7 +95,7 @@ export type Video = typeof Video.Type
 
 export type ImageDetails = typeof ImageDetails.Type
 
-export class MediaWriteError extends Schema.TaggedErrorClass<MediaWriteError>()(
+export class MediaWriteError extends Schema.TaggedError<MediaWriteError>()(
     "MediaWriteError",
     { message: Schema.String }
 ) {}

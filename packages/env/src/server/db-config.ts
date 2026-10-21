@@ -24,9 +24,9 @@ export class DbConfig extends Context.Service<
         DbConfig,
         Effect.gen(function* () {
             const config = yield* Config.all({
-                databaseUrl: Config.option(Config.string("DATABASE_URL")),
+                databaseUrl: Config.option(Config.String("DATABASE_URL")),
                 databaseUrlSQLite: Config.option(
-                    Config.string("DATABASE_URL_SQLITE")
+                    Config.String("DATABASE_URL_SQLITE")
                 ),
             }).pipe(
                 Config.map((c) => {

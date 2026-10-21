@@ -1,7 +1,7 @@
 import { Array, Effect, Match as M, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type {
     CreateCollectionInput,
     ProductCollection,
@@ -151,18 +151,18 @@ const updateCollectionDraftField = (
     value: string
 ): CollectionDraft => {
     if (field === "name") {
-        return evo(collectionDraft, { name: () => value })
+        return modifyFields(collectionDraft, { name: () => value })
     }
 
     if (field === "slug") {
-        return evo(collectionDraft, { slug: () => value })
+        return modifyFields(collectionDraft, { slug: () => value })
     }
 
     if (field === "description") {
-        return evo(collectionDraft, { description: () => value })
+        return modifyFields(collectionDraft, { description: () => value })
     }
 
-    return evo(collectionDraft, { imageUrl: () => value })
+    return modifyFields(collectionDraft, { imageUrl: () => value })
 }
 
 const updateDraftField = (
@@ -171,26 +171,26 @@ const updateDraftField = (
     value: string
 ): ProductDraft => {
     if (field === "name") {
-        return evo(productDraft, { name: () => value })
+        return modifyFields(productDraft, { name: () => value })
     }
 
     if (field === "slug") {
-        return evo(productDraft, { slug: () => value })
+        return modifyFields(productDraft, { slug: () => value })
     }
 
     if (field === "description") {
-        return evo(productDraft, { description: () => value })
+        return modifyFields(productDraft, { description: () => value })
     }
 
     if (field === "price") {
-        return evo(productDraft, { price: () => value })
+        return modifyFields(productDraft, { price: () => value })
     }
 
     if (field === "inventory") {
-        return evo(productDraft, { inventory: () => value })
+        return modifyFields(productDraft, { inventory: () => value })
     }
 
-    return evo(productDraft, {
+    return modifyFields(productDraft, {
         imageUrl: () => value,
         imageId: () => null,
     })
@@ -209,23 +209,23 @@ const updateCheckoutDraftField = (
         | "postal",
     value: string
 ): CheckoutDraft => {
-    if (field === "email") return evo(checkoutDraft, { email: () => value })
+    if (field === "email") return modifyFields(checkoutDraft, { email: () => value })
     if (field === "firstName") {
-        return evo(checkoutDraft, { firstName: () => value })
+        return modifyFields(checkoutDraft, { firstName: () => value })
     }
     if (field === "lastName") {
-        return evo(checkoutDraft, { lastName: () => value })
+        return modifyFields(checkoutDraft, { lastName: () => value })
     }
-    if (field === "line1") return evo(checkoutDraft, { line1: () => value })
-    if (field === "city") return evo(checkoutDraft, { city: () => value })
+    if (field === "line1") return modifyFields(checkoutDraft, { line1: () => value })
+    if (field === "city") return modifyFields(checkoutDraft, { city: () => value })
     if (field === "province") {
-        return evo(checkoutDraft, { province: () => value })
+        return modifyFields(checkoutDraft, { province: () => value })
     }
     if (field === "country") {
-        return evo(checkoutDraft, { country: () => value })
+        return modifyFields(checkoutDraft, { country: () => value })
     }
 
-    return evo(checkoutDraft, { postal: () => value })
+    return modifyFields(checkoutDraft, { postal: () => value })
 }
 
 const checkoutDraftError = (draft: CheckoutDraft): string | null => {
@@ -329,7 +329,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         model.collections
                     )
 
-                    return evo(model, {
+                    return modifyFields(model, {
                         route: () => route,
                         productDraft: () =>
                             resetProductDraft(route, model.products),
@@ -350,7 +350,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ProductsLoaded: ({ products }) => [
-                evo(model, {
+                modifyFields(model, {
                     products: () => products,
                     productDraft: () =>
                         resetProductDraft(model.route, products),
@@ -366,7 +366,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         collections
                     )
 
-                    return evo(model, {
+                    return modifyFields(model, {
                         collections: () => collections,
                         collectionDraft: () => collectionDraft,
                         savedCollectionSnapshot: () => collectionDraft,
@@ -383,7 +383,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         collections
                     )
 
-                    return evo(model, {
+                    return modifyFields(model, {
                         products: () => products,
                         collections: () => collections,
                         productDraft: () =>
@@ -398,7 +398,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             CartLoaded: ({ snapshot }) => [
-                evo(model, {
+                modifyFields(model, {
                     cartSnapshot: () => snapshot,
                     isCartLoading: () => false,
                     isCartSubmitting: () => false,
@@ -417,7 +417,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         isCartSubmitting: () => true,
                         error: () => Option.none(),
                         success: () => Option.none(),
@@ -431,7 +431,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const normalized_quantity = Math.floor(quantity)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         isCartSubmitting: () => true,
                         error: () => Option.none(),
                     }),
@@ -449,7 +449,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 model.isCartSubmitting
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               isCartSubmitting: () => true,
                               error: () => Option.none(),
                           }),
@@ -459,7 +459,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 model.isCartSubmitting || model.cartSnapshot.items.length === 0
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               isCartSubmitting: () => true,
                               error: () => Option.none(),
                           }),
@@ -472,7 +472,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           ],
                       ],
             CartUpdated: ({ snapshot }) => [
-                evo(model, {
+                modifyFields(model, {
                     cartSnapshot: () => snapshot,
                     isCartLoading: () => false,
                     isCartSubmitting: () => false,
@@ -481,7 +481,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             CartActionFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     isCartLoading: () => false,
                     isCartSubmitting: () => false,
                     error: () => Option.some(error),
@@ -489,14 +489,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             OrdersLoaded: ({ orders }) => [
-                evo(model, {
+                modifyFields(model, {
                     orders: () => orders,
                     areOrdersLoading: () => false,
                 }),
                 [],
             ],
             UpdatedCheckoutDraft: ({ field, value }) => [
-                evo(model, {
+                modifyFields(model, {
                     checkoutDraft: () =>
                         updateCheckoutDraftField(
                             model.checkoutDraft,
@@ -518,7 +518,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     model.cartSnapshot.items.length === 0
                 ) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             error: () =>
                                 Option.some(
                                     "Add at least one item before recording an order."
@@ -530,7 +530,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (validation_error !== null) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             error: () => Option.some(validation_error),
                         }),
                         [],
@@ -543,7 +543,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (Option.isNone(email)) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             error: () =>
                                 Option.some("Enter a valid email address."),
                         }),
@@ -552,7 +552,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         isOrderSubmitting: () => true,
                         error: () => Option.none(),
                         success: () => Option.none(),
@@ -568,7 +568,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             PendingOrderCreated: ({ snapshot }) => [
-                evo(model, {
+                modifyFields(model, {
                     orders: (orders) => [
                         snapshot,
                         ...orders.filter(
@@ -586,7 +586,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
             CompletedOrderNavigation: () => [model, []],
             OrderActionFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     areOrdersLoading: () => false,
                     isOrderSubmitting: () => false,
                     error: () => Option.some(error),
@@ -594,7 +594,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedProductDraft: ({ field, value }) => [
-                evo(model, {
+                modifyFields(model, {
                     productDraft: () =>
                         updateDraftField(model.productDraft, field, value),
                     error: () => Option.none(),
@@ -603,23 +603,23 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedProductActive: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     productDraft: () =>
-                        evo(model.productDraft, { isActive: () => value }),
+                        modifyFields(model.productDraft, { isActive: () => value }),
                 }),
                 [],
             ],
             UpdatedProductFeatured: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     productDraft: () =>
-                        evo(model.productDraft, { isFeatured: () => value }),
+                        modifyFields(model.productDraft, { isFeatured: () => value }),
                 }),
                 [],
             ],
             UpdatedProductCollection: ({ collectionId, selected }) => [
-                evo(model, {
+                modifyFields(model, {
                     productDraft: () =>
-                        evo(model.productDraft, {
+                        modifyFields(model.productDraft, {
                             collectionIds: (collectionIds) =>
                                 selected
                                     ? collectionIds.includes(collectionId)
@@ -660,7 +660,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         productImageDrop: () => nextDrop,
                         selectedProductImageFiles: () =>
                             selectedProductImageFiles,
@@ -675,7 +675,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             RemovedSelectedProductImage: ({ fileIndex }) => [
-                evo(model, {
+                modifyFields(model, {
                     selectedProductImageFiles: () =>
                         model.selectedProductImageFiles.filter(
                             (_, index) => index !== fileIndex
@@ -691,7 +691,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         isProductImageUploading: () => true,
                         error: () => Option.none(),
                         success: () => Option.none(),
@@ -700,9 +700,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ProductImageUploaded: ({ image }) => [
-                evo(model, {
+                modifyFields(model, {
                     productDraft: () =>
-                        evo(model.productDraft, {
+                        modifyFields(model.productDraft, {
                             imageId: () => image.id,
                             imageUrl: () => image.url,
                         }),
@@ -713,7 +713,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             OpenedProductMediaLibrary: () => [
-                evo(model, {
+                modifyFields(model, {
                     isProductMediaLibraryOpen: () => true,
                     isProductMediaLibraryLoading: () => true,
                     productMediaError: () => Option.none(),
@@ -722,7 +722,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ClosedProductMediaLibrary: () => [
-                evo(model, {
+                modifyFields(model, {
                     isProductMediaLibraryOpen: () => false,
                     isProductMediaLibraryLoading: () => false,
                     productMediaError: () => Option.none(),
@@ -731,7 +731,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ProductMediaLoaded: ({ images }) => [
-                evo(model, {
+                modifyFields(model, {
                     productMediaImages: () => images,
                     isProductMediaLibraryLoading: () => false,
                     productMediaError: () => Option.none(),
@@ -739,7 +739,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ProductMediaFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     isProductMediaLibraryLoading: () => false,
                     productMediaError: () => Option.some(error),
                 }),
@@ -751,9 +751,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
                 if (image === undefined) return [model, []]
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         productDraft: () =>
-                            evo(model.productDraft, {
+                            modifyFields(model.productDraft, {
                                 imageId: () => image.id,
                                 imageUrl: () => image.url,
                             }),
@@ -769,7 +769,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (typeof productInput === "string") {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             error: () => Option.some(productInput),
                             success: () => Option.none(),
                         }),
@@ -784,7 +784,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         ShopProducts: () => [model, []],
                         ShopProduct: () => [model, []],
                         ShopProductCreate: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 isSubmitting: () => true,
                                 error: () => Option.none(),
                                 success: () => Option.none(),
@@ -792,7 +792,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             [createProductFromDraft(productInput)],
                         ],
                         ShopProductEdit: ({ productId }) => [
-                            evo(model, {
+                            modifyFields(model, {
                                 isSubmitting: () => true,
                                 error: () => Option.none(),
                                 success: () => Option.none(),
@@ -810,7 +810,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
             },
             ClickedEditLayout: () => [
-                evo(model, {
+                modifyFields(model, {
                     editorState: () => Editing(),
                     collectionDraft: () => model.savedCollectionSnapshot,
                     error: () => Option.none(),
@@ -819,7 +819,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ClickedCancelLayoutEditing: () => [
-                evo(model, {
+                modifyFields(model, {
                     editorState: () => Viewing(),
                     collectionDraft: () => model.savedCollectionSnapshot,
                     error: () => Option.none(),
@@ -828,7 +828,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedCollectionDraft: ({ field, value }) => [
-                evo(model, {
+                modifyFields(model, {
                     collectionDraft: () =>
                         updateCollectionDraftField(
                             model.collectionDraft,
@@ -841,9 +841,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedCollectionActive: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     collectionDraft: () =>
-                        evo(model.collectionDraft, { isActive: () => value }),
+                        modifyFields(model.collectionDraft, { isActive: () => value }),
                 }),
                 [],
             ],
@@ -852,7 +852,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (typeof input === "string") {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             error: () => Option.some(input),
                             success: () => Option.none(),
                         }),
@@ -862,7 +862,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (model.route._tag === "ShopCollections") {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             isCollectionSubmitting: () => true,
                             error: () => Option.none(),
                             success: () => Option.none(),
@@ -879,14 +879,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                     return collection === undefined
                         ? [
-                              evo(model, {
+                              modifyFields(model, {
                                   error: () =>
                                       Option.some("Collection not found."),
                               }),
                               [],
                           ]
                         : [
-                              evo(model, {
+                              modifyFields(model, {
                                   isCollectionSubmitting: () => true,
                                   error: () => Option.none(),
                                   success: () => Option.none(),
@@ -901,7 +901,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 (() => {
                     const collectionDraft = blankCollectionDraft()
 
-                    return evo(model, {
+                    return modifyFields(model, {
                         collections: (collections) => [
                             collection,
                             ...collections,
@@ -920,7 +920,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     const collectionDraft =
                         collectionDraftFromCollection(collection)
 
-                    return evo(model, {
+                    return modifyFields(model, {
                         route: () =>
                             model.route._tag === "ShopCollection"
                                 ? ShopCollectionRoute({
@@ -946,7 +946,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
             CompletedCollectionNavigation: () => [model, []],
             ProductCreated: ({ product }) => [
-                evo(model, {
+                modifyFields(model, {
                     products: () => [product, ...model.products],
                     productDraft: blankProductDraft,
                     selectedProductImageFiles: () => [],
@@ -956,7 +956,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ProductUpdated: ({ product }) => [
-                evo(model, {
+                modifyFields(model, {
                     products: () => updateProductList(model.products, product),
                     productDraft: () => productDraftFromProduct(product),
                     isSubmitting: () => false,
@@ -965,7 +965,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ProductActionFailed: ({ action, error }) => [
-                evo(model, {
+                modifyFields(model, {
                     isLoading: () =>
                         action === "load-products" ? false : model.isLoading,
                     areCollectionsLoading: () =>

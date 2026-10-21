@@ -1,7 +1,7 @@
 import { Effect, Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     GotHorizontalTabsMessage,
@@ -37,7 +37,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const maybeOut = Option.fromUndefinedOr(maybeOut_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         horizontalTabs: () => horizontalTabs,
                         horizontalValue: () =>
                             Option.match(maybeOut, {
@@ -63,7 +63,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const maybeOut = Option.fromUndefinedOr(maybeOut_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         verticalTabs: () => verticalTabs,
                         verticalValue: () =>
                             Option.match(maybeOut, {

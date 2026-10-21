@@ -121,7 +121,7 @@ export const SendTransactionalInput = Schema.Struct({
 })
 export type SendTransactionalInput = typeof SendTransactionalInput.Type
 
-export class TransactionalWriteError extends Schema.TaggedErrorClass<TransactionalWriteError>()(
+export class TransactionalWriteError extends Schema.TaggedError<TransactionalWriteError>()(
     "TransactionalWriteError",
     { message: Schema.String }
 ) {}

@@ -1,6 +1,6 @@
 import { Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./streambox.message.ts"
 import {
     initialModel,
@@ -24,7 +24,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             ChangedVideo: ({ id }) => [
-                evo(model, {
+                modifyFields(model, {
                     video_id: () => id,
                     panel: () => "Overview",
                     current_time: () => 0,
@@ -35,11 +35,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             SelectedPanel: ({ panel }) => [
-                evo(model, { panel: () => panel }),
+                modifyFields(model, { panel: () => panel }),
                 [],
             ],
             ToggledPlayback: () => [
-                evo(model, {
+                modifyFields(model, {
                     is_playing: (value) => !value,
                     activity: () =>
                         Option.some(
@@ -51,7 +51,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             SoughtVideo: ({ time }) => [
-                evo(model, {
+                modifyFields(model, {
                     current_time: () =>
                         Math.max(0, Math.min(model.duration, time)),
                     activity: () =>
@@ -62,22 +62,22 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ToggledMute: () => [
-                evo(model, { is_muted: (value) => !value }),
+                modifyFields(model, { is_muted: (value) => !value }),
                 [],
             ],
             ToggledTheater: () => [
-                evo(model, { is_theater: (value) => !value }),
+                modifyFields(model, { is_theater: (value) => !value }),
                 [],
             ],
             ToggledLike: () => [
-                evo(model, {
+                modifyFields(model, {
                     liked_video_ids: (ids) => toggleId(ids, model.video_id),
                     queued_actions: () => queued(model),
                 }),
                 [],
             ],
             ToggledSave: () => [
-                evo(model, {
+                modifyFields(model, {
                     saved_video_ids: (ids) => toggleId(ids, model.video_id),
                     queued_actions: () => queued(model),
                 }),
@@ -86,7 +86,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ToggledFollow: () => {
                 const creator = videoForId(model.video_id).creator
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         followed_creators: (creators) =>
                             creators.includes(creator)
                                 ? creators.filter((item) => item !== creator)
@@ -97,7 +97,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ToggledOnline: () => [
-                evo(model, {
+                modifyFields(model, {
                     is_online: (value) => !value,
                     queued_actions: () =>
                         model.is_online ? model.queued_actions : 0,
@@ -111,15 +111,15 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ChangedCatalogQuery: ({ value }) => [
-                evo(model, { catalog_query: () => value }),
+                modifyFields(model, { catalog_query: () => value }),
                 [],
             ],
             ChangedCommentQuery: ({ value }) => [
-                evo(model, { comment_query: () => value }),
+                modifyFields(model, { comment_query: () => value }),
                 [],
             ],
             ChangedCommentSort: ({ sort }) => [
-                evo(model, { comment_sort: () => sort }),
+                modifyFields(model, { comment_sort: () => sort }),
                 [],
             ],
         })

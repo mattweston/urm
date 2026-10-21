@@ -1,7 +1,7 @@
 import { Combiner, Reducer, Schema as S, UndefinedOr } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 UndefinedOr examples
@@ -116,32 +116,32 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedUndefinedOrStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
         SelectedUndefinedOrPresence: ({ presence }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 presence: () => presence,
             }),
         }),
         UpdatedUndefinedOrThrowableInput: ({ value }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 throwableInput: () => value,
             }),
         }),
         ToggledUndefinedOrFirst: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 hasFirst: (value) => !value,
             }),
         }),
         ToggledUndefinedOrSecond: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 hasSecond: (value) => !value,
             }),
         }),
         ToggledUndefinedOrThird: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 hasThird: (value) => !value,
             }),
         }),

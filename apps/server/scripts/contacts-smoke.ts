@@ -12,7 +12,7 @@ const base = process.argv[2]
 const domain_id = process.argv[3]
 if (base === undefined || domain_id === undefined)
     throw new Error("Usage: contacts:smoke <server-url> <domain-id>")
-class CommandError extends Schema.TaggedErrorClass<CommandError>()(
+class CommandError extends Schema.TaggedError<CommandError>()(
     "CommandError",
     { message: Schema.String }
 ) {}

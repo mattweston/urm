@@ -2,7 +2,7 @@ import { Match as M, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
 import { defineTaggedUnion } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // A real Foldkit Model example
@@ -171,7 +171,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedModelStage: ({ stage }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     stage: () => stage,
                 }),
                 commands: [],
@@ -187,7 +187,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         editor: (editor) => ({
                             ...editor,
                             notes: [...editor.notes, next],
@@ -198,7 +198,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedToggleModelSidebar: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     editor: (editor) => ({
                         ...editor,
                         isSidebarOpen: !editor.isSidebarOpen,
@@ -208,7 +208,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             SelectedModelFilter: ({ filter }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     editor: (editor) => ({
                         ...editor,
                         filter,
@@ -218,7 +218,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedBrowseModel: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     editor: (editor) => ({
                         ...editor,
                         editorMode: EditorMode.Browsing(),
@@ -228,7 +228,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedEditModel: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     editor: (editor) => ({
                         ...editor,
                         editorMode: EditorMode.Editing({
@@ -240,7 +240,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedPreviewModel: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     editor: (editor) => ({
                         ...editor,
                         editorMode: EditorMode.Previewing({
@@ -252,14 +252,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             SelectedModelSchemaCase: ({ schemaCase }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     schemaCase: () => schemaCase,
                 }),
                 commands: [],
             }),
 
             ClickedResetModelDemo: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     editor: () => editorInit(),
                     schemaCase: () => "Valid",
                 }),

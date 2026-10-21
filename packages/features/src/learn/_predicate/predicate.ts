@@ -1,7 +1,7 @@
 import { Predicate, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN PREDICATES / REFINEMENTS
@@ -501,19 +501,19 @@ type RefineCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedPredicateStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedPredicateGuardCase: ({ guardCase }: GuardCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 guardCase: () => guardCase,
             }),
         }),
 
         SelectedPredicateShapeCase: ({ shapeCase }: ShapeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 shapeCase: () => shapeCase,
             }),
         }),
@@ -521,13 +521,13 @@ export const update = (model: Model, message: Message) =>
         SelectedPredicateCombineCase: ({
             combineCase,
         }: CombineCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 combineCase: () => combineCase,
             }),
         }),
 
         SelectedPredicateRefineCase: ({ refineCase }: RefineCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 refineCase: () => refineCase,
             }),
         }),

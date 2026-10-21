@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit, Option, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 export const Stage = S.Union([
     S.Literal("Outcomes"),
@@ -473,19 +473,19 @@ type ExtractCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedExitStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedExitOutcomeCase: ({ outcomeCase }: OutcomeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 outcomeCase: () => outcomeCase,
             }),
         }),
 
         SelectedExitInspectCase: ({ inspectCase }: InspectCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 inspectCase: () => inspectCase,
             }),
         }),
@@ -493,13 +493,13 @@ export const update = (model: Model, message: Message) =>
         SelectedExitTransformCase: ({
             transformCase,
         }: TransformCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 transformCase: () => transformCase,
             }),
         }),
 
         SelectedExitExtractCase: ({ extractCase }: ExtractCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 extractCase: () => extractCase,
             }),
         }),

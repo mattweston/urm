@@ -1,7 +1,7 @@
 import { Context, Data, Effect, Layer, Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 examples
@@ -303,21 +303,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedEffectStage: ({ stage }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     stage: () => stage,
                 }),
                 commands: [],
             }),
 
             SelectedEffectChannelCase: ({ channel_case }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     channel_case: () => channel_case,
                 }),
                 commands: [],
             }),
 
             SelectedEffectBuildMode: ({ build_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     build_mode: () => build_mode,
                     build_has_run: () => false,
                 }),
@@ -325,21 +325,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedRunEffectConstructor: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     build_has_run: () => true,
                 }),
                 commands: [],
             }),
 
             ClickedResetEffectConstructor: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     build_has_run: () => false,
                 }),
                 commands: [],
             }),
 
             ToggledEffectBuildInput: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     build_valid_input: (value) => !value,
                     build_has_run: () => false,
                 }),
@@ -347,21 +347,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             SelectedEffectComposeMode: ({ compose_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     compose_mode: () => compose_mode,
                 }),
                 commands: [],
             }),
 
             SelectedEffectComposeInput: ({ compose_input }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     compose_input: () => compose_input,
                 }),
                 commands: [],
             }),
 
             SelectedEffectRunInput: ({ run_input }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     run_input: () => run_input,
                     run_step: () => 0,
                 }),
@@ -369,14 +369,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedAdvanceEffectRun: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     run_step: (step) => Math.min(4, step + 1),
                 }),
                 commands: [],
             }),
 
             ClickedResetEffectRun: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     run_step: () => 0,
                 }),
                 commands: [],

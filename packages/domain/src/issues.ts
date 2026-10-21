@@ -34,7 +34,7 @@ export const IssueCatalogRecord = Schema.Struct({
     issues: Schema.Array(Issue),
     tags: Schema.Array(Tag),
 })
-export class IssueWriteError extends Schema.TaggedErrorClass<IssueWriteError>()(
+export class IssueWriteError extends Schema.TaggedError<IssueWriteError>()(
     "IssueWriteError",
     { message: Schema.String }
 ) {}

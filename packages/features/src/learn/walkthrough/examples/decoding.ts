@@ -1,7 +1,7 @@
 import { Effect, Match as M, Option, Schema as S } from "effect"
 import { AsyncData, Command, Subscription, type Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as Timer from "./timer.ts"
 
@@ -94,7 +94,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedCity: ({ city_index }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     city_index: () => city_index,
                     weather: (weather) =>
                         Option.getOrElse(
@@ -106,14 +106,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [FetchWeather({ city: city_at(city_index) })],
             }),
             SucceededFetchWeather: ({ reading }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     weather: () => AsyncData.Success({ data: reading }),
                     timer: Timer.settle,
                 }),
                 commands: [],
             }),
             FailedFetchWeather: ({ error }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     weather: (weather) =>
                         AsyncData.match(weather, {
                             onIdle: () => AsyncData.Failure({ error }),
@@ -131,7 +131,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             TickedWeatherTimer: ({ now_ms }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     timer: (timer) => Timer.tick(timer, now_ms),
                 }),
                 commands: [],

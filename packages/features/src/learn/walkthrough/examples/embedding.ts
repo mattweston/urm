@@ -1,7 +1,7 @@
 import { Array, Effect, Match as M, Option, Schema as S } from "effect"
 import { Command, type Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as Composer from "./composer.ts"
 
@@ -73,7 +73,7 @@ const apply_out_message = (
                 M.withReturnType<Thread>(),
                 M.tagsExhaustive({
                     PostedComment: ({ text }) =>
-                        evo(thread, {
+                        modifyFields(thread, {
                             posts: (posts) =>
                                 Array.append(
                                     posts,
@@ -130,7 +130,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                         return {
                             model: apply_out_message(
-                                evo(thread, { composer: () => composer }),
+                                modifyFields(thread, { composer: () => composer }),
                                 maybe_out_message
                             ),
                             commands: lift_composer_commands(
@@ -141,7 +141,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     }
                 )
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         threads: () =>
                             Array.map(results, ({ model: thread }) => thread),
                     }),

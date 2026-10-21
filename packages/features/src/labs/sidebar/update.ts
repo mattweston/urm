@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -12,11 +12,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ToggledIsCollapsed: () => [
-                evo(model, { isCollapsed: (value) => !value }),
+                modifyFields(model, { isCollapsed: (value) => !value }),
                 [],
             ],
             ToggledMobileIsOpen: () => [
-                evo(model, { mobileIsOpen: (value) => !value }),
+                modifyFields(model, { mobileIsOpen: (value) => !value }),
                 [],
             ],
         })

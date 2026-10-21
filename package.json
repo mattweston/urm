@@ -37,20 +37,19 @@
         "typecheck": "pnpm -r typecheck",
         "prepare": "effect-tsgo patch",
         "diagnostics": "effect-tsgo diagnostics --project tsconfig.json",
-        "check": "pnpm typecheck && pnpm lint && pnpm test"
+        "check": "pnpm typecheck && pnpm lint && pnpm test",
+        "typecheck:core": "pnpm --filter @urm/contracts --filter @urm/db --filter @urm/domain --filter @urm/env --filter @urm/utils typecheck"
     },
     "devDependencies": {
         "@effect/tsgo": "catalog:server",
         "@effect/vitest": "catalog:testing",
         "@happy-dom/global-registrator": "20.0.0",
-        "@mpsuesser/oxlint-plugin-alchemy": "",
         "@prettier/plugin-oxc": "0.0.4",
         "@types/node": "catalog:server",
         "@urm/config": "workspace:*",
         "@urm/domain": "workspace:*",
         "@urm/email": "workspace:*",
         "@urm/features": "workspace:*",
-        "@urm/types": "workspace:*",
         "@urm/ui": "workspace:*",
         "@urm/utils": "workspace:*",
         "agent-tail": "catalog:llms",

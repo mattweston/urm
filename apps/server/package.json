@@ -36,8 +36,8 @@
         "@urm/ssg": "workspace:*",
         "drizzle-orm": "catalog:database",
         "foldkit": "catalog:",
-        "foldkit-remote": "0.3.0",
-        "foldkit-surface": "0.2.0",
+        "foldkit-remote": "catalog:",
+        "foldkit-surface": "catalog:",
         "typescript": "catalog:"
     }
 }

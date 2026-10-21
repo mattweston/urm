@@ -1,7 +1,7 @@
 import { Duration, Effect, Match as M, Option, Schema as S } from "effect"
 import { AsyncData, Command, Subscription, type Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as Audio from "../audio.ts"
 import * as Timer from "./timer.ts"
@@ -130,7 +130,7 @@ const landed = (model: Model): UpdateReturn =>
     AsyncData.isPending(model.books) || AsyncData.isPending(model.age_at_death)
         ? { model, commands: [] }
         : {
-              model: evo(model, { timer: Timer.settle }),
+              model: modifyFields(model, { timer: Timer.settle }),
               commands: [Audio.play(Audio.AuthorLanded())],
           }
 
@@ -139,7 +139,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedAuthor: ({ author_index }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     author_index: () => author_index,
                     books: (books) => reload(books, model.keeps_previous_data),
                     age_at_death: (age) =>
@@ -155,7 +155,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             CompletedFetchBooks: ({ author_index, books }) =>
                 author_index === model.author_index
                     ? landed(
-                          evo(model, {
+                          modifyFields(model, {
                               books: () => AsyncData.Success({ data: books }),
                           })
                       )
@@ -163,18 +163,18 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             CompletedFetchAgeAtDeath: ({ author_index, years }) =>
                 author_index === model.author_index
                     ? landed(
-                          evo(model, {
+                          modifyFields(model, {
                               age_at_death: () =>
                                   AsyncData.Success({ data: years }),
                           })
                       )
                     : { model, commands: [] },
             ToggledKeepPreviousData: () => ({
-                model: evo(model, { keeps_previous_data: (keeps) => !keeps }),
+                model: modifyFields(model, { keeps_previous_data: (keeps) => !keeps }),
                 commands: [],
             }),
             TickedAuthorTimer: ({ now_ms }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     timer: (timer) => Timer.tick(timer, now_ms),
                 }),
                 commands: [],

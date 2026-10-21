@@ -1,7 +1,7 @@
 import { Effect, Match as M, Option, String, Schema as S } from "effect"
 import { Command, File } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./app.message.ts"
 import {
@@ -662,7 +662,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             LoadedImages: ({ images }) => [
-                evo(model, {
+                modifyFields(model, {
                     loading: () => false,
                     error: () => null,
                     images: () =>
@@ -674,7 +674,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             LoadedMedia: ({ images, tags, entityTags, videos }) => [
-                evo(model, {
+                modifyFields(model, {
                     loading: () => false,
                     error: () => null,
                     images: () =>
@@ -693,7 +693,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             FailedLoadingImages: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     loading: () => false,
                     error: () => error,
                 }),
@@ -701,29 +701,29 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             SearchQueryChanged: ({ value }) => [
-                evo(model, { searchQuery: () => value }),
+                modifyFields(model, { searchQuery: () => value }),
                 [],
             ],
 
             CategoryFilterChanged: ({ value }) => [
-                evo(model, { categoryFilter: () => value }),
+                modifyFields(model, { categoryFilter: () => value }),
                 [],
             ],
 
             ChangedViewMode: ({ mode }) => [
-                evo(model, { viewMode: () => mode }),
+                modifyFields(model, { viewMode: () => mode }),
                 [],
             ],
 
             ToggledUploadPanel: () => [
-                evo(model, {
+                modifyFields(model, {
                     uploadPanelOpen: (current) => !current,
                 }),
                 [],
             ],
 
             ToggledGalleryEditing: () => [
-                evo(model, {
+                modifyFields(model, {
                     gallery_editing: (current) => !current,
                     selected_gallery_image_id: () => null,
                     uploadPanelOpen: () => false,
@@ -749,7 +749,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         images: () => next_images,
                         error: () => null,
                     }),
@@ -766,7 +766,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         selected_gallery_image_id: () => imageId,
                         editingImageId: () => null,
                         editingAlt: () => "",
@@ -780,7 +780,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClosedGalleryImage: () => [
-                evo(model, {
+                modifyFields(model, {
                     selected_gallery_image_id: () => null,
                 }),
                 [],
@@ -810,7 +810,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         uploadDrop: () => nextDrop,
                         selectedUploadFiles: () => nextFiles,
                     }),
@@ -825,7 +825,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             RemovedSelectedUploadFile: ({ fileIndex }) => [
-                evo(model, {
+                modifyFields(model, {
                     selectedUploadFiles: () =>
                         model.selectedUploadFiles.filter(
                             (_, index) => index !== fileIndex
@@ -846,7 +846,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     model.categoryFilter === "all" ? null : model.categoryFilter
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         uploadBusy: () => true,
                         error: () => null,
                     }),
@@ -864,7 +864,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 if (model.uploadBusy) return [model, []]
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         uploadBusy: () => true,
                         selectedUploadFiles: () => [...files],
                         error: () => null,
@@ -874,7 +874,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             UploadedImages: ({ images }) => [
-                evo(model, {
+                modifyFields(model, {
                     uploadBusy: () => false,
                     uploadPanelOpen: () => false,
                     selectedUploadFiles: () => [],
@@ -893,7 +893,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             UploadImagesFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     uploadBusy: () => false,
                     error: () => error,
                 }),
@@ -906,7 +906,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         images: (current) =>
                             current.map((image) => ({
                                 ...image,
@@ -929,7 +929,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         selected_gallery_image_id: () => null,
                         editingImageId: () => imageId,
                         editingAlt: () => image.alt,
@@ -943,7 +943,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClosedImageEditor: () => [
-                evo(model, {
+                modifyFields(model, {
                     editingImageId: () => null,
                     editingAlt: () => "",
                     editingText: () => "",
@@ -955,17 +955,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             EditingAltChanged: ({ value }) => [
-                evo(model, { editingAlt: () => value }),
+                modifyFields(model, { editingAlt: () => value }),
                 [],
             ],
 
             EditingTextChanged: ({ value }) => [
-                evo(model, { editingText: () => value }),
+                modifyFields(model, { editingText: () => value }),
                 [],
             ],
 
             EditingCategoryChanged: ({ value }) => [
-                evo(model, { editingCategory: () => value }),
+                modifyFields(model, { editingCategory: () => value }),
                 [],
             ],
 
@@ -975,7 +975,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                     }),
                     [SaveImageEdits({ model })],
@@ -983,7 +983,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             SavedImageEdits: ({ image }) => [
-                evo(model, {
+                modifyFields(model, {
                     editingImageId: () => null,
                     editingAlt: () => "",
                     editingText: () => "",
@@ -997,19 +997,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             ImageEditsSaveFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => error,
                 }),
                 [],
             ],
 
             RequestedDeleteImage: ({ imageId }) => [
-                evo(model, { deleteConfirmId: () => imageId }),
+                modifyFields(model, { deleteConfirmId: () => imageId }),
                 [],
             ],
 
             CancelledDeleteImage: () => [
-                evo(model, { deleteConfirmId: () => null }),
+                modifyFields(model, { deleteConfirmId: () => null }),
                 [],
             ],
 
@@ -1019,7 +1019,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                         deleteConfirmId: () => null,
                     }),
@@ -1028,14 +1028,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedDeleteImage: ({ imageId }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => null,
                 }),
                 [DeleteImage({ imageId })],
             ],
 
             DeletedImage: ({ imageId }) => [
-                evo(model, {
+                modifyFields(model, {
                     deleteConfirmId: (current) =>
                         current === imageId ? null : current,
                     editingImageId: (current) =>
@@ -1053,14 +1053,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             DeleteImageFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => error,
                 }),
                 [],
             ],
 
             LoadedTags: ({ tags, entityTags }) => [
-                evo(model, {
+                modifyFields(model, {
                     tags: () => tags,
                     entityTags: () => entityTags,
                     tagsError: () => null,
@@ -1070,7 +1070,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             FailedLoadingTags: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     tagsError: () => error,
                     tagsBusy: () => false,
                 }),
@@ -1078,12 +1078,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             ToggledTagPicker: () => [
-                evo(model, { tagPickerOpen: (current) => !current }),
+                modifyFields(model, { tagPickerOpen: (current) => !current }),
                 [],
             ],
 
             NewTagNameChanged: ({ value }) => [
-                evo(model, { newTagName: () => value }),
+                modifyFields(model, { newTagName: () => value }),
                 [],
             ],
 
@@ -1103,7 +1103,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (existing === undefined) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             tagsBusy: () => true,
                             tagsError: () => null,
                         }),
@@ -1114,11 +1114,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 // typing the name of a tag the image already carries is a
                 // no-op, not an error
                 if (imageTagIds(model, imageId).includes(existing.id)) {
-                    return [evo(model, { newTagName: () => "" }), []]
+                    return [modifyFields(model, { newTagName: () => "" }), []]
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         tagsBusy: () => true,
                         tagsError: () => null,
                     }),
@@ -1134,7 +1134,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         tagsBusy: () => true,
                         tagsError: () => null,
                     }),
@@ -1160,7 +1160,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         tagsBusy: () => true,
                         tagsError: () => null,
                     }),
@@ -1169,7 +1169,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ChangedImageTags: ({ tags, entityTags }) => [
-                evo(model, {
+                modifyFields(model, {
                     tags: () => tags,
                     entityTags: () => entityTags,
                     tagsError: () => null,
@@ -1180,7 +1180,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             ImageTagsChangeFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     tagsError: () => error,
                     tagsBusy: () => false,
                 }),
@@ -1209,7 +1209,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return Option.match(maybeOutMessage, {
                     onNone: () => [
-                        evo(model, {
+                        modifyFields(model, {
                             dragAndDrop: () => nextDragAndDrop,
                         }),
                         mappedCommands,
@@ -1230,7 +1230,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                         )
 
                                         return [
-                                            evo(model, {
+                                            modifyFields(model, {
                                                 videos: () => next_videos,
                                                 videosBusy: () => true,
                                                 dragAndDrop: () =>
@@ -1256,7 +1256,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                     }))
 
                                     return [
-                                        evo(model, {
+                                        modifyFields(model, {
                                             images: () => nextImages,
                                             dragAndDrop: () => nextDragAndDrop,
                                         }),
@@ -1267,7 +1267,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                     ]
                                 },
                                 Cancelled: () => [
-                                    evo(model, {
+                                    modifyFields(model, {
                                         dragAndDrop: () => nextDragAndDrop,
                                     }),
                                     mappedCommands,
@@ -1280,7 +1280,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ReorderedImages: () => [model, []],
 
             ReorderImagesFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => error,
                 }),
                 [],
@@ -1290,7 +1290,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const route = urlToAppRoute(url.pathname)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => route,
                         youtubePlayer: () =>
                             youtube_player_for_route(route, model.videos),
@@ -1339,16 +1339,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { youtubePlayer: () => youtube_player }),
+                    modifyFields(model, { youtubePlayer: () => youtube_player }),
                     map_youtube_commands(commands),
                 ]
             },
             ToggledVideoTheatreMode: () => [
-                evo(model, { video_theatre_mode: (current) => !current }),
+                modifyFields(model, { video_theatre_mode: (current) => !current }),
                 [],
             ],
             ToggledVideoEditing: () => [
-                evo(model, {
+                modifyFields(model, {
                     videos_editing: (current) => !current,
                     editing_video_id: () => null,
                     editing_video_title: () => "",
@@ -1375,7 +1375,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         editing_video_id: () => video.id,
                         editing_video_title: () => video.title,
                         editing_video_url: () =>
@@ -1388,7 +1388,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ClosedVideoEditor: () => [
-                evo(model, {
+                modifyFields(model, {
                     editing_video_id: () => null,
                     editing_video_title: () => "",
                     editing_video_url: () => "",
@@ -1398,13 +1398,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
             EditingVideoTitleChanged: ({ value }) => [
                 model.videos_editing && model.editing_video_id !== null
-                    ? evo(model, { editing_video_title: () => value })
+                    ? modifyFields(model, { editing_video_title: () => value })
                     : model,
                 [],
             ],
             EditingVideoUrlChanged: ({ value }) => [
                 model.videos_editing && model.editing_video_id !== null
-                    ? evo(model, { editing_video_url: () => value })
+                    ? modifyFields(model, { editing_video_url: () => value })
                     : model,
                 [],
             ],
@@ -1427,7 +1427,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (title === "" || youtube_id === undefined) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             error: () =>
                                 "Enter a title and a valid YouTube video URL.",
                         }),
@@ -1436,7 +1436,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         videosBusy: () => true,
                         error: () => null,
                     }),
@@ -1458,7 +1458,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         videos: () => videos,
                         editing_video_id: () => null,
                         editing_video_title: () => "",
@@ -1483,7 +1483,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         videos: () => videos,
                         videosBusy: () => true,
                         error: () => null,
@@ -1492,11 +1492,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ReorderedVideos: () => [
-                evo(model, { videosBusy: () => false }),
+                modifyFields(model, { videosBusy: () => false }),
                 [],
             ],
             ReorderVideosFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     videosBusy: () => false,
                     error: () => error,
                 }),
@@ -1504,13 +1504,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
             ChangedNewVideoTitle: ({ value }) => [
                 model.videos_editing
-                    ? evo(model, { newVideoTitle: () => value })
+                    ? modifyFields(model, { newVideoTitle: () => value })
                     : model,
                 [],
             ],
             ChangedNewVideoUrl: ({ value }) => [
                 model.videos_editing
-                    ? evo(model, { newVideoUrl: () => value })
+                    ? modifyFields(model, { newVideoUrl: () => value })
                     : model,
                 [],
             ],
@@ -1525,7 +1525,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (title === "" || slug === "" || youtube_id === undefined) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             error: () =>
                                 "Enter a title and a valid YouTube video URL.",
                         }),
@@ -1534,7 +1534,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                         videosBusy: () => true,
                     }),
@@ -1551,7 +1551,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             CreatedVideo: ({ video }) => [
-                evo(model, {
+                modifyFields(model, {
                     videos: (videos) =>
                         videos.some((item) => item.id === video.id)
                             ? videos
@@ -1567,7 +1567,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ClickedDeleteVideo: ({ videoId }) =>
                 model.videos_editing
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               videosBusy: () => true,
                               error: () => null,
                           }),
@@ -1580,7 +1580,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         videos: () => videos,
                         videosBusy: () => false,
                         youtubePlayer: () =>
@@ -1590,7 +1590,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             VideoChangeFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     videosBusy: () => false,
                     error: () => error,
                 }),

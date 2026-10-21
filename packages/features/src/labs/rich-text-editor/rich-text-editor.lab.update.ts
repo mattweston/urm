@@ -1,6 +1,6 @@
 import { Effect, Match as M, Schema as S } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { RichTextDocument as RichTextDocumentSchema } from "@urm/domain/schemas/rich-text"
 import {
     initRichTextEditor,
@@ -35,7 +35,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedDocumentTitle: ({ value }) => [
-                evo(model, { title: () => value }),
+                modifyFields(model, { title: () => value }),
                 [],
             ],
             ClickedDownloadDocument: () => [
@@ -53,7 +53,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { editor: () => editor }),
+                    modifyFields(model, { editor: () => editor }),
                     Command.mapMessages(commands, (message) =>
                         GotDocumentRichTextEditorMessage({ message })
                     ),

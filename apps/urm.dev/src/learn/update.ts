@@ -7,7 +7,7 @@
  */
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as ApiEffect from "@urm/features/learn/api-effect"
 import * as ArrayLesson from "@urm/features/learn/array"
@@ -76,7 +76,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { array: () => array }),
+                    modifyFields(model, { array: () => array }),
                     Command.mapMessages(commands, (next_message) =>
                         GotArrayMessage({ message: next_message })
                     ),
@@ -88,7 +88,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { cache: () => cache }),
+                    modifyFields(model, { cache: () => cache }),
                     Command.mapMessages(commands, (next_message) =>
                         GotCacheMessage({ message: next_message })
                     ),
@@ -100,7 +100,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { effect: () => effect }),
+                    modifyFields(model, { effect: () => effect }),
                     Command.mapMessages(commands, (next_message) =>
                         GotEffectMessage({ message: next_message })
                     ),
@@ -112,7 +112,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { fiber: () => fiber }),
+                    modifyFields(model, { fiber: () => fiber }),
                     Command.mapMessages(commands, (next_message) =>
                         GotFiberMessage({ message: next_message })
                     ),
@@ -122,7 +122,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const { model: function_lesson, commands = [] } =
                     FunctionLesson.update(model.function_lesson, lesson_message)
                 return [
-                    evo(model, { function_lesson: () => function_lesson }),
+                    modifyFields(model, { function_lesson: () => function_lesson }),
                     Command.mapMessages(commands, (next_message) =>
                         GotFunctionMessage({ message: next_message })
                     ),
@@ -135,7 +135,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         lesson_message
                     )
                 return [
-                    evo(model, { persisted_queue: () => persisted_queue }),
+                    modifyFields(model, { persisted_queue: () => persisted_queue }),
                     Command.mapMessages(commands, (next_message) =>
                         GotPersistedQueueMessage({ message: next_message })
                     ),
@@ -147,7 +147,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { record: () => record }),
+                    modifyFields(model, { record: () => record }),
                     Command.mapMessages(commands, (next_message) =>
                         GotRecordMessage({ message: next_message })
                     ),
@@ -159,7 +159,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { result: () => result }),
+                    modifyFields(model, { result: () => result }),
                     Command.mapMessages(commands, (next_message) =>
                         GotResultMessage({ message: next_message })
                     ),
@@ -171,7 +171,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { schema: () => schema }),
+                    modifyFields(model, { schema: () => schema }),
                     Command.mapMessages(commands, (next_message) =>
                         GotSchemaMessage({ message: next_message })
                     ),
@@ -183,7 +183,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { string: () => string }),
+                    modifyFields(model, { string: () => string }),
                     Command.mapMessages(commands, (next_message) =>
                         GotStringMessage({ message: next_message })
                     ),
@@ -195,7 +195,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { tuple: () => tuple }),
+                    modifyFields(model, { tuple: () => tuple }),
                     Command.mapMessages(commands, (next_message) =>
                         GotTupleMessage({ message: next_message })
                     ),
@@ -208,7 +208,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         lesson_message
                     )
                 return [
-                    evo(model, { generator_yield: () => generator_yield }),
+                    modifyFields(model, { generator_yield: () => generator_yield }),
                     Command.mapMessages(commands, (next_message) =>
                         GotGeneratorYieldMessage({ message: next_message })
                     ),
@@ -220,7 +220,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { api_effect: () => api_effect }),
+                    modifyFields(model, { api_effect: () => api_effect }),
                     Command.mapMessages(commands, (next_message) =>
                         GotApiEffectMessage({ message: next_message })
                     ),
@@ -232,7 +232,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { foldkit: () => foldkit }),
+                    modifyFields(model, { foldkit: () => foldkit }),
                     Command.mapMessages(commands, (next_message) =>
                         GotFoldkitMessage({ message: next_message })
                     ),
@@ -245,7 +245,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         lesson_message
                     )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         managed_resource_layer: () => managed_resource_layer,
                     }),
                     Command.mapMessages(commands, (next_message) =>
@@ -262,7 +262,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         lesson_message
                     )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         nullish_coalescing_input: () =>
                             nullish_coalescing_input,
                     }),
@@ -279,7 +279,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { number: () => number }),
+                    modifyFields(model, { number: () => number }),
                     Command.mapMessages(commands, (next_message) =>
                         GotNumberMessage({ message: next_message })
                     ),
@@ -291,7 +291,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     lesson_message
                 )
                 return [
-                    evo(model, { reduce: () => reduce }),
+                    modifyFields(model, { reduce: () => reduce }),
                     Command.mapMessages(commands, (next_message) =>
                         GotReduceMessage({ message: next_message })
                     ),
@@ -301,7 +301,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const { model: effect_runner, commands = [] } =
                     EffectRunner.update(model.effect_runner, lesson_message)
                 return [
-                    evo(model, { effect_runner: () => effect_runner }),
+                    modifyFields(model, { effect_runner: () => effect_runner }),
                     Command.mapMessages(commands, (next_message) =>
                         GotEffectRunnerMessage({ message: next_message })
                     ),

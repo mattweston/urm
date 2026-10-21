@@ -1,7 +1,7 @@
 import { Effect, HashSet, Schema as S, TxHashSet } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXHASHSET PROGRAMS
@@ -534,22 +534,22 @@ type TransformCasePayload = Readonly<{ transformCase: TransformCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxHashSetStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxHashSetCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxHashSetMutateCase: ({ mutateCase }: MutateCasePayload) => ({
-            model: evo(model, { mutateCase: () => mutateCase }),
+            model: modifyFields(model, { mutateCase: () => mutateCase }),
         }),
         SelectedTxHashSetAlgebraCase: ({
             algebraCase,
         }: AlgebraCasePayload) => ({
-            model: evo(model, { algebraCase: () => algebraCase }),
+            model: modifyFields(model, { algebraCase: () => algebraCase }),
         }),
         SelectedTxHashSetTransformCase: ({
             transformCase,
         }: TransformCasePayload) => ({
-            model: evo(model, { transformCase: () => transformCase }),
+            model: modifyFields(model, { transformCase: () => transformCase }),
         }),
     })

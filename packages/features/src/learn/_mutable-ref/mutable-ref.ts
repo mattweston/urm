@@ -1,7 +1,7 @@
 import { Equal, Hash, MutableRef, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN VALUE FOR COMPARE-AND-SET
@@ -523,19 +523,19 @@ type CompareCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedMutableRefStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedMutableRefCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 createCase: () => createCase,
             }),
         }),
 
         SelectedMutableRefUpdateCase: ({ updateCase }: UpdateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 updateCase: () => updateCase,
             }),
         }),
@@ -543,7 +543,7 @@ export const update = (model: Model, message: Message) =>
         SelectedMutableRefNumericCase: ({
             numericCase,
         }: NumericCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 numericCase: () => numericCase,
             }),
         }),
@@ -551,7 +551,7 @@ export const update = (model: Model, message: Message) =>
         SelectedMutableRefCompareCase: ({
             compareCase,
         }: CompareCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 compareCase: () => compareCase,
             }),
         }),

@@ -1,7 +1,7 @@
 import * as Ui from "@foldkit/ui"
 import { Effect, Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { GotAnimatedMessage, GotBasicMessage, type Message } from "./message.ts"
 import type { Model } from "./model.ts"
 
@@ -28,7 +28,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     childMessage
                 )
                 return [
-                    evo(model, { basic: () => basic }),
+                    modifyFields(model, { basic: () => basic }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>
@@ -44,7 +44,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     childMessage
                 )
                 return [
-                    evo(model, { animated: () => animated }),
+                    modifyFields(model, { animated: () => animated }),
                     commands.map(
                         Command.mapEffect(
                             Effect.map((message) =>

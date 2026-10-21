@@ -8,7 +8,7 @@ import {
     String as String_,
     pipe,
 } from "effect"
-import { KeyValueStore } from "effect/unstable/persistence"
+import { KeyValueStore } from "effect/persistence"
 import { Command } from "foldkit"
 import {
     FailedClearSession,

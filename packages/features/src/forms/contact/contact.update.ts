@@ -1,7 +1,7 @@
 import { Match as M } from "effect"
 import { type Command } from "foldkit"
 import { NotValidated } from "foldkit/fieldValidation"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./contact.message.ts"
 import type { Model } from "./contact.model.ts"
 import {
@@ -29,35 +29,35 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             ChangedName: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     name: () => validate_name(value),
                     ready_for_backend: () => false,
                 }),
                 [],
             ],
             ChangedEmail: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     email: () => validate_email(value),
                     ready_for_backend: () => false,
                 }),
                 [],
             ],
             ChangedMessage: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     message: () => validate_message(value),
                     ready_for_backend: () => false,
                 }),
                 [],
             ],
             SubmittedContactForm: () => {
-                const validated_model = evo(model, {
+                const validated_model = modifyFields(model, {
                     name: (name) => validate_name(name.value),
                     email: (email) => validate_email(email.value),
                     message: (message) => validate_message(message.value),
                 })
 
                 return [
-                    evo(validated_model, {
+                    modifyFields(validated_model, {
                         ready_for_backend: () =>
                             is_contact_form_valid(validated_model),
                     }),

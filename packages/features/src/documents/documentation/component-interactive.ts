@@ -1,7 +1,7 @@
 import { Match as M, Schema as S } from "effect"
 import { Command } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as AudioHighlight from "./audio-highlight.ts"
 import * as BugFix from "./bug-fix.ts"
@@ -113,7 +113,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { code_tabs: () => code_tabs }),
+                    modifyFields(model, { code_tabs: () => code_tabs }),
                     Command.mapMessages(commands, (child_message) =>
                         GotCodeTabsMessage({ message: child_message })
                     ),
@@ -122,27 +122,27 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             GotTabsMessage: ({ message }) => {
                 const [tabs, commands] = Tabs.update(model.tabs, message)
                 return [
-                    evo(model, { tabs: () => tabs }),
+                    modifyFields(model, { tabs: () => tabs }),
                     Command.mapMessages(commands, (child_message) =>
                         GotTabsMessage({ message: child_message })
                     ),
                 ]
             },
             GotBugFixMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     bug_fix: (bug_fix) => BugFix.update(bug_fix, message),
                 }),
                 [],
             ],
             GotSyntaxAnimationMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     syntax_animation: (syntax_animation) =>
                         SyntaxAnimation.update(syntax_animation, message),
                 }),
                 [],
             ],
             GotStyleguideAnimationMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     styleguide_animation: (styleguide_animation) =>
                         StyleguideAnimation.update(
                             styleguide_animation,
@@ -152,14 +152,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             GotLayoutAnimatorMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     layout_animator: (layout_animator) =>
                         LayoutAnimator.update(layout_animator, message),
                 }),
                 [],
             ],
             GotAudioHighlightMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     audio_highlight: (audio_highlight) =>
                         AudioHighlight.update(audio_highlight, message),
                 }),

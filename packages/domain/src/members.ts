@@ -22,7 +22,7 @@ export const SaveMemberCommand = Schema.Struct({
 })
 export type SaveMemberCommand = typeof SaveMemberCommand.Type
 
-export class MembersWriteError extends Schema.TaggedErrorClass<MembersWriteError>()(
+export class MembersWriteError extends Schema.TaggedError<MembersWriteError>()(
     "MembersWriteError",
     { message: Schema.String }
 ) {}

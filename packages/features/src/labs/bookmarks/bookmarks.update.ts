@@ -1,5 +1,5 @@
 import { Match as M } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./bookmarks.message.ts"
 import type { Model } from "./bookmarks.model.ts"
 
@@ -19,7 +19,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             UpdatedBookmarkSearchQuery: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     query: () => value,
                 }),
                 [],

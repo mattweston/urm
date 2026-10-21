@@ -1,7 +1,7 @@
 import { Array, Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as Audio from "../audio.ts"
 
@@ -54,7 +54,7 @@ const append_draft = (model: Model): Model => {
     const text = model.draft.trim()
     return text === ""
         ? model
-        : evo(model, {
+        : modifyFields(model, {
               items: (items) =>
                   Array.append(
                       items,
@@ -74,7 +74,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedTodoDraft: ({ value }) => ({
-                model: evo(model, { draft: () => value }),
+                model: modifyFields(model, { draft: () => value }),
                 commands: [],
             }),
             SubmittedTodo: () =>
@@ -85,23 +85,23 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           commands: [Audio.play(Audio.TodoAdded())],
                       },
             ToggledTodo: ({ todo_id }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     items: Array.map((item) =>
                         item.todo_id === todo_id
-                            ? evo(item, { is_completed: (value) => !value })
+                            ? modifyFields(item, { is_completed: (value) => !value })
                             : item
                     ),
                 }),
                 commands: [Audio.play(Audio.TodoAdded())],
             }),
             ClickedDeleteTodo: ({ todo_id }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     items: Array.filter((item) => item.todo_id !== todo_id),
                 }),
                 commands: [Audio.play(Audio.TodoRemoved())],
             }),
             SelectedTodoFilter: ({ filter }) => ({
-                model: evo(model, { filter: () => filter }),
+                model: modifyFields(model, { filter: () => filter }),
                 commands: [Audio.play(Audio.SwitchFlipped())],
             }),
             CompletedPlayCue: () => ({ model, commands: [] }),

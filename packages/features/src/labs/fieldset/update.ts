@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -17,15 +17,15 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ToggledCheckbox: ({ isChecked }) => [
-                evo(model, { checkbox: () => isChecked }),
+                modifyFields(model, { checkbox: () => isChecked }),
                 [],
             ],
             UpdatedInputValue: ({ value }) => [
-                evo(model, { inputValue: () => value }),
+                modifyFields(model, { inputValue: () => value }),
                 [],
             ],
             UpdatedTextareaValue: ({ value }) => [
-                evo(model, { textareaValue: () => value }),
+                modifyFields(model, { textareaValue: () => value }),
                 [],
             ],
         })

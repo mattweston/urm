@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { payment_total } from "./payment-fold.data.ts"
 import type { Message } from "./payment-fold.message.ts"
@@ -15,14 +15,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             ClickedRunFold: () => [
-                evo(model, {
+                modifyFields(model, {
                     isSummarized: () => true,
                     total: () => payment_total,
                 }),
                 [],
             ],
             ClickedReset: () => [
-                evo(model, {
+                modifyFields(model, {
                     isSummarized: () => false,
                     total: () => 0,
                 }),

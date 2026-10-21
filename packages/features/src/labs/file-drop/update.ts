@@ -1,7 +1,7 @@
 import * as Ui from "@foldkit/ui"
 import { Array, Effect, Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { GotFileDropMessage, type Message } from "./message.ts"
 import type { Model } from "./model.ts"
 
@@ -39,7 +39,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     ),
                 })
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         fileDrop: () => fileDrop,
                         files: () => files,
                     }),
@@ -53,7 +53,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ClickedRemoveFile: ({ fileIndex }) => [
-                evo(model, {
+                modifyFields(model, {
                     files: () => Array.remove(model.files, fileIndex),
                 }),
                 [],

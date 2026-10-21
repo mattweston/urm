@@ -9,8 +9,8 @@ import {
     FetchHttpClient,
     HttpClient,
     HttpClientRequest,
-} from "effect/unstable/http"
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
+} from "effect/http"
+import { RpcClient, RpcSerialization } from "effect/rpc"
 import {
     Remote,
     RemoteReadError,
@@ -26,7 +26,7 @@ import {
     BreachCheckResult,
 } from "@urm/contracts/auth"
 
-export class AccountRequestError extends Schema.TaggedErrorClass<AccountRequestError>()(
+export class AccountRequestError extends Schema.TaggedError<AccountRequestError>()(
     "AccountRequestError",
     {
         status: Schema.Number,

@@ -1,7 +1,7 @@
 import { PrimaryKey, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN VALUES
@@ -371,7 +371,7 @@ type IntegrateCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedPrimaryKeyStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -379,19 +379,19 @@ export const update = (model: Model, message: Message) =>
         SelectedPrimaryKeyProtocolCase: ({
             protocolCase,
         }: ProtocolCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 protocolCase: () => protocolCase,
             }),
         }),
 
         SelectedPrimaryKeyGuardCase: ({ guardCase }: GuardCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 guardCase: () => guardCase,
             }),
         }),
 
         SelectedPrimaryKeyValueCase: ({ valueCase }: ValueCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 valueCase: () => valueCase,
             }),
         }),
@@ -399,7 +399,7 @@ export const update = (model: Model, message: Message) =>
         SelectedPrimaryKeyIntegrateCase: ({
             integrateCase,
         }: IntegrateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 integrateCase: () => integrateCase,
             }),
         }),

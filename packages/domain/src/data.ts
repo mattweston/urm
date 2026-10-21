@@ -74,7 +74,7 @@ export const DataAction = Schema.Union([
 ])
 export type DataAction = typeof DataAction.Type
 
-export class DataWriteError extends Schema.TaggedErrorClass<DataWriteError>()(
+export class DataWriteError extends Schema.TaggedError<DataWriteError>()(
     "DataWriteError",
     { message: Schema.String }
 ) {}

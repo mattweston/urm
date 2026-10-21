@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./message.ts"
 import { initialModel, type Model } from "./model.ts"
@@ -13,13 +13,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     M.value(message).pipe(
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
-            UpdatedName: ({ value }) => [evo(model, { name: () => value }), []],
+            UpdatedName: ({ value }) => [modifyFields(model, { name: () => value }), []],
             UpdatedEmail: ({ value }) => [
-                evo(model, { email: () => value }),
+                modifyFields(model, { email: () => value }),
                 [],
             ],
             SubmittedForm: () => [
-                evo(model, {
+                modifyFields(model, {
                     submitted: () => ({ name: model.name, email: model.email }),
                 }),
                 [],

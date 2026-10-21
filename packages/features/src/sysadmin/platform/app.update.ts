@@ -78,7 +78,7 @@ const delegateSidebarTooltip = (
     setSidebarTooltipsState(nextSidebarTooltips)
 
     return [
-        Struct.evo(model, {
+        Struct.modifyFields(model, {
             sidebarTooltipsRevision: () => model.sidebarTooltipsRevision + 1,
         }),
         mapSidebarTooltipCommands(key, commands),
@@ -173,7 +173,7 @@ const beginLoad = (model: Model, route_tag: string): Model => {
     const load_errors_by_route = { ...model.loadErrorsByRoute }
     delete load_errors_by_route[route_tag]
 
-    return Struct.evo(model, {
+    return Struct.modifyFields(model, {
         sessions: (sessions) =>
             route_tag === "Sessions"
                 ? Option.getOrElse(
@@ -205,7 +205,7 @@ const completeLoad = (
         load_errors_by_route[route_tag] = error
     }
 
-    return Struct.evo(model, {
+    return Struct.modifyFields(model, {
         pendingRoutes: (pending_routes) =>
             pending_routes.filter((candidate) => candidate !== route_tag),
         loadErrorsByRoute: () => load_errors_by_route,
@@ -220,7 +220,7 @@ export const init = (pathname: string): UpdateReturn => {
     const route = urlToAppRoute(pathname)
     const initial = initialModel(route)
     return [
-        Struct.evo(initial, {
+        Struct.modifyFields(initial, {
             pendingRoutes: () => data_route_tags,
             isLoading: () => data_route_tags.includes(route._tag),
         }),
@@ -325,9 +325,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
         }
         case "UpdatedFilterAction":
             return [
-                Struct.evo(model, {
+                Struct.modifyFields(model, {
                     filter: () =>
-                        Struct.evo(model.filter, {
+                        Struct.modifyFields(model.filter, {
                             action: () => message.value,
                         }),
                 }),
@@ -335,9 +335,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ]
         case "UpdatedFilterResult":
             return [
-                Struct.evo(model, {
+                Struct.modifyFields(model, {
                     filter: () =>
-                        Struct.evo(model.filter, {
+                        Struct.modifyFields(model.filter, {
                             result: () => message.value,
                         }),
                 }),
@@ -345,13 +345,13 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ]
         case "ClearedFilter":
             return [
-                beginLoad(Struct.evo(model, { filter: () => ({}) }), "Audit"),
+                beginLoad(Struct.modifyFields(model, { filter: () => ({}) }), "Audit"),
                 [fetchAuditEvents({})],
             ]
         case "SucceededLoadAuditEvents":
             return [
                 completeLoad(
-                    Struct.evo(model, {
+                    Struct.modifyFields(model, {
                         events: () => message.events,
                         total: () => message.total,
                     }),
@@ -364,9 +364,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             return [completeLoad(model, "Audit", message.error), []]
         case "UpdatedLogFilterLevel":
             return [
-                Struct.evo(model, {
+                Struct.modifyFields(model, {
                     logFilter: () =>
-                        Struct.evo(model.logFilter, {
+                        Struct.modifyFields(model.logFilter, {
                             level: () => message.value,
                         }),
                 }),
@@ -374,9 +374,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ]
         case "UpdatedLogFilterSource":
             return [
-                Struct.evo(model, {
+                Struct.modifyFields(model, {
                     logFilter: () =>
-                        Struct.evo(model.logFilter, {
+                        Struct.modifyFields(model.logFilter, {
                             source: () => message.value,
                         }),
                 }),
@@ -385,7 +385,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
         case "ClearedLogFilter":
             return [
                 beginLoad(
-                    Struct.evo(model, { logFilter: () => ({}) }),
+                    Struct.modifyFields(model, { logFilter: () => ({}) }),
                     "Logging"
                 ),
                 [fetchLogs({})],
@@ -393,7 +393,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
         case "SucceededLoadLogs":
             return [
                 completeLoad(
-                    Struct.evo(model, {
+                    Struct.modifyFields(model, {
                         logs: () => message.logs,
                         logsTotal: () => message.total,
                     }),
@@ -406,9 +406,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             return [completeLoad(model, "Logging", message.error), []]
         case "UpdatedTraceFilterTraceId":
             return [
-                Struct.evo(model, {
+                Struct.modifyFields(model, {
                     traceFilter: () =>
-                        Struct.evo(model.traceFilter, {
+                        Struct.modifyFields(model.traceFilter, {
                             trace_id: () => message.value,
                         }),
                 }),
@@ -417,7 +417,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
         case "ClearedTraceFilter":
             return [
                 beginLoad(
-                    Struct.evo(model, { traceFilter: () => ({}) }),
+                    Struct.modifyFields(model, { traceFilter: () => ({}) }),
                     "Tracing"
                 ),
                 [fetchSpans({})],
@@ -425,7 +425,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
         case "SucceededLoadSpans":
             return [
                 completeLoad(
-                    Struct.evo(model, {
+                    Struct.modifyFields(model, {
                         spans: () => message.spans,
                         spansTotal: () => message.total,
                     }),
@@ -439,7 +439,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
         case "SucceededLoadErrors":
             return [
                 completeLoad(
-                    Struct.evo(model, {
+                    Struct.modifyFields(model, {
                         errors: () => message.logs,
                         errorsTotal: () => message.total,
                     }),
@@ -455,7 +455,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 return [model, []]
             return [
                 completeLoad(
-                    Struct.evo(model, { metrics: () => message.metrics }),
+                    Struct.modifyFields(model, { metrics: () => message.metrics }),
                     "Metrics",
                     null
                 ),
@@ -470,7 +470,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 return [model, []]
             return [
                 completeLoad(
-                    Struct.evo(model, { system: () => message.snapshot }),
+                    Struct.modifyFields(model, { system: () => message.snapshot }),
                     "System",
                     null
                 ),
@@ -481,7 +481,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 return [model, []]
             return [completeLoad(model, "System", message.error), []]
         case "UpdatedDomainFilter": {
-            const next = Struct.evo(model, {
+            const next = Struct.modifyFields(model, {
                 domainFilter: () => message.value,
             })
             let next_loading = next
@@ -530,7 +530,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 return [model, []]
             return [
                 completeLoad(
-                    Struct.evo(model, {
+                    Struct.modifyFields(model, {
                         sessions: () =>
                             SessionsAsyncData.Success({
                                 data: message.sessions,
@@ -572,7 +572,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             const route = urlToAppRoute(message.url.pathname)
 
             return [
-                Struct.evo(model, {
+                Struct.modifyFields(model, {
                     route: () => route,
                     isLoading: () => model.pendingRoutes.includes(route._tag),
                     error: () => model.loadErrorsByRoute[route._tag] ?? null,
@@ -588,14 +588,14 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             return [model, []]
         case "ToggledAppSidebarIsCollapsed":
             return [
-                Struct.evo(model, {
+                Struct.modifyFields(model, {
                     isSidebarCollapsed: () => !model.isSidebarCollapsed,
                 }),
                 [],
             ]
         case "ToggledAppSidebarMobileIsOpen":
             return [
-                Struct.evo(model, {
+                Struct.modifyFields(model, {
                     isSidebarMobileOpen: () => !model.isSidebarMobileOpen,
                 }),
                 [],

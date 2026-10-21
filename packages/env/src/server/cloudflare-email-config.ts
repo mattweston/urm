@@ -32,25 +32,25 @@ export class CloudflareEmailConfig extends Context.Service<
         CloudflareEmailConfig,
         Effect.gen(function* () {
             const config = yield* Config.all({
-                enabled: Config.boolean("CLOUDFLARE_EMAIL_ENABLED").pipe(
+                enabled: Config.Boolean("CLOUDFLARE_EMAIL_ENABLED").pipe(
                     Config.withDefault(false)
                 ),
-                accountId: Config.string("CLOUDFLARE_ACCOUNT_ID").pipe(
+                accountId: Config.String("CLOUDFLARE_ACCOUNT_ID").pipe(
                     Config.withDefault("")
                 ),
                 apiToken: Config.option(
-                    Config.redacted("CLOUDFLARE_EMAIL_API_TOKEN")
+                    Config.Redacted("CLOUDFLARE_EMAIL_API_TOKEN")
                 ),
-                from: Config.string("CLOUDFLARE_EMAIL_FROM").pipe(
+                from: Config.String("CLOUDFLARE_EMAIL_FROM").pipe(
                     Config.withDefault("")
                 ),
-                transport: Config.string("CLOUDFLARE_EMAIL_TRANSPORT").pipe(
+                transport: Config.String("CLOUDFLARE_EMAIL_TRANSPORT").pipe(
                     Config.withDefault("rest")
                 ),
-                smtpHost: Config.string("CLOUDFLARE_EMAIL_SMTP_HOST").pipe(
+                smtpHost: Config.String("CLOUDFLARE_EMAIL_SMTP_HOST").pipe(
                     Config.withDefault("smtp.mx.cloudflare.net")
                 ),
-                smtpPort: Config.number("CLOUDFLARE_EMAIL_SMTP_PORT").pipe(
+                smtpPort: Config.Number("CLOUDFLARE_EMAIL_SMTP_PORT").pipe(
                     Config.withDefault(465)
                 ),
             }).pipe(

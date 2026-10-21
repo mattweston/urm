@@ -1,7 +1,7 @@
 import { Option, Result, Schema as S, Trie } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TRIE PROGRAMS
@@ -473,20 +473,20 @@ type TransformCasePayload = Readonly<{ transformCase: TransformCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTrieStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTrieBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, { buildCase: () => buildCase }),
+            model: modifyFields(model, { buildCase: () => buildCase }),
         }),
         SelectedTrieLookupCase: ({ lookupCase }: LookupCasePayload) => ({
-            model: evo(model, { lookupCase: () => lookupCase }),
+            model: modifyFields(model, { lookupCase: () => lookupCase }),
         }),
         SelectedTriePrefixCase: ({ prefixCase }: PrefixCasePayload) => ({
-            model: evo(model, { prefixCase: () => prefixCase }),
+            model: modifyFields(model, { prefixCase: () => prefixCase }),
         }),
         SelectedTrieTransformCase: ({
             transformCase,
         }: TransformCasePayload) => ({
-            model: evo(model, { transformCase: () => transformCase }),
+            model: modifyFields(model, { transformCase: () => transformCase }),
         }),
     })

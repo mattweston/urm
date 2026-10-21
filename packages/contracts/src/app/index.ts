@@ -6,7 +6,7 @@
  * groups directly.
  */
 
-import { RpcGroup } from "effect/unstable/rpc"
+import { RpcGroup } from "effect/rpc"
 import { SettingsRpcs } from "../settings/index.ts"
 
 export const AppRpc = RpcGroup.make().merge(SettingsRpcs)

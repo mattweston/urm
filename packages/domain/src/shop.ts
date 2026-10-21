@@ -292,19 +292,19 @@ export const ShopCatalogAction = Schema.Union([
     }),
 ])
 export type ShopCatalogAction = typeof ShopCatalogAction.Type
-export class ShopCatalogError extends Schema.TaggedErrorClass<ShopCatalogError>()(
+export class ShopCatalogError extends Schema.TaggedError<ShopCatalogError>()(
     "ShopCatalogError",
     { message: Schema.String }
 ) {}
-export class ShopCartError extends Schema.TaggedErrorClass<ShopCartError>()(
+export class ShopCartError extends Schema.TaggedError<ShopCartError>()(
     "ShopCartError",
     { message: Schema.String }
 ) {}
-export class ShopOrderError extends Schema.TaggedErrorClass<ShopOrderError>()(
+export class ShopOrderError extends Schema.TaggedError<ShopOrderError>()(
     "ShopOrderError",
     { message: Schema.String }
 ) {}
-export class ShopPaymentError extends Schema.TaggedErrorClass<ShopPaymentError>()(
+export class ShopPaymentError extends Schema.TaggedError<ShopPaymentError>()(
     "ShopPaymentError",
     { message: Schema.String }
 ) {}

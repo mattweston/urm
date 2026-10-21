@@ -1,6 +1,6 @@
 import { Schema as S } from "effect"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import type { KeyedTokensInfo } from "@shikijs/magic-move/core"
 
@@ -30,7 +30,7 @@ export const update = (model: Model, message: Message): Model => {
 
     const offset = message._tag === "SelectedPrevious" ? -1 : 1
 
-    return evo(model, {
+    return modifyFields(model, {
         step_index: (step_index) =>
             (step_index + offset + message.step_count) % message.step_count,
     })

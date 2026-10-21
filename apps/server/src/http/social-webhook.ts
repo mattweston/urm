@@ -22,7 +22,7 @@ const Webhook = Schema.Struct({
     post: Schema.optional(Schema.Struct({ id: Schema.NonEmptyString })),
 })
 const WebhookEvent = Schema.Struct({ event: Schema.String })
-class WebhookBodyError extends Schema.TaggedErrorClass<WebhookBodyError>()(
+class WebhookBodyError extends Schema.TaggedError<WebhookBodyError>()(
     "WebhookBodyError",
     {}
 ) {}
@@ -64,7 +64,7 @@ export const handle_social_webhook_request = (
     Effect.gen(function* () {
         if (request.method !== "POST")
             return new Response(null, { status: 405 })
-        const secret = yield* Config.redacted("ZERNIO_WEBHOOK_SECRET").pipe(
+        const secret = yield* Config.Redacted("ZERNIO_WEBHOOK_SECRET").pipe(
             Config.withDefault(Redacted.make(""))
         )
         if (!Redacted.value(secret))

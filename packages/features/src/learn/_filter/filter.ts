@@ -1,7 +1,7 @@
 import { Effect, Filter, Option, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN VALUES USED BY NARROWING EXAMPLES
@@ -725,31 +725,31 @@ type AdaptCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedFilterStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedFilterBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedFilterNarrowCase: ({ narrowCase }: NarrowCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 narrowCase: () => narrowCase,
             }),
         }),
 
         SelectedFilterComposeCase: ({ composeCase }: ComposeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 composeCase: () => composeCase,
             }),
         }),
 
         SelectedFilterAdaptCase: ({ adaptCase }: AdaptCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 adaptCase: () => adaptCase,
             }),
         }),

@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect"
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpServerRequest, HttpServerResponse } from "effect/http"
 import { handleLoginUrl } from "@urm/auth/oauth/callback-handlers"
 import {
     handleGoogleAuthorize,

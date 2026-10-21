@@ -1,7 +1,7 @@
 import { Effect, Exit, Request, RequestResolver, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL REQUEST RESOLVER PROGRAMS
@@ -731,7 +731,7 @@ type CacheCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedRequestResolverStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -739,7 +739,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRequestResolverBuildCase: ({
             buildCase,
         }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
@@ -747,7 +747,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRequestResolverBatchCase: ({
             batchCase,
         }: BatchCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 batchCase: () => batchCase,
             }),
         }),
@@ -755,7 +755,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRequestResolverDecorateCase: ({
             decorateCase,
         }: DecorateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 decorateCase: () => decorateCase,
             }),
         }),
@@ -763,7 +763,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRequestResolverCacheCase: ({
             cacheCase,
         }: CacheCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 cacheCase: () => cacheCase,
             }),
         }),

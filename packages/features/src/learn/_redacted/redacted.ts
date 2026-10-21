@@ -1,7 +1,7 @@
 import { Equal, Equivalence, Redacted, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL REDACTED PROGRAMS
@@ -585,31 +585,31 @@ type WipeCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedRedactedStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedRedactedWrapCase: ({ wrapCase }: WrapCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 wrapCase: () => wrapCase,
             }),
         }),
 
         SelectedRedactedRevealCase: ({ revealCase }: RevealCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 revealCase: () => revealCase,
             }),
         }),
 
         SelectedRedactedCompareCase: ({ compareCase }: CompareCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 compareCase: () => compareCase,
             }),
         }),
 
         SelectedRedactedWipeCase: ({ wipeCase }: WipeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 wipeCase: () => wipeCase,
             }),
         }),

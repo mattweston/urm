@@ -89,19 +89,19 @@ export const pollCloudflareEmailEvents = Effect.fn(
     "CloudflareEmailEvents.poll"
 )(function* () {
     const config = yield* Config.all({
-        enabled: Config.boolean("CLOUDFLARE_EMAIL_EVENTS_ENABLED").pipe(
+        enabled: Config.Boolean("CLOUDFLARE_EMAIL_EVENTS_ENABLED").pipe(
             Config.withDefault(false)
         ),
-        account_id: Config.string("CLOUDFLARE_ACCOUNT_ID").pipe(
+        account_id: Config.String("CLOUDFLARE_ACCOUNT_ID").pipe(
             Config.withDefault("")
         ),
-        queue_id: Config.string("CLOUDFLARE_EMAIL_EVENTS_QUEUE_ID").pipe(
+        queue_id: Config.String("CLOUDFLARE_EMAIL_EVENTS_QUEUE_ID").pipe(
             Config.withDefault("")
         ),
-        subscription_ids: Config.string(
+        subscription_ids: Config.String(
             "CLOUDFLARE_EMAIL_EVENTS_SUBSCRIPTION_IDS"
         ).pipe(Config.withDefault("")),
-        token: Config.redacted("CLOUDFLARE_EMAIL_EVENTS_API_TOKEN").pipe(
+        token: Config.Redacted("CLOUDFLARE_EMAIL_EVENTS_API_TOKEN").pipe(
             Config.withDefault(Redacted.make(""))
         ),
     })

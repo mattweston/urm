@@ -1,6 +1,6 @@
 import { Array, HashMap, Match as M, Option, Result } from "effect"
 import { AsyncData, Update } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { queryNormalizedContacts } from "./crm-normalized.command.ts"
 import {
@@ -78,7 +78,7 @@ const requestPage = (model: Model, page: number): UpdateReturn => {
     )
 
     return {
-        model: evo(model, {
+        model: modifyFields(model, {
             activeQueryKey: () => queryKey,
             pageByQueryKey: () => cache.pageByQueryKey,
             cacheKeysByRecency: () => cache.cacheKeysByRecency,
@@ -100,7 +100,7 @@ const requestPage = (model: Model, page: number): UpdateReturn => {
 
 const resetAndRequest = (model: Model): UpdateReturn =>
     requestPage(
-        evo(model, {
+        modifyFields(model, {
             maybeEditingContactId: () => Option.none(),
             editedName: () => "",
         }),
@@ -148,14 +148,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             UpdatedNormalizedCrmSearchText: ({ value }) =>
-                resetAndRequest(evo(model, { searchText: () => value })),
+                resetAndRequest(modifyFields(model, { searchText: () => value })),
             SelectedNormalizedCrmDatasetSize: ({ size }) =>
                 resetAndRequest(
-                    evo(model, { selectedDatasetSize: () => size })
+                    modifyFields(model, { selectedDatasetSize: () => size })
                 ),
             ToggledNormalizedCrmTagFacet: ({ tagId, isSelected }) =>
                 resetAndRequest(
-                    evo(model, {
+                    modifyFields(model, {
                         selectedTagIds: () =>
                             updateSelectedTags(
                                 model.selectedTagIds,
@@ -166,11 +166,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ),
             SelectedNormalizedCrmActivityRecency: ({ activityRecency }) =>
                 resetAndRequest(
-                    evo(model, { activityRecency: () => activityRecency })
+                    modifyFields(model, { activityRecency: () => activityRecency })
                 ),
             SelectedNormalizedCrmFilterPreset: ({ preset }) =>
                 resetAndRequest(
-                    evo(model, {
+                    modifyFields(model, {
                         searchText: () => "",
                         selectedTagIds: () => [PRESET_TAG_IDS[preset]],
                         activityRecency: () => "Any",
@@ -193,7 +193,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             : { model, commands: [] },
                 }),
             ClickedEditNormalizedCrmContact: ({ contactId }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     maybeEditingContactId: () => Option.some(contactId),
                     editedName: () =>
                         Option.match(
@@ -209,14 +209,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             UpdatedNormalizedCrmEditedName: ({ value }) => ({
-                model: evo(model, { editedName: () => value }),
+                model: modifyFields(model, { editedName: () => value }),
                 commands: [],
             }),
             SubmittedNormalizedCrmContactEdit: () =>
                 Option.match(model.maybeEditingContactId, {
                     onNone: (): UpdateReturn => ({ model, commands: [] }),
                     onSome: (contactId) => ({
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             store: () =>
                                 renameContact(
                                     model.store,
@@ -235,14 +235,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     }),
                 }),
             ClickedCancelNormalizedCrmContactEdit: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     maybeEditingContactId: () => Option.none(),
                     editedName: () => "",
                 }),
                 commands: [],
             }),
             ToggledNormalizedCrmContactTag: ({ contactId, tagId }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     store: () =>
                         toggleContactTag(model.store, contactId, tagId),
                     locallyEditedContactIds: () =>
@@ -253,7 +253,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             // The response splits in two here: rows are merged into the one
             // store, and only their ids are kept in the cache entry.
             SettledNormalizedContactsQuery: ({ queryKey, result }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     store: () => storeWithResponse(model, result),
                     pageByQueryKey: HashMap.modify(
                         queryKey,

@@ -1,6 +1,6 @@
 import { Array, Equal, HashMap, Match as M, Option } from "effect"
 import { AsyncData, Update } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     debounceSearch,
@@ -59,7 +59,7 @@ const requestPage = (model: Model, page: number): UpdateReturn => {
         onNone: () => {
             const cache = cachePage(model, queryKey, current)
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     activeQueryKey: () => queryKey,
                     pendingQueryKey: () => Option.none(),
                     pageByQueryKey: () => cache.pageByQueryKey,
@@ -72,7 +72,7 @@ const requestPage = (model: Model, page: number): UpdateReturn => {
             const cache = cachePage(model, queryKey, next)
             const isColdQuery = !AsyncData.hasData(current)
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     activeQueryKey: () =>
                         isColdQuery ? model.activeQueryKey : queryKey,
                     pendingQueryKey: () =>
@@ -108,14 +108,14 @@ const requestFirstPageIfChanged = (model: Model): UpdateReturn =>
 const seedNextBatch = (model: Model, seededContacts: number): UpdateReturn =>
     seededContacts >= contactCountForDatasetSize(model.selectedDatasetSize)
         ? requestPage(
-              evo(model, {
+              modifyFields(model, {
                   seedingState: () => "Ready",
                   seededContacts: () => seededContacts,
               }),
               0
           )
         : {
-              model: evo(model, {
+              model: modifyFields(model, {
                   seedingState: () => "Seeding",
                   seededContacts: () => seededContacts,
               }),
@@ -163,7 +163,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             UpdatedIndexedDbCrmSearchText: ({ value }) => {
-                const typed = evo(model, { searchText: () => value })
+                const typed = modifyFields(model, { searchText: () => value })
 
                 if (model.seedingState !== "Ready")
                     return { model: typed, commands: [] }
@@ -181,7 +181,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     ? requestFirstPageIfChanged(model)
                     : { model, commands: [] },
             ToggledIndexedDbCrmDenormalizedRead: ({ isEnabled }) => {
-                const toggled = evo(model, {
+                const toggled = modifyFields(model, {
                     isDenormalizedRead: () => isEnabled,
                 })
 
@@ -199,7 +199,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     : { model: toggled, commands: [] }
             },
             ToggledIndexedDbCrmTokenIndexSearch: ({ isEnabled }) => {
-                const toggled = evo(model, {
+                const toggled = modifyFields(model, {
                     isTokenIndexSearch: () => isEnabled,
                 })
 
@@ -210,7 +210,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     : { model: toggled, commands: [] }
             },
             ToggledIndexedDbCrmSearchDebounce: ({ isEnabled }) => {
-                const toggled = evo(model, {
+                const toggled = modifyFields(model, {
                     isSearchDebounced: () => isEnabled,
                 })
 
@@ -221,7 +221,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     : requestFirstPageIfChanged(toggled)
             },
             SelectedIndexedDbCrmDatasetSize: ({ size }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     selectedDatasetSize: () => size,
                     seededContacts: () => 0,
                     seedingState: () => "Seeding",
@@ -235,7 +235,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ToggledIndexedDbCrmTagFacet: ({ tagId, isSelected }) =>
                 model.seedingState === "Ready"
                     ? requestPage(
-                          evo(model, {
+                          modifyFields(model, {
                               selectedTagIds: () =>
                                   updateSelectedTags(
                                       model.selectedTagIds,
@@ -246,7 +246,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           0
                       )
                     : {
-                          model: evo(model, {
+                          model: modifyFields(model, {
                               selectedTagIds: () =>
                                   updateSelectedTags(
                                       model.selectedTagIds,
@@ -259,19 +259,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             SelectedIndexedDbCrmActivityRecency: ({ activityRecency }) =>
                 model.seedingState === "Ready"
                     ? requestPage(
-                          evo(model, {
+                          modifyFields(model, {
                               activityRecency: () => activityRecency,
                           }),
                           0
                       )
                     : {
-                          model: evo(model, {
+                          model: modifyFields(model, {
                               activityRecency: () => activityRecency,
                           }),
                           commands: [],
                       },
             ClickedIndexedDbCrmRebuild: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     seededContacts: () => 0,
                     seedingState: () => "Seeding",
                     activeQueryKey: () => "",
@@ -302,7 +302,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }),
             InspectedIndexedDbCrmDatabase: ({ seededContacts, size }) =>
                 seedNextBatch(
-                    evo(model, { selectedDatasetSize: () => size }),
+                    modifyFields(model, { selectedDatasetSize: () => size }),
                     seededContacts
                 ),
             SeededIndexedDbCrmDatabaseBatch: ({ seededContacts }) =>
@@ -314,7 +314,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 Option.match(HashMap.get(model.pageByQueryKey, queryKey), {
                     onNone: () => ({ model, commands: [] }),
                     onSome: (page) => ({
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             activeQueryKey: () =>
                                 Option.exists(
                                     model.pendingQueryKey,
@@ -340,7 +340,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     }),
                 }),
             FailedIndexedDbOperation: ({ error }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     seedingState: () => "Failed",
                     maybeError: () => Option.some(error),
                 }),

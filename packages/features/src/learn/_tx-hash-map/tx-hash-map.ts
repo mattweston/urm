@@ -9,7 +9,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXHASHMAP PROGRAMS
@@ -546,20 +546,20 @@ type TransformCasePayload = Readonly<{ transformCase: TransformCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxHashMapStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxHashMapCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxHashMapReadCase: ({ readCase }: ReadCasePayload) => ({
-            model: evo(model, { readCase: () => readCase }),
+            model: modifyFields(model, { readCase: () => readCase }),
         }),
         SelectedTxHashMapMutateCase: ({ mutateCase }: MutateCasePayload) => ({
-            model: evo(model, { mutateCase: () => mutateCase }),
+            model: modifyFields(model, { mutateCase: () => mutateCase }),
         }),
         SelectedTxHashMapTransformCase: ({
             transformCase,
         }: TransformCasePayload) => ({
-            model: evo(model, { transformCase: () => transformCase }),
+            model: modifyFields(model, { transformCase: () => transformCase }),
         }),
     })

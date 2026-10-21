@@ -1,5 +1,5 @@
 import { Match as M } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./search-bar.message.ts"
 import { type Model } from "./search-bar.model.ts"
 
@@ -21,28 +21,28 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.tagsExhaustive({
             MountedSearchBar: () => [model, []],
             ToggledSearchBarIsOpen: () => [
-                evo(model, {
+                modifyFields(model, {
                     isOpen: (isOpen) => !isOpen,
                     query: () => "",
                 }),
                 [],
             ],
             ChangedSearchBarQuery: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     query: () => value,
                     isOpen: () => true,
                 }),
                 [],
             ],
             ClosedSearchBar: () => [
-                evo(model, {
+                modifyFields(model, {
                     isOpen: () => false,
                     query: () => "",
                 }),
                 [],
             ],
             ClickedSearchBarItem: () => [
-                evo(model, {
+                modifyFields(model, {
                     isOpen: () => false,
                     query: () => "",
                 }),

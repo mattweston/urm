@@ -3,7 +3,7 @@
  *
  * Route-level role guards, reading the current role from the auth cookie.
  */
-import { HttpServerRequest } from "effect/unstable/http"
+import { HttpServerRequest } from "effect/http"
 import { Effect } from "effect"
 import { AuthConfig } from "@urm/env/server"
 import { Redacted } from "effect"

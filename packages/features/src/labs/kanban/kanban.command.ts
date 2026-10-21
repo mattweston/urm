@@ -1,6 +1,6 @@
 import { BrowserCrypto, BrowserKeyValueStore } from "@effect/platform-browser"
 import { Crypto, Effect, Option, Schema as S } from "effect"
-import { KeyValueStore } from "effect/unstable/persistence"
+import { KeyValueStore } from "effect/persistence"
 import { Command, Dom } from "foldkit"
 import { ADD_CARD_INPUT_ID, STORAGE_KEY } from "./kanban.constant.ts"
 import { Column } from "./kanban.column.ts"

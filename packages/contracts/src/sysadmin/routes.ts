@@ -6,7 +6,7 @@
  */
 
 import { Schema } from "effect"
-import { Rpc, RpcGroup } from "effect/unstable/rpc"
+import { Rpc, RpcGroup } from "effect/rpc"
 import { AuthorizationError } from "@urm/domain/errors"
 import {
     AuthenticatedRpcMiddleware,

@@ -6,12 +6,11 @@
  */
 import * as PgDrizzle from "drizzle-orm/effect-postgres"
 import { PgClient } from "@effect/sql-pg"
-import type { SqlError } from "effect/unstable/sql/SqlError"
+import type { SqlError } from "effect/sql/SqlError"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
-import { types } from "pg"
 import { relations } from "../legacy-schema/relations.ts"
 import type { ConfigError } from "../config/environment.ts"
 import {
@@ -52,33 +51,19 @@ const makePgClientLayer = (
 ): Layer.Layer<PgClient.PgClient, SqlError, never> => {
     const pool_config = POOL_CONFIGS[env]
 
+    // No `types` override. This used to pass timestamptz, timestamp, date,
+    // interval and their array forms through raw, because node-postgres parsed
+    // timestamptz via the local timezone and the same row read on two machines
+    // gave two different instants. @effect/sql-pg 4.0.5 speaks the wire
+    // protocol itself and documents that timestamptz round trips preserve the
+    // instant regardless of session timezone, so the workaround went with the
+    // driver — and these columns are now Date at runtime, matching Drizzle's
+    // inferred type instead of contradicting it.
     return PgClient.layer({
         url: Redacted.make(database_url),
         maxConnections: pool_config.maxConnections,
         idleTimeout: pool_config.idleTimeout,
         connectTimeout: pool_config.connectTimeout,
-        types: {
-            getTypeParser: (typeId: number, format?: string) => {
-                // timestamptz, timestamp, date, interval and their array forms
-                // are returned raw. node-postgres parses timestamptz through
-                // the local timezone, so the same row read on two machines
-                // yields two different instants. Passing the string through
-                // keeps the value stable and leaves decoding to a schema —
-                // but it means these columns are strings at runtime even
-                // where Drizzle's inferred type says Date.
-                if (
-                    [
-                        1184, 1114, 1082, 1186, 1231, 1115, 1185, 1187, 1182,
-                    ].includes(typeId)
-                ) {
-                    return (val: unknown) => val
-                }
-                return types.getTypeParser(
-                    typeId,
-                    format as "text" | "binary" | undefined
-                )
-            },
-        },
     })
 }
 

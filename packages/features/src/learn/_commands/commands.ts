@@ -2,7 +2,7 @@ import { Effect, Schema as S } from "effect"
 import { Command, type Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { defineTaggedUnion } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Foldkit Commands
@@ -212,14 +212,14 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedCommandsStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         // update does not sleep. It only returns DelayReset as data.
         ClickedResetAfterDelay: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 resetPending: () => true,
             }),
             commands: [DelayReset()],
@@ -227,20 +227,20 @@ export const update = (model: Model, message: Message) =>
 
         // Runtime executes DelayReset, then dispatches this fact.
         CompletedDelayReset: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: () => 0,
                 resetPending: () => false,
             }),
         }),
 
         SelectedZipCode: ({ zipCode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 zipCode: () => zipCode,
             }),
         }),
 
         ClickedLookupWeather: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 weather: () =>
                     WeatherState.Loading({
                         zipCode: model.zipCode,
@@ -254,7 +254,7 @@ export const update = (model: Model, message: Message) =>
         }),
 
         SucceededLookupWeather: ({ zipCode, temperatureF }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 weather: () =>
                     WeatherState.Success({
                         zipCode,
@@ -264,7 +264,7 @@ export const update = (model: Model, message: Message) =>
         }),
 
         FailedLookupWeather: ({ zipCode, error }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 weather: () =>
                     WeatherState.Failure({
                         zipCode,
@@ -274,26 +274,26 @@ export const update = (model: Model, message: Message) =>
         }),
 
         SelectedTestZipCode: ({ zipCode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 testZipCode: () => zipCode,
                 testStep: () => 0,
             }),
         }),
 
         ClickedAdvanceCommandTest: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 testStep: (step) => Math.min(4, step + 1),
             }),
         }),
 
         ClickedResetCommandTest: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 testStep: () => 0,
             }),
         }),
 
         ClickedStartLongTask: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 job: () =>
                     JobState.Running({
                         jobId: model.jobId,
@@ -314,7 +314,7 @@ export const update = (model: Model, message: Message) =>
                 }),
 
                 Running: ({ jobId }) => ({
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         job: () =>
                             JobState.Cancelling({
                                 jobId,
@@ -348,7 +348,7 @@ export const update = (model: Model, message: Message) =>
             }),
 
         CompletedLongTask: ({ jobId }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 job: () =>
                     JobState.Completed({
                         jobId,
@@ -359,7 +359,7 @@ export const update = (model: Model, message: Message) =>
         CompletedCancelLongTask: ({ jobId, outcome }) =>
             Command.Interruptible.Outcome.match<UpdateReturn>(outcome, {
                 Interrupted: () => ({
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         job: () =>
                             JobState.Cancelled({
                                 jobId,
@@ -369,7 +369,7 @@ export const update = (model: Model, message: Message) =>
                 }),
 
                 NotFound: () => ({
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         lastInterruptOutcome: () => "NotFound",
                     }),
                 }),

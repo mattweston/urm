@@ -1,7 +1,7 @@
 import { flow, Function as Fn, Match as M, pipe, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Function examples
@@ -214,14 +214,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedFunctionStage: ({ stage }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     stage: () => stage,
                 }),
                 commands: [],
             }),
 
             SelectedFunctionPipeInput: ({ pipe_input }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     pipe_input: () => pipe_input,
                     pipe_step: () => 0,
                 }),
@@ -229,56 +229,56 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedAdvanceFunctionPipe: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     pipe_step: (step) => Math.min(3, step + 1),
                 }),
                 commands: [],
             }),
 
             ClickedResetFunctionPipe: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     pipe_step: () => 0,
                 }),
                 commands: [],
             }),
 
             UpdatedFunctionFlowFirst: ({ value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     flow_first: () => value,
                 }),
                 commands: [],
             }),
 
             UpdatedFunctionFlowLast: ({ value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     flow_last: () => value,
                 }),
                 commands: [],
             }),
 
             SelectedFunctionDualStyle: ({ dual_style }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     dual_style: () => dual_style,
                 }),
                 commands: [],
             }),
 
             SelectedFunctionDualSelf: ({ value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     dual_self: () => value,
                 }),
                 commands: [],
             }),
 
             SelectedFunctionDualThat: ({ value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     dual_that: () => value,
                 }),
                 commands: [],
             }),
 
             SelectedFunctionAdapterMode: ({ adapter_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     adapter_mode: () => adapter_mode,
                 }),
                 commands: [],

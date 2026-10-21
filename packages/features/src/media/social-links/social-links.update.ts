@@ -1,6 +1,6 @@
 import { Effect, Match as M, Schema as S } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     FailedSavingSocialLinks,
@@ -74,14 +74,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ClickedEditSocialLinks: () => [
-                evo(model, {
+                modifyFields(model, {
                     editor_state: () => "Editing",
                     error: () => "",
                 }),
                 [],
             ],
             ChangedSocialLinkUrl: ({ platform, url }) => [
-                evo(model, {
+                modifyFields(model, {
                     drafts: (links) =>
                         links.map((link) =>
                             link.platform === platform ? { ...link, url } : link
@@ -95,7 +95,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return invalid === undefined
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               editor_state: () => "Saving",
                               error: () => "",
                           }),
@@ -108,7 +108,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           ],
                       ]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               error: () =>
                                   `${invalid.platform} needs a complete http or https URL.`,
                           }),
@@ -116,7 +116,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                       ]
             },
             ClickedCancelSocialLinks: () => [
-                evo(model, {
+                modifyFields(model, {
                     drafts: () => model.saved_snapshot,
                     editor_state: () => "Viewing",
                     error: () => "",
@@ -124,7 +124,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             SavedSocialLinks: ({ links }) => [
-                evo(model, {
+                modifyFields(model, {
                     drafts: () => with_platform_defaults(links),
                     saved_snapshot: () => with_platform_defaults(links),
                     editor_state: () => "Viewing",
@@ -133,7 +133,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             FailedSavingSocialLinks: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     editor_state: () => "Editing",
                     error: () => error,
                 }),

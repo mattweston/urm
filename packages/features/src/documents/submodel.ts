@@ -3,7 +3,7 @@ import { Command, Navigation, Submodel, Subscription } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { DragAndDrop } from "@foldkit/ui"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { RichTextContent } from "@urm/domain/schemas/rich-text"
 import {
@@ -216,22 +216,22 @@ const editor_for_document = (document: InternalDocumentType) => {
         {
             onNone: () => editor,
             onSome: (content) =>
-                evo(editor, { document: () => content.document }),
+                modifyFields(editor, { document: () => content.document }),
         }
     )
 }
 
 const hydrate = (model: ModelType): ModelType => {
     if (model.route === "Index") {
-        return evo(model, {
+        return modifyFields(model, {
             load_status: () => "ready",
             maybe_error: () => Option.none(),
             is_editing: () => false,
         })
     }
     if (model.route === "New") {
-        if (model.is_dirty) return evo(model, { load_status: () => "ready" })
-        return evo(model, {
+        if (model.is_dirty) return modifyFields(model, { load_status: () => "ready" })
+        return modifyFields(model, {
             title: () => "",
             document_status: () => "draft",
             editor: () => initRichTextEditor(),
@@ -242,19 +242,19 @@ const hydrate = (model: ModelType): ModelType => {
         })
     }
 
-    if (model.is_dirty) return evo(model, { load_status: () => "ready" })
+    if (model.is_dirty) return modifyFields(model, { load_status: () => "ready" })
 
     const document = model.documents.find(
         (candidate) => candidate.id === model.document_id
     )
     if (document === undefined) {
-        return evo(model, {
+        return modifyFields(model, {
             load_status: () => "error",
             maybe_error: () => Option.some("Document not found."),
         })
     }
 
-    return evo(model, {
+    return modifyFields(model, {
         title: () => document.title,
         document_status: () => document.status,
         editor: () => editor_for_document(document),
@@ -316,7 +316,7 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                     parse_location(location)
                 return [
                     hydrate(
-                        evo(model, {
+                        modifyFields(model, {
                             route: () => route,
                             document_id: () => document_id,
                             is_editing: () => is_editing,
@@ -329,11 +329,11 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                 ]
             },
             LoadedDocuments: ({ documents }) => [
-                hydrate(evo(model, { documents: () => documents })),
+                hydrate(modifyFields(model, { documents: () => documents })),
                 [],
             ],
             UpdatedDocumentTitle: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     title: () => value,
                     is_dirty: () => true,
                     maybe_error: () => Option.none(),
@@ -341,7 +341,7 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                 [],
             ],
             UpdatedDocumentStatus: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     document_status: () => value,
                     is_dirty: () => true,
                     maybe_error: () => Option.none(),
@@ -349,12 +349,12 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                 [],
             ],
             ToggledDocumentEditing: () => [
-                evo(model, { is_editing: (value) => !value }),
+                modifyFields(model, { is_editing: (value) => !value }),
                 [],
             ],
             ClickedSaveDocument: () => {
                 const title = model.title.trim() || "Untitled document"
-                const saving_model = evo(model, {
+                const saving_model = modifyFields(model, {
                     title: () => title,
                     load_status: () => "saving",
                     maybe_error: () => Option.none(),
@@ -380,7 +380,7 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
             SavedDocument: ({ document }) => {
                 const was_new = model.route === "New"
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => "Document",
                         document_id: () => document.id,
                         documents: () =>
@@ -405,14 +405,14 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                 ]
             },
             FailedDocumentOperation: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     load_status: () => "error",
                     maybe_error: () => Option.some(error),
                 }),
                 [],
             ],
             ChangedDocumentTemplateMetadata: ({ field, value }) => [
-                evo(model, {
+                modifyFields(model, {
                     template_name: (current) =>
                         field === "name" ? value : current,
                     template_description: (current) =>
@@ -449,7 +449,7 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                     Option.isNone(tags)
                 ) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             template_feedback: () =>
                                 "Enter a template name, with no more than 12 tags of 40 characters each.",
                         }),
@@ -457,7 +457,7 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                     ]
                 }
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         template_save_status: () => "saving",
                         template_feedback: () => "",
                     }),
@@ -477,7 +477,7 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                 ]
             },
             SavedDocumentTemplate: () => [
-                evo(model, {
+                modifyFields(model, {
                     template_name: () => "",
                     template_description: () =>
                         "Reusable internal document template.",
@@ -488,7 +488,7 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                 [],
             ],
             FailedSavingDocumentTemplate: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     template_save_status: () => "idle",
                     template_feedback: () =>
                         `Could not save template: ${error}`,
@@ -502,7 +502,7 @@ export const update = (model: ModelType, message: MessageType): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         editor: () => editor,
                         is_dirty: () => true,
                         maybe_error: () => Option.none(),

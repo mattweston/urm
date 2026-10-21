@@ -3,7 +3,7 @@
  *
  * Maps UnauthorizedError/ForbiddenError to JSON HTTP responses.
  */
-import { HttpServerResponse } from "effect/unstable/http"
+import { HttpServerResponse } from "effect/http"
 import { UnauthorizedError, ForbiddenError } from "./permissions/types.ts"
 
 export interface ErrorResponse {

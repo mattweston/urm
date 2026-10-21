@@ -7,8 +7,8 @@ import {
     FetchHttpClient,
     HttpClient,
     HttpClientRequest,
-} from "effect/unstable/http"
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
+} from "effect/http"
+import { RpcClient, RpcSerialization } from "effect/rpc"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { RPC_CSRF_HEADER_NAME, RPC_CSRF_HEADER_VALUE } from "./csrf.ts"
 

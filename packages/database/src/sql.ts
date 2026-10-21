@@ -4,7 +4,7 @@ import { DB } from "./services/database-service.ts"
 import { database_error_code } from "./sql-error.ts"
 
 // 'TaggedErrorClass' is deprecated.
-export class SqlError extends Schema.TaggedErrorClass<SqlError>()("SqlError", {
+export class SqlError extends Schema.TaggedError<SqlError>()("SqlError", {
     operation: Schema.String,
     code: Schema.optional(Schema.String),
 }) {}
@@ -27,6 +27,7 @@ export const SqlLive = Layer.effect(
         return Sql.of({
             query: (statement) =>
                 db.execute<Record<string, unknown>>(statement).pipe(
+                    Effect.map((result) => result.rows),
                     Effect.mapError(
                         (error) =>
                             new SqlError({
@@ -46,6 +47,9 @@ export const SqlLive = Layer.effect(
                                             statement
                                         )
                                         .pipe(
+                                            Effect.map(
+                                                (result) => result.rows
+                                            ),
                                             Effect.mapError(
                                                 (error) =>
                                                     new SqlError({

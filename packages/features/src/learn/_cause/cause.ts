@@ -1,7 +1,7 @@
 import { Cause, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Cause examples
@@ -105,31 +105,31 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedCauseStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedCauseReasonMode: ({ reasonMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 reasonMode: () => reasonMode,
             }),
         }),
 
         SelectedCauseCombineMode: ({ combineMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 combineMode: () => combineMode,
             }),
         }),
 
         SelectedCauseInspectMode: ({ inspectMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 inspectMode: () => inspectMode,
             }),
         }),
 
         SelectedCauseRenderMode: ({ renderMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 renderMode: () => renderMode,
             }),
         }),

@@ -1,6 +1,6 @@
 import { Effect, Match as M, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./bookmarks.message.ts"
 import {
     BookmarkOperationFailed,
@@ -70,7 +70,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             LoadedBookmarks: ({ bookmarks }) => [
-                evo(model, {
+                modifyFields(model, {
                     bookmarks: () => bookmarks,
                     status: () => "ready",
                     error: () => Option.none(),
@@ -78,23 +78,23 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedBookmarkQuery: ({ value }) => [
-                evo(model, { query: () => value }),
+                modifyFields(model, { query: () => value }),
                 [],
             ],
             UpdatedBookmarkTitle: ({ value }) => [
-                evo(model, { title: () => value }),
+                modifyFields(model, { title: () => value }),
                 [],
             ],
             UpdatedBookmarkHref: ({ value }) => [
-                evo(model, { href: () => value }),
+                modifyFields(model, { href: () => value }),
                 [],
             ],
             UpdatedBookmarkTags: ({ value }) => [
-                evo(model, { tags: () => value }),
+                modifyFields(model, { tags: () => value }),
                 [],
             ],
             ClickedEditBookmark: ({ bookmark }) => [
-                evo(model, {
+                modifyFields(model, {
                     title: () => bookmark.title,
                     href: () => bookmark.href,
                     tags: () => bookmark.tags.join(", "),
@@ -104,7 +104,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ClickedCancelBookmark: () => [
-                evo(model, {
+                modifyFields(model, {
                     title: () => "",
                     href: () => "",
                     tags: () => "",
@@ -118,7 +118,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const href = model.href.trim()
                 if (title === "" || href === "") {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             status: () => "error",
                             error: () =>
                                 Option.some("Title and URL are required."),
@@ -127,7 +127,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     ]
                 }
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         status: () => "saving",
                         error: () => Option.none(),
                     }),
@@ -142,14 +142,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ClickedDeleteBookmark: ({ bookmark_id }) => [
-                evo(model, {
+                modifyFields(model, {
                     status: () => "saving",
                     error: () => Option.none(),
                 }),
                 [DeleteBookmark({ bookmark_id })],
             ],
             SavedBookmark: ({ bookmark }) => [
-                evo(model, {
+                modifyFields(model, {
                     bookmarks: () =>
                         [
                             bookmark,
@@ -169,7 +169,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             DeletedBookmark: ({ bookmark_id }) => [
-                evo(model, {
+                modifyFields(model, {
                     bookmarks: () =>
                         model.bookmarks.filter(
                             (bookmark) => bookmark.id !== bookmark_id
@@ -184,7 +184,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             BookmarkOperationFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     status: () => "error",
                     error: () => Option.some(error),
                 }),

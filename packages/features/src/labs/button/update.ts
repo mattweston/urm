@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -12,7 +12,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ClickedButton: () => [
-                evo(model, { clickCount: (count) => count + 1 }),
+                modifyFields(model, { clickCount: (count) => count + 1 }),
                 [],
             ],
         })

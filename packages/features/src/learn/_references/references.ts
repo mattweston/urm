@@ -1,7 +1,7 @@
 import { Effect, References, Scheduler, Schema as S, Tracer } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL REFERENCES PROGRAMS
@@ -635,13 +635,13 @@ type SchedulerCasePayload = Readonly<{ schedulerCase: SchedulerCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedReferencesStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedReferencesReadCase: ({ readCase }: ReadCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 readCase: () => readCase,
             }),
         }),
@@ -649,7 +649,7 @@ export const update = (model: Model, message: Message) =>
         SelectedReferencesLoggingCase: ({
             loggingCase,
         }: LoggingCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 loggingCase: () => loggingCase,
             }),
         }),
@@ -657,7 +657,7 @@ export const update = (model: Model, message: Message) =>
         SelectedReferencesTracingCase: ({
             tracingCase,
         }: TracingCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 tracingCase: () => tracingCase,
             }),
         }),
@@ -665,7 +665,7 @@ export const update = (model: Model, message: Message) =>
         SelectedReferencesSchedulerCase: ({
             schedulerCase,
         }: SchedulerCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 schedulerCase: () => schedulerCase,
             }),
         }),

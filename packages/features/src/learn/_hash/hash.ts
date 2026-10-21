@@ -1,7 +1,7 @@
 import { Equal, Hash, Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Hash examples
@@ -225,42 +225,42 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedHashStage: ({ stage }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     stage: () => stage,
                 }),
                 commands: [],
             }),
 
             SelectedFingerprintKind: ({ fingerprint_kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     fingerprint_kind: () => fingerprint_kind,
                 }),
                 commands: [],
             }),
 
             SelectedHashStructureMode: ({ structure_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     structure_mode: () => structure_mode,
                 }),
                 commands: [],
             }),
 
             SelectedCustomHashLeft: ({ custom_left }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     custom_left: () => custom_left,
                 }),
                 commands: [],
             }),
 
             SelectedCustomHashRight: ({ custom_right }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     custom_right: () => custom_right,
                 }),
                 commands: [],
             }),
 
             SelectedHashContractMode: ({ contract_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     contract_mode: () => contract_mode,
                 }),
                 commands: [],

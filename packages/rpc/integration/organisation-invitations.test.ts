@@ -16,7 +16,7 @@ import { EmailTransport, type EmailSendInput } from "@urm/email"
 import { ServerConfig } from "@urm/env/server"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { Effect, Layer, ManagedRuntime, Ref, Schema } from "effect"
-import { RpcTest } from "effect/unstable/rpc"
+import { RpcTest } from "effect/rpc"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { OrganisationsRpcLive } from "../src/handlers/organisations/handlers.ts"
 

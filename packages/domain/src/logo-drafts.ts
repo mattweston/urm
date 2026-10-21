@@ -37,7 +37,7 @@ export const SaveLogoDraftInput = Schema.Struct({
     scene: LogoScene,
 })
 export type SaveLogoDraftInput = typeof SaveLogoDraftInput.Type
-export class LogoDraftError extends Schema.TaggedErrorClass<LogoDraftError>()(
+export class LogoDraftError extends Schema.TaggedError<LogoDraftError>()(
     "LogoDraftError",
     { message: Schema.String }
 ) {}

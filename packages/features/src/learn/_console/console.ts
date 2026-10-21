@@ -1,7 +1,7 @@
 import { Console, Effect, Schema as S } from "effect"
 import { Command, type Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // MODEL
 
@@ -388,7 +388,7 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedConsoleStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
                 entries: () => [],
             }),
@@ -398,12 +398,12 @@ export const update = (model: Model, message: Message) =>
             commands: [RunConsoleDemo({ stage: model.stage })],
         }),
         ClickedClearConsoleOutput: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 entries: () => [],
             }),
         }),
         CompletedRunConsoleDemo: ({ entries }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 entries: () => entries,
             }),
         }),

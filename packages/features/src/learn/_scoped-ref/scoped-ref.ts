@@ -1,7 +1,7 @@
 import { Effect, Scope, ScopedRef, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SCOPEDREF PROGRAMS
@@ -608,19 +608,19 @@ type ReleaseCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedScopedRefStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedScopedRefCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 createCase: () => createCase,
             }),
         }),
 
         SelectedScopedRefReadCase: ({ readCase }: ReadCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 readCase: () => readCase,
             }),
         }),
@@ -628,7 +628,7 @@ export const update = (model: Model, message: Message) =>
         SelectedScopedRefReplaceCase: ({
             replaceCase,
         }: ReplaceCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 replaceCase: () => replaceCase,
             }),
         }),
@@ -636,7 +636,7 @@ export const update = (model: Model, message: Message) =>
         SelectedScopedRefReleaseCase: ({
             releaseCase,
         }: ReleaseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 releaseCase: () => releaseCase,
             }),
         }),

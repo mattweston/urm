@@ -5,7 +5,7 @@ import { provision_account } from "@urm/auth"
 import { read_account_input } from "./account-input.ts"
 import { provision_error_message } from "./provision-error.ts"
 
-class CommandError extends Schema.TaggedErrorClass<CommandError>()(
+class CommandError extends Schema.TaggedError<CommandError>()(
     "CommandError",
     { message: Schema.String }
 ) {}

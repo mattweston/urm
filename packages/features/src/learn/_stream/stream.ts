@@ -1,7 +1,7 @@
 import { Effect, Option, Schema as S, Sink, Stream } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL STREAM PROGRAMS
@@ -540,24 +540,24 @@ type RunCasePayload = Readonly<{ runCase: RunCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedStreamStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
 
         SelectedStreamCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
 
         SelectedStreamTransformCase: ({
             transformCase,
         }: TransformCasePayload) => ({
-            model: evo(model, { transformCase: () => transformCase }),
+            model: modifyFields(model, { transformCase: () => transformCase }),
         }),
 
         SelectedStreamControlCase: ({ controlCase }: ControlCasePayload) => ({
-            model: evo(model, { controlCase: () => controlCase }),
+            model: modifyFields(model, { controlCase: () => controlCase }),
         }),
 
         SelectedStreamRunCase: ({ runCase }: RunCasePayload) => ({
-            model: evo(model, { runCase: () => runCase }),
+            model: modifyFields(model, { runCase: () => runCase }),
         }),
     })

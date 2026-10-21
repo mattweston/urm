@@ -23,6 +23,9 @@ export const Model = S.Struct({
     availableTags: S.Array(Tag),
     usesTagRelations: S.Boolean,
     issuesLoaded: S.Boolean,
+    // Why a read failed. `issuesLoaded` says whether an answer arrived,
+    // which a failure also satisfies, so the two are separate facts.
+    error: S.NullOr(S.String),
     dragAndDrop: Ui.DragAndDrop.Model,
     announcement: S.String,
     view: IssueView,

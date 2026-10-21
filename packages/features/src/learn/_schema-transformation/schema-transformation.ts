@@ -9,7 +9,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // VERSION BRIDGES
@@ -609,7 +609,7 @@ type ConvertCasePayload = Readonly<{ convertCase: ConvertCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSchemaTransformationStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -617,7 +617,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaTransformationBuildCase: ({
             buildCase,
         }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
@@ -625,7 +625,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaTransformationComposeCase: ({
             composeCase,
         }: ComposeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 composeCase: () => composeCase,
             }),
         }),
@@ -633,7 +633,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaTransformationNormalizeCase: ({
             normalizeCase,
         }: NormalizeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 normalizeCase: () => normalizeCase,
             }),
         }),
@@ -641,7 +641,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaTransformationConvertCase: ({
             convertCase,
         }: ConvertCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 convertCase: () => convertCase,
             }),
         }),

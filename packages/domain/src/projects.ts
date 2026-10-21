@@ -110,7 +110,7 @@ export const ProjectAction = Schema.Union([
     }),
 ])
 export type ProjectAction = typeof ProjectAction.Type
-export class ProjectWriteError extends Schema.TaggedErrorClass<ProjectWriteError>()(
+export class ProjectWriteError extends Schema.TaggedError<ProjectWriteError>()(
     "ProjectWriteError",
     { message: Schema.String }
 ) {}

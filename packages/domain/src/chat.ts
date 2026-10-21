@@ -34,7 +34,7 @@ export const SendChatInput = Schema.Struct({
     ),
 })
 export type SendChatInput = typeof SendChatInput.Type
-export class ChatWriteError extends Schema.TaggedErrorClass<ChatWriteError>()(
+export class ChatWriteError extends Schema.TaggedError<ChatWriteError>()(
     "ChatWriteError",
     { message: Schema.String }
 ) {}

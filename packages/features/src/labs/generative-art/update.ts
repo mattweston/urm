@@ -1,6 +1,6 @@
 import { Array, Match as M, Number, Option, Result } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { Slider } from "@foldkit/ui"
 
@@ -172,7 +172,7 @@ const advanceParticle =
                     TRAIL_LENGTH
                 )
                 return Result.succeed(
-                    evo(particle, {
+                    modifyFields(particle, {
                         trail: () => trimmedTrail,
                         ageMs: () => nextAgeMs,
                     })
@@ -233,7 +233,7 @@ const appendGeneratedParticle =
             initialSpeedScale: generatedParticle.initialSpeedScale,
         }
         return [
-            evo(model, {
+            modifyFields(model, {
                 particles: Array.append(newParticle),
                 nextId: Number.increment,
             }),
@@ -261,7 +261,7 @@ export const generativeArtUpdate = (
                         model.maybeMousePosition
                     )
                 )
-                const nextModel = evo(model, {
+                const nextModel = modifyFields(model, {
                     particles: () => advancedParticles,
                     elapsedSeconds: () => nextElapsedSeconds,
                 })
@@ -285,19 +285,19 @@ export const generativeArtUpdate = (
             ],
 
             MovedPointer: ({ x, y }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeMousePosition: () => Option.some(Point.make({ x, y })),
                 }),
                 [],
             ],
 
             ClickedTogglePlay: () => [
-                evo(model, { isRunning: (running) => !running }),
+                modifyFields(model, { isRunning: (running) => !running }),
                 [],
             ],
 
             ClickedReset: () => [
-                evo(model, {
+                modifyFields(model, {
                     particles: () => [],
                     maybeMousePosition: () => Option.none(),
                 }),
@@ -323,7 +323,7 @@ export const generativeArtUpdate = (
                     ),
                 })
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         flowStrengthSlider: () => nextSlider,
                         flowStrength: () => nextFlowStrength,
                     }),
@@ -352,7 +352,7 @@ export const generativeArtUpdate = (
                     ),
                 })
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         noiseScaleSlider: () => nextSlider,
                         noiseScale: () => nextNoiseScale,
                     }),

@@ -6,7 +6,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL REDUCER PROGRAMS
@@ -588,19 +588,19 @@ type FlipCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedReducerStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedReducerBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedReducerFoldCase: ({ foldCase }: FoldCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 foldCase: () => foldCase,
             }),
         }),
@@ -608,13 +608,13 @@ export const update = (model: Model, message: Message) =>
         SelectedReducerOptimizeCase: ({
             optimizeCase,
         }: OptimizeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 optimizeCase: () => optimizeCase,
             }),
         }),
 
         SelectedReducerFlipCase: ({ flipCase }: FlipCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 flipCase: () => flipCase,
             }),
         }),

@@ -23,7 +23,7 @@ import {
 } from "foldkit/fieldValidation"
 import { Rule } from "foldkit/fieldValidation"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 const PronounsListbox = Ui.Listbox.create<string>()
 
@@ -190,12 +190,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedFirstName: ({ value }) => [
-                evo(model, { firstName: () => validateFirstName(value) }),
+                modifyFields(model, { firstName: () => validateFirstName(value) }),
                 [],
             ],
 
             UpdatedLastName: ({ value }) => [
-                evo(model, { lastName: () => validateLastName(value) }),
+                modifyFields(model, { lastName: () => validateLastName(value) }),
                 [],
             ],
 
@@ -205,7 +205,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 return M.value(validateEmail(value)).pipe(
                     M.withReturnType<UpdateReturn>(),
                     M.tag("Valid", () => [
-                        evo(model, {
+                        modifyFields(model, {
                             email: () => Validating({ value }),
                             emailValidationId: () => validationId,
                         }),
@@ -217,7 +217,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         ],
                     ]),
                     M.orElse((syncResult) => [
-                        evo(model, {
+                        modifyFields(model, {
                             email: () => syncResult,
                             emailValidationId: () => validationId,
                         }),
@@ -228,14 +228,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
             ValidatedEmail: ({ validationId, field }) => {
                 if (validationId === model.emailValidationId) {
-                    return [evo(model, { email: () => field }), []]
+                    return [modifyFields(model, { email: () => field }), []]
                 }
 
                 return [model, []]
             },
 
             UpdatedPhone: ({ value }) => [
-                evo(model, { phone: () => validatePhone(value) }),
+                modifyFields(model, { phone: () => validatePhone(value) }),
                 [],
             ],
 
@@ -250,7 +250,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         pronouns: () => nextPronouns,
                         maybeSelectedPronouns: () =>
                             Option.match(maybeOutMessage, {
@@ -269,12 +269,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             UpdatedCustomPronouns: ({ value }) => [
-                evo(model, { customPronouns: () => value }),
+                modifyFields(model, { customPronouns: () => value }),
                 [],
             ],
 
             UpdatedPortfolioUrl: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     portfolioUrl: () => validatePortfolioUrl(value),
                 }),
                 [],
@@ -304,7 +304,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         availableDate: () => nextDate,
                         maybeAvailableDate: () => nextMaybeAvailableDate,
                     }),

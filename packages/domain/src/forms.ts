@@ -102,7 +102,7 @@ export const FormsAction = Schema.Union([
 ])
 export type FormsAction = typeof FormsAction.Type
 
-export class FormsWriteError extends Schema.TaggedErrorClass<FormsWriteError>()(
+export class FormsWriteError extends Schema.TaggedError<FormsWriteError>()(
     "FormsWriteError",
     { message: Schema.String }
 ) {}

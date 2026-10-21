@@ -1,7 +1,7 @@
 import { Data, Effect, Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 export class UserNotFound extends Data.TaggedError("UserNotFound")<{
     readonly id: string
@@ -102,25 +102,25 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedTaggedErrorsStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage, has_run: () => false }),
+                model: modifyFields(model, { stage: () => stage, has_run: () => false }),
                 commands: [],
             }),
             SelectedTaggedErrorsScenario: ({ scenario }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     scenario: () => scenario,
                     has_run: () => false,
                 }),
                 commands: [],
             }),
             SelectedTaggedErrorsCaughtTag: ({ tag }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     caught_tag: () => tag,
                     has_run: () => false,
                 }),
                 commands: [],
             }),
             ToggledTaggedErrorsCaughtTag: ({ tag }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     caught_tags: (tags) =>
                         tags.includes(tag)
                             ? tags.filter((current) => current !== tag)
@@ -130,7 +130,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             ClickedRunTaggedErrors: () => ({
-                model: evo(model, { has_run: () => true }),
+                model: modifyFields(model, { has_run: () => true }),
                 commands: [],
             }),
         })

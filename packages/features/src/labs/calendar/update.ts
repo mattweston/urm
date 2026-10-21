@@ -1,7 +1,7 @@
 import * as Ui from "@foldkit/ui"
 import { Effect, Match as M, Option } from "effect"
 import { Calendar, Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { GotCalendarMessage, type Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -61,7 +61,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         calendar: () => calendar,
                         maybeSelectedDate: () => maybeSelectedDate,
                     }),

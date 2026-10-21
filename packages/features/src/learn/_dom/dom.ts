@@ -2,7 +2,7 @@ import { Effect, Option, Schema as S } from "effect"
 import { Command, type Update } from "foldkit"
 import * as Dom from "foldkit/dom"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Demo constants
@@ -332,20 +332,20 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedDomStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         ClickedToggleFocusTarget: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 focusTargetVisible: (visible) => !visible,
                 focusStatus: () => "target visibility changed",
             }),
         }),
 
         ClickedFocusInput: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 focusStatus: () => "focus Command returned",
             }),
             commands: [FocusInput()],
@@ -367,13 +367,13 @@ export const update = (model: Model, message: Message) =>
         }),
 
         ClickedByDom: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 programmaticClicks: (count) => count + 1,
             }),
         }),
 
         CompletedDomOperation: ({ operation, detail }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 focusStatus: (status) =>
                     operation.includes("focus") ? detail : status,
 
@@ -404,7 +404,7 @@ export const update = (model: Model, message: Message) =>
         }),
 
         FailedDomOperation: ({ operation, selector, reason }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 failureLog: (log) => [
                     ...log,
                     `${operation}: ${selector} → ${reason}`,
@@ -419,13 +419,13 @@ export const update = (model: Model, message: Message) =>
         }),
 
         SelectedScrollMode: ({ mode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 scrollMode: () => mode,
             }),
         }),
 
         ClickedScrollTarget: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 scrollStatus: () => `${model.scrollMode} Command returned`,
             }),
             commands: [
@@ -437,7 +437,7 @@ export const update = (model: Model, message: Message) =>
 
         ClickedOpenDialog: () => ({
             // Put the dialog into the next view first.
-            model: evo(model, {
+            model: modifyFields(model, {
                 dialogVisible: () => true,
                 dialogStatus: () => "showDialog Command returned",
             }),
@@ -463,14 +463,14 @@ export const update = (model: Model, message: Message) =>
         }),
 
         ClickedWaitForAnimation: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 timingStatus: () => "waiting for animation frame + animations",
             }),
             commands: [WaitForBoxAnimation()],
         }),
 
         ClickedDetectMovement: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 timingStatus: () => "watching position",
             }),
             commands: [DetectBoxMovement()],

@@ -1,7 +1,7 @@
 import { Effect, Option, Schema as S, Sink, Stream } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SINK PROGRAMS
@@ -576,26 +576,26 @@ type ComposeCasePayload = Readonly<{ composeCase: ComposeCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSinkStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
 
         SelectedSinkConstructCase: ({
             constructCase,
         }: ConstructCasePayload) => ({
-            model: evo(model, { constructCase: () => constructCase }),
+            model: modifyFields(model, { constructCase: () => constructCase }),
         }),
 
         SelectedSinkReduceCase: ({ reduceCase }: ReduceCasePayload) => ({
-            model: evo(model, { reduceCase: () => reduceCase }),
+            model: modifyFields(model, { reduceCase: () => reduceCase }),
         }),
 
         SelectedSinkLeftoversCase: ({
             leftoversCase,
         }: LeftoversCasePayload) => ({
-            model: evo(model, { leftoversCase: () => leftoversCase }),
+            model: modifyFields(model, { leftoversCase: () => leftoversCase }),
         }),
 
         SelectedSinkComposeCase: ({ composeCase }: ComposeCasePayload) => ({
-            model: evo(model, { composeCase: () => composeCase }),
+            model: modifyFields(model, { composeCase: () => composeCase }),
         }),
     })

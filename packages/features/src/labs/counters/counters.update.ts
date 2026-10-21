@@ -1,6 +1,6 @@
 import { Array, Effect, Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Counter from "../counter/counter.update.ts"
 import type { Model } from "./counters.model.ts"
 import { GotCounterMessage, type Message } from "./counters.message.ts"
@@ -32,7 +32,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             ClickedAddRow: () => [
-                evo(model, {
+                modifyFields(model, {
                     rows: () => [
                         ...model.rows,
                         {
@@ -45,7 +45,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ClickedRemoveRow: ({ id }) => [
-                evo(model, {
+                modifyFields(model, {
                     rows: () =>
                         Array.filter(
                             model.rows,
@@ -69,11 +69,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             )
 
                             return [
-                                evo(model, {
+                                modifyFields(model, {
                                     rows: () =>
                                         Array.map(model.rows, (existingRow) =>
                                             existingRow.id === id
-                                                ? evo(existingRow, {
+                                                ? modifyFields(existingRow, {
                                                       counter: () =>
                                                           nextCounter,
                                                   })

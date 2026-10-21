@@ -32,7 +32,7 @@ export type TagFields = typeof TagFields.Type
 
 export type TagCatalogRecord = typeof TagCatalogRecord.Type
 
-export class TagsWriteError extends Schema.TaggedErrorClass<TagsWriteError>()(
+export class TagsWriteError extends Schema.TaggedError<TagsWriteError>()(
     "TagsWriteError",
     { message: Schema.String }
 ) {}

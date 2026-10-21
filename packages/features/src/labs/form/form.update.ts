@@ -9,7 +9,7 @@ import {
     validate,
 } from "foldkit/fieldValidation"
 import { Rule } from "foldkit/fieldValidation"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { submitForm, validateEmail } from "./form.command.ts"
 import { type Message } from "./form.message.ts"
 import type { Model } from "./form.model.ts"
@@ -57,7 +57,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             UpdatedName: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     name: () => validateName(value),
                 }),
                 [],
@@ -70,28 +70,28 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     withUpdateReturn,
                     M.tagsExhaustive({
                         NotValidated: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 email: () => field,
                                 emailValidationId: () => validationId,
                             }),
                             [],
                         ],
                         Invalid: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 email: () => field,
                                 emailValidationId: () => validationId,
                             }),
                             [],
                         ],
                         Validating: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 email: () => field,
                                 emailValidationId: () => validationId,
                             }),
                             [],
                         ],
                         Valid: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 email: () => Validating({ value }),
                                 emailValidationId: () => validationId,
                             }),
@@ -106,14 +106,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         email: () => field,
                     }),
                     [],
                 ]
             },
             UpdatedMessage: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     message: () => Valid({ value }),
                 }),
                 [],
@@ -124,7 +124,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         submission: () => Submitting(),
                     }),
                     [
@@ -139,7 +139,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             SubmittedForm: ({ success, name }) =>
                 success
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               submission: () =>
                                   SubmitSuccess({
                                       message: `Welcome to the waitlist, ${name}! We'll be in touch soon.`,
@@ -148,7 +148,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           [],
                       ]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               submission: () =>
                                   SubmitError({
                                       error: "Sorry, there was an error adding you to the waitlist. Please try again.",

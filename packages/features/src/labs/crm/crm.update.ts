@@ -1,7 +1,7 @@
 import { Array, Effect, Match as M, Option, String, pipe } from "effect"
 import { Command, Update } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     contactMatchesRecency,
@@ -74,7 +74,7 @@ const scrollListToTop = (model: Model): UpdateReturn => {
     )
 
     return {
-        model: evo(model, { list: () => list }),
+        model: modifyFields(model, { list: () => list }),
         commands: mapVirtualListCommands(commands),
     }
 }
@@ -87,7 +87,7 @@ const applyFilters = (model: Model): UpdateReturn => {
         model.activityRecency
     )
     const { model: scrolledModel, commands = [] } = scrollListToTop(
-        evo(model, { filteredContactIds: () => filteredContactIds })
+        modifyFields(model, { filteredContactIds: () => filteredContactIds })
     )
 
     return { model: scrolledModel, commands }
@@ -126,14 +126,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return {
-                    model: evo(model, { list: () => list }),
+                    model: modifyFields(model, { list: () => list }),
                     commands: mapVirtualListCommands(commands),
                 }
             },
             UpdatedSearchText: ({ value }) =>
-                applyFilters(evo(model, { searchText: () => value })),
+                applyFilters(modifyFields(model, { searchText: () => value })),
             SelectedDatasetSize: ({ size }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     loadState: () => Generating({ size }),
                     selectedDatasetSize: () => size,
                     filteredContactIds: () => [],
@@ -143,7 +143,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
             ToggledTagFacet: ({ tagId, isSelected }) =>
                 applyFilters(
-                    evo(model, {
+                    modifyFields(model, {
                         selectedTagIds: () =>
                             updateSelectedTags(
                                 model.selectedTagIds,
@@ -154,24 +154,24 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ),
             SelectedActivityRecency: ({ activityRecency }) =>
                 applyFilters(
-                    evo(model, { activityRecency: () => activityRecency })
+                    modifyFields(model, { activityRecency: () => activityRecency })
                 ),
             ClickedClearFilters: () =>
                 applyFilters(
-                    evo(model, {
+                    modifyFields(model, {
                         searchText: () => "",
                         selectedTagIds: () => [],
                         activityRecency: () => "Any",
                     })
                 ),
             SelectedContact: ({ contactId }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     maybeSelectedContactId: () => Option.some(contactId),
                 }),
                 commands: [],
             }),
             CompletedGenerateDataset: ({ size, dataset }) => {
-                const nextModel = evo(model, {
+                const nextModel = modifyFields(model, {
                     loadState: () => Ready({ size }),
                     dataset: () => dataset,
                     filteredContactIds: () =>

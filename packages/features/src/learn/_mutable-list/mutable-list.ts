@@ -1,7 +1,7 @@
 import { MutableList, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // HELPERS
@@ -526,31 +526,31 @@ type FilterCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedMutableListStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedMutableListBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedMutableListQueueCase: ({ queueCase }: QueueCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 queueCase: () => queueCase,
             }),
         }),
 
         SelectedMutableListBatchCase: ({ batchCase }: BatchCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 batchCase: () => batchCase,
             }),
         }),
 
         SelectedMutableListFilterCase: ({ filterCase }: FilterCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 filterCase: () => filterCase,
             }),
         }),

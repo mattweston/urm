@@ -1,7 +1,7 @@
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
 import { Config, Context, Effect, Layer, Schema } from "effect"
-import { LanguageModel } from "effect/unstable/ai"
-import { FetchHttpClient } from "effect/unstable/http"
+import { LanguageModel } from "effect/ai"
+import { FetchHttpClient } from "effect/http"
 
 import { DatabaseError } from "@urm/domain/errors"
 
@@ -58,8 +58,8 @@ ${prompt.question}`
 
 export const UrmbotLanguageModelLive = Layer.unwrap(
     Effect.gen(function* () {
-        const apiKey = yield* Config.redacted("OPENAI_API_KEY")
-        const model = yield* Config.string("OPENAI_MODEL").pipe(
+        const apiKey = yield* Config.Redacted("OPENAI_API_KEY")
+        const model = yield* Config.String("OPENAI_MODEL").pipe(
             Config.withDefault("gpt-4o-mini")
         )
         const clientLayer = OpenAiClient.layer({ apiKey }).pipe(

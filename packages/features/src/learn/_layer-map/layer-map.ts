@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, LayerMap, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN SERVICE
@@ -529,31 +529,31 @@ type ServiceCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedLayerMapStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedLayerMapBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedLayerMapAccessCase: ({ accessCase }: AccessCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 accessCase: () => accessCase,
             }),
         }),
 
         SelectedLayerMapCacheCase: ({ cacheCase }: CacheCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 cacheCase: () => cacheCase,
             }),
         }),
 
         SelectedLayerMapServiceCase: ({ serviceCase }: ServiceCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 serviceCase: () => serviceCase,
             }),
         }),

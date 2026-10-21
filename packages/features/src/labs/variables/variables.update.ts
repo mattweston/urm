@@ -1,5 +1,5 @@
 import { Match as M } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message, VariableName } from "./variables.message.ts"
 import type { Model } from "./variables.model.ts"
@@ -11,9 +11,9 @@ type UpdateReturn = readonly [Model, ReadonlyArray<never>]
 const setters: Readonly<
     Record<VariableName, (model: Model, value: number) => Model>
 > = {
-    count: (model, value) => evo(model, { count: () => value }),
-    width: (model, value) => evo(model, { width: () => value }),
-    height: (model, value) => evo(model, { height: () => value }),
+    count: (model, value) => modifyFields(model, { count: () => value }),
+    width: (model, value) => modifyFields(model, { width: () => value }),
+    height: (model, value) => modifyFields(model, { height: () => value }),
 }
 
 export const update = (model: Model, message: Message): UpdateReturn =>
@@ -25,11 +25,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ChangedWorkspaceName: ({ workspaceName }) => [
-                evo(model, { workspaceName: () => workspaceName }),
+                modifyFields(model, { workspaceName: () => workspaceName }),
                 [],
             ],
             ToggledPublished: () => [
-                evo(model, { isPublished: (published) => !published }),
+                modifyFields(model, { isPublished: (published) => !published }),
                 [],
             ],
         })

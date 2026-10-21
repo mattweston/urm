@@ -1,6 +1,6 @@
 import { Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Cart from "./shop.cart.ts"
 import { replaceSearchUrl } from "./shop.command.ts"
 import { PRODUCTS } from "./shop.data.ts"
@@ -50,7 +50,7 @@ export const update =
                         withUpdateReturn,
                         M.tagsExhaustive({
                             ShopProducts: () => [
-                                evo(model, {
+                                modifyFields(model, {
                                     route: () => route,
                                     searchText: () =>
                                         searchTextFromRoute(route),
@@ -58,19 +58,19 @@ export const update =
                                 [],
                             ],
                             ShopCart: () => [
-                                evo(model, {
+                                modifyFields(model, {
                                     route: () => route,
                                 }),
                                 [],
                             ],
                             ShopCheckout: () => [
-                                evo(model, {
+                                modifyFields(model, {
                                     route: () => route,
                                 }),
                                 [],
                             ],
                             ShopNotFound: () => [
-                                evo(model, {
+                                modifyFields(model, {
                                     route: () => route,
                                 }),
                                 [],
@@ -82,7 +82,7 @@ export const update =
                     const searchText = Option.fromNullishOr(value || null)
 
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             route: () => ShopProductsRoute({ searchText }),
                             searchText: () => value,
                         }),
@@ -90,38 +90,38 @@ export const update =
                     ]
                 },
                 ClickedAddToCart: ({ item }) => [
-                    evo(model, {
+                    modifyFields(model, {
                         cart: () => Cart.addItem(item)(model.cart),
                     }),
                     [],
                 ],
                 ClickedQuantityChange: ({ itemId, quantity }) => [
-                    evo(model, {
+                    modifyFields(model, {
                         cart: () =>
                             Cart.changeQuantity(itemId, quantity)(model.cart),
                     }),
                     [],
                 ],
                 ClickedRemoveCartItem: ({ itemId }) => [
-                    evo(model, {
+                    modifyFields(model, {
                         cart: () => Cart.removeItem(itemId)(model.cart),
                     }),
                     [],
                 ],
                 ClickedClearCart: () => [
-                    evo(model, {
+                    modifyFields(model, {
                         cart: () => [],
                     }),
                     [],
                 ],
                 UpdatedDeliveryInstructions: ({ value }) => [
-                    evo(model, {
+                    modifyFields(model, {
                         deliveryInstructions: () => value,
                     }),
                     [],
                 ],
                 ClickedPlaceOrder: () => [
-                    evo(model, {
+                    modifyFields(model, {
                         orderPlaced: () => true,
                         cart: () => [],
                         deliveryInstructions: () => "",

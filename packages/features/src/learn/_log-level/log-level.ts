@@ -1,7 +1,7 @@
 import { Effect, LogLevel, References, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL LOG-LEVEL HELPERS
@@ -426,19 +426,19 @@ type EnabledCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedLogLevelStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedLogLevelLevelsCase: ({ levelsCase }: LevelsCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 levelsCase: () => levelsCase,
             }),
         }),
 
         SelectedLogLevelOrderCase: ({ orderCase }: OrderCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 orderCase: () => orderCase,
             }),
         }),
@@ -446,13 +446,13 @@ export const update = (model: Model, message: Message) =>
         SelectedLogLevelThresholdCase: ({
             thresholdCase,
         }: ThresholdCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 thresholdCase: () => thresholdCase,
             }),
         }),
 
         SelectedLogLevelEnabledCase: ({ enabledCase }: EnabledCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 enabledCase: () => enabledCase,
             }),
         }),

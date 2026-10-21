@@ -14,7 +14,7 @@ export default Alchemy.Stack(
         state: Cloudflare.state(),
     },
     Effect.gen(function* () {
-        const forward_to = yield* Config.string("URM_EMAIL_FORWARD_TO")
+        const forward_to = yield* Config.String("URM_EMAIL_FORWARD_TO")
         const zone = yield* Cloudflare.Zone.Zone("UrmRoutingZone", {
             name: ROOT_ZONE,
         }).pipe(adopt(true))

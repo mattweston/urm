@@ -9,8 +9,8 @@
  */
 
 import { Context } from "effect"
-import { Headers } from "effect/unstable/http"
-import { RpcMiddleware } from "effect/unstable/rpc"
+import { Headers } from "effect/http"
+import { RpcMiddleware } from "effect/rpc"
 import { AuthorizationError } from "@urm/domain/errors"
 import { ContactId } from "@urm/domain/schemas/contacts"
 

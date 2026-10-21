@@ -1,7 +1,7 @@
 import { Effect, Schema as S, Sink, Stdio, Stream } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL STDIO PROGRAMS
@@ -522,22 +522,22 @@ export const update = (
 ): Update.Return<Model, Message> =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedStdioStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
 
         SelectedStdioServiceCase: ({ serviceCase }: ServiceCasePayload) => ({
-            model: evo(model, { serviceCase: () => serviceCase }),
+            model: modifyFields(model, { serviceCase: () => serviceCase }),
         }),
 
         SelectedStdioWriteCase: ({ writeCase }: WriteCasePayload) => ({
-            model: evo(model, { writeCase: () => writeCase }),
+            model: modifyFields(model, { writeCase: () => writeCase }),
         }),
 
         SelectedStdioReadCase: ({ readCase }: ReadCasePayload) => ({
-            model: evo(model, { readCase: () => readCase }),
+            model: modifyFields(model, { readCase: () => readCase }),
         }),
 
         SelectedStdioTestCase: ({ testCase }: TestCasePayload) => ({
-            model: evo(model, { testCase: () => testCase }),
+            model: modifyFields(model, { testCase: () => testCase }),
         }),
     })

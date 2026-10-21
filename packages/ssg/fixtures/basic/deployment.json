@@ -1,0 +1,11 @@
+{
+    "deployment_id": "fixture-basic-preview-1",
+    "build_id": "fixture-basic-build-1",
+    "release_id": "fixture-basic-v1",
+    "org_id": "00000000-0000-4000-8000-000000000001",
+    "domain_id": "00000000-0000-4000-8000-000000000002",
+    "domain_name": "basic-site",
+    "environment": "preview",
+    "hostnames": [],
+    "artifact_directory": "packages/ssg/dist/builds/00000000-0000-4000-8000-000000000002/fixture-basic-build-1"
+}

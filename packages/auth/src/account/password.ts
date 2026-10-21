@@ -12,7 +12,7 @@ export const PasswordRecord = Schema.Struct({
 })
 export type PasswordRecord = typeof PasswordRecord.Type
 
-export class PasswordError extends Schema.TaggedErrorClass<PasswordError>()(
+export class PasswordError extends Schema.TaggedError<PasswordError>()(
     "PasswordError",
     {}
 ) {}

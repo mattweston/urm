@@ -2,7 +2,7 @@ import { Clock, Effect, Schema as S } from "effect"
 import { TestClock } from "effect/testing"
 import { Command, type Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Clock examples
@@ -249,7 +249,7 @@ const nextTestStep = (step: TestStep): TestStep =>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedClockStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -260,35 +260,35 @@ export const update = (model: Model, message: Message) =>
         }),
 
         CompletedReadWallClock: ({ millis, nanos }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 wallMillis: () => millis,
                 wallNanos: () => nanos,
             }),
         }),
 
         ClickedMeasureElapsed: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 elapsedStatus: () => "measuring 250ms sleep…",
             }),
             commands: [MeasureElapsed()],
         }),
 
         CompletedMeasureElapsed: ({ elapsedNanos }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 elapsedNanos: () => elapsedNanos,
                 elapsedStatus: () => "completed",
             }),
         }),
 
         ClickedSleep: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 sleepStatus: () => "sleeping 750ms…",
             }),
             commands: [SleepDemo()],
         }),
 
         CompletedSleep: ({ startedAt, finishedAt }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 sleepStartedAt: () => startedAt,
                 sleepFinishedAt: () => finishedAt,
                 sleepStatus: () => "completed",
@@ -301,20 +301,20 @@ export const update = (model: Model, message: Message) =>
         }),
 
         CompletedReadFixedClock: ({ millis, nanos }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 fixedClockMillis: () => millis,
                 fixedClockNanos: () => nanos,
             }),
         }),
 
         ClickedAdvanceTestClock: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 testStep: nextTestStep,
             }),
         }),
 
         ClickedResetTestClock: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 testStep: () => 0,
             }),
         }),

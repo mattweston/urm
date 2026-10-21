@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { fontOptionFor } from "./variable-fonts.data.ts"
 import type { Message } from "./variable-fonts.message.ts"
@@ -15,16 +15,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             UpdatedWeight: ({ value }) => [
-                evo(model, { weight: () => value }),
+                modifyFields(model, { weight: () => value }),
                 [],
             ],
-            UpdatedSize: ({ value }) => [evo(model, { size: () => value }), []],
+            UpdatedSize: ({ value }) => [modifyFields(model, { size: () => value }), []],
             UpdatedSample: ({ value }) => [
-                evo(model, { sample: () => value }),
+                modifyFields(model, { sample: () => value }),
                 [],
             ],
             SelectedSample: ({ value }) => [
-                evo(model, { sample: () => value }),
+                modifyFields(model, { sample: () => value }),
                 [],
             ],
             SelectedFont: ({ value }) => {
@@ -34,7 +34,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     Math.min(model.weight, option.maximum)
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         font: () => option.value,
                         weight: () => weight,
                         isItalic: () => option.supportsItalic && model.isItalic,
@@ -43,24 +43,24 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ClickedNamedInstance: ({ weight }) => [
-                evo(model, { weight: () => weight }),
+                modifyFields(model, { weight: () => weight }),
                 [],
             ],
             ToggledItalic: () => [
-                evo(model, {
+                modifyFields(model, {
                     isItalic: (isItalic) =>
                         fontOptionFor(model.font).supportsItalic && !isItalic,
                 }),
                 [],
             ],
             ToggledAnimation: () => [
-                evo(model, {
+                modifyFields(model, {
                     isAnimating: (isAnimating) => !isAnimating,
                 }),
                 [],
             ],
             ClickedLoadStaticFonts: () => [
-                evo(model, { areStaticsLoaded: () => true }),
+                modifyFields(model, { areStaticsLoaded: () => true }),
                 [],
             ],
         })

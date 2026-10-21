@@ -8,7 +8,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXSUBSCRIPTIONREF PROGRAMS
@@ -472,26 +472,26 @@ type StreamCasePayload = Readonly<{ streamCase: StreamCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxSubscriptionRefStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxSubscriptionRefCreateCase: ({
             createCase,
         }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxSubscriptionRefUpdateCase: ({
             updateCase,
         }: UpdateCasePayload) => ({
-            model: evo(model, { updateCase: () => updateCase }),
+            model: modifyFields(model, { updateCase: () => updateCase }),
         }),
         SelectedTxSubscriptionRefQueueCase: ({
             queueCase,
         }: QueueCasePayload) => ({
-            model: evo(model, { queueCase: () => queueCase }),
+            model: modifyFields(model, { queueCase: () => queueCase }),
         }),
         SelectedTxSubscriptionRefStreamCase: ({
             streamCase,
         }: StreamCasePayload) => ({
-            model: evo(model, { streamCase: () => streamCase }),
+            model: modifyFields(model, { streamCase: () => streamCase }),
         }),
     })

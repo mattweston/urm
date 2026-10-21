@@ -1,7 +1,7 @@
 import { Context, Effect, Formatter, Redactable, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL REDACTABLE PROGRAMS
@@ -528,7 +528,7 @@ type BoundaryCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedRedactableStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -536,7 +536,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRedactableProtocolCase: ({
             protocolCase,
         }: ProtocolCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 protocolCase: () => protocolCase,
             }),
         }),
@@ -544,7 +544,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRedactableDispatchCase: ({
             dispatchCase,
         }: DispatchCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 dispatchCase: () => dispatchCase,
             }),
         }),
@@ -552,7 +552,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRedactableContextCase: ({
             contextCase,
         }: ContextCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 contextCase: () => contextCase,
             }),
         }),
@@ -560,7 +560,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRedactableBoundaryCase: ({
             boundaryCase,
         }: BoundaryCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 boundaryCase: () => boundaryCase,
             }),
         }),

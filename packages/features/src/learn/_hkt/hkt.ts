@@ -2,7 +2,7 @@ import { Effect, Option, Schema as S } from "effect"
 import type { HKT } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // TYPE LAMBDAS
@@ -567,19 +567,19 @@ type VarianceCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedHktStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedHktLambdaCase: ({ lambdaCase }: LambdaCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 lambdaCase: () => lambdaCase,
             }),
         }),
 
         SelectedHktKindCase: ({ kindCase }: KindCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 kindCase: () => kindCase,
             }),
         }),
@@ -587,13 +587,13 @@ export const update = (model: Model, message: Message) =>
         SelectedHktTypeClassCase: ({
             typeClassCase,
         }: TypeClassCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 typeClassCase: () => typeClassCase,
             }),
         }),
 
         SelectedHktVarianceCase: ({ varianceCase }: VarianceCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 varianceCase: () => varianceCase,
             }),
         }),

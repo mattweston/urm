@@ -1,7 +1,7 @@
 import { Context, Data, Effect, Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 export type User = Readonly<{ id: string; name: string }>
 export type Post = Readonly<{ id: string; title: string }>
@@ -191,7 +191,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedGeneratorYieldStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
             ClickedAdvanceGeneratorYieldUnwrap: () => {
@@ -204,7 +204,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           ? "yield* posts.forUser(user.id) → Post[2]"
                           : "return → Profile"
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         unwrap_step: () => step,
                         unwrap_log: (log) => append(log, entry),
                     }),
@@ -212,24 +212,24 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
             },
             ClickedResetGeneratorYieldUnwrap: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     unwrap_step: () => 0,
                     unwrap_log: () => [],
                 }),
                 commands: [],
             }),
             ClickedAdvanceGeneratorYieldChannels: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     channel_step: (step) => next_step(step),
                 }),
                 commands: [],
             }),
             ClickedResetGeneratorYieldChannels: () => ({
-                model: evo(model, { channel_step: () => 0 }),
+                model: modifyFields(model, { channel_step: () => 0 }),
                 commands: [],
             }),
             SelectedGeneratorYieldFailurePoint: ({ failure_point }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     failure_point: () => failure_point,
                     fail_fast_has_run: () => false,
                     fail_fast_log: () => [],
@@ -255,7 +255,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     }
                 }
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         fail_fast_has_run: () => true,
                         fail_fast_log: () => log,
                     }),
@@ -263,18 +263,18 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
             },
             ClickedResetGeneratorYieldFailFast: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     fail_fast_has_run: () => false,
                     fail_fast_log: () => [],
                 }),
                 commands: [],
             }),
             SelectedGeneratorYieldNarrowingMode: ({ mode }) => ({
-                model: evo(model, { narrowing_mode: () => mode }),
+                model: modifyFields(model, { narrowing_mode: () => mode }),
                 commands: [],
             }),
             ClickedToggleGeneratorYieldUserPresence: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     user_is_present: (is_present) => !is_present,
                 }),
                 commands: [],

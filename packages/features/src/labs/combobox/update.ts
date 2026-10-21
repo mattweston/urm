@@ -1,7 +1,7 @@
 import * as Ui from "@foldkit/ui"
 import { Array, Effect, Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { City } from "./city.ts"
 import {
@@ -73,7 +73,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const outMessage = Option.fromUndefinedOr(outMessage_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         basic: () => basic,
                         maybeBasicValue: () =>
                             selectedValue(model.maybeBasicValue, outMessage),
@@ -92,7 +92,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const outMessage = Option.fromUndefinedOr(outMessage_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         nullable: () => nullable,
                         maybeNullableValue: () =>
                             selectedValue(model.maybeNullableValue, outMessage),
@@ -111,7 +111,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const outMessage = Option.fromUndefinedOr(outMessage_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         selectOnFocus: () => selectOnFocus,
                         maybeSelectOnFocusValue: () =>
                             selectedValue(
@@ -152,7 +152,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.orElse(() => model.multiValues)
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         multi: () => multi,
                         multiValues: () => multiValues,
                     }),

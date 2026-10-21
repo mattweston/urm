@@ -8,7 +8,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SCHEMA PARSER EXAMPLES
@@ -661,7 +661,7 @@ type BoundaryCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSchemaParserStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -669,7 +669,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaParserConstructCase: ({
             constructCase,
         }: ConstructCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 constructCase: () => constructCase,
             }),
         }),
@@ -677,7 +677,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaParserDecodeCase: ({
             decodeCase,
         }: DecodeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 decodeCase: () => decodeCase,
             }),
         }),
@@ -685,7 +685,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaParserEncodeCase: ({
             encodeCase,
         }: EncodeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 encodeCase: () => encodeCase,
             }),
         }),
@@ -693,7 +693,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaParserBoundaryCase: ({
             boundaryCase,
         }: BoundaryCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 boundaryCase: () => boundaryCase,
             }),
         }),

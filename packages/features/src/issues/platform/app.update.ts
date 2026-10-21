@@ -206,6 +206,7 @@ const buildInitialModel = (pathname: string): Model => {
         availableTags: [],
         usesTagRelations: false,
         issuesLoaded: false,
+        error: null,
         dragAndDrop: Ui.DragAndDrop.init({ id: "issues" }),
         announcement: "",
         view: "board",

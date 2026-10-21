@@ -1,7 +1,7 @@
 import { Effect, Scheduler, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SCHEDULER PROGRAMS
@@ -598,7 +598,7 @@ type YieldCasePayload = Readonly<{ yieldCase: YieldCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSchedulerStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -606,13 +606,13 @@ export const update = (model: Model, message: Message) =>
         SelectedSchedulerServiceCase: ({
             serviceCase,
         }: ServiceCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 serviceCase: () => serviceCase,
             }),
         }),
 
         SelectedSchedulerQueueCase: ({ queueCase }: QueueCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 queueCase: () => queueCase,
             }),
         }),
@@ -620,13 +620,13 @@ export const update = (model: Model, message: Message) =>
         SelectedSchedulerPriorityCase: ({
             priorityCase,
         }: PriorityCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 priorityCase: () => priorityCase,
             }),
         }),
 
         SelectedSchedulerYieldCase: ({ yieldCase }: YieldCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 yieldCase: () => yieldCase,
             }),
         }),

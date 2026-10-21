@@ -3,7 +3,7 @@ import {
     FetchHttpClient,
     HttpClient,
     HttpClientRequest,
-} from "effect/unstable/http"
+} from "effect/http"
 import type { Character } from "./model.ts"
 
 const RickAndMortyCharacter = Schema.Struct({

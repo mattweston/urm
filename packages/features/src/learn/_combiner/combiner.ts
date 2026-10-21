@@ -7,7 +7,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Combiner examples
@@ -108,31 +108,31 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedCombinerStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedCombinerMakeMode: ({ makeMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 makeMode: () => makeMode,
             }),
         }),
 
         SelectedCombinerPickMode: ({ pickMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 pickMode: () => pickMode,
             }),
         }),
 
         SelectedCombinerTransformMode: ({ transformMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 transformMode: () => transformMode,
             }),
         }),
 
         SelectedCombinerReducerMode: ({ reducerMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 reducerMode: () => reducerMode,
             }),
         }),

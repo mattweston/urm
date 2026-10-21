@@ -2,7 +2,7 @@ import { Match as M, Option, Result, Schema as S, Unify } from "effect"
 import type { Effect, Types } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Unify examples
@@ -219,27 +219,27 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message): UpdateReturn =>
     Message.match<UpdateReturn>(message, {
         SelectedUnifyStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
         SelectedUnifyBuiltInMode: ({ builtInMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 builtInMode: () => builtInMode,
             }),
         }),
         SelectedUnifyValueKind: ({ valueKind }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 valueKind: () => valueKind,
             }),
         }),
         ToggledUnifyResultFailure: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 resultShouldFail: (value) => !value,
             }),
         }),
         SelectedUnifyHelperMode: ({ helperMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 helperMode: () => helperMode,
             }),
         }),

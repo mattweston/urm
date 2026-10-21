@@ -36,7 +36,7 @@ export const SubdomainAction = Schema.Union([
     Schema.TaggedStruct("delete", { id: Schema.String }),
 ])
 export type SubdomainAction = typeof SubdomainAction.Type
-export class SubdomainError extends Schema.TaggedErrorClass<SubdomainError>()(
+export class SubdomainError extends Schema.TaggedError<SubdomainError>()(
     "SubdomainError",
     { message: Schema.String }
 ) {}

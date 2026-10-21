@@ -2,7 +2,7 @@ import { Array, Effect, Schema as S, Struct } from "effect"
 import { Command, Submodel } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
-import { Remote } from "foldkit-remote"
+import { Remote, RemoteData } from "foldkit-remote"
 import { Surface } from "foldkit-surface"
 import * as Tags from "@urm/features/tags/submodel"
 import {
@@ -64,15 +64,53 @@ export const Data = Remote.make({
     mutations: [ChangeTags],
 })
 const query = (domain_id: string) => Data.get(TagCatalogSummary, domain_id)
+/**
+ * Projects the read into the feature's UI model, carrying every `RemoteData`
+ * state rather than `Ready`-or-nothing.
+ *
+ * Collapsing to `Ready ? value : undefined` lost three things. A `Failed` read
+ * rendered as an empty catalogue, so a dropped request was indistinguishable
+ * from a domain with no tags and the error never reached the view. `Refreshing`
+ * carries the previous value, which was thrown away, so the list blanked on
+ * every refresh. And `Failed` carries `previous`, the last known good value,
+ * which `render` keeps showing alongside the error instead of discarding.
+ */
 export const project = (model: Model): Tags.ModelType => {
     const result = query(model.domain_id).read({ remote: model.remote })
-    const catalog = result._tag === "Ready" ? result.value : undefined
-    return {
-        ...model.ui,
-        tags: catalog?.tags ?? [],
-        entityTags: catalog?.entity_tags ?? [],
-        can_write: model.can_write && !model.pending,
-    }
+    const base = { ...model.ui, can_write: model.can_write && !model.pending }
+    const none = { tags: [], entityTags: [] } as const
+    return RemoteData.render(result, {
+        loading: (): Tags.ModelType => ({
+            ...base,
+            ...none,
+            loading: true,
+            error: null,
+        }),
+        // A domain with no catalogue row, which is not an empty catalogue: the
+        // view may say so where it would otherwise show an empty list.
+        notFound: (): Tags.ModelType => ({
+            ...base,
+            ...none,
+            loading: false,
+            error: null,
+        }),
+        failed: (error): Tags.ModelType => ({
+            ...base,
+            ...none,
+            loading: false,
+            error: error.message,
+        }),
+        data: (catalog, freshness): Tags.ModelType => ({
+            ...base,
+            tags: catalog.tags,
+            entityTags: catalog.entity_tags,
+            loading: freshness._tag === "Refreshing",
+            // `Stale` means this value is the last good one and the newest read
+            // failed; show both rather than silently serving stale data.
+            error:
+                freshness._tag === "Stale" ? freshness.error.message : null,
+        }),
+    })
 }
 export const init = (): Model => ({
     ui: ui_only(Tags.init()[0]),

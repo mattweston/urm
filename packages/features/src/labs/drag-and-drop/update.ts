@@ -1,7 +1,7 @@
 import * as Ui from "@foldkit/ui"
 import { Array, Effect, Match as M, Option, pipe } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { DemoColumn } from "./columns.ts"
 import { GotDragAndDropMessage, type Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -33,10 +33,10 @@ const reorderColumns = (
                         : column.cards
 
                 if (column.id !== toContainerId) {
-                    return evo(column, { cards: () => withRemoved })
+                    return modifyFields(column, { cards: () => withRemoved })
                 }
 
-                return evo(column, {
+                return modifyFields(column, {
                     cards: () => [
                         ...Array.take(withRemoved, toIndex),
                         card,
@@ -116,7 +116,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         dragAndDrop: () => dragAndDrop,
                         columns: () => columns,
                     }),

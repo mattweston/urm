@@ -1,5 +1,5 @@
 import { Match as M } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message, BillingVariable } from "./billing.message.ts"
 import type { Model } from "./billing.model.ts"
@@ -11,11 +11,11 @@ type UpdateReturn = readonly [Model, ReadonlyArray<never>]
 const setters: Readonly<
     Record<BillingVariable, (model: Model, value: number) => Model>
 > = {
-    seats: (model, value) => evo(model, { seats: () => value }),
-    contacts: (model, value) => evo(model, { contacts: () => value }),
+    seats: (model, value) => modifyFields(model, { seats: () => value }),
+    contacts: (model, value) => modifyFields(model, { contacts: () => value }),
     emailsPerContact: (model, value) =>
-        evo(model, { emailsPerContact: () => value }),
-    budget: (model, value) => evo(model, { budget: () => value }),
+        modifyFields(model, { emailsPerContact: () => value }),
+    budget: (model, value) => modifyFields(model, { budget: () => value }),
 }
 
 export const update = (model: Model, message: Message): UpdateReturn =>
@@ -27,7 +27,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ToggledAnnualBilling: () => [
-                evo(model, { isBilledAnnually: (isAnnual) => !isAnnual }),
+                modifyFields(model, { isBilledAnnually: (isAnnual) => !isAnnual }),
                 [],
             ],
         })

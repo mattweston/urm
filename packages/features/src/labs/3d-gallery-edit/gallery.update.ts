@@ -1,6 +1,6 @@
 import { Array, Effect, Match as M, Option, Record } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { FileDrop } from "@foldkit/ui"
 import type { GalleryText } from "./images.ts"
 import { getGalleryText, frames } from "./images.ts"
@@ -389,7 +389,7 @@ const updateMessage = (
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         fileDrop: () => nextFileDrop,
                         image_busy: () => replaceCommands.length > 0,
                     }),
@@ -418,7 +418,7 @@ const updateMessage = (
                           ],
                       }),
             SucceededReplaceFrameImage: ({ frameKey, objectUrl }) => [
-                evo(model, {
+                modifyFields(model, {
                     image_busy: () => false,
                     texture_states: (states) =>
                         Record.set(states, frameKey, "loaded"),
@@ -429,14 +429,14 @@ const updateMessage = (
                 [],
             ],
             FailedReplaceFrameImage: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     image_busy: () => false,
                     maybeError: () => Option.some(error),
                 }),
                 [],
             ],
             SucceededRestoreFrameImage: ({ frameKey }) => [
-                evo(model, {
+                modifyFields(model, {
                     image_busy: () => false,
                     texture_states: (states) =>
                         Record.set(states, frameKey, "loaded"),
@@ -446,7 +446,7 @@ const updateMessage = (
                 [],
             ],
             FailedRestoreFrameImage: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     image_busy: () => false,
                     maybeError: () => Option.some(error),
                 }),
@@ -470,7 +470,7 @@ const updateMessage = (
                         )
 
                         return [
-                            evo(model, {
+                            modifyFields(model, {
                                 textOverrides: (textOverrides) =>
                                     Record.set(
                                         textOverrides,
@@ -500,18 +500,18 @@ const updateGalleryText = (
 ): GalleryText => {
     switch (field) {
         case "title":
-            return evo(text, { title: () => value })
+            return modifyFields(text, { title: () => value })
         case "artist":
-            return evo(text, { artist: () => value })
+            return modifyFields(text, { artist: () => value })
         case "year":
-            return evo(text, { year: () => value })
+            return modifyFields(text, { year: () => value })
         case "medium":
-            return evo(text, { medium: () => value })
+            return modifyFields(text, { medium: () => value })
         case "dimensions":
-            return evo(text, { dimensions: () => value })
+            return modifyFields(text, { dimensions: () => value })
         case "price":
-            return evo(text, { price: () => value })
+            return modifyFields(text, { price: () => value })
         case "description":
-            return evo(text, { description: () => value })
+            return modifyFields(text, { description: () => value })
     }
 }

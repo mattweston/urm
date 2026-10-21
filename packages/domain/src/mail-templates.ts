@@ -42,7 +42,7 @@ export const SaveNewsletterTemplateInput = Schema.Struct({
 export type SaveNewsletterTemplateInput =
     typeof SaveNewsletterTemplateInput.Type
 
-export class NewsletterTemplateWriteError extends Schema.TaggedErrorClass<NewsletterTemplateWriteError>()(
+export class NewsletterTemplateWriteError extends Schema.TaggedError<NewsletterTemplateWriteError>()(
     "NewsletterTemplateWriteError",
     { message: Schema.String }
 ) {}

@@ -13,7 +13,7 @@
  * still persist at `level: "warning"` and stay visible in the Logs tab.
  */
 import { Cause, Effect, Layer } from "effect"
-import { RpcMiddleware } from "effect/unstable/rpc"
+import { RpcMiddleware } from "effect/rpc"
 
 export class RpcErrorLogMiddleware extends RpcMiddleware.Service<RpcErrorLogMiddleware>()(
     "RpcErrorLogMiddleware"

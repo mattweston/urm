@@ -1,7 +1,7 @@
 import { Effect, Resource, Schedule, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL RESOURCE PROGRAMS
@@ -598,25 +598,25 @@ type ScheduleCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedResourceStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedResourceCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 createCase: () => createCase,
             }),
         }),
 
         SelectedResourceReadCase: ({ readCase }: ReadCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 readCase: () => readCase,
             }),
         }),
 
         SelectedResourceRefreshCase: ({ refreshCase }: RefreshCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 refreshCase: () => refreshCase,
             }),
         }),
@@ -624,7 +624,7 @@ export const update = (model: Model, message: Message) =>
         SelectedResourceScheduleCase: ({
             scheduleCase,
         }: ScheduleCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 scheduleCase: () => scheduleCase,
             }),
         }),

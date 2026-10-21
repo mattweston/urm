@@ -9,7 +9,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SUBSCRIPTIONREF PROGRAMS
@@ -534,30 +534,30 @@ type ModifyCasePayload = Readonly<{ modifyCase: ModifyCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSubscriptionRefStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
 
         SelectedSubscriptionRefCreateCase: ({
             createCase,
         }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
 
         SelectedSubscriptionRefObserveCase: ({
             observeCase,
         }: ObserveCasePayload) => ({
-            model: evo(model, { observeCase: () => observeCase }),
+            model: modifyFields(model, { observeCase: () => observeCase }),
         }),
 
         SelectedSubscriptionRefUpdateCase: ({
             updateCase,
         }: UpdateCasePayload) => ({
-            model: evo(model, { updateCase: () => updateCase }),
+            model: modifyFields(model, { updateCase: () => updateCase }),
         }),
 
         SelectedSubscriptionRefModifyCase: ({
             modifyCase,
         }: ModifyCasePayload) => ({
-            model: evo(model, { modifyCase: () => modifyCase }),
+            model: modifyFields(model, { modifyCase: () => modifyCase }),
         }),
     })

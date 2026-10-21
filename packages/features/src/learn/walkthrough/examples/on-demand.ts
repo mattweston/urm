@@ -9,7 +9,7 @@ import {
 } from "effect"
 import { AsyncData, Command, Subscription, type Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as Audio from "../audio.ts"
 import * as Timer from "./timer.ts"
@@ -68,7 +68,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 AsyncData.isPending(model.rolls)
                     ? { model, commands: [] }
                     : {
-                          model: evo(model, {
+                          model: modifyFields(model, {
                               rolls: (rolls) =>
                                   Option.getOrElse(
                                       AsyncData.revalidateOrLoad(rolls),
@@ -82,14 +82,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           ],
                       },
             CompletedRollTriggeredDice: ({ rolls }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     rolls: () => AsyncData.Success({ data: rolls }),
                     timer: Timer.settle,
                 }),
                 commands: [Audio.play(Audio.RollLanded())],
             }),
             TickedRollTimer: ({ now_ms }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     timer: (timer) => Timer.tick(timer, now_ms),
                 }),
                 commands: [],

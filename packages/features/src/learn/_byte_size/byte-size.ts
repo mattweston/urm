@@ -1,7 +1,7 @@
 import { ByteSize, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 ByteSize examples
@@ -141,31 +141,31 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedByteSizeStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedByteSizeParseCase: ({ parseCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 parseCase: () => parseCase,
             }),
         }),
 
         SelectedByteSizeUnitCase: ({ unitCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 unitCase: () => unitCase,
             }),
         }),
 
         SelectedByteSizeMathMode: ({ mathMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 mathMode: () => mathMode,
             }),
         }),
 
         SelectedByteSizeFormatMode: ({ formatMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 formatMode: () => formatMode,
             }),
         }),

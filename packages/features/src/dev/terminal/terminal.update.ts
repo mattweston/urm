@@ -1,5 +1,5 @@
 import { Match as M } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./terminal.message.ts"
 import type { Model } from "./terminal.model.ts"
 
@@ -14,7 +14,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             UpdatedTerminalSearchQuery: ({ value }) => [
-                evo(model, { query: () => value }),
+                modifyFields(model, { query: () => value }),
                 [],
             ],
         })

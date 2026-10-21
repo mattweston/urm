@@ -1,4 +1,4 @@
-import { HttpRouter } from "effect/unstable/http"
+import { HttpRouter } from "effect/http"
 import { Layer, ManagedRuntime } from "effect"
 import { DatabaseLive } from "@urm/db"
 import { SqlLive } from "@urm/db/sql"

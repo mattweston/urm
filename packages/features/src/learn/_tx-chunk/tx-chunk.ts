@@ -1,7 +1,7 @@
 import { Chunk, Effect, Schema as S, TxChunk, TxRef } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXCHUNK PROGRAMS
@@ -483,18 +483,18 @@ type ComposeCasePayload = Readonly<{ composeCase: ComposeCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxChunkStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxChunkCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxChunkMutateCase: ({ mutateCase }: MutateCasePayload) => ({
-            model: evo(model, { mutateCase: () => mutateCase }),
+            model: modifyFields(model, { mutateCase: () => mutateCase }),
         }),
         SelectedTxChunkSliceCase: ({ sliceCase }: SliceCasePayload) => ({
-            model: evo(model, { sliceCase: () => sliceCase }),
+            model: modifyFields(model, { sliceCase: () => sliceCase }),
         }),
         SelectedTxChunkComposeCase: ({ composeCase }: ComposeCasePayload) => ({
-            model: evo(model, { composeCase: () => composeCase }),
+            model: modifyFields(model, { composeCase: () => composeCase }),
         }),
     })

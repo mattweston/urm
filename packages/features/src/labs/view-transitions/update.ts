@@ -1,5 +1,5 @@
 import { Match as M, Option } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { ViewTransitionsMessage } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -17,7 +17,7 @@ export const update = (
             // active one, so the gallery can still match the card the incoming
             // transition animates from.
             ChangedViewTransitionsRoute: ({ maybeFoodSlug }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeFoodSlug: () => maybeFoodSlug,
                     maybeActiveFoodSlug: (activeFoodSlug) =>
                         Option.orElse(maybeFoodSlug, () => activeFoodSlug),
@@ -25,13 +25,13 @@ export const update = (
                 [],
             ],
             FocusedViewTransitionsFood: ({ foodSlug }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeActiveFoodSlug: () => Option.some(foodSlug),
                 }),
                 [],
             ],
             UpdatedViewTransitionsFilterText: ({ filterText }) => [
-                evo(model, { filterText: () => filterText }),
+                modifyFields(model, { filterText: () => filterText }),
                 [],
             ],
         })

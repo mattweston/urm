@@ -1,7 +1,7 @@
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { Match as M, Effect, Option } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./report-an-issue.message.ts"
 import {
     GotAreaListboxMessage,
@@ -69,7 +69,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     Listbox.selectItem(model.areaListbox, value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         area: () => value,
                         areaListbox: () => nextAreaListbox,
                     }),
@@ -83,7 +83,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 } = Listbox.selectItem(model.securityLevelListbox, value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         securityLevel: () => value,
                         securityLevelListbox: () => nextSecurityLevelListbox,
                     }),
@@ -91,13 +91,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             UpdatedSubject: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     subject: () => value,
                 }),
                 [],
             ],
             UpdatedDescription: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     description: () => value,
                 }),
                 [],
@@ -118,7 +118,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         area: () => nextArea,
                         areaListbox: () => nextAreaListbox,
                     }),
@@ -141,7 +141,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         securityLevel: () => nextSecurityLevel,
                         securityLevelListbox: () => nextSecurityLevelListbox,
                     }),

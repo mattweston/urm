@@ -1,7 +1,7 @@
 import { BigInt as BI, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 BigInt examples
@@ -123,31 +123,31 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedBigIntStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedBigIntConvertCase: ({ convertCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 convertCase: () => convertCase,
             }),
         }),
 
         SelectedBigIntArithmeticMode: ({ arithmeticMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 arithmeticMode: () => arithmeticMode,
             }),
         }),
 
         SelectedBigIntIntegerMathMode: ({ integerMathMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 integerMathMode: () => integerMathMode,
             }),
         }),
 
         SelectedBigIntAggregateMode: ({ aggregateMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 aggregateMode: () => aggregateMode,
             }),
         }),

@@ -10,7 +10,6 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Redacted from "effect/Redacted"
-import { types } from "pg"
 import * as schema from "./legacy-schema/index.ts"
 import { relations } from "./legacy-schema/relations.ts"
 
@@ -25,32 +24,6 @@ export const PgClientLive = PgClient.layer({
     ssl: true,
     idleTimeout: "1 second",
     connectTimeout: "5 seconds",
-    types: {
-        getTypeParser: (typeId: number, format?: string) => {
-            // Return raw values for date/time types to let Drizzle handle parsing
-            // PostgreSQL type IDs:
-            // 1184 = timestamp with time zone
-            // 1114 = timestamp without time zone
-            // 1082 = date
-            // 1186 = interval
-            // 1231 = ARRAY
-            // 1115 = timestamp[] with tz
-            // 1185 = timestamp[]
-            // 1187 = interval[]
-            // 1182 = date[]
-            if (
-                [1184, 1114, 1082, 1186, 1231, 1115, 1185, 1187, 1182].includes(
-                    typeId
-                )
-            ) {
-                return (val: unknown) => val
-            }
-            return types.getTypeParser(
-                typeId,
-                format as "text" | "binary" | undefined
-            )
-        },
-    },
 })
 
 export type DBShape = PgDrizzle.EffectPgDatabase<typeof relations> & {

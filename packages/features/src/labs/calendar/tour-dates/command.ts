@@ -1,6 +1,6 @@
 import { BrowserKeyValueStore } from "@effect/platform-browser"
 import { Effect, Option, Schema as S } from "effect"
-import { KeyValueStore } from "effect/unstable/persistence"
+import { KeyValueStore } from "effect/persistence"
 import { Command } from "foldkit"
 
 import {

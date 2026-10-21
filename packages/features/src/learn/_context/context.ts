@@ -1,7 +1,7 @@
 import { Context, Effect, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Effect Context services used by the teaching demo
@@ -471,33 +471,33 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedContextStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
         ClickedToggleDatabaseSource: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 databaseSource: (source) =>
                     source === "Primary" ? "Replica" : "Primary",
             }),
         }),
         ClickedToggleCache: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 includeCache: (include) => !include,
             }),
         }),
         ClickedToggleConfig: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 includeConfig: (include) => !include,
             }),
         }),
         SelectedContextMergeMode: ({ mode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 mergeMode: () => mode,
             }),
         }),
         ClickedToggleReferenceOverride: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 referenceOverride: (enabled) => !enabled,
             }),
         }),

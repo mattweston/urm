@@ -1,6 +1,6 @@
 import { Effect, Match as M, Option, Schema as S } from "effect"
 import { Command, Navigation } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Model } from "./query-sync-table.model.ts"
 import {
     CompletedReplaceUrl,
@@ -73,7 +73,7 @@ export const update = (
         withUpdateReturn,
         M.tagsExhaustive({
             ChangedRoute: ({ route }) => [
-                evo(model, {
+                modifyFields(model, {
                     route: () => route,
                 }),
                 [],
@@ -87,7 +87,7 @@ export const update = (
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => QuerySyncTableBrowseRoute(nextFields),
                     }),
                     navigation === "Browser"
@@ -107,7 +107,7 @@ export const update = (
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => QuerySyncTableBrowseRoute(nextFields),
                     }),
                     navigation === "Browser"
@@ -127,7 +127,7 @@ export const update = (
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => QuerySyncTableBrowseRoute(nextFields),
                     }),
                     navigation === "Browser"
@@ -147,7 +147,7 @@ export const update = (
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => QuerySyncTableBrowseRoute(nextFields),
                     }),
                     navigation === "Browser"

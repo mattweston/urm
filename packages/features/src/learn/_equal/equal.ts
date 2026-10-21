@@ -1,7 +1,7 @@
 import { Array as Arr, Equal, Hash, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // CUSTOM EQUAL DOMAIN TYPE
@@ -533,7 +533,7 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedEqualStage: ({ stage }: { readonly stage: Stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -543,7 +543,7 @@ export const update = (model: Model, message: Message) =>
         }: {
             readonly structuralCase: StructuralCase
         }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 structuralCase: () => structuralCase,
             }),
         }),
@@ -553,7 +553,7 @@ export const update = (model: Model, message: Message) =>
         }: {
             readonly customCase: CustomCase
         }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 customCase: () => customCase,
             }),
         }),
@@ -563,7 +563,7 @@ export const update = (model: Model, message: Message) =>
         }: {
             readonly referenceCase: ReferenceCase
         }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 referenceCase: () => referenceCase,
             }),
         }),
@@ -573,7 +573,7 @@ export const update = (model: Model, message: Message) =>
         }: {
             readonly equivalenceCase: EquivalenceCase
         }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 equivalenceCase: () => equivalenceCase,
             }),
         }),

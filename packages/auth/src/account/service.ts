@@ -10,7 +10,7 @@ import {
     verify_account_password,
 } from "./password.ts"
 
-export class AuthError extends Schema.TaggedErrorClass<AuthError>()(
+export class AuthError extends Schema.TaggedError<AuthError>()(
     "AuthError",
     {
         reason: Schema.Literals([

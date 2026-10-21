@@ -12,7 +12,7 @@ import { Command } from "foldkit"
 import { Machine } from "foldkit/experimental"
 import { otherwise, to, when } from "foldkit/experimental/machine"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 export const Discount = S.Struct({
     code: S.String,
@@ -161,7 +161,7 @@ export const checkoutMachine = Machine.define({
         Cart: {
             on: {
                 SelectedEdition: to("Cart", ({ state, message }) => ({
-                    model: evo(state, {
+                    model: modifyFields(state, {
                         isShippingRequired: () => message.isShippingRequired,
                     }),
                 })),
@@ -214,7 +214,7 @@ export const checkoutMachine = Machine.define({
         Payment: {
             on: {
                 ToggledPaymentMethod: to("Payment", ({ state, message }) => ({
-                    model: evo(state, {
+                    model: modifyFields(state, {
                         isPaymentMethodSelected: () => message.isSelected,
                     }),
                 })),
@@ -255,17 +255,17 @@ export const checkoutMachine = Machine.define({
         Review: {
             on: {
                 ToggledPaymentMethod: to("Review", ({ state, message }) => ({
-                    model: evo(state, {
+                    model: modifyFields(state, {
                         isPaymentMethodSelected: () => message.isSelected,
                     }),
                 })),
                 ToggledTermsAccepted: to("Review", ({ state, message }) => ({
-                    model: evo(state, {
+                    model: modifyFields(state, {
                         isTermsAccepted: () => message.isAccepted,
                     }),
                 })),
                 UpdatedPromoCode: to("Review", ({ state, message }) => ({
-                    model: evo(state, {
+                    model: modifyFields(state, {
                         promoCodeInput: () => message.value,
                         promo: (currentPromo) =>
                             currentPromo._tag === "RejectedPromo"
@@ -278,14 +278,14 @@ export const checkoutMachine = Machine.define({
                         reviewToMaybeDiscount,
                         "Review",
                         ({ state, guardValue: discount }) => ({
-                            model: evo(state, {
+                            model: modifyFields(state, {
                                 promo: () => AppliedPromo({ discount }),
                             }),
                         })
                     ),
                     otherwise(
                         to("Review", ({ state }) => ({
-                            model: evo(state, { promo: () => RejectedPromo() }),
+                            model: modifyFields(state, { promo: () => RejectedPromo() }),
                         }))
                     ),
                 ],

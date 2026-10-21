@@ -1,7 +1,7 @@
 import { Effect, Schema as S, StandardSchema } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL STANDARD SCHEMA PROGRAMS
@@ -593,22 +593,22 @@ type JsonCasePayload = Readonly<{ jsonCase: JsonCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedStandardSchemaStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedStandardSchemaTypedCase: ({ typedCase }: TypedCasePayload) => ({
-            model: evo(model, { typedCase: () => typedCase }),
+            model: modifyFields(model, { typedCase: () => typedCase }),
         }),
         SelectedStandardSchemaValidateCase: ({
             validateCase,
         }: ValidateCasePayload) => ({
-            model: evo(model, { validateCase: () => validateCase }),
+            model: modifyFields(model, { validateCase: () => validateCase }),
         }),
         SelectedStandardSchemaIssuesCase: ({
             issuesCase,
         }: IssuesCasePayload) => ({
-            model: evo(model, { issuesCase: () => issuesCase }),
+            model: modifyFields(model, { issuesCase: () => issuesCase }),
         }),
         SelectedStandardSchemaJsonCase: ({ jsonCase }: JsonCasePayload) => ({
-            model: evo(model, { jsonCase: () => jsonCase }),
+            model: modifyFields(model, { jsonCase: () => jsonCase }),
         }),
     })

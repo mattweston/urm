@@ -1,7 +1,7 @@
 import { Effect, Match as M } from "effect"
 import { Command, Update } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { GotFixedMessage, GotVariableMessage, type Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -29,7 +29,7 @@ const toFixed = (
     result: Update.Return<Ui.VirtualList.Model, Ui.VirtualList.Message>,
     model: Model
 ): UpdateReturn => [
-    evo(model, { fixed: () => result.model }),
+    modifyFields(model, { fixed: () => result.model }),
     (result.commands ?? []).map(
         Command.mapEffect(Effect.map((message) => GotFixedMessage({ message })))
     ),
@@ -39,7 +39,7 @@ const toVariable = (
     result: Update.Return<Ui.VirtualList.Model, Ui.VirtualList.Message>,
     model: Model
 ): UpdateReturn => [
-    evo(model, { variable: () => result.model }),
+    modifyFields(model, { variable: () => result.model }),
     (result.commands ?? []).map(
         Command.mapEffect(
             Effect.map((message) => GotVariableMessage({ message }))

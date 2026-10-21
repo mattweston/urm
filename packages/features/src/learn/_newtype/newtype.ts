@@ -7,7 +7,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // NEWTYPES
@@ -443,19 +443,19 @@ type AlgebraCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedNewtypeStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedNewtypeDefineCase: ({ defineCase }: DefineCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 defineCase: () => defineCase,
             }),
         }),
 
         SelectedNewtypeIsoCase: ({ isoCase }: IsoCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 isoCase: () => isoCase,
             }),
         }),
@@ -463,13 +463,13 @@ export const update = (model: Model, message: Message) =>
         SelectedNewtypeInstancesCase: ({
             instancesCase,
         }: InstancesCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 instancesCase: () => instancesCase,
             }),
         }),
 
         SelectedNewtypeAlgebraCase: ({ algebraCase }: AlgebraCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 algebraCase: () => algebraCase,
             }),
         }),

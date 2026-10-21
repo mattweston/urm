@@ -1,7 +1,7 @@
 import { Effect, Path, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL EFFECT PROGRAMS
@@ -433,31 +433,31 @@ type UrlsCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedPathStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedPathServiceCase: ({ serviceCase }: ServiceCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 serviceCase: () => serviceCase,
             }),
         }),
 
         SelectedPathComposeCase: ({ composeCase }: ComposeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 composeCase: () => composeCase,
             }),
         }),
 
         SelectedPathParseCase: ({ parseCase }: ParseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 parseCase: () => parseCase,
             }),
         }),
 
         SelectedPathUrlsCase: ({ urlsCase }: UrlsCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 urlsCase: () => urlsCase,
             }),
         }),

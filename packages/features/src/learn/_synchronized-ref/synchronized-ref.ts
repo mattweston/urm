@@ -8,7 +8,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SYNCHRONIZEDREF PROGRAMS
@@ -511,26 +511,26 @@ type ModifyCasePayload = Readonly<{ modifyCase: ModifyCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSynchronizedRefStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedSynchronizedRefCreateCase: ({
             createCase,
         }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedSynchronizedRefSerializeCase: ({
             serializeCase,
         }: SerializeCasePayload) => ({
-            model: evo(model, { serializeCase: () => serializeCase }),
+            model: modifyFields(model, { serializeCase: () => serializeCase }),
         }),
         SelectedSynchronizedRefPartialCase: ({
             partialCase,
         }: PartialCasePayload) => ({
-            model: evo(model, { partialCase: () => partialCase }),
+            model: modifyFields(model, { partialCase: () => partialCase }),
         }),
         SelectedSynchronizedRefModifyCase: ({
             modifyCase,
         }: ModifyCasePayload) => ({
-            model: evo(model, { modifyCase: () => modifyCase }),
+            model: modifyFields(model, { modifyCase: () => modifyCase }),
         }),
     })

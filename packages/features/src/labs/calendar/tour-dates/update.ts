@@ -1,6 +1,6 @@
 import { Array, Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { LoadTourDates, saveTourDates } from "./command.ts"
 import type { Message, TourDateField } from "./message.ts"
@@ -55,31 +55,31 @@ const updatedTourDate = (
 
     switch (field) {
         case "title":
-            return evo(tour_date, { title: () => value })
+            return modifyFields(tour_date, { title: () => value })
         case "date":
-            return evo(tour_date, { date: () => optional_value })
+            return modifyFields(tour_date, { date: () => optional_value })
         case "day":
-            return evo(tour_date, { day: () => optional_value })
+            return modifyFields(tour_date, { day: () => optional_value })
         case "prices":
-            return evo(tour_date, { prices: () => optional_value })
+            return modifyFields(tour_date, { prices: () => optional_value })
         case "start_time":
-            return evo(tour_date, { start_time: () => optional_value })
+            return modifyFields(tour_date, { start_time: () => optional_value })
         case "ticket_link_url":
-            return evo(tour_date, { ticket_link_url: () => optional_value })
+            return modifyFields(tour_date, { ticket_link_url: () => optional_value })
         case "artist_page_url":
-            return evo(tour_date, { artist_page_url: () => optional_value })
+            return modifyFields(tour_date, { artist_page_url: () => optional_value })
         case "map_url":
-            return evo(tour_date, { map_url: () => optional_value })
+            return modifyFields(tour_date, { map_url: () => optional_value })
         case "address":
-            return evo(tour_date, { address: () => optional_value })
+            return modifyFields(tour_date, { address: () => optional_value })
         case "email":
-            return evo(tour_date, { email: () => optional_value })
+            return modifyFields(tour_date, { email: () => optional_value })
         case "phone":
-            return evo(tour_date, { phone: () => optional_value })
+            return modifyFields(tour_date, { phone: () => optional_value })
         case "note":
-            return evo(tour_date, { note: () => optional_value })
+            return modifyFields(tour_date, { note: () => optional_value })
         case "confirmation":
-            return evo(tour_date, { confirmation: () => optional_value })
+            return modifyFields(tour_date, { confirmation: () => optional_value })
     }
 }
 
@@ -88,14 +88,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedTourDateFilter: ({ filter }) => [
-                evo(model, { filter: () => filter }),
+                modifyFields(model, { filter: () => filter }),
                 [],
             ],
             ClickedEditTourDates: () =>
                 model.persistence_state._tag === "Loading"
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               editor_state: () => Editing(),
                               filter: () => "All",
                           }),
@@ -106,7 +106,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     ? [model, []]
                     : hasInvalidLinks(model.groups)
                       ? [
-                            evo(model, {
+                            modifyFields(model, {
                                 persistence_state: () =>
                                     SaveFailed({
                                         error: "Links must use http:// or https:// URLs.",
@@ -115,13 +115,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             [],
                         ]
                       : [
-                            evo(model, {
+                            modifyFields(model, {
                                 persistence_state: () => Saving(),
                             }),
                             [saveTourDates(model.groups)],
                         ],
             ClickedCancelTourDates: () => [
-                evo(model, {
+                modifyFields(model, {
                     groups: () => model.saved_snapshot,
                     editor_state: () => Viewing(),
                     persistence_state: () => Ready(),
@@ -132,10 +132,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 model.persistence_state._tag === "Saving"
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               groups: Array.map((group) =>
                                   group.id === group_id
-                                      ? evo(group, { title: () => value })
+                                      ? modifyFields(group, { title: () => value })
                                       : group
                               ),
                           }),
@@ -145,10 +145,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 model.persistence_state._tag === "Saving"
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               groups: Array.map((group) =>
                                   group.id === group_id
-                                      ? evo(group, {
+                                      ? modifyFields(group, {
                                             dates: Array.map((tour_date) =>
                                                 tour_date.id === tour_date_id
                                                     ? updatedTourDate(
@@ -167,19 +167,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             LoadedTourDates: ({ maybe_groups }) =>
                 model.editor_state._tag === "Editing" &&
                 model.persistence_state._tag === "Loading"
-                    ? [evo(model, { persistence_state: () => Ready() }), []]
+                    ? [modifyFields(model, { persistence_state: () => Ready() }), []]
                     : model.editor_state._tag === "Editing" ||
                         model.persistence_state._tag !== "Loading"
                       ? [model, []]
                       : Option.match(maybe_groups, {
                             onNone: () => [
-                                evo(model, {
+                                modifyFields(model, {
                                     persistence_state: () => Ready(),
                                 }),
                                 [],
                             ],
                             onSome: (groups) => [
-                                evo(model, {
+                                modifyFields(model, {
                                     groups: () => groups,
                                     saved_snapshot: () => groups,
                                     persistence_state: () => Ready(),
@@ -188,7 +188,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             ],
                         }),
             CompletedSaveTourDates: () => [
-                evo(model, {
+                modifyFields(model, {
                     saved_snapshot: () => model.groups,
                     editor_state: () => Viewing(),
                     persistence_state: () => Ready(),
@@ -196,7 +196,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             FailedSaveTourDates: ({ error }) => [
-                evo(model, { persistence_state: () => SaveFailed({ error }) }),
+                modifyFields(model, { persistence_state: () => SaveFailed({ error }) }),
                 [],
             ],
         })

@@ -25,12 +25,12 @@ export class AlchemyConfig extends Context.Service<
         AlchemyConfig,
         Effect.gen(function* () {
             const config = yield* Config.all({
-                cloudflareApiToken: Config.redacted("CLOUDFLARE_API_TOKEN"),
-                cloudflareAccountId: Config.string(
+                cloudflareApiToken: Config.Redacted("CLOUDFLARE_API_TOKEN"),
+                cloudflareAccountId: Config.String(
                     "CLOUDFLARE_ACCOUNT_ID"
                 ).pipe(Config.withDefault("")),
-                alchemyPassword: Config.redacted("ALCHEMY_PASSWORD"),
-                alchemyStage: Config.option(Config.string("ALCHEMY_STAGE")),
+                alchemyPassword: Config.Redacted("ALCHEMY_PASSWORD"),
+                alchemyStage: Config.option(Config.String("ALCHEMY_STAGE")),
             }).pipe(
                 Config.map((c) => ({
                     ...c,

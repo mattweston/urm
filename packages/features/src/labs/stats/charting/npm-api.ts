@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema as S } from "effect"
-import { HttpClient } from "effect/unstable/http"
+import { HttpClient } from "effect/http"
 import type { PackageSpec } from "./domain.ts"
 import { encodePackageName, fetchJson } from "./http.ts"
 

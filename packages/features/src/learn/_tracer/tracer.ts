@@ -1,7 +1,7 @@
 import { Context, Effect, Exit, Option, Schema as S, Tracer } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TRACER VALUES + PROGRAMS
@@ -516,20 +516,20 @@ type FilterCasePayload = Readonly<{ filterCase: FilterCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTracerStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTracerCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTracerEnrichCase: ({ enrichCase }: EnrichCasePayload) => ({
-            model: evo(model, { enrichCase: () => enrichCase }),
+            model: modifyFields(model, { enrichCase: () => enrichCase }),
         }),
         SelectedTracerPropagateCase: ({
             propagateCase,
         }: PropagateCasePayload) => ({
-            model: evo(model, { propagateCase: () => propagateCase }),
+            model: modifyFields(model, { propagateCase: () => propagateCase }),
         }),
         SelectedTracerFilterCase: ({ filterCase }: FilterCasePayload) => ({
-            model: evo(model, { filterCase: () => filterCase }),
+            model: modifyFields(model, { filterCase: () => filterCase }),
         }),
     })

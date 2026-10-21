@@ -1,5 +1,5 @@
 import { Match as M } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./message.ts"
 import type { Model } from "./model.ts"
@@ -11,11 +11,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedGalleryImage: ({ id }) => [
-                evo(model, { selected_image_id: () => id }),
+                modifyFields(model, { selected_image_id: () => id }),
                 [],
             ],
             ClosedGalleryImage: () => [
-                evo(model, { selected_image_id: () => null }),
+                modifyFields(model, { selected_image_id: () => null }),
                 [],
             ],
             CompletedGalleryMasonry: () => [model, []],

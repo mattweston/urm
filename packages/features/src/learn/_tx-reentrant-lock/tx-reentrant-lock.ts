@@ -1,7 +1,7 @@
 import { Effect, Schema as S, TxReentrantLock } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXREENTRANTLOCK PROGRAMS
@@ -462,24 +462,24 @@ type ScopeCasePayload = Readonly<{ scopeCase: ScopeCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxReentrantLockStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxReentrantLockCreateCase: ({
             createCase,
         }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxReentrantLockReadCase: ({ readCase }: ReadCasePayload) => ({
-            model: evo(model, { readCase: () => readCase }),
+            model: modifyFields(model, { readCase: () => readCase }),
         }),
         SelectedTxReentrantLockWriteCase: ({
             writeCase,
         }: WriteCasePayload) => ({
-            model: evo(model, { writeCase: () => writeCase }),
+            model: modifyFields(model, { writeCase: () => writeCase }),
         }),
         SelectedTxReentrantLockScopeCase: ({
             scopeCase,
         }: ScopeCasePayload) => ({
-            model: evo(model, { scopeCase: () => scopeCase }),
+            model: modifyFields(model, { scopeCase: () => scopeCase }),
         }),
     })

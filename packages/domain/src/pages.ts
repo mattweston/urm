@@ -84,7 +84,7 @@ export const pages_library_id = (
     domain_id: string,
     subdomain_slug: string | null
 ) => `${domain_id}:${subdomain_slug ?? ""}`
-export class PagesWriteError extends Schema.TaggedErrorClass<PagesWriteError>()(
+export class PagesWriteError extends Schema.TaggedError<PagesWriteError>()(
     "PagesWriteError",
     { message: Schema.String }
 ) {}

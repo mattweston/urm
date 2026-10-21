@@ -1,7 +1,7 @@
 import { Config, ConfigProvider, Effect, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 ConfigProvider examples
@@ -286,31 +286,31 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedConfigProviderStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedConfigProviderSourceMode: ({ sourceMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 sourceMode: () => sourceMode,
             }),
         }),
 
         SelectedConfigProviderComposeMode: ({ composeMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 composeMode: () => composeMode,
             }),
         }),
 
         SelectedConfigProviderPathMode: ({ pathMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 pathMode: () => pathMode,
             }),
         }),
 
         SelectedConfigProviderLayerMode: ({ layerMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 layerMode: () => layerMode,
             }),
         }),

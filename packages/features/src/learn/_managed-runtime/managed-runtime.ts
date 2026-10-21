@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, ManagedRuntime, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN SERVICES
@@ -441,25 +441,25 @@ type DisposeCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedManagedRuntimeStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedManagedRuntimeBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedManagedRuntimeRunCase: ({ runCase }: RunCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 runCase: () => runCase,
             }),
         }),
 
         SelectedManagedRuntimeCacheCase: ({ cacheCase }: CacheCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 cacheCase: () => cacheCase,
             }),
         }),
@@ -467,7 +467,7 @@ export const update = (model: Model, message: Message) =>
         SelectedManagedRuntimeDisposeCase: ({
             disposeCase,
         }: DisposeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 disposeCase: () => disposeCase,
             }),
         }),

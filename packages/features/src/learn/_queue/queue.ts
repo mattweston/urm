@@ -9,7 +9,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Queue examples
@@ -285,12 +285,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedQueueStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             ClickedOfferQueueValue: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     buffer_items: (items) => [...items, model.buffer_next],
                     buffer_next: (next) => next + 1,
                     buffer_last_taken: () => S.Option(S.Number).make(undefined),
@@ -305,7 +305,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         buffer_items: () => rest,
                         buffer_last_taken: () => S.Option(S.Number).make(first),
                     }),
@@ -314,7 +314,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedResetQueueBuffer: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     buffer_items: () => [1, 2],
                     buffer_next: () => 3,
                     buffer_last_taken: () => S.Option(S.Number).make(undefined),
@@ -326,7 +326,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const fresh = fresh_capacity(strategy)
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         strategy: () => fresh.strategy,
                         capacity_items: () => fresh.capacity_items,
                         capacity_next: () => fresh.capacity_next,
@@ -342,7 +342,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (model.capacity_items.length < 3) {
                     return {
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             capacity_items: (items) => [...items, value],
                             capacity_next: (next) => next + 1,
                         }),
@@ -352,7 +352,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (model.strategy === "Bounded") {
                     return {
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             capacity_pending: () =>
                                 S.Option(S.Number).make(value),
                             capacity_next: (next) => next + 1,
@@ -363,7 +363,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (model.strategy === "Dropping") {
                     return {
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             capacity_rejected: (items) => [...items, value],
                             capacity_next: (next) => next + 1,
                         }),
@@ -374,7 +374,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const [oldest, ...rest] = model.capacity_items
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         capacity_items: () => [...rest, value],
                         capacity_rejected: (items) =>
                             oldest === undefined ? items : [...items, oldest],
@@ -388,7 +388,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const [, ...rest] = model.capacity_items
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         capacity_items: () =>
                             model.strategy === "Bounded" &&
                             model.capacity_pending._tag === "Some"
@@ -405,7 +405,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const fresh = fresh_capacity(model.strategy)
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         capacity_items: () => fresh.capacity_items,
                         capacity_next: () => fresh.capacity_next,
                         capacity_pending: () => fresh.capacity_pending,
@@ -416,7 +416,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedEndQueue: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     completion_mode: () =>
                         model.completion_items.length === 0
                             ? "Done"
@@ -430,7 +430,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedFailQueue: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     completion_mode: () =>
                         model.completion_items.length === 0
                             ? "Done"
@@ -443,7 +443,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedShutdownQueue: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     completion_mode: () => "Shutdown",
                     completion_items: () => [],
                     completion_failure: () =>
@@ -459,7 +459,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     const [first, ...rest] = model.completion_items
 
                     return {
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             completion_items: () => rest,
                             completion_mode: () =>
                                 rest.length === 0 &&
@@ -476,7 +476,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (model.completion_mode === "Done") {
                     return {
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             completion_observation: () =>
                                 model.completion_failure._tag === "Some"
                                     ? `Queue.take → failure "${model.completion_failure.value}"`
@@ -488,7 +488,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 if (model.completion_mode === "Shutdown") {
                     return {
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             completion_observation: () =>
                                 "Queue.take terminates: the Queue was shut down.",
                         }),
@@ -497,7 +497,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         completion_observation: () =>
                             "Queue.take would suspend: the Queue is empty and still open.",
                     }),
@@ -506,7 +506,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedResetQueueCompletion: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     completion_mode: () => "Open",
                     completion_items: () => ["alpha", "beta"],
                     completion_failure: () =>
@@ -517,7 +517,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedStartQueueFibers: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     producer_status: () => "Suspended",
                     consumer_status: () => "Running",
                     fiber_items: () => [1],
@@ -541,7 +541,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         fiber_items: () =>
                             model.fiber_pending_offer._tag === "Some"
                                 ? [...rest, model.fiber_pending_offer.value]
@@ -570,7 +570,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedResetQueueFibers: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     producer_status: () => "Idle",
                     consumer_status: () => "Idle",
                     fiber_items: () => [],

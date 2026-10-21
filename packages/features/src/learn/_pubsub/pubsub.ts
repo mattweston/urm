@@ -1,7 +1,7 @@
 import { Effect, PubSub, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL PUBSUB PROGRAMS
@@ -523,13 +523,13 @@ type LifecycleCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedPubSubStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedPubSubCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 createCase: () => createCase,
             }),
         }),
@@ -537,13 +537,13 @@ export const update = (model: Model, message: Message) =>
         SelectedPubSubBroadcastCase: ({
             broadcastCase,
         }: BroadcastCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 broadcastCase: () => broadcastCase,
             }),
         }),
 
         SelectedPubSubConsumeCase: ({ consumeCase }: ConsumeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 consumeCase: () => consumeCase,
             }),
         }),
@@ -551,7 +551,7 @@ export const update = (model: Model, message: Message) =>
         SelectedPubSubLifecycleCase: ({
             lifecycleCase,
         }: LifecycleCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 lifecycleCase: () => lifecycleCase,
             }),
         }),

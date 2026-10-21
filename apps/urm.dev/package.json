@@ -24,8 +24,8 @@
         "drizzle-orm": "catalog:database",
         "effect": "catalog:",
         "foldkit": "catalog:",
-        "foldkit-remote": "0.3.0",
-        "foldkit-surface": "0.2.0"
+        "foldkit-remote": "catalog:",
+        "foldkit-surface": "catalog:"
     },
     "devDependencies": {
         "@foldkit/vite-plugin": "0.20.2",

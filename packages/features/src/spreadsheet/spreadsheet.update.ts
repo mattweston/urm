@@ -1,7 +1,7 @@
 import { Effect, Match as M } from "effect"
 import { Command, type Update } from "foldkit"
 import { VirtualList } from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import {
     FocusEditor,
     FocusCell,
@@ -85,7 +85,7 @@ const bounded_address = (model: Model, address: Model["selected"]) =>
 
 const select = (model: Model, row: number, column: number): Model => {
     const selected = bounded_address(model, { row, column })
-    return evo(model, {
+    return modifyFields(model, {
         selected: () => selected,
         editor: () => IdleEditor(),
         nameDraft: () => addressLabel(selected),
@@ -133,7 +133,7 @@ const commit = (model: Model): UpdateReturn => {
     const raw = model.editor.draft.slice(0, MAX_CELL_TEXT_LENGTH)
     const cells = { ...model.cells, [cellKey(model.editor.address)]: raw }
     return {
-        model: evo(model, {
+        model: modifyFields(model, {
             cells: () => cells,
             editor: () => IdleEditor(),
             status: () => "Saving change",
@@ -148,7 +148,7 @@ const updateEditorDraft = (model: Model, value: string): UpdateReturn => {
     }
     const address = model.editor.address
     return {
-        model: evo(model, {
+        model: modifyFields(model, {
             editor: () => EditingCell({ address, draft: value }),
         }),
         commands: [],
@@ -181,7 +181,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                     rowsMessage
                 )
                 return {
-                    model: evo(model, { rows: () => rows }),
+                    model: modifyFields(model, { rows: () => rows }),
                     commands: mapRowsCommands(commands),
                 }
             },
@@ -190,7 +190,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 commands: [],
             }),
             DoubleClickedCell: ({ address }) => ({
-                model: evo(select(model, address.row, address.column), {
+                model: modifyFields(select(model, address.row, address.column), {
                     editor: () =>
                         EditingCell({
                             address,
@@ -203,7 +203,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             CommittedEditor: () => commit(model),
             SubmittedEditor: () => submitEditor(model),
             CancelledEditor: () => ({
-                model: evo(model, { editor: () => IdleEditor() }),
+                model: modifyFields(model, { editor: () => IdleEditor() }),
                 commands: [],
             }),
             CompletedFocusEditor: () => ({ model, commands: [] }),
@@ -213,7 +213,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                     return model.editor._tag === "EditingCell"
                         ? commit(model)
                         : {
-                              model: evo(model, {
+                              model: modifyFields(model, {
                                   editor: () =>
                                       EditingCell({
                                           address: model.selected,
@@ -242,7 +242,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                               selected.column
                           )
                           return {
-                              model: evo(
+                              model: modifyFields(
                                   select(model, selected.row, selected.column),
                                   {
                                       columnScrollLeft: () => columnScrollLeft,
@@ -253,7 +253,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                       })()
             },
             UpdatedNameDraft: ({ value }) => ({
-                model: evo(model, { nameDraft: () => value }),
+                model: modifyFields(model, { nameDraft: () => value }),
                 commands: [],
             }),
             SubmittedName: () => {
@@ -262,7 +262,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                     address.row >= model.row_count ||
                     address.column >= model.column_labels.length
                     ? {
-                          model: evo(model, {
+                          model: modifyFields(model, {
                               status: () => "Enter a cell such as A1",
                           }),
                           commands: [],
@@ -273,31 +273,31 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                       }
             },
             ScrolledColumns: ({ scrollLeft, viewportWidth }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     columnScrollLeft: () => scrollLeft,
                     columnViewportWidth: () => viewportWidth,
                 }),
                 commands: [],
             }),
             SucceededLoadWorkbook: ({ cells }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     cells: () => cells,
                     status: () => "Workbook restored from this browser",
                 }),
                 commands: [],
             }),
             FailedLoadWorkbook: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     status: () => "Local storage unavailable",
                 }),
                 commands: [],
             }),
             SucceededSaveWorkbook: () => ({
-                model: evo(model, { status: () => "All changes saved" }),
+                model: modifyFields(model, { status: () => "All changes saved" }),
                 commands: [],
             }),
             FailedSaveWorkbook: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     status: () => "Local storage unavailable",
                 }),
                 commands: [],

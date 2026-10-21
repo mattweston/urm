@@ -1,7 +1,7 @@
 import { Schema as S, type Types } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TYPE-LEVEL EXAMPLES
@@ -540,18 +540,18 @@ type ControlCasePayload = Readonly<{ controlCase: ControlCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTypesStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTypesVarianceCase: ({ varianceCase }: VarianceCasePayload) => ({
-            model: evo(model, { varianceCase: () => varianceCase }),
+            model: modifyFields(model, { varianceCase: () => varianceCase }),
         }),
         SelectedTypesShapeCase: ({ shapeCase }: ShapeCasePayload) => ({
-            model: evo(model, { shapeCase: () => shapeCase }),
+            model: modifyFields(model, { shapeCase: () => shapeCase }),
         }),
         SelectedTypesTuplesCase: ({ tuplesCase }: TuplesCasePayload) => ({
-            model: evo(model, { tuplesCase: () => tuplesCase }),
+            model: modifyFields(model, { tuplesCase: () => tuplesCase }),
         }),
         SelectedTypesControlCase: ({ controlCase }: ControlCasePayload) => ({
-            model: evo(model, { controlCase: () => controlCase }),
+            model: modifyFields(model, { controlCase: () => controlCase }),
         }),
     })

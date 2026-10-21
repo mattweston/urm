@@ -1,6 +1,6 @@
 import { Array, Match as M, Number, pipe } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     TRANSITION_LOG_LIMIT,
@@ -48,7 +48,7 @@ export const update = (
                     summary: resultToTransitionSummary(result),
                 }
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         checkout: () => result.state,
                         transitionLog: () =>
                             pipe(

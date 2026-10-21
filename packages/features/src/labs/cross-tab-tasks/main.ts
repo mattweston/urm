@@ -15,7 +15,7 @@ import {
 import { AsyncData, Command, Runtime, Subscription } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     BrowserCrypto,
@@ -160,7 +160,7 @@ export const update = (
         M.withReturnType<readonly [Model, Commands]>(),
         M.tagsExhaustive({
             UpdatedNewItemText: ({ text }) => [
-                evo(model, {
+                modifyFields(model, {
                     newItemText: () => text,
                 }),
                 [],
@@ -174,7 +174,7 @@ export const update = (
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         newItemText: () => "",
                     }),
                     [AddItem({ text: trimmed })],
@@ -182,7 +182,7 @@ export const update = (
             },
 
             SelectedFilter: ({ filter }) => [
-                evo(model, {
+                modifyFields(model, {
                     filter: () => filter,
                 }),
                 [],
@@ -195,7 +195,7 @@ export const update = (
             ClickedClearCompleted: () => [model, [ClearCompleted()]],
 
             ClickedRetry: () => [
-                evo(model, {
+                modifyFields(model, {
                     items: () => ItemsData.Loading(),
                 }),
                 [LoadItems()],
@@ -206,14 +206,14 @@ export const update = (
             CommittedToStore: () => [model, []],
 
             ReceivedItems: ({ items }) => [
-                evo(model, {
+                modifyFields(model, {
                     items: () => ItemsData.Success({ data: items }),
                 }),
                 [],
             ],
 
             FailedStoreOperation: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     items: () => toErrorState(model.items, error),
                 }),
                 [],

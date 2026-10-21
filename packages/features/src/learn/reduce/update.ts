@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import type { Message } from "./message.ts"
 import { initial_model, type Model } from "./model.ts"
@@ -20,7 +20,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ChangedPrice: ({ index, value }) => [
-                evo(model, {
+                modifyFields(model, {
                     prices: (prices) =>
                         prices.map((price, price_index) =>
                             price_index === index ? value : price
@@ -30,7 +30,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             SubmittedReduce: () => [
-                evo(model, { sum: () => sum_prices(model.prices) }),
+                modifyFields(model, { sum: () => sum_prices(model.prices) }),
                 [],
             ],
         })

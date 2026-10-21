@@ -3,7 +3,7 @@ import { Command, Runtime, Subscription, type Update } from "foldkit"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
 import { UrlRequest } from "foldkit/navigation"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { Url, toString as urlToString } from "foldkit/url"
 
 // -----------------------------------------------------------------------------
@@ -82,7 +82,7 @@ export const update = (model: Model, message: Message) =>
             const next = model.count + 1
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     count: () => next,
                     lastRuntimeEvent: () => "update handled ClickedIncrement",
                 }),
@@ -95,7 +95,7 @@ export const update = (model: Model, message: Message) =>
         },
 
         CompletedPersistCount: ({ count }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 persistedCount: () => count,
                 lastRuntimeEvent: () =>
                     "runtime dispatched CompletedPersistCount",
@@ -103,14 +103,14 @@ export const update = (model: Model, message: Message) =>
         }),
 
         Ticked: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 ticks: (ticks) => ticks + 1,
                 lastRuntimeEvent: () => "subscription emitted Ticked",
             }),
         }),
 
         ClickedLink: ({ request }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 lastRuntimeEvent: () =>
                     UrlRequest.match(request, {
                         Internal: ({ url }) =>
@@ -122,7 +122,7 @@ export const update = (model: Model, message: Message) =>
         }),
 
         ChangedUrl: ({ url }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 currentUrl: () => urlToString(url),
                 lastRuntimeEvent: () => "onUrlChange → ChangedUrl",
             }),
@@ -369,44 +369,44 @@ const nextLoopStep = (step: LoopStep): LoopStep =>
 export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
     DemoMessage.match<DemoUpdateReturn>(message, {
         SelectedRuntimeStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedOwnershipMode: ({ ownership }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 ownership: () => ownership,
             }),
         }),
 
         SelectedLifetimeMode: ({ lifetime }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 lifetime: () => lifetime,
                 embedDisposed: () => false,
             }),
         }),
 
         SelectedRoutingMode: ({ routing }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 routing: () => routing,
             }),
         }),
 
         ClickedDisposeEmbed: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 embedDisposed: () => true,
             }),
         }),
 
         ClickedAdvanceRuntimeLoop: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 loopStep: nextLoopStep,
             }),
         }),
 
         ClickedResetRuntimeLoop: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 loopStep: () => 0,
             }),
         }),

@@ -1,7 +1,7 @@
 import { Match as M, Option, pipe, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Option examples
@@ -195,47 +195,47 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedOptionStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             SelectedBoundaryCase: ({ boundary_case }) => ({
-                model: evo(model, { boundary_case: () => boundary_case }),
+                model: modifyFields(model, { boundary_case: () => boundary_case }),
                 commands: [],
             }),
             UpdatedParseInput: ({ value }) => ({
-                model: evo(model, { parse_input: () => value }),
+                model: modifyFields(model, { parse_input: () => value }),
                 commands: [],
             }),
 
             SelectedTransformInput: ({ transform_input }) => ({
-                model: evo(model, { transform_input: () => transform_input }),
+                model: modifyFields(model, { transform_input: () => transform_input }),
                 commands: [],
             }),
 
             SelectedCombineMode: ({ combine_mode }) => ({
-                model: evo(model, { combine_mode: () => combine_mode }),
+                model: modifyFields(model, { combine_mode: () => combine_mode }),
                 commands: [],
             }),
             ToggledHasName: () => ({
-                model: evo(model, { has_name: (value) => !value }),
+                model: modifyFields(model, { has_name: (value) => !value }),
                 commands: [],
             }),
             ToggledHasAge: () => ({
-                model: evo(model, { has_age: (value) => !value }),
+                model: modifyFields(model, { has_age: (value) => !value }),
                 commands: [],
             }),
             ToggledHasCity: () => ({
-                model: evo(model, { has_city: (value) => !value }),
+                model: modifyFields(model, { has_city: (value) => !value }),
                 commands: [],
             }),
 
             SelectedUnwrapMode: ({ unwrap_mode }) => ({
-                model: evo(model, { unwrap_mode: () => unwrap_mode }),
+                model: modifyFields(model, { unwrap_mode: () => unwrap_mode }),
                 commands: [],
             }),
             ToggledHasUser: () => ({
-                model: evo(model, { has_user: (value) => !value }),
+                model: modifyFields(model, { has_user: (value) => !value }),
                 commands: [],
             }),
         })

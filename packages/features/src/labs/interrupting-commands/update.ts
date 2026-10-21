@@ -1,6 +1,6 @@
 import { Array, Match as M, Number, Option, pipe } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { UploadsDemoMessage as Message } from "./message.ts"
 import type { Model } from "./model.ts"
 import {
@@ -28,7 +28,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     status: "Uploading",
                 })
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         nextId: Number.increment,
                         uploads: Array.append(upload),
                     }),
@@ -65,7 +65,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     Option.match({
                         onNone: (): UpdateReturn => [model, []],
                         onSome: (upload): UpdateReturn => [
-                            evo(model, {
+                            modifyFields(model, {
                                 uploads: setUploadStatusForId(
                                     uploadId,
                                     "Uploading"
@@ -81,7 +81,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     })
                 ),
             SucceededUploadDemoFile: ({ uploadId }) => [
-                evo(model, {
+                modifyFields(model, {
                     uploads: setUploadStatusForId(uploadId, "Done"),
                 }),
                 [],
@@ -91,7 +91,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     M.withReturnType<UpdateReturn>(),
                     M.tagsExhaustive({
                         Interrupted: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 uploads: setUploadStatusForId(
                                     uploadId,
                                     "Cancelled"

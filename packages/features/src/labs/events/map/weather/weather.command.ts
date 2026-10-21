@@ -3,7 +3,7 @@ import {
     FetchHttpClient,
     HttpClient,
     HttpClientRequest,
-} from "effect/unstable/http"
+} from "effect/http"
 import { Command } from "foldkit"
 import { FailedFetchWeather, SucceededFetchWeather } from "./weather.message.ts"
 import { WeatherData } from "./weather.model.ts"

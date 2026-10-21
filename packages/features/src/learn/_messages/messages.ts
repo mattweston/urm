@@ -1,7 +1,7 @@
 import { Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // The message union being taught
@@ -187,7 +187,7 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedMessagesStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -199,79 +199,79 @@ export const update = (model: Model, message: Message) =>
             )
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     count: () => interpretation.nextCount,
                 }),
             }
         },
 
         SelectedCounterPolicy: ({ policy }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 counterPolicy: () => policy,
             }),
         }),
 
         ClickedResetDemoCount: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: () => 3,
             }),
         }),
 
         SelectedEventKind: ({ eventKind }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 eventKind: () => eventKind,
                 matchHandled: () => false,
             }),
         }),
 
         UpdatedDemoSearch: ({ value }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 searchValue: () => value,
                 matchHandled: () => false,
             }),
         }),
 
         SelectedDemoLoadCount: ({ count }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 loadCount: () => count,
                 matchHandled: () => false,
             }),
         }),
 
         UpdatedDemoLoadError: ({ error }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 loadError: () => error,
                 matchHandled: () => false,
             }),
         }),
 
         ClickedHandleExampleMessage: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 matchHandled: () => true,
             }),
         }),
 
         ClickedResetMessageHandler: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 matchHandled: () => false,
             }),
         }),
 
         UpdatedChildDraft: ({ value }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 childDraft: () => value,
                 childWrapped: () => false,
             }),
         }),
 
         ClickedWrapChildMessage: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 childWrapped: () => true,
             }),
         }),
 
         ClickedResetChildMessage: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 childDraft: () => "Hello Foldkit",
                 childWrapped: () => false,
             }),

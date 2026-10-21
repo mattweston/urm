@@ -1,6 +1,6 @@
 import { Effect, Match as M, Schema as S } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { notes, total_through, values } from "./array-fold.data.ts"
 import { play_note } from "./array-fold.audio.ts"
@@ -30,7 +30,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const note = notes[model.step]
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         step: () => next_step,
                         total: () => total_through(next_step),
                     }),
@@ -40,7 +40,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ClickedReset: () => [
-                evo(model, { step: () => 0, total: () => 0 }),
+                modifyFields(model, { step: () => 0, total: () => 0 }),
                 [],
             ],
             CompletedPlayNote: () => [model, []],

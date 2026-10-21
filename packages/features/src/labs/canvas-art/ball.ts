@@ -1,5 +1,5 @@
 import { Schema as S } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 export const CANVAS_WIDTH = 600
 export const CANVAS_HEIGHT = 400
@@ -44,7 +44,7 @@ export const advanceBall =
         const bouncedX = nextX < minX || nextX > maxX
         const bouncedY = nextY < minY || nextY > maxY
 
-        return evo(ball, {
+        return modifyFields(ball, {
             x: () => Math.max(minX, Math.min(maxX, nextX)),
             y: () => Math.max(minY, Math.min(maxY, nextY)),
             vx: (vx) => (bouncedX ? -vx : vx),

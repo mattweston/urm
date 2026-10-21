@@ -1,7 +1,7 @@
 import { Pipeable, Schema as S, pipe } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // PIPEABLE EXAMPLES
@@ -466,7 +466,7 @@ type MixinCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedPipeableStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -474,7 +474,7 @@ export const update = (model: Model, message: Message) =>
         SelectedPipeableContractCase: ({
             contractCase,
         }: ContractCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 contractCase: () => contractCase,
             }),
         }),
@@ -482,19 +482,19 @@ export const update = (model: Model, message: Message) =>
         SelectedPipeableArgumentsCase: ({
             argumentsCase,
         }: ArgumentsCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 argumentsCase: () => argumentsCase,
             }),
         }),
 
         SelectedPipeableClassCase: ({ classCase }: ClassCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 classCase: () => classCase,
             }),
         }),
 
         SelectedPipeableMixinCase: ({ mixinCase }: MixinCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 mixinCase: () => mixinCase,
             }),
         }),

@@ -1,7 +1,7 @@
 import { Cron, DateTime, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Effect Cron values used by the teaching demo
@@ -447,27 +447,27 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedCronStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
         SelectedCronParsePreset: ({ preset }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 parsePreset: () => preset,
             }),
         }),
         ClickedToggleCronDayMode: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 dayMode: (mode) => (mode === "Or" ? "And" : "Or"),
             }),
         }),
         SelectedCronMatchCase: ({ matchCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 matchCase: () => matchCase,
             }),
         }),
         ClickedCycleCronSequenceCount: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 sequenceCount: (count) =>
                     count === "Three"
                         ? "Five"

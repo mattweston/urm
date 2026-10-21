@@ -1,7 +1,7 @@
 import { RegExp as RegExpModule, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL REGEXP PROGRAMS
@@ -561,7 +561,7 @@ type ComposeCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedRegExpStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -569,25 +569,25 @@ export const update = (model: Model, message: Message) =>
         SelectedRegExpConstructCase: ({
             constructCase,
         }: ConstructCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 constructCase: () => constructCase,
             }),
         }),
 
         SelectedRegExpNarrowCase: ({ narrowCase }: NarrowCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 narrowCase: () => narrowCase,
             }),
         }),
 
         SelectedRegExpEscapeCase: ({ escapeCase }: EscapeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 escapeCase: () => escapeCase,
             }),
         }),
 
         SelectedRegExpComposeCase: ({ composeCase }: ComposeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 composeCase: () => composeCase,
             }),
         }),

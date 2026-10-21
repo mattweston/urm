@@ -1,7 +1,7 @@
 import { Effect, Fiber, Latch, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL EFFECT PROGRAMS
@@ -478,31 +478,31 @@ type ReuseCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedLatchStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedLatchCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 createCase: () => createCase,
             }),
         }),
 
         SelectedLatchGateCase: ({ gateCase }: GateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 gateCase: () => gateCase,
             }),
         }),
 
         SelectedLatchReleaseCase: ({ releaseCase }: ReleaseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 releaseCase: () => releaseCase,
             }),
         }),
 
         SelectedLatchReuseCase: ({ reuseCase }: ReuseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 reuseCase: () => reuseCase,
             }),
         }),

@@ -1,7 +1,7 @@
 import { Effect, Option, RcMap, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL RCMAP PROGRAMS
@@ -456,25 +456,25 @@ type LifecycleCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedRcMapStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedRcMapBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedRcMapAcquireCase: ({ acquireCase }: AcquireCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 acquireCase: () => acquireCase,
             }),
         }),
 
         SelectedRcMapRetainCase: ({ retainCase }: RetainCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 retainCase: () => retainCase,
             }),
         }),
@@ -482,7 +482,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRcMapLifecycleCase: ({
             lifecycleCase,
         }: LifecycleCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 lifecycleCase: () => lifecycleCase,
             }),
         }),

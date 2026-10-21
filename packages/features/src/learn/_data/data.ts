@@ -1,7 +1,7 @@
 import { Data, Effect, Equal, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Domain data used by the teaching demo
@@ -468,22 +468,22 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedDataStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
         SelectedDataEnumVariant: ({ variant }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 enumVariant: () => variant,
             }),
         }),
         SelectedDataErrorVariant: ({ variant }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 errorVariant: () => variant,
             }),
         }),
         SelectedDataGenericVariant: ({ variant }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 genericVariant: () => variant,
             }),
         }),

@@ -1,7 +1,7 @@
 import { Match as M, Option, pipe, Schema as S, String as Str } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 String examples
@@ -219,12 +219,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedStringStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             UpdatedNormalizeInput: ({ value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     normalize_input: () => value,
                     normalize_step: () => 0,
                 }),
@@ -232,49 +232,49 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedAdvanceStringNormalize: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     normalize_step: (step) => Math.min(3, step + 1),
                 }),
                 commands: [],
             }),
 
             ClickedResetStringNormalize: () => ({
-                model: evo(model, { normalize_step: () => 0 }),
+                model: modifyFields(model, { normalize_step: () => 0 }),
                 commands: [],
             }),
 
             SelectedStringInspectMode: ({ mode }) => ({
-                model: evo(model, { inspect_mode: () => mode }),
+                model: modifyFields(model, { inspect_mode: () => mode }),
                 commands: [],
             }),
 
             UpdatedStringInspectText: ({ value }) => ({
-                model: evo(model, { inspect_text: () => value }),
+                model: modifyFields(model, { inspect_text: () => value }),
                 commands: [],
             }),
 
             UpdatedStringInspectQuery: ({ value }) => ({
-                model: evo(model, { inspect_query: () => value }),
+                model: modifyFields(model, { inspect_query: () => value }),
                 commands: [],
             }),
 
             SelectedStringInspectIndex: ({ index }) => ({
-                model: evo(model, { inspect_index: () => index }),
+                model: modifyFields(model, { inspect_index: () => index }),
                 commands: [],
             }),
 
             SelectedStringSegmentMode: ({ mode }) => ({
-                model: evo(model, { segment_mode: () => mode }),
+                model: modifyFields(model, { segment_mode: () => mode }),
                 commands: [],
             }),
 
             SelectedStringNamingMode: ({ mode }) => ({
-                model: evo(model, { naming_mode: () => mode }),
+                model: modifyFields(model, { naming_mode: () => mode }),
                 commands: [],
             }),
 
             UpdatedStringNamingInput: ({ value }) => ({
-                model: evo(model, { naming_input: () => value }),
+                model: modifyFields(model, { naming_input: () => value }),
                 commands: [],
             }),
         })

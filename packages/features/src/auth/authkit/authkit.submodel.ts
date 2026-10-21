@@ -6,7 +6,7 @@ import * as Ui from "@foldkit/ui"
 import { AccountMenu } from "@urm/ui/foldkit/auth-control.view.ts"
 import { Command } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { initial, Model, Profile } from "./authkit.model.ts"
 import { Service } from "./authkit.service.ts"
@@ -93,7 +93,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         Match.withReturnType<UpdateReturn>(),
         Match.tagsExhaustive({
             AuthKitLoaded: ({ profile }) => [
-                evo(model, {
+                modifyFields(model, {
                     status: () =>
                         Option.isSome(profile) ? "signed_in" : "signed_out",
                     profile: () => profile,
@@ -102,28 +102,28 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             AuthKitFailed: ({ details }) => [
-                evo(model, {
+                modifyFields(model, {
                     status: () => "error",
                     error: () => Option.some(details),
                 }),
                 [],
             ],
             AuthKitClickedSignIn: () => [
-                evo(model, {
+                modifyFields(model, {
                     status: () => "loading",
                     error: () => Option.none(),
                 }),
                 [SignInWithAuthKit()],
             ],
             AuthKitClickedSignOut: () => [
-                evo(model, {
+                modifyFields(model, {
                     status: () => "loading",
                     error: () => Option.none(),
                 }),
                 [SignOutWithAuthKit()],
             ],
             AuthKitSignedOut: () => [
-                evo(model, {
+                modifyFields(model, {
                     status: () => "signed_out",
                     profile: () => Option.none(),
                     error: () => Option.none(),
@@ -144,13 +144,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return Option.match(maybe_output, {
                     onNone: () => [
-                        evo(model, {
+                        modifyFields(model, {
                             account_menu: () => account_menu,
                         }),
                         mapped_commands,
                     ],
                     onSome: () => [
-                        evo(model, {
+                        modifyFields(model, {
                             account_menu: () => account_menu,
                             status: () => "loading",
                             error: () => Option.none(),

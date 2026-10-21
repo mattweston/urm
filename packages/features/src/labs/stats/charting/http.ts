@@ -1,5 +1,5 @@
 import { Data, Effect, Record as Record_, Schema as S } from "effect"
-import { HttpClient, HttpClientRequest } from "effect/unstable/http"
+import { HttpClient, HttpClientRequest } from "effect/http"
 
 // CONSTANT
 

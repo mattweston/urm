@@ -87,7 +87,7 @@ import {
 } from "foldkit"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { toString as urlToString, type Url } from "foldkit/url"
 import * as Ui from "@foldkit/ui"
 import { AccountMenu } from "@urm/ui/foldkit/auth-control.view.ts"
@@ -1959,7 +1959,7 @@ const update_sidebar_tooltip = (
                 }
 
     return [
-        evo(model, { sidebar_tooltips: () => sidebar_tooltips }),
+        modifyFields(model, { sidebar_tooltips: () => sidebar_tooltips }),
         commands.map(
             Command.mapEffect(
                 Effect.map((next_message) =>
@@ -2285,7 +2285,7 @@ const update_inner = (
                     model.route.dev_path === "/dev/grep"
                 )
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             dev: (dev) => restore_grep_route(dev, url),
                         }),
                         [],
@@ -2629,7 +2629,7 @@ const update_inner = (
                           )
                         : [routed_design, []]
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => route,
                         dev: (dev) => restore_grep_route(dev, url),
                         issues: () => issues,
@@ -2786,13 +2786,13 @@ const update_inner = (
                 ]
             },
             ToggledSidebar: () => [
-                evo(model, {
+                modifyFields(model, {
                     is_sidebar_collapsed: (is_collapsed) => !is_collapsed,
                 }),
                 [],
             ],
             ToggledMobileSidebar: () => [
-                evo(model, {
+                modifyFields(model, {
                     is_sidebar_mobile_open: (is_open) => !is_open,
                 }),
                 [],
@@ -2811,7 +2811,7 @@ const update_inner = (
                 const maybe_output = Option.fromUndefinedOr(maybe_output_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         spotify_player_popover: () => spotify_player_popover,
                         spotify_player_state: (state) =>
                             Option.match(maybe_output, {
@@ -2839,7 +2839,7 @@ const update_inner = (
                 const maybe_output = Option.fromUndefinedOr(maybe_output_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         spotify_player_popover: () => spotify_player_popover,
                         spotify_player_state: (state) =>
                             Option.match(maybe_output, {
@@ -2856,7 +2856,7 @@ const update_inner = (
                 ]
             },
             ChangedSpotifyPlaylistId: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     spotify_playlist_id_draft: () => value,
                     spotify_playlist_status: () => "Idle",
                     spotify_playlist_error: () => "",
@@ -2870,7 +2870,7 @@ const update_inner = (
                     ),
                     {
                         onNone: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 spotify_playlist_status: () => "Error",
                                 spotify_playlist_error: () =>
                                     "Enter the 22-character ID from a Spotify playlist URL.",
@@ -2881,7 +2881,7 @@ const update_inner = (
                             model.contacts.session === null ||
                             model.contacts.domain_id === ""
                                 ? [
-                                      evo(model, {
+                                      modifyFields(model, {
                                           spotify_playlist_status: () =>
                                               "Error",
                                           spotify_playlist_error: () =>
@@ -2890,7 +2890,7 @@ const update_inner = (
                                       [],
                                   ]
                                 : [
-                                      evo(model, {
+                                      modifyFields(model, {
                                           spotify_playlist_id_draft: () =>
                                               playlist_id,
                                           spotify_playlist_status: () =>
@@ -2911,7 +2911,7 @@ const update_inner = (
                     }
                 ),
             ReceivedSpotifyPreference: ({ playlist_id, is_saved }) => [
-                evo(model, {
+                modifyFields(model, {
                     spotify_playlist_id: () => playlist_id,
                     spotify_playlist_id_draft: () => playlist_id,
                     spotify_playlist_status: () =>
@@ -2924,7 +2924,7 @@ const update_inner = (
                 model.contacts.session?.account_id !== account_id
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               spotify_playlist_id: () => playlist_id,
                               spotify_playlist_id_draft: () => playlist_id,
                               spotify_playlist_status: () => "Saved",
@@ -2937,7 +2937,7 @@ const update_inner = (
                 model.contacts.session?.account_id !== account_id
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               spotify_playlist_status: () => "Error",
                               spotify_playlist_error: () => details,
                           }),
@@ -2962,7 +2962,7 @@ const update_inner = (
             FailedAccountPreferences: ({ account_id, details }) =>
                 model.contacts.session?.account_id === account_id
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               maybe_error: () => Option.some(details),
                           }),
                           [],
@@ -3005,7 +3005,7 @@ const update_inner = (
                         : []
 
                 return [
-                    evo(model, { appearance: () => appearance }),
+                    modifyFields(model, { appearance: () => appearance }),
                     [
                         ...Command.mapMessages(commands, (next_message) =>
                             GotAppearanceMessage({ message: next_message })
@@ -3079,9 +3079,9 @@ const update_inner = (
                         model.auth.account_menu,
                         message.message
                     )
-                    const next_model = evo(model, {
+                    const next_model = modifyFields(model, {
                         auth: (auth) =>
-                            evo(auth, { account_menu: () => account_menu }),
+                            modifyFields(auth, { account_menu: () => account_menu }),
                     })
                     const menu_commands = Command.mapMessages(
                         commands,
@@ -3110,13 +3110,13 @@ const update_inner = (
 
                 if (account_domain(model) !== undefined)
                     return [
-                        evo(model, { auth: () => auth }),
+                        modifyFields(model, { auth: () => auth }),
                         map_auth_commands(commands),
                     ]
 
                 if (auth.status !== "signed_in") {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             auth: () => auth,
                             domains_status: () => "idle",
                             domains: () => [],
@@ -3164,7 +3164,7 @@ const update_inner = (
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         auth: () => auth,
                         domains_status: (status) =>
                             model.auth.status === "signed_in"
@@ -3209,7 +3209,7 @@ const update_inner = (
                 )
 
                 return [
-                    evo(model, { appearance: () => appearance }),
+                    modifyFields(model, { appearance: () => appearance }),
                     Command.mapMessages(commands, (next_message) =>
                         GotAppearanceMessage({ message: next_message })
                     ),
@@ -3223,7 +3223,7 @@ const update_inner = (
                 )
 
                 return [
-                    evo(model, { issues: () => issues }),
+                    modifyFields(model, { issues: () => issues }),
                     map_issue_commands(commands),
                 ]
             },
@@ -3235,7 +3235,7 @@ const update_inner = (
                 )
 
                 return [
-                    evo(model, { events: () => events }),
+                    modifyFields(model, { events: () => events }),
                     map_event_commands(commands),
                 ]
             },
@@ -3358,7 +3358,7 @@ const update_inner = (
                         : [model.labs_marketing_landing, []]
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         media: () => media,
                         tags: () => tags,
                         labs_marketing_landing: () => labs_marketing_landing,
@@ -3389,7 +3389,7 @@ const update_inner = (
                 )
 
                 return [
-                    evo(model, { documents: () => documents }),
+                    modifyFields(model, { documents: () => documents }),
                     map_document_commands(commands),
                 ]
             },
@@ -3400,7 +3400,7 @@ const update_inner = (
                 )
 
                 return [
-                    evo(model, { bookmarks: () => bookmarks }),
+                    modifyFields(model, { bookmarks: () => bookmarks }),
                     map_bookmark_commands(commands),
                 ]
             },
@@ -3410,14 +3410,14 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_youtube: () => labs_youtube }),
+                    modifyFields(model, { labs_youtube: () => labs_youtube }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsYouTubeMessage({ message })
                     ),
                 ]
             },
             GotLabsServicesCanvasMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     labs_services_canvas: (canvas) =>
                         ServicesCanvasLab.update(canvas, message),
                 }),
@@ -3429,7 +3429,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_charting: () => labs_charting }),
+                    modifyFields(model, { labs_charting: () => labs_charting }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsChartingMessage({ message })
                     ),
@@ -3451,7 +3451,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_flex_form: () => labs_flex_form }),
+                    modifyFields(model, { labs_flex_form: () => labs_flex_form }),
                     Command.mapMessages(commands, (next_message) =>
                         GotLabsFlexFormMessage({ message: next_message })
                     ),
@@ -3463,7 +3463,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_ct_scan: () => labs_ct_scan }),
+                    modifyFields(model, { labs_ct_scan: () => labs_ct_scan }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsCtScanMessage({ message })
                     ),
@@ -3475,7 +3475,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         labs_grid_builder: () => labs_grid_builder,
                     }),
                     Command.mapMessages(commands, (next_message) =>
@@ -3489,7 +3489,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_prop_grid: () => labs_prop_grid }),
+                    modifyFields(model, { labs_prop_grid: () => labs_prop_grid }),
                     Command.mapMessages(commands, (next_message) =>
                         GotLabsPropGridMessage({ message: next_message })
                     ),
@@ -3578,7 +3578,7 @@ const update_inner = (
                             : []
                         : []
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         labs_marketing_landing: () => labs_marketing_landing,
                         pages: () => pages,
                         media: () => media,
@@ -3598,7 +3598,7 @@ const update_inner = (
             GotLearnMessage: ({ message }) => {
                 const [learn, commands] = Learn.update(model.learn, message)
                 return [
-                    evo(model, { learn: () => learn }),
+                    modifyFields(model, { learn: () => learn }),
                     Command.mapMessages(commands, (next_message) =>
                         GotLearnMessage({ message: next_message })
                     ),
@@ -3610,7 +3610,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         labs_slow_warnings: () => labs_slow_warnings,
                     }),
                     Command.mapMessages(commands, (message) =>
@@ -3624,7 +3624,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_dom_depth: () => labs_dom_depth }),
+                    modifyFields(model, { labs_dom_depth: () => labs_dom_depth }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsDomDepthMessage({ message })
                     ),
@@ -3636,7 +3636,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_spreadsheets: () => labs_spreadsheets }),
+                    modifyFields(model, { labs_spreadsheets: () => labs_spreadsheets }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsSpreadsheetsMessage({ message })
                     ),
@@ -3648,7 +3648,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         labs_variable_fonts: () => labs_variable_fonts,
                     }),
                     Command.mapMessages(commands, (message) =>
@@ -3662,7 +3662,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_cuelume: () => labs_cuelume }),
+                    modifyFields(model, { labs_cuelume: () => labs_cuelume }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsCuelumeMessage({ message })
                     ),
@@ -3674,7 +3674,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { dev_bookmarks: () => dev_bookmarks }),
+                    modifyFields(model, { dev_bookmarks: () => dev_bookmarks }),
                     Command.mapMessages(commands, (message) =>
                         GotDevBookmarksMessage({ message })
                     ),
@@ -3686,7 +3686,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_breach_check: () => labs_breach_check }),
+                    modifyFields(model, { labs_breach_check: () => labs_breach_check }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsBreachCheckMessage({ message })
                     ),
@@ -3698,7 +3698,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_otp_field: () => labs_otp_field }),
+                    modifyFields(model, { labs_otp_field: () => labs_otp_field }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsOtpFieldMessage({ message })
                     ),
@@ -3710,7 +3710,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         labs_music_notation: () => labs_music_notation,
                     }),
                     Command.mapMessages(commands, (message) =>
@@ -3739,7 +3739,7 @@ const update_inner = (
                           }
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         design_logo: () => design_logo,
                         domain_logos: (logos) =>
                             message._tag === "SavedLogo"
@@ -3758,7 +3758,7 @@ const update_inner = (
                         message
                     )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         labs_gallery_transitions: () =>
                             labs_gallery_transitions,
                     }),
@@ -3771,7 +3771,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_gallery: () => labs_gallery }),
+                    modifyFields(model, { labs_gallery: () => labs_gallery }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsGalleryMessage({ message })
                     ),
@@ -3783,7 +3783,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_search_bar: () => labs_search_bar }),
+                    modifyFields(model, { labs_search_bar: () => labs_search_bar }),
                     [],
                 ]
             },
@@ -3794,7 +3794,7 @@ const update_inner = (
                         message
                     )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         labs_query_sync_table: () => labs_query_sync_table,
                     }),
                     Command.mapMessages(commands, (message) =>
@@ -3808,7 +3808,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_urmcss: () => labs_urmcss }),
+                    modifyFields(model, { labs_urmcss: () => labs_urmcss }),
                     Command.mapMessages(commands, (message) =>
                         GotUrmcssMessage({ message })
                     ),
@@ -3820,7 +3820,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_ui: () => labs_ui }),
+                    modifyFields(model, { labs_ui: () => labs_ui }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsUiMessage({ message })
                     ),
@@ -3832,7 +3832,7 @@ const update_inner = (
                     message
                 )
                 return [
-                    evo(model, { labs_maps: () => labs_maps }),
+                    modifyFields(model, { labs_maps: () => labs_maps }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsMapMessage({ message })
                     ),
@@ -3841,7 +3841,7 @@ const update_inner = (
             GotDevMessage: ({ message }) => {
                 const [dev, commands] = Dev.update(model.dev, message)
                 return [
-                    evo(model, { dev: () => dev }),
+                    modifyFields(model, { dev: () => dev }),
                     [
                         ...Command.mapMessages(commands, (message) =>
                             GotDevMessage({ message })
@@ -3891,7 +3891,7 @@ const update_inner = (
                         : model.labs_marketing_landing
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         pages: () => pages,
                         labs_marketing_landing: () => labs_marketing_landing,
                     }),
@@ -3906,7 +3906,7 @@ const update_inner = (
                     DesktopDomains.project(model.domain_management).subdomains
                 )
                 return [
-                    evo(model, { design: () => design }),
+                    modifyFields(model, { design: () => design }),
                     [
                         ...map_design_commands(commands),
                         ...(message._tag === "ConfigurationSaved" &&
@@ -3950,7 +3950,7 @@ const update_inner = (
                         : [updated_social, []]
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         social: () => social,
                         social_refresh: (refresh) =>
                             message._tag === "SucceededSyncAccounts" ||
@@ -4002,7 +4002,7 @@ const update_inner = (
                         (message.operation === "update" &&
                             message.domain_id === model.contacts.domain_id))
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         domain_management: () => domain_management,
                     }),
                     [
@@ -4035,7 +4035,7 @@ const update_inner = (
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         domain_publishing: () => domain_publishing,
                     }),
                     map_domain_publishing_commands(commands),
@@ -4068,7 +4068,7 @@ const update_inner = (
                 )
                 if (account_selection !== undefined)
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             domain_switcher: () => domain_switcher,
                         }),
                         [
@@ -4083,13 +4083,13 @@ const update_inner = (
 
                 return Option.match(maybe_domain_id, {
                     onNone: () => [
-                        evo(model, {
+                        modifyFields(model, {
                             domain_switcher: () => domain_switcher,
                         }),
                         mapped_commands,
                     ],
                     onSome: (domain_id) => [
-                        evo(model, {
+                        modifyFields(model, {
                             domain_switcher: () => domain_switcher,
                             sysadmin: (sysadmin) =>
                                 Option.map(
@@ -4156,7 +4156,7 @@ const update_inner = (
             ReceivedDomains: ({ domains }) => {
                 if (domains.length === 0) {
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             domains_status: () => "success",
                             domains: () => [],
                             sysadmin: (sysadmin) =>
@@ -4238,7 +4238,7 @@ const update_inner = (
                     })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         domains_status: () => "success",
                         domains: () => domains,
                         sysadmin: (sysadmin) =>
@@ -4335,14 +4335,14 @@ const update_inner = (
             ReceivedDomainLogos: ({ account_id, catalog }) =>
                 model.contacts.session?.account_id === account_id &&
                 model.contacts.domain_id === catalog.domain_id
-                    ? [evo(model, { domain_logos: () => catalog.drafts }), []]
+                    ? [modifyFields(model, { domain_logos: () => catalog.drafts }), []]
                     : [model, []],
             FailedDomainLogos: () => [model, []],
             ReceivedLandingTemplates: ({ account_id, catalog }) =>
                 model.contacts.session?.account_id === account_id &&
                 model.contacts.domain_id === catalog.id
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               landing_templates: () => catalog.templates,
                               landing_templates_error: () => "",
                           }),
@@ -4353,14 +4353,14 @@ const update_inner = (
                 model.contacts.session?.account_id === account_id &&
                 model.contacts.domain_id === domain_id
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               landing_templates_error: () => details,
                           }),
                           [],
                       ]
                     : [model, []],
             ReceivedFormTemplates: ({ templates }) => [
-                evo(model, { form_templates: () => templates }),
+                modifyFields(model, { form_templates: () => templates }),
                 [],
             ],
             ReceivedFormsCatalog: ({ domain_id, catalog }) => {
@@ -4368,7 +4368,7 @@ const update_inner = (
                     return [model, []]
                 return Option.match(model.forms, {
                     onNone: () => [
-                        evo(model, { form_templates: () => catalog.templates }),
+                        modifyFields(model, { form_templates: () => catalog.templates }),
                         [],
                     ],
                     onSome: (forms_model) => {
@@ -4387,7 +4387,7 @@ const update_inner = (
                                   )
                                 : [listed, []]
                         return [
-                            evo(model, {
+                            modifyFields(model, {
                                 form_templates: () => catalog.templates,
                                 forms: () => Option.some(forms),
                             }),
@@ -4419,23 +4419,23 @@ const update_inner = (
                             forms_domain_id(model)
                         )
                         return [
-                            evo(model, { forms: () => Option.some(forms) }),
+                            modifyFields(model, { forms: () => Option.some(forms) }),
                             [],
                         ]
                     },
                 })
             },
             ReceivedNewsletterTemplates: ({ templates }) => [
-                evo(model, { newsletter_templates: () => templates }),
+                modifyFields(model, { newsletter_templates: () => templates }),
                 [],
             ],
             FailedNewsletterTemplates: ({ details }) => [
-                evo(model, { maybe_error: () => Option.some(details) }),
+                modifyFields(model, { maybe_error: () => Option.some(details) }),
                 [],
             ],
             ReceivedSocialTemplates: ({ domain_id, templates }) =>
                 Option.contains(social_domain_id(model), domain_id)
-                    ? [evo(model, { social_templates: () => templates }), []]
+                    ? [modifyFields(model, { social_templates: () => templates }), []]
                     : [model, []],
             ReceivedSocialData: ({
                 domain_id,
@@ -4477,7 +4477,7 @@ const update_inner = (
                     commands.push(...produced)
                 }
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         social: () => social,
                         social_templates: () => templates,
                     }),
@@ -4501,7 +4501,7 @@ const update_inner = (
                     )
                     social = next
                 }
-                return [evo(model, { social: () => social }), []]
+                return [modifyFields(model, { social: () => social }), []]
             },
             RequestedUseDocumentTemplate: ({ template_id }) => {
                 const [documents, commands] = DesktopDocuments.update(
@@ -4538,7 +4538,7 @@ const update_inner = (
                                 social_domain_id(model)
                             )
                             return [
-                                evo(model, { social: () => social }),
+                                modifyFields(model, { social: () => social }),
                                 [
                                     ...map_social_commands(commands),
                                     navigateInternalHref(
@@ -4609,7 +4609,7 @@ const update_inner = (
                             forms_domain_id(model)
                         )
                         return [
-                            evo(model, {
+                            modifyFields(model, {
                                 forms: () => Option.some(next_forms),
                             }),
                             [
@@ -4633,7 +4633,7 @@ const update_inner = (
                         MarketingLanding.SavedTemplate()
                     )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         labs_marketing_landing: () => labs_marketing_landing,
                         landing_templates: () => catalog.templates,
                     }),
@@ -4649,7 +4649,7 @@ const update_inner = (
                         MarketingLanding.FailedTemplateSave({ error: details })
                     )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         labs_marketing_landing: () => labs_marketing_landing,
                     }),
                     Command.mapMessages(commands, (message) =>
@@ -4668,7 +4668,7 @@ const update_inner = (
                     model.pages.ui.is_loading
                 )
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             landing_templates_error: () =>
                                 "Pages are still loading. Try again in a moment.",
                         }),
@@ -4680,7 +4680,7 @@ const update_inner = (
                     )
                 )
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             landing_templates_error: () =>
                                 "This publication already has a landing page. Edit or remove it before using a template.",
                         }),
@@ -4740,14 +4740,14 @@ const update_inner = (
                 model.contacts.session?.account_id === account_id &&
                 model.contacts.domain_id === catalog.id
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               landing_templates: () => catalog.templates,
                           }),
                           [],
                       ]
                     : [model, []],
             FailedDomains: ({ details }) => [
-                evo(model, {
+                modifyFields(model, {
                     domains_status: () => "error",
                     maybe_error: () => Option.some(details),
                 }),
@@ -4761,7 +4761,7 @@ const update_inner = (
                 )
 
                 return [
-                    evo(model, { projects: () => projects }),
+                    modifyFields(model, { projects: () => projects }),
                     map_project_commands(commands),
                 ]
             },
@@ -4773,7 +4773,7 @@ const update_inner = (
                 )
 
                 return [
-                    evo(model, { shop: () => shop }),
+                    modifyFields(model, { shop: () => shop }),
                     map_shop_commands(commands),
                 ]
             },
@@ -5193,7 +5193,7 @@ const update_inner = (
                         : updated_mail
 
                 return [
-                    evo(model, { mail: () => mail }),
+                    modifyFields(model, { mail: () => mail }),
                     [
                         ...map_mail_commands(commands),
                         ...(is_new_email_route && saved_draft_id !== null
@@ -5212,7 +5212,7 @@ const update_inner = (
                 const [chat, commands] = DesktopChat.update(model.chat, message)
 
                 return [
-                    evo(model, { chat: () => chat }),
+                    modifyFields(model, { chat: () => chat }),
                     Command.mapMessages(commands, (message) =>
                         GotChatMessage({ message })
                     ),
@@ -5259,7 +5259,7 @@ const update_inner = (
                                   )
                                 : commands
                         return [
-                            evo(model, {
+                            modifyFields(model, {
                                 forms: () => Option.some(forms),
                                 forms_refresh: (current) =>
                                     message._tag === "FormTemplateSaved"
@@ -5301,7 +5301,7 @@ const update_inner = (
                 )
 
                 return [
-                    evo(model, { data: () => data }),
+                    modifyFields(model, { data: () => data }),
                     map_data_commands(commands),
                 ]
             },
@@ -5320,7 +5320,7 @@ const update_inner = (
                             model.contacts.session?.account_id
                         )
                         return [
-                            evo(model, {
+                            modifyFields(model, {
                                 sysadmin: () => Option.some(sysadmin),
                             }),
                             [
@@ -5347,7 +5347,7 @@ const update_inner = (
                     },
                 }),
             FailedData: ({ details }) => [
-                evo(model, { maybe_error: () => Option.some(details) }),
+                modifyFields(model, { maybe_error: () => Option.some(details) }),
                 [],
             ],
         })

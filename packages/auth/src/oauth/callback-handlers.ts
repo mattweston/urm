@@ -4,7 +4,7 @@
  * Login-url, session, and logout endpoints. The Google authorize/callback pair
  * lives in ./google-handlers.ts.
  */
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpServerRequest, HttpServerResponse } from "effect/http"
 import { Effect } from "effect"
 import { AuthConfig, ServerConfig } from "@urm/env/server"
 import { Redacted } from "effect"

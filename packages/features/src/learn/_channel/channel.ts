@@ -1,7 +1,7 @@
 import { Channel, Effect, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Channel examples
@@ -194,31 +194,31 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedChannelStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedChannelSourceMode: ({ sourceMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 sourceMode: () => sourceMode,
             }),
         }),
 
         SelectedChannelTransformMode: ({ transformMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 transformMode: () => transformMode,
             }),
         }),
 
         SelectedChannelComposeMode: ({ composeMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 composeMode: () => composeMode,
             }),
         }),
 
         SelectedChannelRunMode: ({ runMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 runMode: () => runMode,
             }),
         }),

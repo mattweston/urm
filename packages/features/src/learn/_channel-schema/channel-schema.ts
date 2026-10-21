@@ -2,7 +2,7 @@ import { Channel, ChannelSchema, Schema as S } from "effect"
 import type { Array as Arr } from "effect"
 import type { Update as FoldkitUpdate } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 ChannelSchema examples
@@ -162,25 +162,25 @@ type UpdateReturn = FoldkitUpdate.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedChannelSchemaStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedChannelSchemaDecodeMode: ({ decodeMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 decodeMode: () => decodeMode,
             }),
         }),
 
         SelectedChannelSchemaEncodeMode: ({ encodeMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 encodeMode: () => encodeMode,
             }),
         }),
 
         SelectedChannelSchemaBoundaryMode: ({ boundaryMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 boundaryMode: () => boundaryMode,
             }),
         }),

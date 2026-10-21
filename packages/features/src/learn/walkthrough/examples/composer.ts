@@ -1,7 +1,7 @@
 import { Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 export const Model = S.Struct({
     draft: S.String,
@@ -30,14 +30,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedComposerDraft: ({ value }) => ({
-                model: evo(model, { draft: () => value }),
+                model: modifyFields(model, { draft: () => value }),
             }),
             SubmittedComposer: () => {
                 const text = model.draft.trim()
                 return text === ""
                     ? { model }
                     : {
-                          model: evo(model, { draft: () => "" }),
+                          model: modifyFields(model, { draft: () => "" }),
                           outMessage: PostedComment({ text }),
                       }
             },

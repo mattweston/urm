@@ -1,7 +1,7 @@
 import { Effect, Option, Schema as S } from "effect"
 import { Command, Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Child Submodel used by the foldChild example
@@ -21,13 +21,13 @@ export type ChildMessage = typeof ChildMessage.Type
 export const childUpdate = (model: ChildModel, message: ChildMessage) =>
     ChildMessage.match<Update.Return<ChildModel, ChildMessage>>(message, {
         ClickedIncrement: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: (count) => count + 1,
             }),
         }),
 
         ClickedReset: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: () => 0,
             }),
         }),
@@ -156,21 +156,21 @@ export const AuditUpdate = Command.define("AuditUpdate", {
 // -----------------------------------------------------------------------------
 
 export const openDialog: Update.Step<Model, Message> = (model) => ({
-    model: evo(model, {
+    model: modifyFields(model, {
         dialogOpen: () => true,
         combineLog: (log) => [...log, "1. openDialog → dialogOpen = true"],
     }),
 })
 
 export const clearStatus: Update.Step<Model, Message> = (model) => ({
-    model: evo(model, {
+    model: modifyFields(model, {
         status: () => "Clean",
         combineLog: (log) => [...log, "2. clearStatus → status = Clean"],
     }),
 })
 
 export const queueAudit: Update.Step<Model, Message> = (model) => ({
-    model: evo(model, {
+    model: modifyFields(model, {
         combineLog: (log) => [
             ...log,
             "3. queueAudit → return AuditUpdate Command",
@@ -194,7 +194,7 @@ export const foldChildCounter = Update.foldChild({
     read: (model: Model) => Option.some(model.child),
 
     write: (model, nextChild) =>
-        evo(model, {
+        modifyFields(model, {
             child: () => nextChild,
         }),
 
@@ -213,7 +213,7 @@ export const closeAndReport = (
     reason: string
 ): Update.ReturnWithOutMessage<Model, Message, OutMessage> => {
     const dialogClose: Update.Return<Model, Message> = {
-        model: evo(model, {
+        model: modifyFields(model, {
             dialogOpen: () => false,
         }),
     }
@@ -235,20 +235,20 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedUpdateStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         // Pure transition: no side effect, no Command.
         ClickedPureIncrement: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: (count) => count + 1,
             }),
         }),
 
         ClickedPureReset: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: () => 3,
             }),
         }),
@@ -258,7 +258,7 @@ export const update = (model: Model, message: Message) =>
             const nextCount = model.count + 1
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     count: () => nextCount,
                     isPersisting: () => true,
                 }),
@@ -272,7 +272,7 @@ export const update = (model: Model, message: Message) =>
 
         // Command result comes back as another Message.
         CompletedPersistCount: ({ count }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 persistedCount: () => count,
                 isPersisting: () => false,
             }),
@@ -284,7 +284,7 @@ export const update = (model: Model, message: Message) =>
             Update.combine(model, [openDialog, clearStatus, queueAudit]),
 
         CompletedAudit: ({ label }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 auditCompleted: () => true,
                 combineLog: (log) => [
                     ...log,
@@ -299,7 +299,7 @@ export const update = (model: Model, message: Message) =>
         // The root lesson does not emit an OutMessage itself; this button
         // reveals the separate closeAndReport helper in the visual panel.
         ClickedShowOutMessageExample: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 showOutMessageExample: () => true,
             }),
         }),

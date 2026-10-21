@@ -1,7 +1,7 @@
 import { Cause, Effect, Schema as S, TxQueue } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TXQUEUE PROGRAMS
@@ -491,20 +491,20 @@ type CompleteCasePayload = Readonly<{ completeCase: CompleteCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTxQueueStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTxQueueCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, { createCase: () => createCase }),
+            model: modifyFields(model, { createCase: () => createCase }),
         }),
         SelectedTxQueueOfferCase: ({ offerCase }: OfferCasePayload) => ({
-            model: evo(model, { offerCase: () => offerCase }),
+            model: modifyFields(model, { offerCase: () => offerCase }),
         }),
         SelectedTxQueueTakeCase: ({ takeCase }: TakeCasePayload) => ({
-            model: evo(model, { takeCase: () => takeCase }),
+            model: modifyFields(model, { takeCase: () => takeCase }),
         }),
         SelectedTxQueueCompleteCase: ({
             completeCase,
         }: CompleteCasePayload) => ({
-            model: evo(model, { completeCase: () => completeCase }),
+            model: modifyFields(model, { completeCase: () => completeCase }),
         }),
     })

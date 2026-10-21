@@ -1,7 +1,7 @@
 import { Chunk, Match, Option, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Chunk examples
@@ -184,37 +184,37 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedChunkStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedChunkAccessMode: ({ mode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 accessMode: () => mode,
             }),
         }),
 
         SelectedChunkAccessIndex: ({ index }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 accessIndex: () => index,
             }),
         }),
 
         SelectedChunkConcatMode: ({ mode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 concatMode: () => mode,
             }),
         }),
 
         SelectedChunkTransformMode: ({ mode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 transformMode: () => mode,
             }),
         }),
 
         SelectedChunkShapeMode: ({ mode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 shapeMode: () => mode,
             }),
         }),

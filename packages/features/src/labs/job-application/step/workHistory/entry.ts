@@ -12,7 +12,7 @@ import {
 } from "foldkit/fieldValidation"
 import type { Rules } from "foldkit/fieldValidation"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // FIELD VALIDATION
 
@@ -99,12 +99,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedCompany: ({ value }) => [
-                evo(model, { company: () => validateCompany(value) }),
+                modifyFields(model, { company: () => validateCompany(value) }),
                 [],
             ],
 
             UpdatedTitle: ({ value }) => [
-                evo(model, { title: () => validateTitle(value) }),
+                modifyFields(model, { title: () => validateTitle(value) }),
                 [],
             ],
 
@@ -131,13 +131,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 // maybeStartDate and mirrors it onto the end picker's minimum.
                 const nextModel = Option.match(maybeOutMessage, {
                     onNone: () =>
-                        evo(model, { startDate: () => nextStartDate }),
+                        modifyFields(model, { startDate: () => nextStartDate }),
                     onSome: M.type<Ui.DatePicker.OutMessage>().pipe(
                         M.tagsExhaustive({
                             ChangedViewMonth: () =>
-                                evo(model, { startDate: () => nextStartDate }),
+                                modifyFields(model, { startDate: () => nextStartDate }),
                             SelectedDate: ({ date }) =>
-                                evo(model, {
+                                modifyFields(model, {
                                     startDate: () => nextStartDate,
                                     maybeStartDate: () => Option.some(date),
                                     endDate: () =>
@@ -147,7 +147,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                         ),
                                 }),
                             ClearedDate: () =>
-                                evo(model, {
+                                modifyFields(model, {
                                     startDate: () => nextStartDate,
                                     maybeStartDate: () => Option.none(),
                                     endDate: () =>
@@ -181,13 +181,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 const nextModel = Option.match(maybeOutMessage, {
-                    onNone: () => evo(model, { endDate: () => nextEndDate }),
+                    onNone: () => modifyFields(model, { endDate: () => nextEndDate }),
                     onSome: M.type<Ui.DatePicker.OutMessage>().pipe(
                         M.tagsExhaustive({
                             ChangedViewMonth: () =>
-                                evo(model, { endDate: () => nextEndDate }),
+                                modifyFields(model, { endDate: () => nextEndDate }),
                             SelectedDate: ({ date }) =>
-                                evo(model, {
+                                modifyFields(model, {
                                     endDate: () => nextEndDate,
                                     maybeEndDate: () => Option.some(date),
                                     startDate: () =>
@@ -197,7 +197,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                         ),
                                 }),
                             ClearedDate: () =>
-                                evo(model, {
+                                modifyFields(model, {
                                     endDate: () => nextEndDate,
                                     maybeEndDate: () => Option.none(),
                                     startDate: () =>
@@ -214,12 +214,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ToggledIsCurrentlyEmployed: ({ isChecked }) => [
-                evo(model, { isCurrentlyEmployed: () => isChecked }),
+                modifyFields(model, { isCurrentlyEmployed: () => isChecked }),
                 [],
             ],
 
             UpdatedDescription: ({ value }) => [
-                evo(model, { description: () => value }),
+                modifyFields(model, { description: () => value }),
                 [],
             ],
         })

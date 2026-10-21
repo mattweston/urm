@@ -1,7 +1,7 @@
 import { Duration, Effect, Match as M, Option, Schema as S } from "effect"
 import { Command, Subscription, type Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as Audio from "../audio.ts"
 import * as Timer from "./timer.ts"
@@ -72,7 +72,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 is_saving(model)
                     ? { model, commands: [] }
                     : {
-                          model: evo(model, {
+                          model: modifyFields(model, {
                               maybe_pending_liked: () =>
                                   Option.some(!displayed_liked(model)),
                               maybe_error: () => Option.none(),
@@ -92,7 +92,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           ],
                       },
             SucceededSaveLike: ({ liked }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     liked_on_server: () => liked,
                     maybe_pending_liked: () => Option.none(),
                     timer: Timer.settle,
@@ -100,7 +100,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [Audio.play(Audio.LikeConfirmed())],
             }),
             FailedSaveLike: ({ error }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     maybe_pending_liked: () => Option.none(),
                     maybe_error: () => Option.some(error),
                     timer: Timer.settle,
@@ -108,11 +108,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             ToggledFailureSimulation: () => ({
-                model: evo(model, { is_failure_simulated: (value) => !value }),
+                model: modifyFields(model, { is_failure_simulated: (value) => !value }),
                 commands: [Audio.play(Audio.SwitchFlipped())],
             }),
             TickedLikeTimer: ({ now_ms }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     timer: (timer) => Timer.tick(timer, now_ms),
                 }),
                 commands: [],

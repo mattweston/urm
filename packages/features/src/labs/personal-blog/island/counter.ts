@@ -1,7 +1,7 @@
 import { Match as M, Schema as S } from "effect"
 import { Command, Submodel } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { Button } from "@foldkit/ui"
 
@@ -23,11 +23,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ClickedDecrement: () => [
-                evo(model, { count: (count) => count - 1 }),
+                modifyFields(model, { count: (count) => count - 1 }),
                 [],
             ],
             ClickedIncrement: () => [
-                evo(model, { count: (count) => count + 1 }),
+                modifyFields(model, { count: (count) => count + 1 }),
                 [],
             ],
         })

@@ -62,7 +62,7 @@ export const runMigrations = (
             )
         `)
 
-        const db_migrations = yield* db.execute<AppliedMigration>(sql`
+        const { rows: db_migrations } = yield* db.execute<AppliedMigration>(sql`
             SELECT id, hash, created_at, name
             FROM ${migrationsTable()}
             ORDER BY id ASC

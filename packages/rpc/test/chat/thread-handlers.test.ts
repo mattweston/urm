@@ -1,5 +1,5 @@
 import { Effect, Layer, ManagedRuntime, Schema } from "effect"
-import { RpcTest } from "effect/unstable/rpc"
+import { RpcTest } from "effect/rpc"
 import { describe, expect, it } from "vitest"
 
 import {

@@ -8,7 +8,7 @@ import {
 } from "effect"
 import { Subscription, type Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 const TICK_INTERVAL_MS = 50
 
@@ -126,39 +126,39 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ClickedPlayBasicQueue: () => ({
-                model: evo(model, { basic: play }),
+                model: modifyFields(model, { basic: play }),
                 commands: [],
             }),
             ClickedRestartBasicQueue: () => ({
-                model: evo(model, { basic: () => idle_playback() }),
+                model: modifyFields(model, { basic: () => idle_playback() }),
                 commands: [],
             }),
             ClickedPlayManyQueue: () => ({
-                model: evo(model, { many: play }),
+                model: modifyFields(model, { many: play }),
                 commands: [],
             }),
             ClickedRestartManyQueue: () => ({
-                model: evo(model, { many: () => idle_playback() }),
+                model: modifyFields(model, { many: () => idle_playback() }),
                 commands: [],
             }),
             ClickedPlayLockQueue: () => ({
-                model: evo(model, { lock: play }),
+                model: modifyFields(model, { lock: play }),
                 commands: [],
             }),
             ClickedRestartLockQueue: () => ({
-                model: evo(model, { lock: () => idle_playback() }),
+                model: modifyFields(model, { lock: () => idle_playback() }),
                 commands: [],
             }),
             ClickedPlayRetryQueue: () => ({
-                model: evo(model, { retry: play }),
+                model: modifyFields(model, { retry: play }),
                 commands: [],
             }),
             ClickedRestartRetryQueue: () => ({
-                model: evo(model, { retry: () => idle_playback() }),
+                model: modifyFields(model, { retry: () => idle_playback() }),
                 commands: [],
             }),
             TickedPersistedQueue: ({ now_ms }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     basic: (value) => tick(value, now_ms, BASIC_DURATION_MS),
                     many: (value) => tick(value, now_ms, MANY_DURATION_MS),
                     lock: (value) => tick(value, now_ms, LOCK_DURATION_MS),

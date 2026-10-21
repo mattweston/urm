@@ -1,7 +1,7 @@
 import { Effect, Exit, Match as M, Schema as S, Scope } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // These effects are not run by the teaching UI. They are compiled examples of
 // the real Effect APIs that the visual state machine below explains.
@@ -195,13 +195,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedScopeStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
             ClickedScopeLifetimeAcquire: () => ({
                 model:
                     model.lifetime.state === "idle"
-                        ? evo(model, {
+                        ? modifyFields(model, {
                               lifetime: (lifetime) => ({
                                   state: "open",
                                   log: append(
@@ -216,7 +216,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ClickedScopeLifetimeUse: () => ({
                 model:
                     model.lifetime.state === "open"
-                        ? evo(model, {
+                        ? modifyFields(model, {
                               lifetime: (lifetime) => ({
                                   ...lifetime,
                                   log: append(
@@ -231,7 +231,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ClickedScopeLifetimeClose: () => ({
                 model:
                     model.lifetime.state === "open"
-                        ? evo(model, {
+                        ? modifyFields(model, {
                               lifetime: (lifetime) => ({
                                   state: "closed",
                                   log: append(
@@ -244,7 +244,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             ClickedScopeLifetimeReset: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     lifetime: () => ({ state: "idle", log: [] }),
                 }),
                 commands: [],
@@ -254,7 +254,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     model.finalizers.is_closed ||
                     model.finalizers.registered.includes(name)
                         ? model
-                        : evo(model, {
+                        : modifyFields(model, {
                               finalizers: (finalizers) => ({
                                   ...finalizers,
                                   registered: append(
@@ -275,7 +275,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     .reverse()
                     .map((name) => `finalize · ${name}`)
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         finalizers: (finalizers) => ({
                             ...finalizers,
                             is_closed: true,
@@ -290,7 +290,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
             },
             ClickedResetScopeFinalizers: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     finalizers: () => ({
                         registered: [],
                         log: [],
@@ -300,7 +300,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             SelectedScopeExit: ({ exit }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     acquire_release: (acquire_release) => ({
                         ...acquire_release,
                         exit,
@@ -311,7 +311,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             ClickedRunAcquireRelease: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     acquire_release: (acquire_release) => ({
                         ...acquire_release,
                         has_run: true,
@@ -328,7 +328,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             ClickedResetAcquireRelease: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     acquire_release: (acquire_release) => ({
                         ...acquire_release,
                         log: [],
@@ -338,7 +338,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             ClickedStartManualScopes: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     manual_scopes: () => ({
                         scope_1: "open",
                         scope_2: "open",
@@ -356,7 +356,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 if (!manual.has_started) return { model, commands: [] }
                 if (scope === 1 && manual.scope_1 === "open") {
                     return {
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             manual_scopes: (manual_scopes) => ({
                                 ...manual_scopes,
                                 scope_1: "closed",
@@ -371,7 +371,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
                 if (scope === 2 && manual.scope_2 === "open") {
                     return {
-                        model: evo(model, {
+                        model: modifyFields(model, {
                             manual_scopes: (manual_scopes) => ({
                                 ...manual_scopes,
                                 scope_2: "closed",
@@ -388,7 +388,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
             ClickedManualScopeOtherWork: () => ({
                 model: model.manual_scopes.has_started
-                    ? evo(model, {
+                    ? modifyFields(model, {
                           manual_scopes: (manual_scopes) => ({
                               ...manual_scopes,
                               log: append(
@@ -401,7 +401,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 commands: [],
             }),
             ClickedResetManualScopes: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     manual_scopes: () => ({
                         scope_1: "open",
                         scope_2: "open",

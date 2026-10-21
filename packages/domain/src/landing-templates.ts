@@ -40,7 +40,7 @@ export const SaveLandingTemplateInput = Schema.Struct({
 })
 export type SaveLandingTemplateInput = typeof SaveLandingTemplateInput.Type
 
-export class LandingTemplateError extends Schema.TaggedErrorClass<LandingTemplateError>()(
+export class LandingTemplateError extends Schema.TaggedError<LandingTemplateError>()(
     "LandingTemplateError",
     { message: Schema.String }
 ) {}

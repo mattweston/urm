@@ -13,7 +13,7 @@ import {
     resolveUploadObject,
 } from "@urm/utils/upload"
 
-export class UploadError extends Schema.TaggedErrorClass<UploadError>()(
+export class UploadError extends Schema.TaggedError<UploadError>()(
     "UploadError",
     {
         status: Schema.Number,

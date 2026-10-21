@@ -1,7 +1,7 @@
 import { Effect, Option, Schema as S } from "effect"
 import { Command, Runtime, type Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real application Flags / Model / Message
@@ -90,13 +90,13 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         ClickedIncrement: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 count: (count) => count + 1,
             }),
         }),
 
         CompletedWarmStartup: ({ count }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 startupWarm: () => true,
             }),
         }),
@@ -261,37 +261,37 @@ const nextBootStep = (step: BootStep): BootStep =>
 export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
     DemoMessage.match<DemoUpdateReturn>(message, {
         SelectedInitFlagsStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedInitFlagCase: ({ flagCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 flagCase: () => flagCase,
             }),
         }),
 
         ClickedAdvanceFreshBoot: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 bootStep: nextBootStep,
             }),
         }),
 
         ClickedResetFreshBoot: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 bootStep: () => 0,
             }),
         }),
 
         SelectedServerFlagCase: ({ flagCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 hydrationServerFlags: () => flagCase,
             }),
         }),
 
         SelectedClientFlagCase: ({ flagCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 hydrationClientFlags: () => flagCase,
             }),
         }),

@@ -10,7 +10,7 @@ import {
     type UpdateDraftInput,
 } from "./store.ts"
 
-export class SocialSubmissionError extends Schema.TaggedErrorClass<SocialSubmissionError>()(
+export class SocialSubmissionError extends Schema.TaggedError<SocialSubmissionError>()(
     "SocialSubmissionError",
     { message: Schema.String, uncertain: Schema.Boolean }
 ) {}

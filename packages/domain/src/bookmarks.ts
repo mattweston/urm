@@ -39,7 +39,7 @@ export type Bookmark = typeof Bookmark.Type
 
 export type BookmarkCatalogRecord = typeof BookmarkCatalogRecord.Type
 
-export class BookmarksWriteError extends Schema.TaggedErrorClass<BookmarksWriteError>()(
+export class BookmarksWriteError extends Schema.TaggedError<BookmarksWriteError>()(
     "BookmarksWriteError",
     { message: Schema.String }
 ) {}

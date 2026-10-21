@@ -1,7 +1,7 @@
 import { Iterable as EffectIterable, Option, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // MODEL
@@ -661,31 +661,31 @@ type FoldCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedIterableStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedIterableCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 createCase: () => createCase,
             }),
         }),
 
         SelectedIterableLazyCase: ({ lazyCase }: LazyCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 lazyCase: () => lazyCase,
             }),
         }),
 
         SelectedIterableSearchCase: ({ searchCase }: SearchCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 searchCase: () => searchCase,
             }),
         }),
 
         SelectedIterableFoldCase: ({ foldCase }: FoldCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 foldCase: () => foldCase,
             }),
         }),

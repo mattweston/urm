@@ -65,7 +65,7 @@ export const BuildPublicationInput = Schema.Struct({
     idempotency_key: PublishingIdempotencyKey,
 })
 export type BuildPublicationInput = typeof BuildPublicationInput.Type
-export class PublishingError extends Schema.TaggedErrorClass<PublishingError>()(
+export class PublishingError extends Schema.TaggedError<PublishingError>()(
     "PublishingError",
     { message: Schema.String }
 ) {}

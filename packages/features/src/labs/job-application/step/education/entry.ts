@@ -11,7 +11,7 @@ import {
 } from "foldkit/fieldValidation"
 import type { Rules } from "foldkit/fieldValidation"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 const GraduationYearListbox = Ui.Listbox.create<string>()
 
@@ -119,22 +119,22 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedSchool: ({ value }) => [
-                evo(model, { school: () => validateSchool(value) }),
+                modifyFields(model, { school: () => validateSchool(value) }),
                 [],
             ],
 
             UpdatedDegree: ({ value }) => [
-                evo(model, { degree: () => validateDegree(value) }),
+                modifyFields(model, { degree: () => validateDegree(value) }),
                 [],
             ],
 
             UpdatedFieldOfStudy: ({ value }) => [
-                evo(model, { fieldOfStudy: () => validateFieldOfStudy(value) }),
+                modifyFields(model, { fieldOfStudy: () => validateFieldOfStudy(value) }),
                 [],
             ],
 
             UpdatedGraduationYear: ({ value }) => [
-                evo(model, { graduationYear: () => value }),
+                modifyFields(model, { graduationYear: () => value }),
                 [],
             ],
 
@@ -152,7 +152,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         graduationYear: () =>
                             Option.match(maybeOutMessage, {
                                 onNone: () => model.graduationYear,
@@ -165,11 +165,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ToggledIsCurrentlyEnrolled: ({ isChecked }) => [
-                evo(model, { isCurrentlyEnrolled: () => isChecked }),
+                modifyFields(model, { isCurrentlyEnrolled: () => isChecked }),
                 [],
             ],
 
-            UpdatedGpa: ({ value }) => [evo(model, { gpa: () => value }), []],
+            UpdatedGpa: ({ value }) => [modifyFields(model, { gpa: () => value }), []],
         })
     )
 

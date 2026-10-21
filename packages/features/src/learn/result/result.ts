@@ -1,7 +1,7 @@
 import { Match as M, Option, pipe, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Result examples
@@ -232,31 +232,31 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedResultStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             SelectedResultConstructMode: ({ mode }) => ({
-                model: evo(model, { construct_mode: () => mode }),
+                model: modifyFields(model, { construct_mode: () => mode }),
                 commands: [],
             }),
 
             ClickedToggleResultOption: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     option_present: (present) => !present,
                 }),
                 commands: [],
             }),
 
             ClickedToggleResultTryJson: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     try_valid_json: (valid) => !valid,
                 }),
                 commands: [],
             }),
 
             SelectedResultTransformInput: ({ input }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     transform_input: () => input,
                     transform_step: () => 0,
                 }),
@@ -264,36 +264,36 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedAdvanceResultTransform: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     transform_step: (step) => Math.min(3, step + 1),
                 }),
                 commands: [],
             }),
 
             ClickedResetResultTransform: () => ({
-                model: evo(model, { transform_step: () => 0 }),
+                model: modifyFields(model, { transform_step: () => 0 }),
                 commands: [],
             }),
 
             SelectedResultRecoverMode: ({ mode }) => ({
-                model: evo(model, { recover_mode: () => mode }),
+                model: modifyFields(model, { recover_mode: () => mode }),
                 commands: [],
             }),
 
             ClickedToggleResultRecoverBranch: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     recover_success: (success) => !success,
                 }),
                 commands: [],
             }),
 
             SelectedResultCombineMode: ({ mode }) => ({
-                model: evo(model, { combine_mode: () => mode }),
+                model: modifyFields(model, { combine_mode: () => mode }),
                 commands: [],
             }),
 
             ClickedToggleResultCombineAge: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     combine_age_ok: (ok) => !ok,
                 }),
                 commands: [],

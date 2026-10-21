@@ -1,6 +1,6 @@
 import { Match as M, Number, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { ComputeSquare } from "./command.ts"
 import {
     EngineBooting,
@@ -24,31 +24,31 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ClickedStartComputeEngine: () => [
-                evo(model, { engine: () => EngineBooting() }),
+                modifyFields(model, { engine: () => EngineBooting() }),
                 [],
             ],
             ClickedStopComputeEngine: () => [
-                evo(model, { engine: () => EngineOff() }),
+                modifyFields(model, { engine: () => EngineOff() }),
                 [],
             ],
             StartedComputeEngine: ({ engineId }) => [
-                evo(model, { engine: () => EngineReady({ engineId }) }),
+                modifyFields(model, { engine: () => EngineReady({ engineId }) }),
                 [],
             ],
             StoppedComputeEngine: () => [model, []],
             FailedStartComputeEngine: ({ reason }) => [
-                evo(model, { engine: () => EngineFailed({ reason }) }),
+                modifyFields(model, { engine: () => EngineFailed({ reason }) }),
                 [],
             ],
             ClickedComputeSquare: () => {
                 const computeCount = Number.increment(model.computeCount)
                 return [
-                    evo(model, { computeCount: () => computeCount }),
+                    modifyFields(model, { computeCount: () => computeCount }),
                     [ComputeSquare({ value: computeCount })],
                 ]
             },
             CompletedComputeSquare: ({ result }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeSquareResult: () => Option.some(result),
                 }),
                 [],

@@ -1,7 +1,7 @@
 import { Effect, Option, Semaphore, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SEMAPHORE PROGRAMS
@@ -601,31 +601,31 @@ type ResizeCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSemaphoreStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedSemaphoreCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 createCase: () => createCase,
             }),
         }),
 
         SelectedSemaphoreGuardCase: ({ guardCase }: GuardCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 guardCase: () => guardCase,
             }),
         }),
 
         SelectedSemaphoreManualCase: ({ manualCase }: ManualCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 manualCase: () => manualCase,
             }),
         }),
 
         SelectedSemaphoreResizeCase: ({ resizeCase }: ResizeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 resizeCase: () => resizeCase,
             }),
         }),

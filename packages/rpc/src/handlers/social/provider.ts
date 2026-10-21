@@ -2,7 +2,7 @@ import { Config, Context, Effect, Layer, Redacted, Schema } from "effect"
 
 const base_url = "https://zernio.com/api"
 
-export class ZernioProviderError extends Schema.TaggedErrorClass<ZernioProviderError>()(
+export class ZernioProviderError extends Schema.TaggedError<ZernioProviderError>()(
     "ZernioProviderError",
     {
         operation: Schema.String,
@@ -574,7 +574,7 @@ export const make_zernio_provider = (
 export const ZernioProviderLive = Layer.effect(
     ZernioProvider,
     Effect.gen(function* () {
-        const api_key = yield* Config.redacted("ZERNIO_API_KEY")
+        const api_key = yield* Config.Redacted("ZERNIO_API_KEY")
         return make_zernio_provider(api_key)
     })
 )

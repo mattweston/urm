@@ -1,5 +1,5 @@
 import { Effect, Layer, ManagedRuntime, Redacted, Ref, Schema } from "effect"
-import { Rpc, RpcClient, RpcGroup, RpcTest } from "effect/unstable/rpc"
+import { Rpc, RpcClient, RpcGroup, RpcTest } from "effect/rpc"
 import { describe, expect, it } from "vitest"
 import {
     ActiveDomainRequestContext,

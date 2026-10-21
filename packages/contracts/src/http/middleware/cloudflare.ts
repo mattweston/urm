@@ -10,7 +10,7 @@
  * https://github.com/backpine/effect-worker-mono
  */
 
-import { HttpApiMiddleware } from "effect/unstable/httpapi"
+import { HttpApiMiddleware } from "effect/http-api"
 import { Context, Schema } from "effect"
 
 export type CloudflareBindingsType = Readonly<{

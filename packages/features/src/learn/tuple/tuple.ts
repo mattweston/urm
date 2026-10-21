@@ -7,7 +7,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Tuple examples
@@ -188,40 +188,40 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedTupleStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             SelectedTupleIndex: ({ index }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     selected_index: () => index,
                 }),
                 commands: [],
             }),
 
             SelectedTupleSelectMode: ({ mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     select_mode: () => mode,
                 }),
                 commands: [],
             }),
 
             SelectedTupleTransformMode: ({ mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     transform_mode: () => mode,
                 }),
                 commands: [],
             }),
 
             SelectedTupleInstanceMode: ({ mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     instance_mode: () => mode,
                 }),
                 commands: [],
             }),
 
             SelectedTupleGuardLength: ({ length }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     guard_length: () => length,
                 }),
                 commands: [],

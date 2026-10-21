@@ -5,7 +5,7 @@
  */
 import { createHash } from "node:crypto"
 import { generateState, generateCodeVerifier, OAuth2RequestError } from "arctic"
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import { HttpServerRequest, HttpServerResponse } from "effect/http"
 import { Effect, Metric, Redacted, Schema } from "effect"
 import { AuthConfig, ServerConfig } from "@urm/env/server"
 import { DB } from "@urm/db"

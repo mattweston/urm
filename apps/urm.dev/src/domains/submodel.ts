@@ -2,7 +2,7 @@ import { Effect, Option, Schema as S, Struct } from "effect"
 import { Command, Submodel } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
 import { defineMessageUnion } from "foldkit/message"
-import { Remote, RemoteMutationError } from "foldkit-remote"
+import { Remote, RemoteData, RemoteMutationError } from "foldkit-remote"
 import { Surface } from "foldkit-surface"
 import * as Domains from "@urm/features/domains/publishing"
 import { SubdomainAction, SubdomainFields } from "@urm/domain/subdomains"
@@ -132,21 +132,51 @@ const query = (domain_id: string) =>
         { domain_id },
         { select: SubdomainSummary, first: 1 }
     )
-export const library = (model: Model) => {
-    const result = query(model.domain_id).read({ remote: model.remote })
-    return result._tag === "Ready" ? result.value.items[0] : undefined
-}
-export const project = (model: Model): Domains.Model => ({
-    ...model.ui,
-    busy: model.pending || model.ui.busy,
-    loading_subdomains: model.pending && library(model) === undefined,
-    subdomains: (library(model)?.subdomains ?? []).map(
-        ({ expires_at, ...row }) => ({
+export const library = (model: Model) =>
+    query(model.domain_id).read({ remote: model.remote })
+export const project = (model: Model): Domains.Model => {
+    const base = { ...model.ui, busy: model.pending || model.ui.busy }
+    // Generic: naming only `expires_at` would narrow the element and drop
+    // every other field off the spread.
+    const rows = <T extends { readonly expires_at: number | null }>(
+        subdomains: ReadonlyArray<T>
+    ) =>
+        subdomains.map(({ expires_at, ...row }) => ({
             ...row,
             ...(expires_at === null ? {} : { expires_at }),
-        })
-    ),
-})
+        }))
+    return RemoteData.render(library(model), {
+        // Was `model.pending && library(model) === undefined`, which inferred
+        // "loading" from a missing value and so stayed false for a failed read.
+        loading: (): Domains.Model => ({
+            ...base,
+            subdomains: [],
+            loading_subdomains: true,
+            error: Option.none(),
+        }),
+        notFound: (): Domains.Model => ({
+            ...base,
+            subdomains: [],
+            loading_subdomains: false,
+            error: Option.none(),
+        }),
+        failed: (error): Domains.Model => ({
+            ...base,
+            subdomains: [],
+            loading_subdomains: false,
+            error: Option.some(error.message),
+        }),
+        data: (page, freshness): Domains.Model => ({
+            ...base,
+            subdomains: rows(page.items[0]?.subdomains ?? []),
+            loading_subdomains: freshness._tag === "Refreshing",
+            error:
+                freshness._tag === "Stale"
+                    ? Option.some(freshness.error.message)
+                    : Option.none(),
+        }),
+    })
+}
 const LoadSubdomainCatalog = Command.define("LoadSubdomainCatalog", {
     args: {
         account_id: S.String,

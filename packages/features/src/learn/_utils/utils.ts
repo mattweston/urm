@@ -1,7 +1,7 @@
 import { Option, Result, Schema as S, Utils } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Utils examples
@@ -116,37 +116,37 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message): UpdateReturn =>
     Message.match<UpdateReturn>(message, {
         SelectedUtilsStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedUtilsSingleValue: ({ singleValue }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 singleValue: () => singleValue,
             }),
         }),
 
         SelectedUtilsReturnValue: ({ returnValue }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 returnValue: () => returnValue,
             }),
         }),
 
         SelectedUtilsGenKind: ({ genKind }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 genKind: () => genKind,
             }),
         }),
 
         ToggledUtilsGenFailure: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 genFails: (value) => !value,
             }),
         }),
 
         SelectedUtilsVarianceSlot: ({ varianceSlot }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 varianceSlot: () => varianceSlot,
             }),
         }),

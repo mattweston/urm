@@ -1,7 +1,7 @@
 import { HashRing, PrimaryKey, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // NODES
@@ -663,31 +663,31 @@ type ShardCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedHashRingStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedHashRingBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedHashRingRouteCase: ({ routeCase }: RouteCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 routeCase: () => routeCase,
             }),
         }),
 
         SelectedHashRingWeightCase: ({ weightCase }: WeightCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 weightCase: () => weightCase,
             }),
         }),
 
         SelectedHashRingShardCase: ({ shardCase }: ShardCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 shardCase: () => shardCase,
             }),
         }),

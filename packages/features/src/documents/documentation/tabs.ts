@@ -2,7 +2,7 @@ import { Effect, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Ui from "@foldkit/ui"
 
 export const Model = S.Struct({
@@ -39,7 +39,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
     const maybe_out = Option.fromUndefinedOr(maybe_out_value)
 
     return [
-        evo(model, {
+        modifyFields(model, {
             tabs: () => tabs,
             selected_value: () =>
                 Option.match(maybe_out, {

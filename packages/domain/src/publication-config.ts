@@ -75,7 +75,7 @@ export const PublicationConfigurationAction = Schema.Union([
 ])
 export type PublicationConfigurationAction =
     typeof PublicationConfigurationAction.Type
-export class PublicationConfigurationError extends Schema.TaggedErrorClass<PublicationConfigurationError>()(
+export class PublicationConfigurationError extends Schema.TaggedError<PublicationConfigurationError>()(
     "PublicationConfigurationError",
     { message: Schema.String }
 ) {}

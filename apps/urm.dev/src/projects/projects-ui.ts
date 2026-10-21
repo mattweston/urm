@@ -3,7 +3,7 @@ import { Effect, Match as M, Option, Order, Schema as S, String } from "effect"
 import { Command, Submodel, Subscription as FoldkitSubscription } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Ui from "@foldkit/ui"
 
 import {
@@ -545,7 +545,7 @@ export const changed_route = (model: Model, route: DesktopRoute): Model => {
             Option.contains(model.selected_project_id, project_id),
     })
 
-    return evo(model, {
+    return modifyFields(model, {
         route: () => route,
         selected_project_id: () => selected_project_id,
         opened_project_id: () =>
@@ -565,7 +565,7 @@ export const update = (
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ReceivedProjects: ({ projects }) => [
-                evo(model, {
+                modifyFields(model, {
                     projects: () => projects,
                     selected_project_id: () =>
                         selected_project_for_route(projects, model.route),
@@ -576,32 +576,32 @@ export const update = (
                 [],
             ],
             ReceivedTasks: ({ tasks }) => [
-                evo(model, {
+                modifyFields(model, {
                     tasks: () => tasks,
                     maybe_error: () => Option.none(),
                 }),
                 [],
             ],
             FailedData: ({ details }) => [
-                evo(model, { maybe_error: () => Option.some(details) }),
+                modifyFields(model, { maybe_error: () => Option.some(details) }),
                 [],
             ],
             ClickedAddProject: ({ status }) => [
-                evo(model, {
+                modifyFields(model, {
                     new_project_status: () => Option.some(status),
                     new_project_name: () => "",
                 }),
                 [],
             ],
             CancelledNewProject: () => [
-                evo(model, {
+                modifyFields(model, {
                     new_project_status: () => Option.none(),
                     new_project_name: () => "",
                 }),
                 [],
             ],
             ChangedNewProjectName: ({ value }) => [
-                evo(model, { new_project_name: () => value }),
+                modifyFields(model, { new_project_name: () => value }),
                 [],
             ],
             SubmittedNewProject: ({ status }) => {
@@ -629,7 +629,7 @@ export const update = (
                 })
             },
             SucceededCreateProject: ({ project_id }) => [
-                evo(model, {
+                modifyFields(model, {
                     selected_project_id: () => Option.some(project_id),
                     new_project_name: () => "",
                     new_project_status: () => Option.none(),
@@ -649,7 +649,7 @@ export const update = (
                 )
 
                 return [
-                    evo(model, { projects: () => projects }),
+                    modifyFields(model, { projects: () => projects }),
                     [
                         ReorderProjects({
                             positions: project_positions(projects),
@@ -682,7 +682,7 @@ export const update = (
 
                 return Option.match(maybe_out_message, {
                     onNone: () => [
-                        evo(model, {
+                        modifyFields(model, {
                             project_drag_and_drop: () => drag_and_drop,
                         }),
                         mapped_commands,
@@ -692,7 +692,7 @@ export const update = (
                             M.withReturnType<readonly [Model, Commands]>(),
                             M.tagsExhaustive({
                                 Cancelled: () => [
-                                    evo(model, {
+                                    modifyFields(model, {
                                         project_drag_and_drop: () =>
                                             drag_and_drop,
                                         project_announcement: () =>
@@ -716,7 +716,7 @@ export const update = (
                                         toIndex
                                     )
                                     return [
-                                        evo(model, {
+                                        modifyFields(model, {
                                             projects: () => projects,
                                             project_drag_and_drop: () =>
                                                 drag_and_drop,
@@ -738,7 +738,7 @@ export const update = (
             },
             SucceededReorderProjects: () => [model, []],
             ClickedEditProject: ({ project_id }) => [
-                evo(model, {
+                modifyFields(model, {
                     editing_project: () =>
                         Option.map(
                             Array.findFirst(
@@ -755,7 +755,7 @@ export const update = (
                 model.saving_project
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               editing_project: (editing) =>
                                   Option.map(editing, (project) => ({
                                       ...project,
@@ -768,7 +768,7 @@ export const update = (
                 model.saving_project
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               editing_project: () => Option.none(),
                               maybe_error: () => Option.none(),
                           }),
@@ -785,7 +785,7 @@ export const update = (
                             trimmed_name.length > 255
                         ) {
                             return [
-                                evo(model, {
+                                modifyFields(model, {
                                     maybe_error: () =>
                                         Option.some(
                                             "Enter a project title between 1 and 255 characters."
@@ -795,7 +795,7 @@ export const update = (
                             ]
                         }
                         return [
-                            evo(model, {
+                            modifyFields(model, {
                                 saving_project: () => true,
                                 maybe_error: () => Option.none(),
                             }),
@@ -804,7 +804,7 @@ export const update = (
                     },
                 }),
             SucceededRenameProject: ({ project }) => [
-                evo(model, {
+                modifyFields(model, {
                     projects: (projects) =>
                         projects.map((existing) =>
                             existing.id === project.id ? project : existing
@@ -822,7 +822,7 @@ export const update = (
                 [],
             ],
             FailedRenameProject: ({ details }) => [
-                evo(model, {
+                modifyFields(model, {
                     saving_project: () => false,
                     maybe_error: () => Option.some(details),
                 }),
@@ -836,7 +836,7 @@ export const update = (
                     )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         pending_delete_project_id: () =>
                             Option.some(project_id),
                         delete_project_dialog: () => delete_project_dialog,
@@ -855,7 +855,7 @@ export const update = (
                     Ui.Dialog.update(model.delete_project_dialog, message)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         delete_project_dialog: () => delete_project_dialog,
                     }),
                     commands.map(
@@ -880,7 +880,7 @@ export const update = (
                             )
 
                         return [
-                            evo(model, {
+                            modifyFields(model, {
                                 pending_delete_project_id: () => Option.none(),
                                 delete_project_dialog: () =>
                                     delete_project_dialog,
@@ -901,7 +901,7 @@ export const update = (
                     },
                 }),
             SucceededDeleteProject: ({ project_id }) => [
-                evo(model, {
+                modifyFields(model, {
                     opened_project_id: (opened) =>
                         Option.filter(opened, (id) => id !== project_id),
                     selected_project_id: (selected) =>
@@ -958,7 +958,7 @@ export const update = (
 
                 return Option.match(maybe_out_message, {
                     onNone: () => [
-                        evo(model, {
+                        modifyFields(model, {
                             task_drag_and_drop: () => drag_and_drop,
                         }),
                         mapped_commands,
@@ -968,7 +968,7 @@ export const update = (
                             M.withReturnType<readonly [Model, Commands]>(),
                             M.tagsExhaustive({
                                 Cancelled: () => [
-                                    evo(model, {
+                                    modifyFields(model, {
                                         task_drag_and_drop: () => drag_and_drop,
                                     }),
                                     mapped_commands,
@@ -988,7 +988,7 @@ export const update = (
                                         model.selected_project_id,
                                         {
                                             onNone: () => [
-                                                evo(model, {
+                                                modifyFields(model, {
                                                     task_drag_and_drop: () =>
                                                         drag_and_drop,
                                                 }),
@@ -1002,7 +1002,7 @@ export const update = (
                                                 )
 
                                                 return [
-                                                    evo(model, {
+                                                    modifyFields(model, {
                                                         tasks: () => tasks,
                                                         task_drag_and_drop:
                                                             () => drag_and_drop,
@@ -1028,7 +1028,7 @@ export const update = (
             },
             SucceededReorderTasks: () => [model, []],
             ChangedNewTaskTitle: ({ value }) => [
-                evo(model, { new_task_title: () => value }),
+                modifyFields(model, { new_task_title: () => value }),
                 [],
             ],
             SubmittedNewTask: () => {
@@ -1042,14 +1042,14 @@ export const update = (
                 })
             },
             SucceededCreateTask: () => [
-                evo(model, {
+                modifyFields(model, {
                     new_task_title: () => "",
                     maybe_error: () => Option.none(),
                 }),
                 [],
             ],
             ClickedSetTaskStatus: ({ task_id, status }) => [
-                evo(model, {
+                modifyFields(model, {
                     tasks: (tasks) =>
                         Array.map(tasks, (task) =>
                             task.id === task_id ? { ...task, status } : task
@@ -1059,7 +1059,7 @@ export const update = (
             ],
             SucceededSetTaskStatus: () => [model, []],
             ClickedEditTask: ({ task_id }) => [
-                evo(model, {
+                modifyFields(model, {
                     editing_task: () =>
                         Option.map(
                             Array.findFirst(
@@ -1072,7 +1072,7 @@ export const update = (
                 [],
             ],
             ChangedEditingTaskTitle: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     editing_task: (editing_task) =>
                         Option.map(editing_task, ({ task_id }) => ({
                             task_id,
@@ -1089,13 +1089,13 @@ export const update = (
 
                         return trimmed_title.length === 0
                             ? [
-                                  evo(model, {
+                                  modifyFields(model, {
                                       editing_task: () => Option.none(),
                                   }),
                                   [],
                               ]
                             : [
-                                  evo(model, {
+                                  modifyFields(model, {
                                       tasks: (tasks) =>
                                           Array.map(tasks, (task) =>
                                               task.id === task_id
@@ -1117,12 +1117,12 @@ export const update = (
                     },
                 }),
             CancelledEditingTask: () => [
-                evo(model, { editing_task: () => Option.none() }),
+                modifyFields(model, { editing_task: () => Option.none() }),
                 [],
             ],
             SucceededUpdateTaskTitle: () => [model, []],
             ClickedDeleteTask: ({ task_id }) => [
-                evo(model, {
+                modifyFields(model, {
                     tasks: (tasks) =>
                         Array.filter(tasks, (task) => task.id !== task_id),
                     editing_task: () => Option.none(),
@@ -1131,7 +1131,7 @@ export const update = (
             ],
             SucceededDeleteTask: () => [model, []],
             SelectedTaskFilter: ({ filter }) => [
-                evo(model, { task_filter: () => filter }),
+                modifyFields(model, { task_filter: () => filter }),
                 [],
             ],
             ClickedToggleAllTasks: () => {
@@ -1145,7 +1145,7 @@ export const update = (
                 return Option.match(model.selected_project_id, {
                     onNone: () => [model, []],
                     onSome: (project_id) => [
-                        evo(model, {
+                        modifyFields(model, {
                             tasks: (tasks) =>
                                 Array.map(tasks, (task) => ({
                                     ...task,
@@ -1161,7 +1161,7 @@ export const update = (
                 Option.match(model.selected_project_id, {
                     onNone: () => [model, []],
                     onSome: (project_id) => [
-                        evo(model, {
+                        modifyFields(model, {
                             tasks: (tasks) =>
                                 Array.filter(
                                     tasks,

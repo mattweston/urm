@@ -1,7 +1,7 @@
 import { Context, Data, Effect, Effectable, Exit, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL EFFECTABLE EXAMPLES
@@ -469,31 +469,31 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedEffectableStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedEffectableClassCase: ({ classCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 classCase: () => classCase,
             }),
         }),
 
         SelectedEffectableYieldCase: ({ yieldCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 yieldCase: () => yieldCase,
             }),
         }),
 
         SelectedEffectableMixinCase: ({ mixinCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 mixinCase: () => mixinCase,
             }),
         }),
 
         SelectedEffectablePrototypeCase: ({ prototypeCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 prototypeCase: () => prototypeCase,
             }),
         }),

@@ -1,7 +1,7 @@
 import { Match as M, Option, Record as R, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Record examples
@@ -180,17 +180,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedRecordStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             SelectedRecordLookupKey: ({ key }) => ({
-                model: evo(model, { lookup_key: () => key }),
+                model: modifyFields(model, { lookup_key: () => key }),
                 commands: [],
             }),
 
             SelectedRecordMutation: ({ mutation }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     mutation: () => mutation,
                     mutation_applied: () => false,
                 }),
@@ -198,27 +198,27 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedApplyRecordMutation: () => ({
-                model: evo(model, { mutation_applied: () => true }),
+                model: modifyFields(model, { mutation_applied: () => true }),
                 commands: [],
             }),
 
             ClickedResetRecordMutation: () => ({
-                model: evo(model, { mutation_applied: () => false }),
+                model: modifyFields(model, { mutation_applied: () => false }),
                 commands: [],
             }),
 
             SelectedRecordTransform: ({ transform }) => ({
-                model: evo(model, { transform: () => transform }),
+                model: modifyFields(model, { transform: () => transform }),
                 commands: [],
             }),
 
             SelectedRecordThreshold: ({ threshold }) => ({
-                model: evo(model, { threshold: () => threshold }),
+                model: modifyFields(model, { threshold: () => threshold }),
                 commands: [],
             }),
 
             SelectedRecordFoldMode: ({ mode }) => ({
-                model: evo(model, { fold_mode: () => mode }),
+                model: modifyFields(model, { fold_mode: () => mode }),
                 commands: [],
             }),
         })

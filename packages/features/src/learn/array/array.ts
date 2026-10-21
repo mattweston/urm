@@ -1,7 +1,7 @@
 import { Array as Arr, Match as M, Option, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Array examples
@@ -189,42 +189,42 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedArrayStage: ({ stage }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     stage: () => stage,
                 }),
                 commands: [],
             }),
 
             SelectedArrayAccessMode: ({ access_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     access_mode: () => access_mode,
                 }),
                 commands: [],
             }),
 
             SelectedArrayAccessIndex: ({ index }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     access_index: () => index,
                 }),
                 commands: [],
             }),
 
             SelectedArrayTransformMode: ({ transform_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     transform_mode: () => transform_mode,
                 }),
                 commands: [],
             }),
 
             SelectedArrayFilterMode: ({ filter_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     filter_mode: () => filter_mode,
                 }),
                 commands: [],
             }),
 
             SelectedArrayShapeMode: ({ shape_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     shape_mode: () => shape_mode,
                 }),
                 commands: [],

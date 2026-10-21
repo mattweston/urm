@@ -1,6 +1,6 @@
 import { Array, Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { generateApplePosition } from "./command.ts"
 import { CONTROLS, GAME } from "./constants.ts"
@@ -77,7 +77,7 @@ const updateOnTick = (model: Model): UpdateReturn => {
 
     if (Snake.hasCollision(nextSnake)) {
         return [
-            evo(model, {
+            modifyFields(model, {
                 gameState: () => "GameOver",
                 highScore: (highScore) => Math.max(model.points, highScore),
             }),
@@ -88,7 +88,7 @@ const updateOnTick = (model: Model): UpdateReturn => {
     const commands = willEatApple ? [generateApplePosition(nextSnake)] : []
 
     return [
-        evo(model, {
+        modifyFields(model, {
             snake: () => nextSnake,
             direction: () => currentDirection,
             points: (points) =>
@@ -116,7 +116,7 @@ const updateOnPressedKey = (model: Model, key: string): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         nextDirection: () => mapMovementKey(movementKey),
                     }),
                     [],
@@ -124,14 +124,14 @@ const updateOnPressedKey = (model: Model, key: string): UpdateReturn =>
             }
         ),
         M.when(CONTROLS.SPACE, () => [
-            evo(model, { gameState: () => nextGameState(model.gameState) }),
+            modifyFields(model, { gameState: () => nextGameState(model.gameState) }),
             [],
         ]),
         M.when(CONTROLS.RESTART, () => {
             const snake = Snake.create(GAME.INITIAL_POSITION)
 
             return [
-                evo(model, {
+                modifyFields(model, {
                     snake: () => snake,
                     apple: () => GAME.INITIAL_APPLE_POSITION,
                     direction: () => GAME.INITIAL_DIRECTION,
@@ -152,7 +152,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             TickedClock: () => updateOnTick(model),
             PressedKey: ({ key }) => updateOnPressedKey(model, key),
             GeneratedApplePosition: ({ position }) => [
-                evo(model, {
+                modifyFields(model, {
                     apple: () => position,
                 }),
                 [],

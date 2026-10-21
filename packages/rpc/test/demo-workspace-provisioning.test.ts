@@ -1,6 +1,6 @@
 import * as ConfigProvider from "effect/ConfigProvider"
 import { Effect, Layer, ManagedRuntime, Ref, Schema } from "effect"
-import { RpcTest } from "effect/unstable/rpc"
+import { RpcTest } from "effect/rpc"
 import { describe, expect, it } from "vitest"
 import { AuthPersistence } from "@urm/auth/auth-persistence"
 import { DemoWorkspaceProvisioning } from "@urm/db"

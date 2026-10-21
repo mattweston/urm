@@ -55,7 +55,7 @@ export const runDomainContactProfileBackfill = <E, R>(
 const updateDomainContactProfileBatch = (batch_size: number) =>
     Effect.gen(function* () {
         const db = yield* DB
-        const rows = yield* db.execute<UpdatedDomainContactProfile>(sql`
+        const { rows } = yield* db.execute<UpdatedDomainContactProfile>(sql`
             WITH candidates AS (
                 SELECT domain_contact.id, NULLIF(BTRIM(contact.name), '') AS display_name
                 FROM domain_contacts AS domain_contact

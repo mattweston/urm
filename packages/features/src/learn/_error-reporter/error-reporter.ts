@@ -1,7 +1,7 @@
 import { Cause, Effect, ErrorReporter, LogLevel, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REPORTABLE DOMAIN ERRORS
@@ -643,7 +643,7 @@ type DedupeCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedErrorReporterStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -651,7 +651,7 @@ export const update = (model: Model, message: Message) =>
         SelectedErrorReporterCaptureCase: ({
             captureCase,
         }: CaptureCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 captureCase: () => captureCase,
             }),
         }),
@@ -659,13 +659,13 @@ export const update = (model: Model, message: Message) =>
         SelectedErrorReporterAnnotationCase: ({
             annotationCase,
         }: AnnotationCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 annotationCase: () => annotationCase,
             }),
         }),
 
         SelectedErrorReporterLayerCase: ({ layerCase }: LayerCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 layerCase: () => layerCase,
             }),
         }),
@@ -673,7 +673,7 @@ export const update = (model: Model, message: Message) =>
         SelectedErrorReporterDedupeCase: ({
             dedupeCase,
         }: DedupeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 dedupeCase: () => dedupeCase,
             }),
         }),

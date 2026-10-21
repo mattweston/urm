@@ -1,5 +1,5 @@
 import { Effect, Layer, Option, Schema as S } from "effect"
-import { FetchHttpClient, HttpClient } from "effect/unstable/http"
+import { FetchHttpClient, HttpClient } from "effect/http"
 import { Command } from "foldkit"
 import { getChart } from "./chart-host.ts"
 import { ChartMode, PackageId, Period, Telemetry } from "./domain.ts"

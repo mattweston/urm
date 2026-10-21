@@ -1,7 +1,7 @@
 import { Schema as S, SchemaAST } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SCHEMA AST EXAMPLES
@@ -710,7 +710,7 @@ type ParseCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSchemaASTStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -718,7 +718,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaASTInspectCase: ({
             inspectCase,
         }: InspectCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 inspectCase: () => inspectCase,
             }),
         }),
@@ -726,7 +726,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaASTConstructCase: ({
             constructCase,
         }: ConstructCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 constructCase: () => constructCase,
             }),
         }),
@@ -734,13 +734,13 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaASTTransformCase: ({
             transformCase,
         }: TransformCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 transformCase: () => transformCase,
             }),
         }),
 
         SelectedSchemaASTParseCase: ({ parseCase }: ParseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 parseCase: () => parseCase,
             }),
         }),

@@ -1,5 +1,5 @@
 import { Layer } from "effect"
-import { Rpc, RpcGroup, RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { Rpc, RpcGroup, RpcSerialization, RpcServer } from "effect/rpc"
 import { hasRpcCsrfHeader } from "@urm/utils"
 
 export const rpc_request_rejection = (request: Request): Response | null => {

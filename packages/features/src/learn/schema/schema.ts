@@ -1,7 +1,7 @@
 import { Match as M, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Schema examples
@@ -164,40 +164,40 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedSchemaStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             ToggledSchemaType: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     shape_show_type: (value) => !value,
                 }),
                 commands: [],
             }),
 
             SelectedSchemaDecodeCase: ({ decode_case }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     decode_case: () => decode_case,
                 }),
                 commands: [],
             }),
 
             SelectedNumberCodec: ({ number_codec }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     number_codec: () => number_codec,
                 }),
                 commands: [],
             }),
 
             UpdatedSchemaTransformInput: ({ value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     transform_input: () => value,
                 }),
                 commands: [],
             }),
 
             ToggledSchemaEncodeEmail: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     encode_has_email: (value) => !value,
                 }),
                 commands: [],

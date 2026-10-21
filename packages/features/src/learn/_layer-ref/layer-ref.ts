@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, LayerRef, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN SERVICE + REAL LAYER
@@ -469,19 +469,19 @@ type ServiceCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedLayerRefStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedLayerRefBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedLayerRefAccessCase: ({ accessCase }: AccessCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 accessCase: () => accessCase,
             }),
         }),
@@ -489,13 +489,13 @@ export const update = (model: Model, message: Message) =>
         SelectedLayerRefInvalidateCase: ({
             invalidateCase,
         }: InvalidateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 invalidateCase: () => invalidateCase,
             }),
         }),
 
         SelectedLayerRefServiceCase: ({ serviceCase }: ServiceCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 serviceCase: () => serviceCase,
             }),
         }),

@@ -1,6 +1,6 @@
 import { Array, Match as M, Option, pipe } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { LoadRtCatalog, LoadRtPainting, SaveRtDraft } from "./command.ts"
 import {
@@ -105,7 +105,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         : model.paintingStatus
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => route,
                         catalogStatus: () => catalogStatus,
                         paintingStatus: () => paintingStatus,
@@ -124,14 +124,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             SucceededLoadRtCatalog: () => [
-                evo(model, { catalogStatus: () => "Ready" }),
+                modifyFields(model, { catalogStatus: () => "Ready" }),
                 [],
             ],
             SucceededLoadRtPainting: ({ paintingId }) =>
                 model.paintingStatus._tag === "PaintingLoading" &&
                 model.paintingStatus.paintingId === paintingId
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               paintingStatus: () =>
                                   PaintingReady({ paintingId }),
                           }),
@@ -139,11 +139,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                       ]
                     : [model, []],
             UpdatedRtStudioDraft: ({ value }) => [
-                evo(model, { studioDraft: () => value }),
+                modifyFields(model, { studioDraft: () => value }),
                 [],
             ],
             SucceededSaveRtDraft: ({ draft }) => [
-                evo(model, { maybeSavedDraft: () => Option.some(draft) }),
+                modifyFields(model, { maybeSavedDraft: () => Option.some(draft) }),
                 [],
             ],
         })

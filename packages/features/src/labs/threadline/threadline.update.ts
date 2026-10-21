@@ -1,6 +1,6 @@
 import { Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import {
     PublishThreadlinePost,
     SaveThreadlineLike,
@@ -27,11 +27,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             ChangedRoute: ({ route }) => [
-                evo(model, { route: () => route }),
+                modifyFields(model, { route: () => route }),
                 [],
             ],
             ChangedComposer: ({ value }) => [
-                evo(model, { composer: () => value.slice(0, 280) }),
+                modifyFields(model, { composer: () => value.slice(0, 280) }),
                 [],
             ],
             SubmittedPost: () => {
@@ -50,7 +50,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     status: "Sending",
                 }
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         posts: (posts) => [post, ...posts],
                         composer: () => "",
                         next_sequence: (value) => value + 1,
@@ -61,11 +61,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             CompletedPost: ({ id, body, is_success }) =>
                 is_success
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               posts: (posts) =>
                                   posts.map((post) =>
                                       post.id === id
-                                          ? evo(post, {
+                                          ? modifyFields(post, {
                                                 status: () => "Published",
                                             })
                                           : post
@@ -85,7 +85,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           [],
                       ]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               posts: (posts) =>
                                   posts.filter((post) => post.id !== id),
                               notices: (notices) => [
@@ -109,11 +109,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 if (post === undefined) return [model, []]
                 const operation = model.next_operation
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         posts: (posts) =>
                             posts.map((item) =>
                                 item.id === id
-                                    ? evo(item, {
+                                    ? modifyFields(item, {
                                           liked: (liked) => !liked,
                                           likes: (likes) =>
                                               likes + (item.liked ? -1 : 1),
@@ -152,7 +152,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 if (pending === undefined) return [model, []]
                 if (is_success)
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             pending_likes: (items) =>
                                 items.filter((item) => item.post_id !== id),
                         }),
@@ -165,11 +165,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                 ?.author === person.handle
                     )?.name ?? "Post"
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         posts: (posts) =>
                             posts.map((post) =>
                                 post.id === id
-                                    ? evo(post, {
+                                    ? modifyFields(post, {
                                           liked: () => pending.previous_liked,
                                           likes: () => pending.previous_likes,
                                       })
@@ -195,18 +195,18 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             ToggledSave: ({ id }) => [
-                evo(model, {
+                modifyFields(model, {
                     posts: (posts) =>
                         posts.map((post) =>
                             post.id === id
-                                ? evo(post, { saved: (saved) => !saved })
+                                ? modifyFields(post, { saved: (saved) => !saved })
                                 : post
                         ),
                 }),
                 [],
             ],
             ToggledFollow: ({ handle }) => [
-                evo(model, {
+                modifyFields(model, {
                     following: (following) =>
                         following.includes(handle)
                             ? following.filter((item) => item !== handle)
@@ -215,14 +215,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ToggledOnline: () => [
-                evo(model, { online: (online) => !online }),
+                modifyFields(model, { online: (online) => !online }),
                 [],
             ],
             ReceivedLivePost: () =>
                 model.posts.some((post) => post.id === "lena-live")
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               posts: (posts) => [
                                   {
                                       id: "lena-live",
@@ -244,7 +244,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const selected = model.notices.find((item) => item.id === id)
                 if (selected === undefined || !model.online) return [model, []]
                 if (selected.retry_kind === "Post") {
-                    const without = evo(model, {
+                    const without = modifyFields(model, {
                         notices: (items) =>
                             items.filter((item) => item.id !== id),
                         composer: () => selected.body,
@@ -256,7 +256,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         onNone: () => [model, []],
                         onSome: (post_id) =>
                             update(
-                                evo(model, {
+                                modifyFields(model, {
                                     notices: (items) =>
                                         items.filter((item) => item.id !== id),
                                 }),
@@ -266,7 +266,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 return [model, []]
             },
             DismissedNotice: ({ id }) => [
-                evo(model, {
+                modifyFields(model, {
                     notices: (items) => items.filter((item) => item.id !== id),
                 }),
                 [],

@@ -3,7 +3,7 @@ import {
     FetchHttpClient,
     HttpClient,
     HttpClientRequest,
-} from "effect/unstable/http"
+} from "effect/http"
 import { Command } from "foldkit"
 import { studios } from "../interactive-map/interactive-map.studio.ts"
 import {

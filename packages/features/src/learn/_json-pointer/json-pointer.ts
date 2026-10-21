@@ -1,7 +1,7 @@
 import { JsonPointer, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // MODEL
@@ -417,31 +417,31 @@ type EdgeCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedJsonPointerStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedJsonPointerTokenCase: ({ tokenCase }: TokenCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 tokenCase: () => tokenCase,
             }),
         }),
 
         SelectedJsonPointerFormatCase: ({ formatCase }: FormatCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 formatCase: () => formatCase,
             }),
         }),
 
         SelectedJsonPointerParseCase: ({ parseCase }: ParseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 parseCase: () => parseCase,
             }),
         }),
 
         SelectedJsonPointerEdgeCase: ({ edgeCase }: EdgeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 edgeCase: () => edgeCase,
             }),
         }),

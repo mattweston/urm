@@ -3,7 +3,7 @@ import { Command, File, Navigation, Submodel } from "foldkit"
 import type { Url } from "foldkit/url"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
-import { Remote } from "foldkit-remote"
+import { Remote, RemoteData } from "foldkit-remote"
 import { Surface } from "foldkit-surface"
 import * as Media from "@urm/features/media/submodel"
 import { DEFAULT_TAG_COLOR } from "@urm/features/tags/submodel"
@@ -75,20 +75,58 @@ export const Data = Remote.make({
 })
 const library_query = (domain_id: string) =>
     Data.query(DomainMedia, { domain_id }, { select: LibrarySummary, first: 1 })
+/**
+ * Carries every `RemoteData` state into the UI model instead of reducing the
+ * read to `Ready`-or-nothing, which rendered a failed library as an empty one
+ * and dropped the value `Refreshing` and `Failed.previous` still hold.
+ *
+ * `Ready` with an empty page is a separate case from `NotFound`: the query asks
+ * for one row, and a domain that has none is not a read that failed.
+ */
 export const project = (model: Model): Media.ModelType => {
     const result = library_query(model.domain_id).read({ remote: model.remote })
-    const data = result._tag === "Ready" ? result.value.items[0] : undefined
-    return {
-        ...model.ui,
-        can_write: model.can_write && !model.pending,
-        images: data?.images ?? [],
-        tags: data?.tags ?? [],
-        entityTags: data?.entity_tags ?? [],
-        videos: (data?.videos ?? []).map(({ youtube_id, ...video }) => ({
-            ...video,
-            ...(youtube_id === null ? {} : { youtube_id }),
-        })),
-    }
+    const base = { ...model.ui, can_write: model.can_write && !model.pending }
+    const none = { images: [], tags: [], entityTags: [], videos: [] } as const
+    return RemoteData.render(result, {
+        loading: (): Media.ModelType => ({
+            ...base,
+            ...none,
+            loading: true,
+            error: null,
+        }),
+        notFound: (): Media.ModelType => ({
+            ...base,
+            ...none,
+            loading: false,
+            error: null,
+        }),
+        failed: (error): Media.ModelType => ({
+            ...base,
+            ...none,
+            loading: false,
+            error: error.message,
+        }),
+        data: (page, freshness): Media.ModelType => {
+            const data = page.items[0]
+            const loading = freshness._tag === "Refreshing"
+            const error =
+                freshness._tag === "Stale" ? freshness.error.message : null
+            return data === undefined
+                ? { ...base, ...none, loading, error }
+                : {
+                      ...base,
+                      loading,
+                      error,
+                      images: data.images,
+                      tags: data.tags,
+                      entityTags: data.entity_tags,
+                      videos: data.videos.map(({ youtube_id, ...video }) => ({
+                          ...video,
+                          ...(youtube_id === null ? {} : { youtube_id }),
+                      })),
+                  }
+        },
+    })
 }
 export const init = (pathname: string): Model => ({
     ui: ui_only(Media.init(pathname)[0]),

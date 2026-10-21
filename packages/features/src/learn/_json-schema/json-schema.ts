@@ -1,7 +1,7 @@
 import { JsonSchema, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // MODEL
@@ -670,7 +670,7 @@ type ReferenceCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedJsonSchemaStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -678,13 +678,13 @@ export const update = (model: Model, message: Message) =>
         SelectedJsonSchemaNormalizeCase: ({
             normalizeCase,
         }: NormalizeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 normalizeCase: () => normalizeCase,
             }),
         }),
 
         SelectedJsonSchemaEmitCase: ({ emitCase }: EmitCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 emitCase: () => emitCase,
             }),
         }),
@@ -692,7 +692,7 @@ export const update = (model: Model, message: Message) =>
         SelectedJsonSchemaOpenApiCase: ({
             openApiCase,
         }: OpenApiCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 openApiCase: () => openApiCase,
             }),
         }),
@@ -700,7 +700,7 @@ export const update = (model: Model, message: Message) =>
         SelectedJsonSchemaReferenceCase: ({
             referenceCase,
         }: ReferenceCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 referenceCase: () => referenceCase,
             }),
         }),

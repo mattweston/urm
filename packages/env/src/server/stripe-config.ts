@@ -23,10 +23,10 @@ export class StripeConfig extends Context.Service<
         Effect.gen(function* () {
             const config = yield* Config.all({
                 stripeSecretKey: Config.option(
-                    Config.redacted("STRIPE_SECRET_KEY")
+                    Config.Redacted("STRIPE_SECRET_KEY")
                 ),
                 stripeWebhookSecret: Config.option(
-                    Config.redacted("STRIPE_WEBHOOK_SECRET")
+                    Config.Redacted("STRIPE_WEBHOOK_SECRET")
                 ),
             }).pipe(
                 Config.map((c) => ({

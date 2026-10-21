@@ -1,7 +1,7 @@
 import { Equivalence, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN TYPES
@@ -648,7 +648,7 @@ type CombineCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedEquivalenceStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -656,19 +656,19 @@ export const update = (model: Model, message: Message) =>
         SelectedEquivalencePrimitiveCase: ({
             primitiveCase,
         }: PrimitiveCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 primitiveCase: () => primitiveCase,
             }),
         }),
 
         SelectedEquivalenceDeriveCase: ({ deriveCase }: DeriveCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 deriveCase: () => deriveCase,
             }),
         }),
 
         SelectedEquivalenceShapeCase: ({ shapeCase }: ShapeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 shapeCase: () => shapeCase,
             }),
         }),
@@ -676,7 +676,7 @@ export const update = (model: Model, message: Message) =>
         SelectedEquivalenceCombineCase: ({
             combineCase,
         }: CombineCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 combineCase: () => combineCase,
             }),
         }),

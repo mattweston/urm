@@ -3,7 +3,7 @@ import { Command, Navigation, Submodel } from "foldkit"
 import { fromString, type Url } from "foldkit/url"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
-import { Remote, RemoteMutationError } from "foldkit-remote"
+import { Remote, RemoteData, RemoteMutationError } from "foldkit-remote"
 import { Surface } from "foldkit-surface"
 import * as Issues from "@urm/features/issues/submodel"
 import { IssueAction, IssueActions } from "@urm/domain/issues"
@@ -77,14 +77,47 @@ const query = (domain_id: string) =>
     Data.query(DomainIssues, { domain_id }, { select: IssueSummary, first: 1 })
 export const project = (model: Model): Issues.ModelType => {
     const result = query(model.domain_id).read({ remote: model.remote })
-    const catalog = result._tag === "Ready" ? result.value.items[0] : undefined
-    return {
+    const base = {
         ...model.ui,
         can_write: model.can_write && !model.pending,
-        issues: catalog?.issues ?? [],
-        availableTags: catalog?.tags ?? [],
         usesTagRelations: true,
     }
+    const none = { issues: [], availableTags: [] } as const
+    return RemoteData.render(result, {
+        loading: (): Issues.ModelType => ({
+            ...base,
+            ...none,
+            issuesLoaded: false,
+            error: null,
+        }),
+        // `issuesLoaded` means an answer arrived, which these two did; `error`
+        // is what distinguishes them from an empty board.
+        notFound: (): Issues.ModelType => ({
+            ...base,
+            ...none,
+            issuesLoaded: true,
+            error: null,
+        }),
+        failed: (error): Issues.ModelType => ({
+            ...base,
+            ...none,
+            issuesLoaded: true,
+            error: error.message,
+        }),
+        data: (page, freshness): Issues.ModelType => {
+            const catalog = page.items[0]
+            return {
+                ...base,
+                issues: catalog?.issues ?? [],
+                availableTags: catalog?.tags ?? [],
+                issuesLoaded: true,
+                error:
+                    freshness._tag === "Stale"
+                        ? freshness.error.message
+                        : null,
+            }
+        },
+    })
 }
 export const init = (url: Url, pathname = url.pathname): Model => ({
     ui: ui_only(Issues.init({ ...url, pathname })[0]),

@@ -2,7 +2,7 @@ import { Effect, Exit, Schema as S } from "effect"
 import { Command, Port, Runtime, Subscription, type Update } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real app Port declarations
@@ -110,7 +110,7 @@ const advance = (model: Model, source: CountSource): UpdateReturn => {
     const count = model.count + model.step
 
     return {
-        model: evo(model, {
+        model: modifyFields(model, {
             count: () => count,
             lastSource: () => source,
         }),
@@ -127,7 +127,7 @@ const advance = (model: Model, source: CountSource): UpdateReturn => {
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         ChangedStepFromHost: ({ step }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 step: () => step,
                 lastSource: () => "Host",
             }),
@@ -299,13 +299,13 @@ type DemoUpdateReturn = Update.Return<DemoModel, DemoMessage>
 export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
     DemoMessage.match<DemoUpdateReturn>(message, {
         SelectedPortStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedInboundValue: ({ step }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 inboundStep: () => step,
             }),
         }),
@@ -313,7 +313,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
         ClickedHostSendInbound: () => {
             if (model.inboundAttached) {
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         inboundDelivered: (values) => [
                             ...values,
                             model.inboundStep,
@@ -324,7 +324,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
 
             if (!model.inboundHasEverAttached) {
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         inboundBacklog: (values) => [
                             ...values,
                             model.inboundStep,
@@ -341,7 +341,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
         },
 
         ClickedAttachInbound: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 inboundAttached: () => true,
                 inboundHasEverAttached: () => true,
                 inboundDelivered: (delivered) => [
@@ -353,13 +353,13 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
         }),
 
         ClickedDetachInbound: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 inboundAttached: () => false,
             }),
         }),
 
         ClickedResetInbound: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 inboundAttached: () => false,
                 inboundBacklog: () => [],
                 inboundDelivered: () => [],
@@ -376,7 +376,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
                     : `${model.outboundListenerCount} listener(s) receive encoded value`
 
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     outboundCount: () => nextCount,
                     outboundLog: (log) => [
                         ...log,
@@ -387,19 +387,19 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
         },
 
         ClickedAddOutboundListener: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 outboundListenerCount: (count) => count + 1,
             }),
         }),
 
         ClickedRemoveOutboundListener: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 outboundListenerCount: (count) => Math.max(0, count - 1),
             }),
         }),
 
         ClickedResetOutbound: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 outboundCount: () => 12,
                 outboundListenerCount: () => 1,
                 outboundLog: () => [],
@@ -407,7 +407,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
         }),
 
         UpdatedSchemaInput: ({ value }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 schemaInput: () => value,
                 schemaAccepted: () => false,
                 schemaMessage: () => "not validated",
@@ -429,7 +429,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
 
             return Exit.match(exit, {
                 onFailure: () => ({
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         schemaAccepted: () => false,
                         schemaMessage: () =>
                             "Exit.Failure(SchemaError) · app receives nothing",
@@ -437,7 +437,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
                 }),
 
                 onSuccess: (decoded) => ({
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         schemaAccepted: () => true,
                         schemaMessage: () =>
                             `Exit.Success(void) · decoded step = ${decoded.step}`,
@@ -447,7 +447,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
         },
 
         ClickedEmbedSend: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 embedLog: (log) => [
                     ...log,
                     model.embedDisposed
@@ -458,7 +458,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
         }),
 
         ClickedEmbedSubscribe: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 embedLog: (log) => [
                     ...log,
                     model.embedDisposed
@@ -469,7 +469,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
         }),
 
         ClickedEmbedDispose: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 embedDisposed: () => true,
                 embedLog: (log) => [
                     ...log,
@@ -479,7 +479,7 @@ export const demoUpdate = (model: DemoModel, message: DemoMessage) =>
         }),
 
         ClickedResetEmbed: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 embedDisposed: () => false,
                 embedLog: () => [],
             }),

@@ -8,7 +8,7 @@ import {
     String,
 } from "effect"
 import { AsyncData, Command, Navigation, Update } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     debounceRemoteCrmSearch,
@@ -130,7 +130,7 @@ const requestCurrentRoutePage = (model: Model): UpdateReturn => {
         onNone: () => {
             const cache = cacheWithPage(model, queryKey, current)
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     activeQueryKey: () => queryKey,
                     pageByQueryKey: () => cache.pageByQueryKey,
                     cacheKeysByRecency: () => cache.cacheKeysByRecency,
@@ -141,7 +141,7 @@ const requestCurrentRoutePage = (model: Model): UpdateReturn => {
         onSome: (next) => {
             const cache = cacheWithPage(model, queryKey, next)
             return {
-                model: evo(model, {
+                model: modifyFields(model, {
                     activeQueryKey: () => queryKey,
                     pageByQueryKey: () => cache.pageByQueryKey,
                     cacheKeysByRecency: () => cache.cacheKeysByRecency,
@@ -231,7 +231,7 @@ export const update = (
                 // on cold load, back/forward, and any navigation the demo did not
                 // originate. While typing it is already equal.
                 return requestCurrentRoutePage(
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => nextRoute,
                         searchDraft: () =>
                             Option.getOrElse(nextRoute.search, () => ""),
@@ -241,7 +241,7 @@ export const update = (
             CompletedRemoteCrmUrlReplacement: () => ({ model, commands: [] }),
             CompletedRemoteCrmUrlPush: () => ({ model, commands: [] }),
             UpdatedRemoteCrmSearchText: ({ value }) => {
-                const typed = evo(model, { searchDraft: () => value })
+                const typed = modifyFields(model, { searchDraft: () => value })
 
                 return model.isSearchDebounced
                     ? {
@@ -258,7 +258,7 @@ export const update = (
                     ? commitSearchText(model, value, navigation)
                     : { model, commands: [] },
             ToggledRemoteCrmSearchDebounce: ({ isEnabled }) => {
-                const toggled = evo(model, {
+                const toggled = modifyFields(model, {
                     isSearchDebounced: () => isEnabled,
                 })
 
@@ -345,7 +345,7 @@ export const update = (
                             : { model, commands: [] },
                 }),
             SettledRemoteContactsQuery: ({ queryKey, result }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     pageByQueryKey: HashMap.modify(
                         queryKey,
                         AsyncData.settle(result)

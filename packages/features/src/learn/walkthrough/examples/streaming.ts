@@ -11,7 +11,7 @@ import {
 } from "effect"
 import { Command, Subscription, type Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 const ROW_INTERVAL = Duration.millis(200)
 const PAGE_DELAY = Duration.millis(1000)
@@ -123,7 +123,7 @@ type UpdateReturn = Update.Return<Model, Message>
 const start_search = (model: Model): UpdateReturn =>
     model.pattern === "Subscription"
         ? {
-              model: evo(model, {
+              model: modifyFields(model, {
                   stream_token: (token) => token + 1,
                   is_streaming: () => true,
                   streamed: () => [],
@@ -131,7 +131,7 @@ const start_search = (model: Model): UpdateReturn =>
               commands: [],
           }
         : {
-              model: evo(model, { pulled: () => [], is_pulling: () => true }),
+              model: modifyFields(model, { pulled: () => [], is_pulling: () => true }),
               commands: [LoadPage({ query: model.query, offset: 0 })],
           }
 
@@ -140,11 +140,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedSearchQuery: ({ value }) => ({
-                model: evo(model, { query: () => value }),
+                model: modifyFields(model, { query: () => value }),
                 commands: [],
             }),
             SelectedSearchPattern: ({ pattern }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     pattern: () => pattern,
                     is_streaming: () => false,
                 }),
@@ -152,20 +152,20 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
             ClickedSearch: () => start_search(model),
             ReceivedSearchRow: ({ row }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     streamed: (streamed) => Array.append(streamed, row),
                 }),
                 commands: [],
             }),
             CompletedStreamRows: () => ({
-                model: evo(model, { is_streaming: () => false }),
+                model: modifyFields(model, { is_streaming: () => false }),
                 commands: [],
             }),
             ClickedLoadMore: () =>
                 model.is_pulling
                     ? { model, commands: [] }
                     : {
-                          model: evo(model, { is_pulling: () => true }),
+                          model: modifyFields(model, { is_pulling: () => true }),
                           commands: [
                               LoadPage({
                                   query: model.query,
@@ -174,7 +174,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           ],
                       },
             CompletedLoadPage: ({ rows: page }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     pulled: (pulled) => Array.appendAll(pulled, page),
                     is_pulling: () => false,
                 }),

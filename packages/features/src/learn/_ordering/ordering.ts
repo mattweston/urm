@@ -1,7 +1,7 @@
 import { Ordering, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL ORDERING HELPERS
@@ -423,31 +423,31 @@ type ReduceCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedOrderingStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedOrderingValuesCase: ({ valuesCase }: ValuesCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 valuesCase: () => valuesCase,
             }),
         }),
 
         SelectedOrderingReverseCase: ({ reverseCase }: ReverseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 reverseCase: () => reverseCase,
             }),
         }),
 
         SelectedOrderingMatchCase: ({ matchCase }: MatchCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 matchCase: () => matchCase,
             }),
         }),
 
         SelectedOrderingReduceCase: ({ reduceCase }: ReduceCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 reduceCase: () => reduceCase,
             }),
         }),

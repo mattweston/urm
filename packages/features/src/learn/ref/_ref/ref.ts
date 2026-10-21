@@ -1,7 +1,7 @@
 import { Effect, Option, Ref, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL REF PROGRAMS
@@ -613,19 +613,19 @@ type ConditionalCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedRefStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedRefCreateCase: ({ createCase }: CreateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 createCase: () => createCase,
             }),
         }),
 
         SelectedRefExchangeCase: ({ exchangeCase }: ExchangeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 exchangeCase: () => exchangeCase,
             }),
         }),
@@ -633,7 +633,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRefTransformCase: ({
             transformCase,
         }: TransformCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 transformCase: () => transformCase,
             }),
         }),
@@ -641,7 +641,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRefConditionalCase: ({
             conditionalCase,
         }: ConditionalCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 conditionalCase: () => conditionalCase,
             }),
         }),

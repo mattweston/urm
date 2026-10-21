@@ -1,7 +1,7 @@
 import { Schema as S, SchemaAST, SchemaIssue } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SCHEMA ISSUE EXAMPLES
@@ -690,7 +690,7 @@ type FormatCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSchemaIssueStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -698,7 +698,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaIssueInspectCase: ({
             inspectCase,
         }: InspectCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 inspectCase: () => inspectCase,
             }),
         }),
@@ -706,19 +706,19 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaIssueComposeCase: ({
             composeCase,
         }: ComposeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 composeCase: () => composeCase,
             }),
         }),
 
         SelectedSchemaIssueReportCase: ({ reportCase }: ReportCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 reportCase: () => reportCase,
             }),
         }),
 
         SelectedSchemaIssueFormatCase: ({ formatCase }: FormatCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 formatCase: () => formatCase,
             }),
         }),

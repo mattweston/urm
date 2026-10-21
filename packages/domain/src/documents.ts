@@ -95,7 +95,7 @@ export type DocumentTemplate = typeof DocumentTemplate.Type
 
 export type DocumentLibraryRecord = typeof DocumentLibraryRecord.Type
 
-export class DocumentsWriteError extends Schema.TaggedErrorClass<DocumentsWriteError>()(
+export class DocumentsWriteError extends Schema.TaggedError<DocumentsWriteError>()(
     "DocumentsWriteError",
     { message: Schema.String }
 ) {}

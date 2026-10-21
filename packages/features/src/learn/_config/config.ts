@@ -9,7 +9,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Config examples
@@ -255,31 +255,31 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedConfigStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedConfigDescribeMode: ({ describeMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 describeMode: () => describeMode,
             }),
         }),
 
         SelectedConfigComposeMode: ({ composeMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 composeMode: () => composeMode,
             }),
         }),
 
         SelectedConfigCollectionMode: ({ collectionMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 collectionMode: () => collectionMode,
             }),
         }),
 
         SelectedConfigProviderMode: ({ providerMode }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 providerMode: () => providerMode,
             }),
         }),

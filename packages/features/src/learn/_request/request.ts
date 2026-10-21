@@ -1,7 +1,7 @@
 import { Cause, Context, Effect, Exit, Request, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL REQUEST PROGRAMS
@@ -718,25 +718,25 @@ type CompleteCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedRequestStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedRequestDefineCase: ({ defineCase }: DefineCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 defineCase: () => defineCase,
             }),
         }),
 
         SelectedRequestInspectCase: ({ inspectCase }: InspectCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 inspectCase: () => inspectCase,
             }),
         }),
 
         SelectedRequestEntryCase: ({ entryCase }: EntryCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 entryCase: () => entryCase,
             }),
         }),
@@ -744,7 +744,7 @@ export const update = (model: Model, message: Message) =>
         SelectedRequestCompleteCase: ({
             completeCase,
         }: CompleteCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 completeCase: () => completeCase,
             }),
         }),

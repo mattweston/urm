@@ -19,7 +19,7 @@
         "@urm/domain": "workspace:*",
         "effect": "catalog:",
         "foldkit": "catalog:",
-        "foldkit-remote": "0.3.0"
+        "foldkit-remote": "catalog:"
     },
     "devDependencies": {
         "@effect/vitest": "catalog:testing",

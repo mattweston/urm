@@ -8,7 +8,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Schedule examples
@@ -194,12 +194,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedScheduleStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             SelectedRecurrenceLimit: ({ limit }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     recurrence_limit: () => limit,
                     recurrence_step: () => 0,
                 }),
@@ -207,7 +207,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedAdvanceRecurrence: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     recurrence_step: (step) =>
                         Math.min(model.recurrence_limit + 1, step + 1),
                 }),
@@ -215,12 +215,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedResetRecurrence: () => ({
-                model: evo(model, { recurrence_step: () => 0 }),
+                model: modifyFields(model, { recurrence_step: () => 0 }),
                 commands: [],
             }),
 
             SelectedBackoffKind: ({ kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     backoff_kind: () => kind,
                     backoff_step: () => 0,
                 }),
@@ -228,19 +228,19 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedAdvanceBackoff: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     backoff_step: (step) => Math.min(5, step + 1),
                 }),
                 commands: [],
             }),
 
             ClickedResetBackoff: () => ({
-                model: evo(model, { backoff_step: () => 0 }),
+                model: modifyFields(model, { backoff_step: () => 0 }),
                 commands: [],
             }),
 
             SelectedComposeKind: ({ kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     compose_kind: () => kind,
                     compose_step: () => 0,
                 }),
@@ -248,7 +248,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedAdvanceCompose: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     compose_step: (step) =>
                         Math.min(
                             model.compose_kind === "Limit" ? 4 : 3,
@@ -259,12 +259,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedResetCompose: () => ({
-                model: evo(model, { compose_step: () => 0 }),
+                model: modifyFields(model, { compose_step: () => 0 }),
                 commands: [],
             }),
 
             SelectedScheduleRunKind: ({ kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     run_kind: () => kind,
                     run_step: () => 0,
                 }),
@@ -272,7 +272,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedAdvanceScheduleRun: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     run_step: (step) =>
                         Math.min(model.run_kind === "Retry" ? 3 : 3, step + 1),
                 }),
@@ -280,7 +280,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedResetScheduleRun: () => ({
-                model: evo(model, { run_step: () => 0 }),
+                model: modifyFields(model, { run_step: () => 0 }),
                 commands: [],
             }),
         })

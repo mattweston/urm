@@ -1,7 +1,7 @@
 import { Effect, Match as M, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { imagesApi } from "../platform/app.rpc.ts"
 import {
@@ -233,7 +233,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             LoadedImages: ({ images }) => [
-                evo(model, {
+                modifyFields(model, {
                     loading: () => false,
                     error: () => null,
                     images: () => sortImages(images),
@@ -242,7 +242,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             FailedLoadingImages: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     loading: () => false,
                     error: () => error,
                 }),
@@ -250,14 +250,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             ToggledUploadPanel: () => [
-                evo(model, {
+                modifyFields(model, {
                     uploadPanelOpen: (current) => !current,
                 }),
                 [],
             ],
 
             ToggledGalleryEditing: () => [
-                evo(model, {
+                modifyFields(model, {
                     gallery_editing: (current) => !current,
                     selected_gallery_image_id: () => null,
                     uploadPanelOpen: () => false,
@@ -280,7 +280,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         images: () => next_images,
                         error: () => null,
                     }),
@@ -297,7 +297,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         selected_gallery_image_id: () => imageId,
                         editingImageId: () => null,
                         editingAlt: () => "",
@@ -308,7 +308,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClosedGalleryImage: () => [
-                evo(model, {
+                modifyFields(model, {
                     selected_gallery_image_id: () => null,
                 }),
                 [],
@@ -338,7 +338,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         uploadDrop: () => nextDrop,
                         selectedUploadFiles: () => nextFiles,
                     }),
@@ -353,7 +353,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             RemovedSelectedUploadFile: ({ fileIndex }) => [
-                evo(model, {
+                modifyFields(model, {
                     selectedUploadFiles: () =>
                         model.selectedUploadFiles.filter(
                             (_, index) => index !== fileIndex
@@ -371,7 +371,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         uploadBusy: () => true,
                         error: () => null,
                     }),
@@ -380,7 +380,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             UploadedImages: ({ images }) => [
-                evo(model, {
+                modifyFields(model, {
                     images: () => sortImages([...model.images, ...images]),
                     uploadBusy: () => false,
                     uploadPanelOpen: () => false,
@@ -390,7 +390,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             UploadImagesFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     uploadBusy: () => false,
                     error: () => error,
                 }),
@@ -405,7 +405,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         selected_gallery_image_id: () => null,
                         editingImageId: () => imageId,
                         editingAlt: () => image.alt,
@@ -416,7 +416,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClosedImageEditor: () => [
-                evo(model, {
+                modifyFields(model, {
                     editingImageId: () => null,
                     editingAlt: () => "",
                     editingText: () => "",
@@ -425,12 +425,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             EditingAltChanged: ({ value }) => [
-                evo(model, { editingAlt: () => value }),
+                modifyFields(model, { editingAlt: () => value }),
                 [],
             ],
 
             EditingTextChanged: ({ value }) => [
-                evo(model, { editingText: () => value }),
+                modifyFields(model, { editingText: () => value }),
                 [],
             ],
 
@@ -440,7 +440,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         error: () => null,
                     }),
                     [SaveGalleryImageEdits({ model })],
@@ -448,7 +448,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             SavedImageEdits: ({ image }) => [
-                evo(model, {
+                modifyFields(model, {
                     images: () =>
                         sortImages(
                             model.images.map((current) =>
@@ -463,21 +463,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             ImageEditsSaveFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => error,
                 }),
                 [],
             ],
 
             ClickedDeleteImage: ({ imageId }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => null,
                 }),
                 [DeleteGalleryImage({ imageId })],
             ],
 
             DeletedImage: ({ imageId }) => [
-                evo(model, {
+                modifyFields(model, {
                     images: () =>
                         model.images.filter((image) => image.id !== imageId),
                     editingImageId: (current) =>
@@ -493,7 +493,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             DeleteImageFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => error,
                 }),
                 [],
@@ -521,7 +521,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return Option.match(maybeOutMessage, {
                     onNone: () => [
-                        evo(model, {
+                        modifyFields(model, {
                             dragAndDrop: () => nextDragAndDrop,
                         }),
                         mappedCommands,
@@ -542,7 +542,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                     }))
 
                                     return [
-                                        evo(model, {
+                                        modifyFields(model, {
                                             images: () => nextImages,
                                             dragAndDrop: () => nextDragAndDrop,
                                         }),
@@ -553,7 +553,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                     ]
                                 },
                                 Cancelled: () => [
-                                    evo(model, {
+                                    modifyFields(model, {
                                         dragAndDrop: () => nextDragAndDrop,
                                     }),
                                     mappedCommands,
@@ -566,7 +566,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ReorderedImages: () => [model, []],
 
             ReorderImagesFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     error: () => error,
                 }),
                 [],

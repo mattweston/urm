@@ -1,7 +1,7 @@
 import * as Ui from "@foldkit/ui"
 import { Command } from "foldkit"
 import { Match as M } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import {
     GotAnimationDemoMessage,
     type AnimationDemoMessage,
@@ -42,7 +42,7 @@ export const update = (
                 )
 
                 return [
-                    evo(model, { animation: () => animation }),
+                    modifyFields(model, { animation: () => animation }),
                     mapAnimationCommands(commands),
                 ]
             },
@@ -56,7 +56,7 @@ export const update = (
                 )
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         animation: () => animation,
                         isShowing: () => isShowing,
                     }),

@@ -1,7 +1,7 @@
 import { Match as M, Number as Num, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Number examples
@@ -197,47 +197,47 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedNumberStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             SelectedNumberParsePreset: ({ parse_preset }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     parse_preset: () => parse_preset,
                 }),
                 commands: [],
             }),
 
             SelectedNumberMathMode: ({ math_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     math_mode: () => math_mode,
                 }),
                 commands: [],
             }),
 
             SelectedNumberMathLeft: ({ value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     math_left: () => value,
                 }),
                 commands: [],
             }),
 
             SelectedNumberMathRight: ({ value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     math_right: () => value,
                 }),
                 commands: [],
             }),
 
             SelectedNumberRangeValue: ({ range_value }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     range_value: () => range_value,
                 }),
                 commands: [],
             }),
 
             SelectedNumberAggregateMode: ({ aggregate_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     aggregate_mode: () => aggregate_mode,
                 }),
                 commands: [],

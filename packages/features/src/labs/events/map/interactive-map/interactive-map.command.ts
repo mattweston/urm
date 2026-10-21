@@ -1,11 +1,11 @@
 import { BrowserKeyValueStore } from "@effect/platform-browser"
 import { Array, Data, Effect, Option, Schema as S, String } from "effect"
-import { KeyValueStore } from "effect/unstable/persistence"
+import { KeyValueStore } from "effect/persistence"
 import {
     FetchHttpClient,
     HttpClient,
     HttpClientRequest,
-} from "effect/unstable/http"
+} from "effect/http"
 import { Command, Dom } from "foldkit"
 import {
     LOCATION_NOTICE_STORAGE_KEY,

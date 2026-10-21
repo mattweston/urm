@@ -42,48 +42,48 @@ export class AuthConfig extends Context.Service<
         AuthConfig,
         Effect.gen(function* () {
             const c = yield* Config.all({
-                authSecret: Config.redacted("AUTH_SECRET"),
-                demoCredentialsEnabled: Config.boolean(
+                authSecret: Config.Redacted("AUTH_SECRET"),
+                demoCredentialsEnabled: Config.Boolean(
                     "AUTH_DEMO_CREDENTIALS_ENABLED"
                 ).pipe(Config.withDefault(false)),
-                googleClientId: Config.string("GOOGLE_CLIENT_ID").pipe(
+                googleClientId: Config.String("GOOGLE_CLIENT_ID").pipe(
                     Config.withDefault("")
                 ),
                 googleClientSecret: Config.option(
-                    Config.redacted("GOOGLE_CLIENT_SECRET")
+                    Config.Redacted("GOOGLE_CLIENT_SECRET")
                 ),
                 googleDemoClientId: Config.option(
-                    Config.string("GOOGLE_DEMO_CLIENT_ID")
+                    Config.String("GOOGLE_DEMO_CLIENT_ID")
                 ),
                 googleDemoClientSecret: Config.option(
-                    Config.redacted("GOOGLE_DEMO_CLIENT_SECRET")
+                    Config.Redacted("GOOGLE_DEMO_CLIENT_SECRET")
                 ),
-                isDemo: Config.boolean("IS_DEMO").pipe(
+                isDemo: Config.Boolean("IS_DEMO").pipe(
                     Config.withDefault(false)
                 ),
-                pwnedPasswordsEnabled: Config.boolean(
+                pwnedPasswordsEnabled: Config.Boolean(
                     "AUTH_PWNED_PASSWORDS_ENABLED"
                 ).pipe(Config.withDefault(false)),
-                pwnedPasswordsFailClosed: Config.boolean(
+                pwnedPasswordsFailClosed: Config.Boolean(
                     "AUTH_PWNED_PASSWORDS_FAIL_CLOSED"
                 ).pipe(Config.withDefault(false)),
-                pwnedPasswordsTimeoutMs: Config.number(
+                pwnedPasswordsTimeoutMs: Config.Number(
                     "AUTH_PWNED_PASSWORDS_TIMEOUT_MS"
                 ).pipe(Config.withDefault(5000)),
-                pwnedPasswordsCacheTtlMs: Config.number(
+                pwnedPasswordsCacheTtlMs: Config.Number(
                     "AUTH_PWNED_PASSWORDS_CACHE_TTL_MS"
                 ).pipe(Config.withDefault(300000)),
-                sessionInactivityTimeoutMs: Config.number(
+                sessionInactivityTimeoutMs: Config.Number(
                     "AUTH_SESSION_INACTIVITY_TIMEOUT_MS"
                 ).pipe(Config.withDefault(86_400_000)),
-                sessionAbsoluteMaxLifetimeMs: Config.number(
+                sessionAbsoluteMaxLifetimeMs: Config.Number(
                     "AUTH_SESSION_ABSOLUTE_MAX_LIFETIME_MS"
                 ).pipe(Config.withDefault(2_592_000_000)),
-                recentAuthTimeoutMs: Config.number(
+                recentAuthTimeoutMs: Config.Number(
                     "AUTH_RECENT_AUTH_TIMEOUT_MS"
                 ).pipe(Config.withDefault(300_000)),
                 domainWorkerToken: Config.option(
-                    Config.redacted("AUTH_DOMAIN_WORKER_TOKEN")
+                    Config.Redacted("AUTH_DOMAIN_WORKER_TOKEN")
                 ),
             }).pipe(
                 Config.map((c) => ({

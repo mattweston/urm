@@ -12,7 +12,7 @@ import {
 import { Command, Subscription } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 const databaseName = "foldkit-cross-tab-tasks"
 const objectStore = "items"
@@ -238,7 +238,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             UpdatedNewItemText: ({ text }) => [
-                evo(model, {
+                modifyFields(model, {
                     newItemText: () => text,
                     submissionStatus: () => Idle(),
                 }),
@@ -251,7 +251,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         newItemText: () => "",
                         submissionStatus: () => Submitting(),
                     }),
@@ -259,7 +259,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GeneratedItem: ({ item }) => [
-                evo(model, {
+                modifyFields(model, {
                     items: () => [...model.items, item],
                     maybeItemsBeforeServerUpdate: () =>
                         Option.some(model.items),
@@ -267,11 +267,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [AddItem({ item })],
             ],
             SelectedFilter: ({ filter }) => [
-                evo(model, { filter: () => filter }),
+                modifyFields(model, { filter: () => filter }),
                 [],
             ],
             ClickedToggleItem: ({ id }) => [
-                evo(model, {
+                modifyFields(model, {
                     items: () =>
                         Array.map(model.items, (item) =>
                             item.id === id
@@ -285,7 +285,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [ToggleItem({ id })],
             ],
             ClickedDeleteItem: ({ id }) => [
-                evo(model, {
+                modifyFields(model, {
                     items: () =>
                         Array.filter(model.items, (item) => item.id !== id),
                     submissionStatus: () => Updating(),
@@ -295,7 +295,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [DeleteItem({ id })],
             ],
             ClickedClearCompleted: () => [
-                evo(model, {
+                modifyFields(model, {
                     items: () =>
                         Array.filter(model.items, (item) => !item.completed),
                     submissionStatus: () => Updating(),
@@ -306,13 +306,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
             NotifiedStoreChanged: () => [model, [LoadItems()]],
             ReceivedItems: ({ items }) => [
-                evo(model, {
+                modifyFields(model, {
                     items: () => items,
                 }),
                 [],
             ],
             FailedStoreOperation: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     items: () =>
                         Option.getOrElse(
                             model.maybeItemsBeforeServerUpdate,
@@ -324,7 +324,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             CommittedToStore: () => [
-                evo(model, {
+                modifyFields(model, {
                     submissionStatus: () => Updated(),
                     maybeItemsBeforeServerUpdate: () => Option.none(),
                 }),

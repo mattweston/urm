@@ -2,7 +2,7 @@ import { Effect, Option, Queue, Schema as S, Stream } from "effect"
 import { Mount, type Update } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Mount Messages / Model
@@ -211,20 +211,20 @@ type UpdateReturn = Update.Return<Model, Message>
 export const update = (model: Model, message: Message) =>
     Message.match<UpdateReturn>(message, {
         SelectedMountStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         ClickedToggleMeasuredPanel: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 showMeasuredPanel: (visible) => !visible,
                 measuredWidth: () => Option.none(),
             }),
         }),
 
         ClickedReplaceMeasuredPanel: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 showMeasuredPanel: () => true,
                 panelGeneration: (generation) => generation + 1,
                 measuredWidth: () => Option.none(),
@@ -232,21 +232,21 @@ export const update = (model: Model, message: Message) =>
         }),
 
         MeasuredPanel: ({ instanceId, width }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 measuredWidth: () => Option.some(width),
                 lastMountedInstance: () => Option.some(instanceId),
             }),
         }),
 
         ObservedPanelScroll: ({ scrollTop }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 scrollEventCount: (count) => count + 1,
                 lastScrollTop: () => scrollTop,
             }),
         }),
 
         CompletedMountEditorShell: () => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 editorMounted: () => true,
             }),
         }),

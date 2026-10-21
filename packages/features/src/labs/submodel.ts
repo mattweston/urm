@@ -2,7 +2,7 @@ import { Match as M, Schema as S } from "effect"
 import { Command, Submodel } from "foldkit"
 import { type Html, type HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as Landing from "../marketing/landing/index.ts"
 import { view as charts_view } from "./charts/view.ts"
@@ -128,7 +128,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 if (route._tag === "LabsMail" && !model.mailroom_initialized) {
                     const [mailroom, commands] = Mailroom.init()
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             route: () => route,
                             mailroom: () =>
                                 mailroom_for_path(mailroom, pathname),
@@ -141,7 +141,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => route,
                         mailroom: (mailroom) =>
                             route._tag === "LabsMail"
@@ -158,7 +158,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { landing: () => landing }),
+                    modifyFields(model, { landing: () => landing }),
                     Command.mapMessages(commands, (message) =>
                         GotLandingMessage({ message })
                     ),
@@ -171,7 +171,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { mailroom: () => mailroom }),
+                    modifyFields(model, { mailroom: () => mailroom }),
                     Command.mapMessages(commands, (message) =>
                         GotMailroomMessage({ message })
                     ),

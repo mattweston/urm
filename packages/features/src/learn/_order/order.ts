@@ -1,7 +1,7 @@
 import { Order, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN
@@ -557,31 +557,31 @@ type RangeCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedOrderStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedOrderCompareCase: ({ compareCase }: CompareCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 compareCase: () => compareCase,
             }),
         }),
 
         SelectedOrderDeriveCase: ({ deriveCase }: DeriveCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 deriveCase: () => deriveCase,
             }),
         }),
 
         SelectedOrderComposeCase: ({ composeCase }: ComposeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 composeCase: () => composeCase,
             }),
         }),
 
         SelectedOrderRangeCase: ({ rangeCase }: RangeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 rangeCase: () => rangeCase,
             }),
         }),

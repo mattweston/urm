@@ -3,7 +3,7 @@ import { Match as M, Option, Schema as S } from "effect"
 import { Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 /** State for a segmented 24-hour time picker. */
 export const Model = S.Struct({
@@ -121,9 +121,9 @@ export const update = (model: Model, message: Message): Model =>
     M.value(message).pipe(
         M.tagsExhaustive({
             ChangedHour: ({ value }) =>
-                evo(model, { hour: () => value.slice(0, 2) }),
+                modifyFields(model, { hour: () => value.slice(0, 2) }),
             ChangedMinute: ({ value }) =>
-                evo(model, { minute: () => value.slice(0, 2) }),
+                modifyFields(model, { minute: () => value.slice(0, 2) }),
             SteppedHour: ({ amount }) => ({
                 ...model,
                 ...clock_parts(

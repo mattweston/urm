@@ -116,7 +116,7 @@ export const EventAction = Schema.Union([
     }),
 ])
 export type EventAction = typeof EventAction.Type
-export class EventWriteError extends Schema.TaggedErrorClass<EventWriteError>()(
+export class EventWriteError extends Schema.TaggedError<EventWriteError>()(
     "EventWriteError",
     { message: Schema.String }
 ) {}

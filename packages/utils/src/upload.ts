@@ -189,7 +189,7 @@ export async function resolveImageUrl(
     return getPresignedGetUrl(key)
 }
 
-export class UploadConfigurationError extends Schema.TaggedErrorClass<UploadConfigurationError>()(
+export class UploadConfigurationError extends Schema.TaggedError<UploadConfigurationError>()(
     "UploadConfigurationError",
     {}
 ) {}

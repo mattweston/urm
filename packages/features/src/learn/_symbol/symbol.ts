@@ -1,7 +1,7 @@
 import { Array as Arr, Match as M, Schema as S, Symbol as Sym } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Symbol examples
@@ -169,40 +169,40 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedSymbolStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             SelectedSymbolBoundaryKind: ({ boundary_kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     boundary_kind: () => boundary_kind,
                 }),
                 commands: [],
             }),
 
             SelectedSymbolRefineKind: ({ refine_kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     refine_kind: () => refine_kind,
                 }),
                 commands: [],
             }),
 
             ToggledLocalSymbolInFilter: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     filter_include_local: (value) => !value,
                 }),
                 commands: [],
             }),
 
             ToggledGlobalSymbolInFilter: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     filter_include_global: (value) => !value,
                 }),
                 commands: [],
             }),
 
             SelectedSymbolIdentityMode: ({ identity_mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     identity_mode: () => identity_mode,
                 }),
                 commands: [],

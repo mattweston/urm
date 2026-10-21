@@ -18,7 +18,7 @@ const normalizedUrl = (value: string, fallback: string): string => {
 }
 
 const urlConfig = (name: string, fallback: string) =>
-    Config.string(name).pipe(
+    Config.String(name).pipe(
         Config.withDefault(fallback),
         Config.map((value) => normalizedUrl(value, fallback))
     )
@@ -27,7 +27,7 @@ const urlConfig = (name: string, fallback: string) =>
 // returns, app links), so they have to name the machine running the servers.
 // TAILSCALE_URL names that box when it is not the one with the tab open; unset,
 // everything stays on localhost. Scheme + host, no port — see .env.example.
-const devOriginConfig = Config.string("TAILSCALE_URL").pipe(
+const devOriginConfig = Config.String("TAILSCALE_URL").pipe(
     Config.withDefault("http://localhost"),
     Config.map((value) => normalizedUrl(value, "http://localhost"))
 )
@@ -62,11 +62,11 @@ export class ServerConfig extends Context.Service<
             const devOrigin = yield* devOriginConfig
             const devCentralOrigin = yield* devCentralOriginConfig
             const config = yield* Config.all({
-                port: Config.number("PORT"),
-                hostname: Config.string("HOSTNAME").pipe(
+                port: Config.Number("PORT"),
+                hostname: Config.String("HOSTNAME").pipe(
                     Config.withDefault("0.0.0.0")
                 ),
-                apiUrl: Config.string("API_URL"),
+                apiUrl: Config.String("API_URL"),
                 // Sign-in and the domain chooser are on the platform host;
                 // the marketing site stays at the suffix root.
                 appUrl: urlConfig("APP_URL", `${devCentralOrigin}:4321`),
@@ -78,7 +78,7 @@ export class ServerConfig extends Context.Service<
                     "MARKETING_APP_URL",
                     `${devOrigin}:4321`
                 ),
-                cookieDomain: Config.option(Config.string("COOKIE_DOMAIN")),
+                cookieDomain: Config.option(Config.String("COOKIE_DOMAIN")),
             }).pipe(
                 Config.map((c) => ({
                     ...c,

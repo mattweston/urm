@@ -1,5 +1,5 @@
 import { Context } from "effect"
-import type { HandlersFrom } from "effect/unstable/rpc/RpcGroup"
+import type { HandlersFrom } from "effect/rpc/RpcGroup"
 
 import {
     ChatListTurnsRpc,

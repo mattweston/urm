@@ -1,6 +1,6 @@
 import { Array, Match as M, Number, pipe } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Message } from "./message.ts"
 import { type SlowWarning, type Model as SlowWarningsModel } from "./model.ts"
 import { burnCpu } from "./burn-cpu.ts"
@@ -32,20 +32,20 @@ export const update = (
                 burnCpu(UPDATE_WORK_MS)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         activeWorkload: () => "Update",
                     }),
                     [],
                 ]
             },
             ClickedRunViewWork: () => [
-                evo(model, {
+                modifyFields(model, {
                     activeWorkload: () => "View",
                 }),
                 [],
             ],
             ClickedRunPatchWork: () => [
-                evo(model, {
+                modifyFields(model, {
                     activeWorkload: () => "Patch",
                     patchRows: () => PATCH_ROW_COUNT,
                     patchRun: Number.increment,
@@ -53,13 +53,13 @@ export const update = (
                 [],
             ],
             ClickedRunSubscriptionDependenciesWork: () => [
-                evo(model, {
+                modifyFields(model, {
                     activeWorkload: () => "SubscriptionDependencies",
                 }),
                 [],
             ],
             ClickedClearWarnings: () => [
-                evo(model, {
+                modifyFields(model, {
                     activeWorkload: () => "Idle",
                     warnings: () => [],
                 }),
@@ -72,7 +72,7 @@ export const update = (
                 }
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         activeWorkload: () => "Idle",
                         nextWarningId: Number.increment,
                         warnings: prependWarning(warning),

@@ -32,7 +32,7 @@ const profile_for_workspace = Effect.fn("Social.profileForWorkspace")(
         if (current !== null) return current
         const slug = yield* store.load_domain_slug(principal)
         const legacy_profile = yield* Config.option(
-            Config.string("ZERNIO_PROFILE_ID")
+            Config.String("ZERNIO_PROFILE_ID")
         )
         if (slug === "test1") {
             const provider = yield* ZernioProvider

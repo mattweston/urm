@@ -1,7 +1,7 @@
 import { Equal, Hash, MutableHashMap, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN KEY
@@ -510,7 +510,7 @@ type EqualityCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedMutableHashMapStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -518,7 +518,7 @@ export const update = (model: Model, message: Message) =>
         SelectedMutableHashMapCreateCase: ({
             createCase,
         }: CreateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 createCase: () => createCase,
             }),
         }),
@@ -526,7 +526,7 @@ export const update = (model: Model, message: Message) =>
         SelectedMutableHashMapLookupCase: ({
             lookupCase,
         }: LookupCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 lookupCase: () => lookupCase,
             }),
         }),
@@ -534,7 +534,7 @@ export const update = (model: Model, message: Message) =>
         SelectedMutableHashMapMutateCase: ({
             mutateCase,
         }: MutateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 mutateCase: () => mutateCase,
             }),
         }),
@@ -542,7 +542,7 @@ export const update = (model: Model, message: Message) =>
         SelectedMutableHashMapEqualityCase: ({
             equalityCase,
         }: EqualityCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 equalityCase: () => equalityCase,
             }),
         }),

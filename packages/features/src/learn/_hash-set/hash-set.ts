@@ -1,7 +1,7 @@
 import { Equal, Hash, HashSet, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN VALUES
@@ -559,13 +559,13 @@ type TransformCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedHashSetStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedHashSetBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
@@ -573,13 +573,13 @@ export const update = (model: Model, message: Message) =>
         SelectedHashSetMembershipCase: ({
             membershipCase,
         }: MembershipCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 membershipCase: () => membershipCase,
             }),
         }),
 
         SelectedHashSetAlgebraCase: ({ algebraCase }: AlgebraCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 algebraCase: () => algebraCase,
             }),
         }),
@@ -587,7 +587,7 @@ export const update = (model: Model, message: Message) =>
         SelectedHashSetTransformCase: ({
             transformCase,
         }: TransformCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 transformCase: () => transformCase,
             }),
         }),

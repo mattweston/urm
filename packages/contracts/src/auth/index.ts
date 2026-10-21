@@ -1,4 +1,4 @@
-import { RpcMiddleware } from "effect/unstable/rpc"
+import { RpcMiddleware } from "effect/rpc"
 import { AuthorizationError } from "@urm/domain/errors"
 
 export class AuthenticatedRpcMiddleware extends RpcMiddleware.Service<AuthenticatedRpcMiddleware>()(

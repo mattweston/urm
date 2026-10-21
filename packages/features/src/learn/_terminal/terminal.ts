@@ -1,7 +1,7 @@
 import { Effect, Option, Schema as S, Terminal } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL TERMINAL PROGRAMS
@@ -462,18 +462,18 @@ type QuitCasePayload = Readonly<{ quitCase: QuitCase }>
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedTerminalStage: ({ stage }: StagePayload) => ({
-            model: evo(model, { stage: () => stage }),
+            model: modifyFields(model, { stage: () => stage }),
         }),
         SelectedTerminalServiceCase: ({ serviceCase }: ServiceCasePayload) => ({
-            model: evo(model, { serviceCase: () => serviceCase }),
+            model: modifyFields(model, { serviceCase: () => serviceCase }),
         }),
         SelectedTerminalReadCase: ({ readCase }: ReadCasePayload) => ({
-            model: evo(model, { readCase: () => readCase }),
+            model: modifyFields(model, { readCase: () => readCase }),
         }),
         SelectedTerminalDisplayCase: ({ displayCase }: DisplayCasePayload) => ({
-            model: evo(model, { displayCase: () => displayCase }),
+            model: modifyFields(model, { displayCase: () => displayCase }),
         }),
         SelectedTerminalQuitCase: ({ quitCase }: QuitCasePayload) => ({
-            model: evo(model, { quitCase: () => quitCase }),
+            model: modifyFields(model, { quitCase: () => quitCase }),
         }),
     })

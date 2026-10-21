@@ -1,7 +1,7 @@
 import { Graph, Option, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DEMO GRAPHS
@@ -665,19 +665,19 @@ type SnapshotCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedGraphStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedGraphBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedGraphTraverseCase: ({ traverseCase }: TraverseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 traverseCase: () => traverseCase,
             }),
         }),
@@ -685,13 +685,13 @@ export const update = (model: Model, message: Message) =>
         SelectedGraphAlgorithmCase: ({
             algorithmCase,
         }: AlgorithmCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 algorithmCase: () => algorithmCase,
             }),
         }),
 
         SelectedGraphSnapshotCase: ({ snapshotCase }: SnapshotCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 snapshotCase: () => snapshotCase,
             }),
         }),

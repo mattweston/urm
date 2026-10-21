@@ -1,7 +1,7 @@
 import { Duration, Effect, Pool, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DOMAIN RESOURCE
@@ -452,31 +452,31 @@ type HealthCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedPoolStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedPoolBuildCase: ({ buildCase }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
 
         SelectedPoolBorrowCase: ({ borrowCase }: BorrowCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 borrowCase: () => borrowCase,
             }),
         }),
 
         SelectedPoolScaleCase: ({ scaleCase }: ScaleCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 scaleCase: () => scaleCase,
             }),
         }),
 
         SelectedPoolHealthCase: ({ healthCase }: HealthCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 healthCase: () => healthCase,
             }),
         }),

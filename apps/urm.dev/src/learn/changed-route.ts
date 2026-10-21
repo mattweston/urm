@@ -10,7 +10,7 @@ import { Command } from "foldkit"
 import * as FoldkitLesson from "@urm/features/learn/walkthrough"
 import * as EffectRunner from "@urm/features/learn/runner"
 
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     GotFoldkitMessage,
@@ -60,7 +60,7 @@ export const changed_route = (
             : { model: model.effect_runner, commands: [] }
 
     return [
-        evo(model, {
+        modifyFields(model, {
             foldkit: () => foldkit,
             effect_runner: () => effect_runner,
         }),

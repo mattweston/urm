@@ -3,7 +3,7 @@ import {
     FetchHttpClient,
     HttpClient,
     HttpClientRequest,
-} from "effect/unstable/http"
+} from "effect/http"
 import { Command } from "foldkit"
 import {
     CAMERA_ALTITUDE_M,

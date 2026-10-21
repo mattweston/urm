@@ -1,7 +1,7 @@
 import { Array, Effect, Match as M, Option, String, pipe } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { DEFAULT_COLUMNS } from "./kanban.constant.ts"
 import { appendCard, reorder } from "./kanban.column.ts"
 import {
@@ -146,7 +146,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         )
 
                         return [
-                            evo(model, {
+                            modifyFields(model, {
                                 dragAndDrop: () => nextDragAndDrop,
                                 announcement: () => announcement,
                             }),
@@ -172,7 +172,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                     )
 
                                     return [
-                                        evo(model, {
+                                        modifyFields(model, {
                                             columns: () => nextColumns,
                                             dragAndDrop: () => nextDragAndDrop,
                                             announcement: () =>
@@ -188,7 +188,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                     ]
                                 },
                                 Cancelled: () => [
-                                    evo(model, {
+                                    modifyFields(model, {
                                         dragAndDrop: () => nextDragAndDrop,
                                         announcement: () =>
                                             screenReaderTextForDrop(
@@ -203,14 +203,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
             },
             ClickedAddCard: ({ columnId }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeNewCardColumnId: () => Option.some(columnId),
                     newCardTitle: () => "",
                 }),
                 [FocusAddCardInput()],
             ],
             ChangedNewCardTitle: ({ value }) => [
-                evo(model, { newCardTitle: () => value }),
+                modifyFields(model, { newCardTitle: () => value }),
                 [],
             ],
             SubmittedNewCard: () =>
@@ -241,7 +241,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 })
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         columns: () => nextColumns,
                         maybeNewCardColumnId: () => Option.none(),
                         newCardTitle: () => "",
@@ -250,7 +250,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             LoadedBoard: ({ maybeSavedBoard }) => [
-                evo(model, {
+                modifyFields(model, {
                     columns: () =>
                         Option.match(maybeSavedBoard, {
                             onNone: () => model.columns,
@@ -260,7 +260,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             CancelledNewCard: () => [
-                evo(model, {
+                modifyFields(model, {
                     maybeNewCardColumnId: () => Option.none(),
                     newCardTitle: () => "",
                 }),

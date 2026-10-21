@@ -1,6 +1,6 @@
 import { Effect, Match as M, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { DragAndDrop, FileDrop } from "@foldkit/ui"
 import {
     initRichTextEditor,
@@ -481,20 +481,20 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             ClickedEdit: () => [
-                evo(model, {
+                modifyFields(model, {
                     editor_state: () => Editing(),
                     preview_motion: () => false,
                 }),
                 [],
             ],
             UpdatedCopy: ({ key, text }) => [
-                evo(model, {
+                modifyFields(model, {
                     drafts: (drafts) => ({ ...drafts, [key]: text }),
                 }),
                 [],
             ],
             ClickedSave: () => [
-                evo(model, {
+                modifyFields(model, {
                     saved_snapshot: () => model.drafts,
                     saved_blocks: () => model.blocks,
                     saved_block_items: () => model.block_items,
@@ -508,13 +508,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ClickedCancel: () => [
-                evo(model, {
+                modifyFields(model, {
                     drafts: () => model.saved_snapshot,
                     blocks: () => model.saved_blocks,
                     block_items: () => model.saved_block_items,
                     hero_image: () => model.saved_hero_image,
                     rich_text_editor: () =>
-                        evo(model.rich_text_editor, {
+                        modifyFields(model.rich_text_editor, {
                             document: () => model.saved_rich_text_document,
                         }),
                     motion: () => model.saved_motion,
@@ -524,7 +524,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedTemplateName: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     template_name: () => value,
                     template_save_status: () => "idle",
                     template_save_error: () => Option.none(),
@@ -532,7 +532,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedTemplateDescription: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     template_description: () => value,
                     template_save_status: () => "idle",
                     template_save_error: () => Option.none(),
@@ -540,7 +540,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedTemplateCategory: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     template_category: () => value,
                     template_save_status: () => "idle",
                     template_save_error: () => Option.none(),
@@ -548,7 +548,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedTemplateTags: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     template_tags: () => value,
                     template_save_status: () => "idle",
                     template_save_error: () => Option.none(),
@@ -557,20 +557,20 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
             ClickedSaveTemplate: () => [
                 model.template_name.trim().length === 0
-                    ? evo(model, {
+                    ? modifyFields(model, {
                           template_save_status: () => "error",
                           template_save_error: () =>
                               Option.some("Enter a template name."),
                       })
                     : model.template_category.trim().length === 0
-                      ? evo(model, {
+                      ? modifyFields(model, {
                             template_save_status: () => "error",
                             template_save_error: () =>
                                 Option.some("Enter a template category."),
                         })
                       : template_tags_from_input(model.template_tags).length >
                           12
-                        ? evo(model, {
+                        ? modifyFields(model, {
                               template_save_status: () => "error",
                               template_save_error: () =>
                                   Option.some("Use no more than 12 tags."),
@@ -578,21 +578,21 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         : template_tags_from_input(model.template_tags).some(
                                 (tag) => tag.length > 40
                             )
-                          ? evo(model, {
+                          ? modifyFields(model, {
                                 template_save_status: () => "error",
                                 template_save_error: () =>
                                     Option.some(
                                         "Keep each template tag to 40 characters or fewer."
                                     ),
                             })
-                          : evo(model, {
+                          : modifyFields(model, {
                                 template_save_status: () => "saving",
                                 template_save_error: () => Option.none(),
                             }),
                 [],
             ],
             SavedTemplate: () => [
-                evo(model, {
+                modifyFields(model, {
                     template_name: () => "",
                     template_description: () =>
                         "Reusable landing-page template.",
@@ -604,24 +604,24 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             FailedTemplateSave: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     template_save_status: () => "error",
                     template_save_error: () => Option.some(error),
                 }),
                 [],
             ],
             ChangedMotion: ({ motion }) => [
-                evo(model, { motion: () => motion }),
+                modifyFields(model, { motion: () => motion }),
                 [],
             ],
             ToggledMotionPreview: () => [
-                evo(model, {
+                modifyFields(model, {
                     preview_motion: (is_previewing) => !is_previewing,
                 }),
                 [],
             ],
             ToggledFaq: ({ key, is_open }) => [
-                evo(model, {
+                modifyFields(model, {
                     open_faqs: (open_faqs) => ({
                         ...open_faqs,
                         [key]: is_open,
@@ -632,20 +632,20 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             AddedBlock: ({ section }) => [
                 model.blocks.includes(section)
                     ? model
-                    : evo(model, {
+                    : modifyFields(model, {
                           blocks: (blocks) => [...blocks, section],
                       }),
                 [],
             ],
             RemovedBlock: ({ section }) => [
-                evo(model, {
+                modifyFields(model, {
                     blocks: (blocks) =>
                         blocks.filter((candidate) => candidate !== section),
                 }),
                 [],
             ],
             AddedBlockItem: ({ section }) => [
-                evo(model, {
+                modifyFields(model, {
                     block_items: (block_items) => {
                         const items = block_items[section] ?? []
                         const id = available_item_id(section, items)
@@ -690,7 +690,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             RemovedBlockItem: ({ section, index }) => [
-                evo(model, {
+                modifyFields(model, {
                     block_items: (block_items) => ({
                         ...block_items,
                         [section]: (block_items[section] ?? []).filter(
@@ -701,7 +701,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             UpdatedBlockItem: ({ section, index, field, text }) => [
-                evo(model, {
+                modifyFields(model, {
                     block_items: (block_items) => ({
                         ...block_items,
                         [section]: (block_items[section] ?? []).map(
@@ -715,7 +715,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             SelectedHeroImage: ({ image_id, alt }) => [
-                evo(model, {
+                modifyFields(model, {
                     hero_image: () =>
                         Option.some({ _tag: "DomainImage", image_id, alt }),
                     hero_image_library_open: () => false,
@@ -724,11 +724,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ClearedHeroImage: () => [
-                evo(model, { hero_image: () => Option.none() }),
+                modifyFields(model, { hero_image: () => Option.none() }),
                 [],
             ],
             ToggledHeroImageLibrary: () => [
-                evo(model, {
+                modifyFields(model, {
                     hero_image_library_open: (is_open) => !is_open,
                 }),
                 [],
@@ -759,7 +759,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                               },
                 })
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         hero_image_drop: () => hero_image_drop,
                         hero_image_upload_busy: () => upload_state.busy,
                         hero_image_upload_error: () => upload_state.error,
@@ -774,7 +774,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             UploadedHeroImage: ({ image_id, alt }) => [
-                evo(model, {
+                modifyFields(model, {
                     hero_image: () =>
                         Option.some({ _tag: "DomainImage", image_id, alt }),
                     hero_image_upload_busy: () => false,
@@ -784,16 +784,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             HeroImageUploadFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     hero_image_upload_busy: () => false,
                     hero_image_upload_error: () => Option.some(error),
                 }),
                 [],
             ],
             SelectedLogoImage: ({ index, image_id, alt }) => [
-                evo(model, {
+                modifyFields(model, {
                     block_items: () =>
-                        evo(model.block_items, {
+                        modifyFields(model.block_items, {
                             integrations: (items) =>
                                 (items ?? []).map((item, candidate_index) =>
                                     candidate_index === index
@@ -811,9 +811,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ClearedLogoImage: ({ index }) => [
-                evo(model, {
+                modifyFields(model, {
                     block_items: () =>
-                        evo(model.block_items, {
+                        modifyFields(model.block_items, {
                             integrations: (items) =>
                                 (items ?? []).map((item, candidate_index) =>
                                     candidate_index === index
@@ -825,7 +825,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ToggledLogoImageLibrary: ({ index }) => [
-                evo(model, {
+                modifyFields(model, {
                     logo_image_library_index: (open_index) =>
                         Option.contains(open_index, index)
                             ? Option.none()
@@ -855,7 +855,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             : Option.none(),
                 })
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         logo_image_drop: () => logo_image_drop,
                         logo_image_upload_index: () => upload_index,
                         logo_image_upload_error: () =>
@@ -874,9 +874,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             UploadedLogoImage: ({ index, image_id, alt }) => [
-                evo(model, {
+                modifyFields(model, {
                     block_items: () =>
-                        evo(model.block_items, {
+                        modifyFields(model.block_items, {
                             integrations: (items) =>
                                 (items ?? []).map((item, candidate_index) =>
                                     candidate_index === index
@@ -895,7 +895,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             LogoImageUploadFailed: ({ error }) => [
-                evo(model, {
+                modifyFields(model, {
                     logo_image_upload_index: () => Option.none(),
                     logo_image_upload_error: () => Option.some(error),
                 }),
@@ -932,7 +932,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     },
                 })
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         drag_and_drop: () => drag_and_drop,
                         blocks: () => blocks,
                     }),
@@ -951,7 +951,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     child_message
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         rich_text_editor: () => rich_text_editor,
                     }),
                     Command.mapMessages(commands, (message) =>

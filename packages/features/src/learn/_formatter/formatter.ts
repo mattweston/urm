@@ -1,7 +1,7 @@
 import { Formatter, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DEMO VALUES
@@ -540,13 +540,13 @@ type JsonCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedFormatterStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedFormatterValueCase: ({ valueCase }: ValueCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 valueCase: () => valueCase,
             }),
         }),
@@ -554,19 +554,19 @@ export const update = (model: Model, message: Message) =>
         SelectedFormatterSpecialCase: ({
             specialCase,
         }: SpecialCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 specialCase: () => specialCase,
             }),
         }),
 
         SelectedFormatterOptionCase: ({ optionCase }: OptionCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 optionCase: () => optionCase,
             }),
         }),
 
         SelectedFormatterJsonCase: ({ jsonCase }: JsonCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 jsonCase: () => jsonCase,
             }),
         }),

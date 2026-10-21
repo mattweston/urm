@@ -2,7 +2,7 @@ import { Duration, Effect, Match as M, Schema as S, Stream } from "effect"
 import { Command, Port, Runtime, Subscription } from "foldkit"
 import { type Html, type HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // MODEL
 
@@ -59,7 +59,7 @@ type UpdateReturn = readonly [Model, ReadonlyArray<Command.Command<Message>>]
 const advance = (model: Model): UpdateReturn => {
     const count = model.count + model.step
 
-    return [evo(model, { count: () => count }), [ReportCount({ count })]]
+    return [modifyFields(model, { count: () => count }), [ReportCount({ count })]]
 }
 
 export const update = (model: Model, message: Message): UpdateReturn =>
@@ -68,7 +68,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.tagsExhaustive({
             Ticked: () => advance(model),
             ClickedAdvance: () => advance(model),
-            ChangedStep: ({ step }) => [evo(model, { step: () => step }), []],
+            ChangedStep: ({ step }) => [modifyFields(model, { step: () => step }), []],
             CompletedReportCount: () => [model, []],
         })
     )

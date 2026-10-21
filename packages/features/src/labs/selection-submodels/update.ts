@@ -1,7 +1,7 @@
 import { Effect, Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     GotSelectionSubmodelsListboxMessage,
@@ -33,7 +33,7 @@ export const update = (
                 const maybeOut = Option.fromUndefinedOr(maybeOut_value)
 
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         listbox: () => listbox,
                         maybeSelectedPlan: () =>
                             Option.match(maybeOut, {
@@ -51,13 +51,13 @@ export const update = (
                 ]
             },
             RestoredSelectionSubmodelsPlan: ({ plan }) => [
-                evo(model, {
+                modifyFields(model, {
                     maybeSelectedPlan: () => Option.some(plan),
                 }),
                 [],
             ],
             ClickedClearSelectionSubmodelsPlan: () => [
-                evo(model, {
+                modifyFields(model, {
                     maybeSelectedPlan: () => Option.none(),
                 }),
                 [],

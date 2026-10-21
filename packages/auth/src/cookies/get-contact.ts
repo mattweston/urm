@@ -3,7 +3,7 @@
  *
  * Authentication cookie extraction and verification for contact sessions.
  */
-import { HttpServerRequest } from "effect/unstable/http"
+import { HttpServerRequest } from "effect/http"
 import { Effect, Redacted } from "effect"
 import { AuthConfig } from "@urm/env/server"
 import { parseCookies } from "./parse-cookies.ts"

@@ -1,7 +1,7 @@
 import { Duration, Effect, Metric, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL METRICS
@@ -542,19 +542,19 @@ type ObserveCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedMetricStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedMetricTypesCase: ({ typesCase }: TypesCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 typesCase: () => typesCase,
             }),
         }),
 
         SelectedMetricRecordCase: ({ recordCase }: RecordCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 recordCase: () => recordCase,
             }),
         }),
@@ -562,13 +562,13 @@ export const update = (model: Model, message: Message) =>
         SelectedMetricAttributesCase: ({
             attributesCase,
         }: AttributesCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 attributesCase: () => attributesCase,
             }),
         }),
 
         SelectedMetricObserveCase: ({ observeCase }: ObserveCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 observeCase: () => observeCase,
             }),
         }),

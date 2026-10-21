@@ -1,7 +1,7 @@
 import { Array, Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 const MINIMUM_REPEAT_COUNT = 1
 const MAXIMUM_REPEAT_COUNT = 10
@@ -36,22 +36,22 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedRepeatedText: ({ value }) => ({
-                model: evo(model, { text: () => value }),
+                model: modifyFields(model, { text: () => value }),
                 commands: [],
             }),
             ClickedDecreaseRepeatCount: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     repeat_count: (count) =>
                         Math.max(MINIMUM_REPEAT_COUNT, count - 1),
                 }),
                 commands: [],
             }),
             ClickedResetRepeatCount: () => ({
-                model: evo(model, { repeat_count: () => MINIMUM_REPEAT_COUNT }),
+                model: modifyFields(model, { repeat_count: () => MINIMUM_REPEAT_COUNT }),
                 commands: [],
             }),
             ClickedIncreaseRepeatCount: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     repeat_count: (count) =>
                         Math.min(MAXIMUM_REPEAT_COUNT, count + 1),
                 }),

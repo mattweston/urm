@@ -1,7 +1,7 @@
 import { Array, Match as M } from "effect"
 import { Command } from "foldkit"
 import { NotValidated, allValid, validate } from "foldkit/fieldValidation"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { GenerateComment } from "./comments.command.ts"
 import type { Message } from "./comments.message.ts"
@@ -34,13 +34,13 @@ const submitComment = (model: Model): UpdateReturn => {
         ])
     ) {
         return [
-            evo(model, { author: () => author, content: () => content }),
+            modifyFields(model, { author: () => author, content: () => content }),
             [],
         ]
     }
 
     return [
-        evo(model, { submission: () => Creating() }),
+        modifyFields(model, { submission: () => Creating() }),
         [
             GenerateComment({
                 author: sanitizeCommentText(author.value),
@@ -64,16 +64,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             UpdatedCommentAuthor: ({ value }) => [
-                evo(model, { author: () => validateAuthor(value) }),
+                modifyFields(model, { author: () => validateAuthor(value) }),
                 [],
             ],
             UpdatedCommentContent: ({ value }) => [
-                evo(model, { content: () => validateContent(value) }),
+                modifyFields(model, { content: () => validateContent(value) }),
                 [],
             ],
             SubmittedCommentForm: () => submitComment(model),
             CompletedGenerateComment: ({ comment }) => [
-                evo(model, {
+                modifyFields(model, {
                     author: () => NotValidated({ value: "" }),
                     content: () => NotValidated({ value: "" }),
                     comments: Array.append(comment),
@@ -82,7 +82,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ClickedDeleteComment: ({ id }) => [
-                evo(model, {
+                modifyFields(model, {
                     comments: Array.filter((comment) => comment.id !== id),
                 }),
                 [],

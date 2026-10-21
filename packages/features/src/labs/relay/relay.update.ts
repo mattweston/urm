@@ -1,6 +1,6 @@
 import { Match as M, Option } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import {
     LoadEarlierRelayMessages,
     LoadRelayThread,
@@ -40,7 +40,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             ChangedChannel: ({ channel }) => [
-                evo(model, {
+                modifyFields(model, {
                     channel: () => channel,
                     messages: () => messagesForChannel(channel),
                     composer: () => "",
@@ -54,7 +54,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ChangedComposer: ({ value }) => [
-                evo(model, { composer: () => value }),
+                modifyFields(model, { composer: () => value }),
                 [],
             ],
             SubmittedMessage: () => {
@@ -75,7 +75,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     delivery: "Pending",
                 }
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         messages: (messages) => [...messages, pending],
                         composer: () => "",
                         next_sequence: (value) => value + 1,
@@ -86,7 +86,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             CompletedPublish: ({ request_id, published, is_success }) =>
                 is_success
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               messages: (messages) =>
                                   mergeMessage(messages, published),
                               activity: () => Option.some("Message published"),
@@ -94,14 +94,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           [],
                       ]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               messages: (messages) =>
                                   messages.map((item) =>
                                       Option.contains(
                                           item.request_id,
                                           request_id
                                       )
-                                          ? evo(item, {
+                                          ? modifyFields(item, {
                                                 delivery: () => "Failed",
                                             })
                                           : item
@@ -112,18 +112,18 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           [],
                       ],
             ClickedReaction: ({ id }) => [
-                evo(model, {
+                modifyFields(model, {
                     messages: (messages) =>
                         messages.map((item) =>
                             item.id === id
-                                ? evo(item, { reactions: (value) => value + 1 })
+                                ? modifyFields(item, { reactions: (value) => value + 1 })
                                 : item
                         ),
                 }),
                 [],
             ],
             ToggledConnection: () => [
-                evo(model, {
+                modifyFields(model, {
                     connection: (value) =>
                         value === "Paused" ? "Live" : "Paused",
                     activity: () =>
@@ -138,7 +138,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             RequestedTeammateUpdate: () =>
                 model.connection === "Paused"
                     ? [
-                          evo(model, {
+                          modifyFields(model, {
                               activity: () =>
                                   Option.some(
                                       "A teammate update is waiting for reconnect"
@@ -147,7 +147,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           [],
                       ]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               activity: () =>
                                   Option.some("Requesting a teammate update"),
                           }),
@@ -159,7 +159,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           ],
                       ],
             GotTeammateMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     messages: (messages) => mergeMessage(messages, message),
                     next_sequence: (value) => value + 1,
                     activity: () => Option.some("Teammate update received"),
@@ -167,11 +167,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ClickedLoadEarlier: () => [
-                evo(model, { load_state: () => "Loading" }),
+                modifyFields(model, { load_state: () => "Loading" }),
                 [LoadEarlierRelayMessages({ channel: model.channel })],
             ],
             LoadedEarlier: ({ messages }) => [
-                evo(model, {
+                modifyFields(model, {
                     messages: (current) => [...messages, ...current],
                     has_more: () => false,
                     load_state: () => "Ready",
@@ -179,7 +179,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             OpenedThread: ({ id }) => [
-                evo(model, {
+                modifyFields(model, {
                     open_thread_id: () => Option.some(id),
                     thread_state: () => "Loading",
                     thread_replies: () => [],
@@ -192,7 +192,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 !Option.contains(model.open_thread_id, id)
                     ? [model, []]
                     : [
-                          evo(model, {
+                          modifyFields(model, {
                               thread_state: () =>
                                   is_available ? "Ready" : "Unavailable",
                               thread_replies: () => replies,
@@ -200,7 +200,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                           [],
                       ],
             ClosedThread: () => [
-                evo(model, {
+                modifyFields(model, {
                     open_thread_id: () => Option.none(),
                     thread_state: () => "Idle",
                     thread_replies: () => [],
@@ -209,7 +209,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             ChangedThreadDraft: ({ value }) => [
-                evo(model, { thread_draft: () => value }),
+                modifyFields(model, { thread_draft: () => value }),
                 [],
             ],
             SubmittedThreadReply: () => {
@@ -223,7 +223,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     sent_at: "Just now",
                 }
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         thread_replies: (replies) => [...replies, reply],
                         thread_draft: () => "",
                         next_sequence: (value) => value + 1,

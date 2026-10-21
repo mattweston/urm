@@ -1,7 +1,7 @@
 import { Effect, PlatformError, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL PLATFORM ERROR VALUES
@@ -447,7 +447,7 @@ type EffectCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedPlatformErrorStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -455,13 +455,13 @@ export const update = (model: Model, message: Message) =>
         SelectedPlatformErrorReasonCase: ({
             reasonCase,
         }: ReasonCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 reasonCase: () => reasonCase,
             }),
         }),
 
         SelectedPlatformErrorWrapCase: ({ wrapCase }: WrapCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 wrapCase: () => wrapCase,
             }),
         }),
@@ -469,7 +469,7 @@ export const update = (model: Model, message: Message) =>
         SelectedPlatformErrorMessageCase: ({
             messageCase,
         }: MessageCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 messageCase: () => messageCase,
             }),
         }),
@@ -477,7 +477,7 @@ export const update = (model: Model, message: Message) =>
         SelectedPlatformErrorEffectCase: ({
             effectCase,
         }: EffectCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 effectCase: () => effectCase,
             }),
         }),

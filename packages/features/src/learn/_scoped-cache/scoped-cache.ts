@@ -1,7 +1,7 @@
 import { Effect, Option, Schema as S, ScopedCache } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL SCOPED CACHE PROGRAMS
@@ -709,7 +709,7 @@ type ReleaseCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedScopedCacheStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -717,13 +717,13 @@ export const update = (model: Model, message: Message) =>
         SelectedScopedCacheAcquireCase: ({
             acquireCase,
         }: AcquireCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 acquireCase: () => acquireCase,
             }),
         }),
 
         SelectedScopedCacheReuseCase: ({ reuseCase }: ReuseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 reuseCase: () => reuseCase,
             }),
         }),
@@ -731,7 +731,7 @@ export const update = (model: Model, message: Message) =>
         SelectedScopedCacheRefreshCase: ({
             refreshCase,
         }: RefreshCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 refreshCase: () => refreshCase,
             }),
         }),
@@ -739,7 +739,7 @@ export const update = (model: Model, message: Message) =>
         SelectedScopedCacheReleaseCase: ({
             releaseCase,
         }: ReleaseCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 releaseCase: () => releaseCase,
             }),
         }),

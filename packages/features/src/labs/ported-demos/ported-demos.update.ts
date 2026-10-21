@@ -1,6 +1,6 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import * as Cartlane from "../cartlane/index.ts"
 import * as Draftboard from "../draftboard/index.ts"
 import * as Relay from "../relay/index.ts"
@@ -51,7 +51,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         })
                     )
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             route: () => route,
                             cartlane: () => cartlane,
                         }),
@@ -68,7 +68,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         })
                     )
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             route: () => route,
                             draftboard: () => draftboard,
                         }),
@@ -88,7 +88,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         Relay.ChangedChannel({ channel })
                     )
                     return [
-                        evo(model, { route: () => route, relay: () => relay }),
+                        modifyFields(model, { route: () => route, relay: () => relay }),
                         Command.mapMessages(commands, (child) =>
                             GotRelayMessage({ message: child })
                         ),
@@ -114,7 +114,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         Streambox.SelectedPanel({ panel })
                     )
                     return [
-                        evo(model, {
+                        modifyFields(model, {
                             route: () => route,
                             streambox: () => streambox,
                         }),
@@ -138,7 +138,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     Threadline.ChangedRoute({ route: route_value })
                 )
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         route: () => route,
                         threadline: () => threadline,
                     }),
@@ -153,7 +153,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { cartlane: () => cartlane }),
+                    modifyFields(model, { cartlane: () => cartlane }),
                     Command.mapMessages(commands, (child) =>
                         GotCartlaneMessage({ message: child })
                     ),
@@ -165,7 +165,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { draftboard: () => draftboard }),
+                    modifyFields(model, { draftboard: () => draftboard }),
                     Command.mapMessages(commands, (child) =>
                         GotDraftboardMessage({ message: child })
                     ),
@@ -174,7 +174,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             GotRelayMessage: ({ message }) => {
                 const [relay, commands] = Relay.update(model.relay, message)
                 return [
-                    evo(model, { relay: () => relay }),
+                    modifyFields(model, { relay: () => relay }),
                     Command.mapMessages(commands, (child) =>
                         GotRelayMessage({ message: child })
                     ),
@@ -186,7 +186,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { streambox: () => streambox }),
+                    modifyFields(model, { streambox: () => streambox }),
                     Command.mapMessages(commands, (child) =>
                         GotStreamboxMessage({ message: child })
                     ),
@@ -198,7 +198,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     message
                 )
                 return [
-                    evo(model, { threadline: () => threadline }),
+                    modifyFields(model, { threadline: () => threadline }),
                     Command.mapMessages(commands, (child) =>
                         GotThreadlineMessage({ message: child })
                     ),

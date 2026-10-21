@@ -8,7 +8,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // VERSION-BRIDGED GETTER OPERATIONS
@@ -848,13 +848,13 @@ type ConvertCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedSchemaGetterStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedSchemaGetterRunCase: ({ runCase }: RunCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 runCase: () => runCase,
             }),
         }),
@@ -862,7 +862,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaGetterTransformCase: ({
             transformCase,
         }: TransformCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 transformCase: () => transformCase,
             }),
         }),
@@ -870,7 +870,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaGetterValidateCase: ({
             validateCase,
         }: ValidateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 validateCase: () => validateCase,
             }),
         }),
@@ -878,7 +878,7 @@ export const update = (model: Model, message: Message) =>
         SelectedSchemaGetterConvertCase: ({
             convertCase,
         }: ConvertCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 convertCase: () => convertCase,
             }),
         }),

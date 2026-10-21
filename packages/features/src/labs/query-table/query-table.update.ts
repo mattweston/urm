@@ -1,6 +1,6 @@
 import { Array as Arr, Match as M, Option, Schema as S } from "effect"
 import type { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { TableName } from "./query-table.data.ts"
 import { qualified_columns } from "./query-table.data.ts"
 import { lesson_by_id, reset_query } from "./query-table.lesson.ts"
@@ -68,7 +68,7 @@ const prune_to_scope = (query: Query): Query => {
         ...selected_columns,
     ]
 
-    return evo(query, {
+    return modifyFields(query, {
         selected_columns: () => selected_columns,
         conditions: (conditions) =>
             Arr.filter(conditions, (condition) => in_scope(condition.column)),
@@ -123,7 +123,7 @@ const map_condition = (
     id: string,
     edit: (condition: Condition) => Condition
 ): Query =>
-    evo(query, {
+    modifyFields(query, {
         conditions: (conditions) =>
             Arr.map(conditions, (condition) =>
                 condition.id === id ? edit(condition) : condition
@@ -135,7 +135,7 @@ const map_aggregate = (
     id: string,
     edit: (aggregate: Aggregate) => Aggregate
 ): Query =>
-    evo(query, {
+    modifyFields(query, {
         aggregates: (aggregates) =>
             Arr.map(aggregates, (aggregate) =>
                 aggregate.id === id ? edit(aggregate) : aggregate
@@ -143,7 +143,7 @@ const map_aggregate = (
     })
 
 const map_having = (query: Query, edit: (having: Having) => Having): Query =>
-    evo(query, { having: (having) => Option.map(having, edit) })
+    modifyFields(query, { having: (having) => Option.map(having, edit) })
 
 const with_join = (query: Query, edit: (join: JoinOn) => Query): Query =>
     M.value(query.join).pipe(
@@ -157,10 +157,10 @@ const with_join = (query: Query, edit: (join: JoinOn) => Query): Query =>
 export const update = (model: Model, message: Message): UpdateReturn => {
     // Any hand edit means the model no longer matches the lesson that loaded
     // it, so the lesson card stops claiming credit for what is on screen.
-    const detached = evo(model, { active_lesson: () => Option.none() })
+    const detached = modifyFields(model, { active_lesson: () => Option.none() })
 
     const edit_query = (edit: (query: Query) => Query): UpdateReturn => [
-        evo(detached, { query: edit }),
+        modifyFields(detached, { query: edit }),
         [],
     ]
 
@@ -170,7 +170,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             SelectedFromTable: ({ table }) =>
                 edit_query(() =>
                     prune_to_scope(
-                        evo(empty_query, {
+                        modifyFields(empty_query, {
                             from_table: () => table,
                             selected_columns: () => qualified_columns(table),
                             join: () => NoJoin(),
@@ -180,7 +180,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
 
             ToggledColumn: ({ column }) =>
                 edit_query((query) =>
-                    evo(query, {
+                    modifyFields(query, {
                         selected_columns: (columns) =>
                             toggle_member(columns, column),
                     })
@@ -188,7 +188,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
 
             ToggledAllColumns: () =>
                 edit_query((query) =>
-                    evo(query, {
+                    modifyFields(query, {
                         selected_columns: (columns) =>
                             columns.length === columns_in_scope(query).length
                                 ? []
@@ -198,7 +198,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
 
             ToggledDistinct: () =>
                 edit_query((query) =>
-                    evo(query, { distinct: (distinct) => !distinct })
+                    modifyFields(query, { distinct: (distinct) => !distinct })
                 ),
 
             SelectedJoinKind: ({ kind }) =>
@@ -206,14 +206,14 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                     Option.match(decode_join_kind(kind), {
                         onNone: () =>
                             prune_to_scope(
-                                evo(query, { join: () => NoJoin() })
+                                modifyFields(query, { join: () => NoJoin() })
                             ),
                         onSome: (decoded) =>
                             M.value(query.join).pipe(
                                 M.withReturnType<Query>(),
                                 M.tagsExhaustive({
                                     NoJoin: () =>
-                                        evo(query, {
+                                        modifyFields(query, {
                                             join: () =>
                                                 default_join(
                                                     query,
@@ -224,9 +224,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                                                 ),
                                         }),
                                     JoinOn: (join) =>
-                                        evo(query, {
+                                        modifyFields(query, {
                                             join: () =>
-                                                evo(join, {
+                                                modifyFields(join, {
                                                     kind: () => decoded,
                                                 }),
                                         }),
@@ -239,7 +239,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 edit_query((query) =>
                     with_join(query, (join) =>
                         prune_to_scope(
-                            evo(query, {
+                            modifyFields(query, {
                                 join: () =>
                                     default_join(query, table, join.kind),
                             })
@@ -250,9 +250,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             SelectedJoinLeftColumn: ({ column }) =>
                 edit_query((query) =>
                     with_join(query, (join) =>
-                        evo(query, {
+                        modifyFields(query, {
                             join: () =>
-                                evo(join, { left_column: () => column }),
+                                modifyFields(join, { left_column: () => column }),
                         })
                     )
                 ),
@@ -260,9 +260,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             SelectedJoinRightColumn: ({ column }) =>
                 edit_query((query) =>
                     with_join(query, (join) =>
-                        evo(query, {
+                        modifyFields(query, {
                             join: () =>
-                                evo(join, { right_column: () => column }),
+                                modifyFields(join, { right_column: () => column }),
                         })
                     )
                 ),
@@ -276,10 +276,10 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 }
 
                 return [
-                    evo(detached, {
+                    modifyFields(detached, {
                         next_clause_id: (value) => value + 1,
                         query: (query) =>
-                            evo(query, {
+                            modifyFields(query, {
                                 conditions: (conditions) => [
                                     ...conditions,
                                     condition,
@@ -292,7 +292,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
 
             RemovedCondition: ({ id }) =>
                 edit_query((query) =>
-                    evo(query, {
+                    modifyFields(query, {
                         conditions: (conditions) =>
                             Arr.filter(
                                 conditions,
@@ -304,7 +304,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ChangedConditionColumn: ({ id, column }) =>
                 edit_query((query) =>
                     map_condition(query, id, (condition) =>
-                        evo(condition, {
+                        modifyFields(condition, {
                             column: () => column,
                             value: () => "",
                         })
@@ -314,25 +314,25 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ChangedConditionOperator: ({ id, operator }) =>
                 edit_query((query) =>
                     map_condition(query, id, (condition) =>
-                        evo(condition, { operator: () => operator })
+                        modifyFields(condition, { operator: () => operator })
                     )
                 ),
 
             ChangedConditionValue: ({ id, value }) =>
                 edit_query((query) =>
                     map_condition(query, id, (condition) =>
-                        evo(condition, { value: () => value })
+                        modifyFields(condition, { value: () => value })
                     )
                 ),
 
             SelectedCombinator: ({ combinator }) =>
                 edit_query((query) =>
-                    evo(query, { combinator: () => combinator })
+                    modifyFields(query, { combinator: () => combinator })
                 ),
 
             ToggledGroupByColumn: ({ column }) =>
                 edit_query((query) =>
-                    evo(query, {
+                    modifyFields(query, {
                         group_by: (group_by) => toggle_member(group_by, column),
                     })
                 ),
@@ -345,10 +345,10 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 }
 
                 return [
-                    evo(detached, {
+                    modifyFields(detached, {
                         next_clause_id: (value) => value + 1,
                         query: (query) =>
-                            evo(query, {
+                            modifyFields(query, {
                                 aggregates: (aggregates) => [
                                     ...aggregates,
                                     aggregate,
@@ -361,7 +361,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
 
             RemovedAggregate: ({ id }) =>
                 edit_query((query) =>
-                    evo(query, {
+                    modifyFields(query, {
                         aggregates: (aggregates) =>
                             Arr.filter(
                                 aggregates,
@@ -375,7 +375,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ChangedAggregateFunction: ({ id, fn }) =>
                 edit_query((query) =>
                     map_aggregate(query, id, (aggregate) =>
-                        evo(aggregate, {
+                        modifyFields(aggregate, {
                             fn: () => fn,
                             column: (column) =>
                                 fn !== "COUNT" && column === COUNT_STAR
@@ -388,7 +388,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ChangedAggregateColumn: ({ id, column }) =>
                 edit_query((query) =>
                     map_aggregate(query, id, (aggregate) =>
-                        evo(aggregate, { column: () => column })
+                        modifyFields(aggregate, { column: () => column })
                     )
                 ),
 
@@ -401,7 +401,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 }
 
                 return edit_query((query) =>
-                    evo(query, {
+                    modifyFields(query, {
                         having: (current) =>
                             Option.isSome(current)
                                 ? Option.none()
@@ -413,7 +413,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ChangedHavingFunction: ({ fn }) =>
                 edit_query((query) =>
                     map_having(query, (clause) =>
-                        evo(clause, {
+                        modifyFields(clause, {
                             fn: () => fn,
                             column: (column) =>
                                 fn !== "COUNT" && column === COUNT_STAR
@@ -426,27 +426,27 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ChangedHavingColumn: ({ column }) =>
                 edit_query((query) =>
                     map_having(query, (clause) =>
-                        evo(clause, { column: () => column })
+                        modifyFields(clause, { column: () => column })
                     )
                 ),
 
             ChangedHavingOperator: ({ operator }) =>
                 edit_query((query) =>
                     map_having(query, (clause) =>
-                        evo(clause, { operator: () => operator })
+                        modifyFields(clause, { operator: () => operator })
                     )
                 ),
 
             ChangedHavingValue: ({ value }) =>
                 edit_query((query) =>
                     map_having(query, (clause) =>
-                        evo(clause, { value: () => value })
+                        modifyFields(clause, { value: () => value })
                     )
                 ),
 
             SelectedOrderByColumn: ({ column }) =>
                 edit_query((query) =>
-                    evo(query, {
+                    modifyFields(query, {
                         order_by: (order_by) =>
                             column === ""
                                 ? Option.none()
@@ -462,22 +462,22 @@ export const update = (model: Model, message: Message): UpdateReturn => {
 
             SelectedOrderByDirection: ({ direction }) =>
                 edit_query((query) =>
-                    evo(query, {
+                    modifyFields(query, {
                         order_by: (order_by) =>
                             Option.map(order_by, (clause) =>
-                                evo(clause, { direction: () => direction })
+                                modifyFields(clause, { direction: () => direction })
                             ),
                     })
                 ),
 
             ChangedLimit: ({ value }) =>
                 edit_query((query) =>
-                    evo(query, { limit: () => parse_positive(value) })
+                    modifyFields(query, { limit: () => parse_positive(value) })
                 ),
 
             ChangedOffset: ({ value }) =>
                 edit_query((query) =>
-                    evo(query, {
+                    modifyFields(query, {
                         offset: () =>
                             Option.getOrElse(parse_positive(value), () => 0),
                     })
@@ -487,7 +487,7 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 Option.match(lesson_by_id(id), {
                     onNone: (): UpdateReturn => [model, []],
                     onSome: (lesson) => [
-                        evo(model, {
+                        modifyFields(model, {
                             query: () => lesson.query,
                             active_lesson: () => Option.some(lesson.id),
                         }),
@@ -497,15 +497,15 @@ export const update = (model: Model, message: Message): UpdateReturn => {
 
             ClearedLesson: () => [detached, []],
 
-            ResetQuery: () => [evo(detached, { query: () => reset_query }), []],
+            ResetQuery: () => [modifyFields(detached, { query: () => reset_query }), []],
 
             ToggledPipeline: () => [
-                evo(model, { pipeline_open: (open) => !open }),
+                modifyFields(model, { pipeline_open: (open) => !open }),
                 [],
             ],
 
             ToggledSchema: () => [
-                evo(model, { schema_open: (open) => !open }),
+                modifyFields(model, { schema_open: (open) => !open }),
                 [],
             ],
         })

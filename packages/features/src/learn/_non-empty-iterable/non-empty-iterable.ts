@@ -1,7 +1,7 @@
 import { Chunk, NonEmptyIterable, Random, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 export const words = Chunk.make("alpha", "beta", "gamma")
 
@@ -377,7 +377,7 @@ type IntegrateCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedNonEmptyIterableStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -385,7 +385,7 @@ export const update = (model: Model, message: Message) =>
         SelectedNonEmptyIterableGuaranteeCase: ({
             guaranteeCase,
         }: GuaranteeCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 guaranteeCase: () => guaranteeCase,
             }),
         }),
@@ -393,7 +393,7 @@ export const update = (model: Model, message: Message) =>
         SelectedNonEmptyIterableSplitCase: ({
             splitCase,
         }: SplitCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 splitCase: () => splitCase,
             }),
         }),
@@ -401,7 +401,7 @@ export const update = (model: Model, message: Message) =>
         SelectedNonEmptyIterableIteratorCase: ({
             iteratorCase,
         }: IteratorCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 iteratorCase: () => iteratorCase,
             }),
         }),
@@ -409,7 +409,7 @@ export const update = (model: Model, message: Message) =>
         SelectedNonEmptyIterableIntegrateCase: ({
             integrateCase,
         }: IntegrateCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 integrateCase: () => integrateCase,
             }),
         }),

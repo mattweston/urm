@@ -1,7 +1,7 @@
 import { Match as M } from "effect"
 import { Command } from "foldkit"
 import { Option } from "effect"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import { type Message } from "./app.message.ts"
 import type { Model } from "./app.model.ts"
@@ -22,13 +22,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         withUpdateReturn,
         M.tagsExhaustive({
             SelectedTemplateChanged: ({ templateId }) => [
-                evo(model, {
+                modifyFields(model, {
                     selectedTemplateId: () => Option.some(templateId),
                 }),
                 [],
             ],
             ClosedTemplatePreview: () => [
-                evo(model, {
+                modifyFields(model, {
                     selectedTemplateId: () => Option.none(),
                 }),
                 [],

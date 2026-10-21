@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Match as M, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 Layer examples
@@ -296,12 +296,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedLayerStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             SelectedLayerConstructorKind: ({ kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     constructor_kind: () => kind,
                     constructor_built: () => false,
                     constructor_log: () => [],
@@ -310,7 +310,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedBuildLayerConstructor: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     constructor_built: () => true,
                     constructor_log: () =>
                         model.constructor_kind === "Succeed"
@@ -328,7 +328,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedResetLayerConstructor: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     constructor_built: () => false,
                     constructor_log: () => [],
                 }),
@@ -336,17 +336,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedBuildMergedLayer: () => ({
-                model: evo(model, { merge_built: () => true }),
+                model: modifyFields(model, { merge_built: () => true }),
                 commands: [],
             }),
 
             ClickedResetMergedLayer: () => ({
-                model: evo(model, { merge_built: () => false }),
+                model: modifyFields(model, { merge_built: () => false }),
                 commands: [],
             }),
 
             SelectedLayerProvideMode: ({ mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     provide_mode: () => mode,
                     provide_built: () => false,
                 }),
@@ -354,17 +354,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedBuildProvidedLayer: () => ({
-                model: evo(model, { provide_built: () => true }),
+                model: modifyFields(model, { provide_built: () => true }),
                 commands: [],
             }),
 
             ClickedResetProvidedLayer: () => ({
-                model: evo(model, { provide_built: () => false }),
+                model: modifyFields(model, { provide_built: () => false }),
                 commands: [],
             }),
 
             SelectedLayerLifetimeMode: ({ mode }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     lifetime_mode: () => mode,
                     lifetime_scope_open: () => false,
                     lifetime_acquires: () => 0,
@@ -378,7 +378,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const acquires = model.lifetime_mode === "Memoized" ? 1 : 2
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         lifetime_scope_open: () => true,
                         lifetime_acquires: () => acquires,
                         lifetime_releases: () => 0,
@@ -407,7 +407,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 }
 
                 return {
-                    model: evo(model, {
+                    model: modifyFields(model, {
                         lifetime_scope_open: () => false,
                         lifetime_releases: () => model.lifetime_acquires,
                         lifetime_log: (log) => [
@@ -426,7 +426,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             },
 
             ClickedResetLayerLifetime: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     lifetime_scope_open: () => false,
                     lifetime_acquires: () => 0,
                     lifetime_releases: () => 0,

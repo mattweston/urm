@@ -3,8 +3,8 @@
  *
  */
 import { Effect } from "effect"
-import { Rpc, RpcClient, RpcGroup } from "effect/unstable/rpc"
-import { RpcClientError } from "effect/unstable/rpc/RpcClientError"
+import { Rpc, RpcClient, RpcGroup } from "effect/rpc"
+import { RpcClientError } from "effect/rpc/RpcClientError"
 import { RPC_CSRF_HEADER } from "./csrf.ts"
 import { rpcRuntime, runRpcPromise } from "./runtime.ts"
 

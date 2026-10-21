@@ -2,7 +2,7 @@ import { Match as M, Option, Schema as S, String } from "effect"
 import { Command, Submodel } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import {
     ChatAdmin,
@@ -95,14 +95,14 @@ export const update = (
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             ReceivedChatMessages: ({ messages }) => [
-                evo(model, {
+                modifyFields(model, {
                     messages: () => messages,
                     maybe_error: () => Option.none(),
                 }),
                 [],
             ],
             ReceivedMentionableAdmins: ({ admins }) => [
-                evo(model, {
+                modifyFields(model, {
                     admins: () => admins,
                     mentioned_admin_ids: (ids) =>
                         ids.filter((id) =>
@@ -112,7 +112,7 @@ export const update = (
                 [],
             ],
             ChangedChatDraft: ({ value }) => [
-                evo(model, {
+                modifyFields(model, {
                     draft: () => value,
                     mentioned_admin_ids: (ids) =>
                         ids.filter((id) => {
@@ -139,7 +139,7 @@ export const update = (
                             if (admin === undefined) return [model, []]
 
                             return [
-                                evo(model, {
+                                modifyFields(model, {
                                     draft: (draft) =>
                                         draft_has_admin_mention(draft, admin)
                                             ? draft
@@ -154,7 +154,7 @@ export const update = (
                         },
                     }
                 ),
-            ClickedTagUrmbot: () => [evo(model, { draft: tag_urmbot }), []],
+            ClickedTagUrmbot: () => [modifyFields(model, { draft: tag_urmbot }), []],
             SubmittedChatMessage: () => {
                 const body = String.trim(model.draft)
                 if (
@@ -169,7 +169,7 @@ export const update = (
                 // The parent submodel owns sending; this only marks the draft
                 // in flight so the parent can issue the command.
                 return [
-                    evo(model, {
+                    modifyFields(model, {
                         sending: () => true,
                         maybe_error: () => Option.none(),
                     }),
@@ -177,7 +177,7 @@ export const update = (
                 ]
             },
             SucceededSendChatMessage: () => [
-                evo(model, {
+                modifyFields(model, {
                     draft: () => "",
                     mentioned_admin_ids: () => [],
                     sending: () => false,
@@ -186,7 +186,7 @@ export const update = (
                 [],
             ],
             FailedChat: ({ details }) => [
-                evo(model, {
+                modifyFields(model, {
                     sending: () => false,
                     maybe_error: () => Option.some(details),
                 }),

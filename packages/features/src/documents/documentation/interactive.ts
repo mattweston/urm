@@ -1,7 +1,7 @@
 import { Match as M, Schema as S } from "effect"
 import { Command } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 import * as BugFix from "./bug-fix.ts"
 import * as AudioHighlight from "./audio-highlight.ts"
@@ -123,7 +123,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    evo(model, { code_tabs: () => code_tabs }),
+                    modifyFields(model, { code_tabs: () => code_tabs }),
                     Command.mapMessages(commands, (child_message) =>
                         GotCodeTabsMessage({ message: child_message })
                     ),
@@ -133,27 +133,27 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 const [tabs, commands] = Tabs.update(model.tabs, message)
 
                 return [
-                    evo(model, { tabs: () => tabs }),
+                    modifyFields(model, { tabs: () => tabs }),
                     Command.mapMessages(commands, (child_message) =>
                         GotTabsMessage({ message: child_message })
                     ),
                 ]
             },
             GotBugFixMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     bug_fix: (bug_fix) => BugFix.update(bug_fix, message),
                 }),
                 [],
             ],
             GotSyntaxAnimationMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     syntax_animation: (syntax_animation) =>
                         SyntaxAnimation.update(syntax_animation, message),
                 }),
                 [],
             ],
             GotStyleguideAnimationMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     styleguide_animation: (styleguide_animation) =>
                         StyleguideAnimation.update(
                             styleguide_animation,
@@ -163,14 +163,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
             GotLayoutAnimatorMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     layout_animator: (layout_animator) =>
                         LayoutAnimator.update(layout_animator, message),
                 }),
                 [],
             ],
             GotAudioHighlightMessage: ({ message }) => [
-                evo(model, {
+                modifyFields(model, {
                     audio_highlight: (audio_highlight) =>
                         AudioHighlight.update(audio_highlight, message),
                 }),
@@ -184,33 +184,33 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         GraphMountFailed: () => [model, []],
                         GraphNavigationCompleted: () => [model, []],
                         ToggledGraphSettings: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 is_graph_settings_open: (is_open) => !is_open,
                             }),
                             [],
                         ],
                         ChangedGraphSearch: ({ value }) => [
-                            evo(model, {
+                            modifyFields(model, {
                                 graph_settings: () =>
-                                    evo(model.graph_settings, {
+                                    modifyFields(model.graph_settings, {
                                         search: () => value,
                                     }),
                             }),
                             [],
                         ],
                         ToggledGraphTags: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 graph_settings: () =>
-                                    evo(model.graph_settings, {
+                                    modifyFields(model.graph_settings, {
                                         show_tags: (show_tags) => !show_tags,
                                     }),
                             }),
                             [],
                         ],
                         ToggledGraphOrphans: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 graph_settings: () =>
-                                    evo(model.graph_settings, {
+                                    modifyFields(model.graph_settings, {
                                         show_orphans: (show_orphans) =>
                                             !show_orphans,
                                     }),
@@ -218,9 +218,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             [],
                         ],
                         ToggledGraphArrows: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 graph_settings: () =>
-                                    evo(model.graph_settings, {
+                                    modifyFields(model.graph_settings, {
                                         show_arrows: (show_arrows) =>
                                             !show_arrows,
                                     }),
@@ -228,43 +228,43 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             [],
                         ],
                         ChangedGraphNodeSize: ({ value }) => [
-                            evo(model, {
+                            modifyFields(model, {
                                 graph_settings: () =>
-                                    evo(model.graph_settings, {
+                                    modifyFields(model.graph_settings, {
                                         node_size: () => value,
                                     }),
                             }),
                             [],
                         ],
                         ChangedGraphLinkWidth: ({ value }) => [
-                            evo(model, {
+                            modifyFields(model, {
                                 graph_settings: () =>
-                                    evo(model.graph_settings, {
+                                    modifyFields(model.graph_settings, {
                                         link_width: () => value,
                                     }),
                             }),
                             [],
                         ],
                         ChangedGraphRepulsion: ({ value }) => [
-                            evo(model, {
+                            modifyFields(model, {
                                 graph_settings: () =>
-                                    evo(model.graph_settings, {
+                                    modifyFields(model.graph_settings, {
                                         repulsion: () => value,
                                     }),
                             }),
                             [],
                         ],
                         ChangedGraphEdgeLength: ({ value }) => [
-                            evo(model, {
+                            modifyFields(model, {
                                 graph_settings: () =>
-                                    evo(model.graph_settings, {
+                                    modifyFields(model.graph_settings, {
                                         edge_length: () => value,
                                     }),
                             }),
                             [],
                         ],
                         ResetGraphSettings: () => [
-                            evo(model, {
+                            modifyFields(model, {
                                 graph_settings: () =>
                                     Graph.defaultGraphSettings,
                             }),

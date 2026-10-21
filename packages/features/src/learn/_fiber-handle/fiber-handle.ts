@@ -9,7 +9,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // MODEL
@@ -425,7 +425,7 @@ type ReplaceModePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedFiberHandleStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -433,7 +433,7 @@ export const update = (model: Model, message: Message) =>
         SelectedFiberHandleReplaceMode: ({
             replaceMode,
         }: ReplaceModePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 replaceMode: () => replaceMode,
             }),
         }),

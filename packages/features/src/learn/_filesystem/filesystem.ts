@@ -9,7 +9,7 @@ import {
 } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // DETERMINISTIC TEST VALUES
@@ -629,7 +629,7 @@ type StreamCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedFileSystemStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -637,19 +637,19 @@ export const update = (model: Model, message: Message) =>
         SelectedFileSystemReadWriteCase: ({
             readWriteCase,
         }: ReadWriteCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 readWriteCase: () => readWriteCase,
             }),
         }),
 
         SelectedFileSystemHandleCase: ({ handleCase }: HandleCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 handleCase: () => handleCase,
             }),
         }),
 
         SelectedFileSystemStreamCase: ({ streamCase }: StreamCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 streamCase: () => streamCase,
             }),
         }),

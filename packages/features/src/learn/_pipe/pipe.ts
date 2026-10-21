@@ -1,7 +1,7 @@
 import { Effect, flow, Match as M, Pipeable, pipe, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // Real Effect 4 pipe / Pipeable examples
@@ -204,24 +204,24 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             SelectedPipeStage: ({ stage }) => ({
-                model: evo(model, { stage: () => stage }),
+                model: modifyFields(model, { stage: () => stage }),
                 commands: [],
             }),
 
             ClickedAdvancePipeValue: () => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     value_step: (step) => next_step(step),
                 }),
                 commands: [],
             }),
 
             ClickedResetPipeValue: () => ({
-                model: evo(model, { value_step: () => 0 }),
+                model: modifyFields(model, { value_step: () => 0 }),
                 commands: [],
             }),
 
             SelectedEffectPipeSyntax: ({ syntax }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     effect_syntax: () => syntax,
                     effect_has_run: () => false,
                 }),
@@ -229,17 +229,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedRunEffectPipe: () => ({
-                model: evo(model, { effect_has_run: () => true }),
+                model: modifyFields(model, { effect_has_run: () => true }),
                 commands: [],
             }),
 
             ClickedResetEffectPipe: () => ({
-                model: evo(model, { effect_has_run: () => false }),
+                model: modifyFields(model, { effect_has_run: () => false }),
                 commands: [],
             }),
 
             SelectedCustomPipeableKind: ({ kind }) => ({
-                model: evo(model, {
+                model: modifyFields(model, {
                     custom_kind: () => kind,
                     custom_has_run: () => false,
                 }),
@@ -247,17 +247,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             }),
 
             ClickedRunCustomPipeable: () => ({
-                model: evo(model, { custom_has_run: () => true }),
+                model: modifyFields(model, { custom_has_run: () => true }),
                 commands: [],
             }),
 
             ClickedResetCustomPipeable: () => ({
-                model: evo(model, { custom_has_run: () => false }),
+                model: modifyFields(model, { custom_has_run: () => false }),
                 commands: [],
             }),
 
             UpdatedPipeFlowInput: ({ value }) => ({
-                model: evo(model, { flow_input: () => value }),
+                model: modifyFields(model, { flow_input: () => value }),
                 commands: [],
             }),
         })

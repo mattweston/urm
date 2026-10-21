@@ -1,6 +1,6 @@
 import { Array, Number } from "effect"
 import { Command } from "foldkit"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import { Match as M } from "effect"
 
 import { advanceBall, Ball, MS_PER_SECOND } from "./ball.ts"
@@ -18,7 +18,7 @@ export const update = (model: Model, message: CanvasArtMessage): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             TickedCanvasArtFrame: ({ deltaTime }) => [
-                evo(model, {
+                modifyFields(model, {
                     balls: Array.map(advanceBall(deltaTime / MS_PER_SECOND)),
                 }),
                 [],
@@ -35,7 +35,7 @@ export const update = (model: Model, message: CanvasArtMessage): UpdateReturn =>
                 radius,
                 color,
             }) => [
-                evo(model, {
+                modifyFields(model, {
                     balls: Array.append(
                         Ball.make({
                             id: model.nextBallId,
@@ -51,9 +51,9 @@ export const update = (model: Model, message: CanvasArtMessage): UpdateReturn =>
                 }),
                 [],
             ],
-            ClickedClearCanvasArt: () => [evo(model, { balls: () => [] }), []],
+            ClickedClearCanvasArt: () => [modifyFields(model, { balls: () => [] }), []],
             ClickedToggleCanvasArtPlay: () => [
-                evo(model, { isRunning: (isRunning) => !isRunning }),
+                modifyFields(model, { isRunning: (isRunning) => !isRunning }),
                 [],
             ],
         })

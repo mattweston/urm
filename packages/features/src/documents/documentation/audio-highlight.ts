@@ -1,6 +1,6 @@
 import { Option, Schema as S } from "effect"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Html, HtmlBuilder } from "foldkit/html"
 
 export type LineRange = readonly [number, number]
@@ -17,7 +17,7 @@ export type Message = typeof Message.Type
 export const init = (): Model => ({ step_index: 0 })
 
 export const update = (model: Model, message: Message): Model =>
-    evo(model, { step_index: () => message.step_index })
+    modifyFields(model, { step_index: () => message.step_index })
 
 const parseRange = (value: string): LineRange | undefined => {
     const [start_value, end_value] = value.split("-")

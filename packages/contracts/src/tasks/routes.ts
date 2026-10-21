@@ -2,7 +2,7 @@
  * # Tasks Routes
  */
 
-import { Rpc, RpcGroup } from "effect/unstable/rpc"
+import { Rpc, RpcGroup } from "effect/rpc"
 import {
     ActiveDomainRpcMiddleware,
     AuthenticatedRpcMiddleware,

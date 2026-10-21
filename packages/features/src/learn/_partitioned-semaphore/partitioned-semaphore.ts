@@ -1,7 +1,7 @@
 import { Effect, Option, PartitionedSemaphore, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // REAL EFFECT PROGRAMS
@@ -456,7 +456,7 @@ type TryCasePayload = Readonly<{
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedPartitionedSemaphoreStage: ({ stage }: StagePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
@@ -464,7 +464,7 @@ export const update = (model: Model, message: Message) =>
         SelectedPartitionedSemaphoreBuildCase: ({
             buildCase,
         }: BuildCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 buildCase: () => buildCase,
             }),
         }),
@@ -472,7 +472,7 @@ export const update = (model: Model, message: Message) =>
         SelectedPartitionedSemaphoreAcquireCase: ({
             acquireCase,
         }: AcquireCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 acquireCase: () => acquireCase,
             }),
         }),
@@ -480,13 +480,13 @@ export const update = (model: Model, message: Message) =>
         SelectedPartitionedSemaphoreFairnessCase: ({
             fairnessCase,
         }: FairnessCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 fairnessCase: () => fairnessCase,
             }),
         }),
 
         SelectedPartitionedSemaphoreTryCase: ({ tryCase }: TryCasePayload) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 tryCase: () => tryCase,
             }),
         }),

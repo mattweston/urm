@@ -1,6 +1,6 @@
 import { Schema as S } from "effect"
 import { taggedStruct } from "foldkit/schema"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import type { KeyedTokensInfo } from "@shikijs/magic-move/core"
 
@@ -17,7 +17,7 @@ export type Message = typeof Message.Type
 export const init = (): Model => ({ step_index: 0 })
 
 export const update = (model: Model, message: Message): Model =>
-    evo(model, {
+    modifyFields(model, {
         step_index: () => (message._tag === "SelectedBug" ? 0 : 1),
     })
 

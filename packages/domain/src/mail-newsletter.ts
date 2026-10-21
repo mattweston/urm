@@ -135,7 +135,7 @@ export const SendNewsletterInput = Schema.Struct({
 )
 export type SendNewsletterInput = typeof SendNewsletterInput.Type
 
-export class NewsletterWriteError extends Schema.TaggedErrorClass<NewsletterWriteError>()(
+export class NewsletterWriteError extends Schema.TaggedError<NewsletterWriteError>()(
     "NewsletterWriteError",
     { message: Schema.String }
 ) {}

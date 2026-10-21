@@ -30,6 +30,7 @@ const service = (db: DBShape): EmailSqlService => ({
         db
             .execute<Record<string, unknown>>(statement)
             .pipe(
+                Effect.map((result) => result.rows),
                 Effect.mapError(
                     () => new EmailPersistenceError({ operation: "query" })
                 )
@@ -43,6 +44,7 @@ const service = (db: DBShape): EmailSqlService => ({
                             tx
                                 .execute<Record<string, unknown>>(statement)
                                 .pipe(
+                                    Effect.map((result) => result.rows),
                                     Effect.mapError(
                                         () =>
                                             new EmailPersistenceError({

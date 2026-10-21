@@ -1,7 +1,7 @@
 import { Encoding, Result, Schema as S } from "effect"
 import type { Update } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
-import { evo } from "foldkit/struct"
+import { modifyFields } from "foldkit/struct"
 
 // -----------------------------------------------------------------------------
 // MODEL
@@ -578,31 +578,31 @@ export const init: Model = Model.make({
 export const update = (model: Model, message: Message) =>
     Message.match<Update.Return<Model, Message>>(message, {
         SelectedEncodingStage: ({ stage }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 stage: () => stage,
             }),
         }),
 
         SelectedEncodingBase64Case: ({ base64Case }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 base64Case: () => base64Case,
             }),
         }),
 
         SelectedEncodingBase64UrlCase: ({ base64UrlCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 base64UrlCase: () => base64UrlCase,
             }),
         }),
 
         SelectedEncodingHexCase: ({ hexCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 hexCase: () => hexCase,
             }),
         }),
 
         SelectedEncodingErrorCase: ({ errorCase }) => ({
-            model: evo(model, {
+            model: modifyFields(model, {
                 errorCase: () => errorCase,
             }),
         }),
