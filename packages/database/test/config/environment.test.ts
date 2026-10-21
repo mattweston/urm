@@ -1,7 +1,7 @@
 /**
  * Environment Configuration Tests
  *
- * @module @urm/db/test/config/environment
+ * @module @urm/database/test/config/environment
  */
 
 import { describe, it, expect } from "@effect/vitest"

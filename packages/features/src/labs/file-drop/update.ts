@@ -1,5 +1,5 @@
 import * as Ui from "@foldkit/ui"
-import { Array, Effect, Match as M, Option } from "effect"
+import { Array, Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 import { GotFileDropMessage, type Message } from "./message.ts"
@@ -43,12 +43,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         fileDrop: () => fileDrop,
                         files: () => files,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotFileDropMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotFileDropMessage({ message })
                     ),
                 ]
             },

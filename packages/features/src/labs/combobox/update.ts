@@ -1,5 +1,5 @@
 import * as Ui from "@foldkit/ui"
-import { Array, Effect, Match as M, Option } from "effect"
+import { Array, Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 
@@ -38,7 +38,7 @@ const selectedValue = (
 const mapCommands = (
     commands: ReadonlyArray<Command.Command<Ui.Combobox.Message>>,
     wrap: (message: Ui.Combobox.Message) => Message
-) => commands.map(Command.mapEffect(Effect.map(wrap)))
+) => Command.mapMessages(commands, wrap)
 
 export const init = (): UpdateReturn => [
     {

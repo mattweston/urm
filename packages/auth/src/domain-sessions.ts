@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto"
 import { and, eq, gt, isNull } from "drizzle-orm"
 import { Effect } from "effect"
-import { DB, databaseOperationError, schema } from "@urm/db"
+import { DB, databaseOperationError, schema } from "@urm/database"
 import { AuthConfig } from "@urm/env/server"
 import { recordAuditEvent } from "./audit-events.ts"
 import {

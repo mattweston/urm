@@ -1,5 +1,5 @@
 import * as Array from "effect/Array"
-import { Effect, Option, Schema, String } from "effect"
+import { Option, Schema, String } from "effect"
 import { SiteAppearance } from "@urm/domain/schemas/site-appearance"
 import { ThemeFamilyId } from "@urm/domain/schemas/settings"
 import { Command } from "foldkit"
@@ -236,14 +236,10 @@ const update_logo_drop = (
         variant === "light"
             ? { ...model, logo_light_drop: next_drop }
             : { ...model, logo_dark_drop: next_drop }
-    const mapped_commands = commands.map(
-        Command.mapEffect(
-            Effect.map((next_message) =>
-                variant === "light"
-                    ? GotLightLogoDropMessage({ message: next_message })
-                    : GotDarkLogoDropMessage({ message: next_message })
-            )
-        )
+    const mapped_commands = Command.mapMessages(commands, (next_message) =>
+        variant === "light"
+            ? GotLightLogoDropMessage({ message: next_message })
+            : GotDarkLogoDropMessage({ message: next_message })
     )
     const file = Option.flatMap(maybe_out_message, (out_message) =>
         out_message._tag === "ReceivedFiles"
@@ -320,14 +316,10 @@ const update_favicon_drop = (
         variant === "light"
             ? { ...model, favicon_light_drop: next_drop }
             : { ...model, favicon_dark_drop: next_drop }
-    const mapped_commands = commands.map(
-        Command.mapEffect(
-            Effect.map((next_message) =>
-                variant === "light"
-                    ? GotLightFaviconDropMessage({ message: next_message })
-                    : GotDarkFaviconDropMessage({ message: next_message })
-            )
-        )
+    const mapped_commands = Command.mapMessages(commands, (next_message) =>
+        variant === "light"
+            ? GotLightFaviconDropMessage({ message: next_message })
+            : GotDarkFaviconDropMessage({ message: next_message })
     )
     const file = Option.flatMap(maybe_out_message, (out_message) =>
         out_message._tag === "ReceivedFiles"

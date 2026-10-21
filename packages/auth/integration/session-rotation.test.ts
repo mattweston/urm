@@ -14,7 +14,7 @@ import {
     migrator,
     provisionDemoWorkspace,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 import { AuthConfig, ServerConfig } from "@urm/env/server"
 import { Effect, Layer, Redacted } from "effect"
 import { eq, sql } from "drizzle-orm"

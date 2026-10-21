@@ -7,7 +7,7 @@ import { Effect } from "effect"
 import * as Schema from "effect/Schema"
 import { eq } from "drizzle-orm"
 import type { PgTable } from "drizzle-orm/pg-core"
-import { schema, relations } from "@urm/db"
+import { schema, relations } from "@urm/database"
 import type { EffectPgDatabase } from "drizzle-orm/effect-postgres"
 
 export type Contact = typeof schema.contacts.$inferSelect

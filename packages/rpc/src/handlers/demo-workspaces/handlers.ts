@@ -4,8 +4,8 @@ import { AuthPersistence } from "@urm/auth/auth-persistence"
 import { authRateLimitKey, checkAuthRateLimit } from "@urm/auth/rate-limiter"
 import { DemoWorkspaceRpcs } from "@urm/contracts/demo-workspaces"
 import { AuthenticatedRequestContext } from "@urm/contracts/auth-legacy"
-import { DemoWorkspaceProvisioning } from "@urm/db"
-import { loadEnvironmentConfig } from "@urm/db/config"
+import { DemoWorkspaceProvisioning } from "@urm/database"
+import { loadEnvironmentConfig } from "@urm/database/config"
 import { AuthorizationError, DatabaseError } from "@urm/domain/errors"
 
 const DEMO_PROVISION_LIMIT = 6

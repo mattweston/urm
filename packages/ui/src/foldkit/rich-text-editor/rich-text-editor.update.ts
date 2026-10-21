@@ -1132,15 +1132,12 @@ const updateRichTextEditorModel = (
                     maybeOutMessage_value
                 )
 
-                const mappedCommands = dragCommands.map(
-                    Command.mapEffect(
-                        Effect.map(
-                            (innerMessage): RichTextEditorMessage =>
-                                GotRichTextDragAndDropMessage({
-                                    message: innerMessage,
-                                })
-                        )
-                    )
+                const mappedCommands = Command.mapMessages(
+                    dragCommands,
+                    (innerMessage): RichTextEditorMessage =>
+                        GotRichTextDragAndDropMessage({
+                            message: innerMessage,
+                        })
                 )
 
                 return Option.match(maybeOutMessage, {

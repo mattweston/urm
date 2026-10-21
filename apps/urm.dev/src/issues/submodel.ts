@@ -1,4 +1,4 @@
-import { Effect, Option, Schema as S, Struct } from "effect"
+import { Clock, Effect, Option, Schema as S, Struct } from "effect"
 import { Command, Navigation, Submodel } from "foldkit"
 import { fromString, type Url } from "foldkit/url"
 import { defineMessageUnion } from "foldkit/message"
@@ -112,9 +112,7 @@ export const project = (model: Model): Issues.ModelType => {
                 availableTags: catalog?.tags ?? [],
                 issuesLoaded: true,
                 error:
-                    freshness._tag === "Stale"
-                        ? freshness.error.message
-                        : null,
+                    freshness._tag === "Stale" ? freshness.error.message : null,
             }
         },
     })
@@ -178,6 +176,7 @@ const LoadIssueCatalog = Command.define("LoadIssueCatalog", {
                         requestId: request_id,
                         entities: outcome.entities,
                         connections: outcome.connections,
+                        now: yield* Clock.currentTimeMillis,
                     },
                 })
             }

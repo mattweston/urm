@@ -1,4 +1,4 @@
-import { Schema as S, Stream } from "effect"
+import { Option, Schema as S, Stream } from "effect"
 import { DragAndDrop } from "@foldkit/ui"
 import { Subscription } from "foldkit"
 import { RichTextEditorModel } from "@urm/ui/foldkit/rich-text-editor/rich-text-editor.schema.ts"
@@ -17,7 +17,7 @@ const landing_block_subscriptions = Subscription.lift({
     landingBlockKeyboard: DragAndDrop.subscriptions.documentKeyboard,
     landingBlockAutoScroll: DragAndDrop.subscriptions.autoScroll,
 })<Model, Message>({
-    toChildModel: (model) => model.drag_and_drop,
+    read: (model) => Option.some(model.drag_and_drop),
     toParentMessage: (message) => GotLandingDragAndDropMessage({ message }),
 })
 
@@ -56,7 +56,7 @@ const rich_text_drag_and_drop_subscriptions = Subscription.lift({
     richTextKeyboard: DragAndDrop.subscriptions.documentKeyboard,
     richTextAutoScroll: DragAndDrop.subscriptions.autoScroll,
 })<Model, Message>({
-    toChildModel: (model) => model.rich_text_editor.dragAndDrop,
+    read: (model) => Option.some(model.rich_text_editor.dragAndDrop),
     toParentMessage: (message) =>
         GotLandingRichTextEditorMessage({
             message: {

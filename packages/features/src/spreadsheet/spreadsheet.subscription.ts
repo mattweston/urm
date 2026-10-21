@@ -1,4 +1,4 @@
-import { Effect, Queue, Stream } from "effect"
+import { Effect, Option, Queue, Stream } from "effect"
 import { Subscription } from "foldkit"
 import { VirtualList } from "@foldkit/ui"
 import {
@@ -13,7 +13,7 @@ const GRID_ID = "foldkit-spreadsheet-rows"
 const rows = Subscription.lift({
     spreadsheetRows: VirtualList.subscriptions.containerEvents,
 })<Model, Message>({
-    toChildModel: (model) => model.rows,
+    read: (model) => Option.some(model.rows),
     toParentMessage: (message) => GotRowsMessage({ message }),
 })
 

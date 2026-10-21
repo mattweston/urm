@@ -14,8 +14,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { and, eq, like } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { documents } from "@urm/db/legacy-schema/documents"
+import { DB } from "@urm/database/layer"
+import { documents } from "@urm/database/legacy-schema/documents"
 import {
     Document,
     CreateDocumentInput,

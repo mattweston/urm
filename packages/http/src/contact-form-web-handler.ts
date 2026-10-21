@@ -6,7 +6,7 @@ import {
     resolveDomainSessionScope,
 } from "@urm/auth/legacy"
 import { authRateLimitKey, checkAuthRateLimit } from "@urm/auth/rate-limiter"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import { PublicContactSubmissionRequest } from "@urm/domain/schemas/public-contact"
 import { AuthConfig } from "@urm/env/server"
 import {

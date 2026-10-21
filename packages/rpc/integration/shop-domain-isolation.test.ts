@@ -4,7 +4,7 @@ import {
     makeMigratorLive,
     migrator,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 import {
     ActiveDomainRequestContext,
     ActiveDomainRpcMiddleware,

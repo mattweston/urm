@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import type { Sql } from "@urm/db/sql"
+import type { Sql } from "@urm/database/sql"
 import {
     authenticate_token,
     account_profile,

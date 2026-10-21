@@ -1,4 +1,4 @@
-import { loadEnvironmentConfig } from "@urm/db/config"
+import { loadEnvironmentConfig } from "@urm/database/config"
 import {
     UrmbotLanguageModelDemoLive,
     UrmbotLanguageModelLive,

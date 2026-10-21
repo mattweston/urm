@@ -1,4 +1,4 @@
-import { Effect, Option, Schema as S, Struct } from "effect"
+import { Clock, Effect, Option, Schema as S, Struct } from "effect"
 import { Command, File, Navigation, Submodel } from "foldkit"
 import type { Url } from "foldkit/url"
 import { taggedStruct } from "foldkit/schema"
@@ -151,9 +151,7 @@ export const project = (model: Model): Events.ModelType => {
                 loadingEvents: refreshing,
                 loadingMenuItems: refreshing,
                 error:
-                    freshness._tag === "Stale"
-                        ? freshness.error.message
-                        : null,
+                    freshness._tag === "Stale" ? freshness.error.message : null,
                 events: row?.events ?? [],
                 menuItems: menu(row?.menu_items ?? []),
             }
@@ -190,6 +188,7 @@ const LoadEventCatalog = Command.define("LoadEventCatalog", {
                         requestId: request_id,
                         entities: outcome.entities,
                         connections: outcome.connections,
+                        now: yield* Clock.currentTimeMillis,
                     },
                 })
             }

@@ -1,4 +1,4 @@
-import { Effect, Option, Schema as S } from "effect"
+import { Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import { FormDefinition, FormSlug, FormTitle } from "@urm/domain/schemas/forms"
 import {
@@ -435,12 +435,8 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 model.dirty || builder.definition !== model.builder.definition
             return [
                 { ...model, builder, dirty, feedback: "" },
-                commands.map(
-                    Command.mapEffect(
-                        Effect.map((message) =>
-                            GotObjectBuilderMessage({ message })
-                        )
-                    )
+                Command.mapMessages(commands, (message) =>
+                    GotObjectBuilderMessage({ message })
                 ),
             ]
         }

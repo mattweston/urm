@@ -1,6 +1,6 @@
 import { Effect, Layer, Schema } from "effect"
-import { DatabaseLive } from "@urm/db"
-import { SqlLive } from "@urm/db/sql"
+import { DatabaseLive } from "@urm/database"
+import { SqlLive } from "@urm/database/sql"
 import { provision_account } from "@urm/auth"
 import { read_account_input } from "./account-input.ts"
 import { provision_error_message } from "./provision-error.ts"

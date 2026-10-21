@@ -5,7 +5,7 @@
  */
 import { and, eq, isNull } from "drizzle-orm"
 import { Effect } from "effect"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import {
     generatedHostSuffix,
     generatedHostSuffixForCentralHostname,

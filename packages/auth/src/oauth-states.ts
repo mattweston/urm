@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto"
 import { Effect } from "effect"
-import type { DatabaseOperationError } from "@urm/db"
+import type { DatabaseOperationError } from "@urm/database"
 import { AuthPersistence } from "./auth-persistence.ts"
 
 // Matches PKCE_COOKIE_OPTS's Max-Age=600 so the browser and server halves of a

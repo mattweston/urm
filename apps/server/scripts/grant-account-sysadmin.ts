@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm"
 import { Effect, Layer, Schema } from "effect"
-import { DatabaseLive, loadEnvironmentConfig } from "@urm/db"
-import { Sql, SqlLive, query_rows } from "@urm/db/sql"
+import { DatabaseLive, loadEnvironmentConfig } from "@urm/database"
+import { Sql, SqlLive, query_rows } from "@urm/database/sql"
 
 const Account = Schema.Struct({
     id: Schema.String,

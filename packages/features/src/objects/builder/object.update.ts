@@ -1,5 +1,5 @@
 import * as Array from "effect/Array"
-import { Effect, Option } from "effect"
+import { Option } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 
@@ -503,12 +503,8 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                     definition: { ...model.definition, components },
                     drag_and_drop,
                 },
-                commands.map(
-                    Command.mapEffect(
-                        Effect.map((message) =>
-                            GotDragAndDropMessage({ message })
-                        )
-                    )
+                Command.mapMessages(commands, (message) =>
+                    GotDragAndDropMessage({ message })
                 ),
             ]
         }

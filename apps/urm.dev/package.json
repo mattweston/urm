@@ -16,7 +16,7 @@
         "@capacitor/core": "8.4.2",
         "@foldkit/ui": "catalog:ui",
         "@urm/contracts": "workspace:*",
-        "@urm/db": "workspace:*",
+        "@urm/database": "workspace:*",
         "@urm/features": "workspace:*",
         "@urm/ui": "workspace:*",
         "@urm/utils": "workspace:*",

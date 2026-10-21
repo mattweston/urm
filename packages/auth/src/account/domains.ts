@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { sql } from "drizzle-orm"
 import { Effect, Schema } from "effect"
-import { Sql, SqlError, query_rows } from "@urm/db/sql"
+import { Sql, SqlError, query_rows } from "@urm/database/sql"
 import {
     AccountPrincipal,
     AuthError,

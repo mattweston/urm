@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm"
 import { Effect } from "effect"
-import { Sql } from "@urm/db/sql"
+import { Sql } from "@urm/database/sql"
 
 /** Reports readiness only when the PostgreSQL connection can answer a query. */
 export const handle_health_request: Effect.Effect<Response, never, Sql> =

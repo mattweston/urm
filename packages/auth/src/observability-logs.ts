@@ -9,7 +9,7 @@ import {
     DatabaseOperationError,
     databaseOperationError,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 import { sanitizeAuditMetadata } from "./audit-events.ts"
 
 export type ObservabilityLogLevel = "debug" | "info" | "warning" | "error"

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { database_error_code } from "@urm/db/sql-error"
+import { database_error_code } from "@urm/database/sql-error"
 import { provision_error_message } from "../scripts/provision-error.ts"
 
 describe("safe provisioning diagnostics", () => {

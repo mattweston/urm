@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 
 import * as Dice from "./examples/on-change.ts"
@@ -11,27 +12,27 @@ import type { Model } from "./model.ts"
 
 export const subscriptions = Subscription.aggregate<Model, Message>()(
     Subscription.lift(Dice.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.dice,
+        read: (model) => Option.some(model.dice),
         toParentMessage: (message) => message,
     }),
     Subscription.lift(Weather.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.weather,
+        read: (model) => Option.some(model.weather),
         toParentMessage: (message) => message,
     }),
     Subscription.lift(Roll.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.roll,
+        read: (model) => Option.some(model.roll),
         toParentMessage: (message) => message,
     }),
     Subscription.lift(Author.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.author,
+        read: (model) => Option.some(model.author),
         toParentMessage: (message) => message,
     }),
     Subscription.lift(Like.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.like,
+        read: (model) => Option.some(model.like),
         toParentMessage: (message) => message,
     }),
     Subscription.lift(Search.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.search,
+        read: (model) => Option.some(model.search),
         toParentMessage: (message) => message,
     })
 )

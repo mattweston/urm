@@ -1,0 +1,148 @@
+@font-face {
+    font-family: "Labs Geist Variable";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist[wght].woff2")
+        format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Variable";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-Italic[wght].woff2")
+        format("woff2");
+    font-weight: 100 900;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Mono Variable";
+    src: url("/fonts/geist-mono.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Mono Variable";
+    src: url("/fonts/geist/fonts/GeistMono/webfonts/GeistMono-Italic[wght].woff2")
+        format("woff2");
+    font-weight: 100 900;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Inter Variable";
+    src: url("/fonts/Inter-VF.roman-latin.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Fira Code Variable";
+    src: url("/fonts/FiraCode-VF.woff2") format("woff2");
+    font-weight: 300 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Static";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-Thin.woff2")
+        format("woff2");
+    font-weight: 100;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Static";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-ExtraLight.woff2")
+        format("woff2");
+    font-weight: 200;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Static";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-Light.woff2")
+        format("woff2");
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Static";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-Regular.woff2")
+        format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Static";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-Medium.woff2")
+        format("woff2");
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Static";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-SemiBold.woff2")
+        format("woff2");
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Static";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-Bold.woff2")
+        format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Static";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-ExtraBold.woff2")
+        format("woff2");
+    font-weight: 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Labs Geist Static";
+    src: url("/fonts/geist/fonts/Geist/webfonts/Geist-Black.woff2")
+        format("woff2");
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@keyframes geist-variable-weight-pulse {
+    from {
+        font-variation-settings: "wght" var(--variable-font-minimum);
+    }
+    to {
+        font-variation-settings: "wght" var(--variable-font-maximum);
+    }
+}
+.geist-variable-weight-pulse {
+    animation: geist-variable-weight-pulse 2s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+    .geist-variable-weight-pulse {
+        animation: none;
+    }
+}

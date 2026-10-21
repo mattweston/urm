@@ -1,4 +1,4 @@
-import { Array, Effect, Match as M, Option } from "effect"
+import { Array, Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 import * as Counter from "../counter/counter.update.ts"
@@ -80,15 +80,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                                 : existingRow
                                         ),
                                 }),
-                                commands.map(
-                                    Command.mapEffect(
-                                        Effect.map((childMessage) =>
-                                            GotCounterMessage({
-                                                id,
-                                                message: childMessage,
-                                            })
-                                        )
-                                    )
+                                Command.mapMessages(commands, (childMessage) =>
+                                    GotCounterMessage({
+                                        id,
+                                        message: childMessage,
+                                    })
                                 ),
                             ]
                         },

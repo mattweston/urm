@@ -1,4 +1,4 @@
-import { Schema as S, Stream } from "effect"
+import { Option, Schema as S, Stream } from "effect"
 import { Subscription } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { GotDragAndDropMessage, ViewportChanged } from "./app.message.ts"
@@ -21,7 +21,7 @@ const dragSubscriptions = Subscription.lift({
     dragKeyboard: Ui.DragAndDrop.subscriptions.documentKeyboard,
     autoScroll: Ui.DragAndDrop.subscriptions.autoScroll,
 })<Model, AppMessage>({
-    toChildModel: (model) => model.dragAndDrop,
+    read: (model) => Option.some(model.dragAndDrop),
     toParentMessage: (message) => GotDragAndDropMessage({ message }),
 })
 

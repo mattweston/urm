@@ -18,9 +18,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { and, desc, eq } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { issues, issue_labels } from "@urm/db/legacy-schema/issues"
-import { members } from "@urm/db/legacy-schema/members"
+import { DB } from "@urm/database/layer"
+import { issues, issue_labels } from "@urm/database/legacy-schema/issues"
+import { members } from "@urm/database/legacy-schema/members"
 import {
     Issue,
     IssueLabel,

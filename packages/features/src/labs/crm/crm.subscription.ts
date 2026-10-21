@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 import { VirtualList } from "@foldkit/ui"
 
@@ -8,6 +9,6 @@ import type { Model } from "./crm.model.ts"
 export const subscriptions = Subscription.lift({
     crmContactsListEvents: VirtualList.subscriptions.containerEvents,
 })<Model, Message>({
-    toChildModel: (model) => model.list,
+    read: (model) => Option.some(model.list),
     toParentMessage: (message) => GotVirtualListMessage({ message }),
 })

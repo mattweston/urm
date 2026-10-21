@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 
 import { init as initModel, type Model } from "./youtube-embed.model.ts"
@@ -14,7 +15,7 @@ export type { ViewOptions } from "./youtube-embed.view.ts"
 export { view } from "./youtube-embed.view.ts"
 
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (parentModel: ParentModel) => Model
+    readonly read: (parentModel: ParentModel) => Option.Option<Model>
     readonly toParentMessage: (message: Message) => ParentMessage
     readonly when?: (model: ParentModel) => boolean
 }) => {

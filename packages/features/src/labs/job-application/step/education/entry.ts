@@ -1,4 +1,4 @@
-import { Effect, Match as M, Option, Schema as S } from "effect"
+import { Match as M, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import {
@@ -106,12 +106,8 @@ type UpdateReturn = readonly [Model, ReadonlyArray<Command.Command<Message>>]
 const mapGraduationYearListboxCommands = (
     commands: ReadonlyArray<Command.Command<Ui.Listbox.Message>>
 ): ReadonlyArray<Command.Command<Message>> =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) =>
-                GotGraduationYearListboxMessage({ message })
-            )
-        )
+    Command.mapMessages(commands, (message) =>
+        GotGraduationYearListboxMessage({ message })
     )
 
 export const update = (model: Model, message: Message): UpdateReturn =>
@@ -129,7 +125,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             UpdatedFieldOfStudy: ({ value }) => [
-                modifyFields(model, { fieldOfStudy: () => validateFieldOfStudy(value) }),
+                modifyFields(model, {
+                    fieldOfStudy: () => validateFieldOfStudy(value),
+                }),
                 [],
             ],
 
@@ -169,7 +167,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 [],
             ],
 
-            UpdatedGpa: ({ value }) => [modifyFields(model, { gpa: () => value }), []],
+            UpdatedGpa: ({ value }) => [
+                modifyFields(model, { gpa: () => value }),
+                [],
+            ],
         })
     )
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { Context, Effect, Layer, Schema } from "effect"
-import type { Sql } from "@urm/db/sql"
+import type { Sql } from "@urm/database/sql"
 import {
     authenticate_token,
     session_token,

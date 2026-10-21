@@ -7,7 +7,7 @@ const package_root = dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
     resolve: {
         alias: {
-            "@urm/db/legacy-schema": resolve(
+            "@urm/database/legacy-schema": resolve(
                 package_root,
                 "../db/src/legacy-schema"
             ),

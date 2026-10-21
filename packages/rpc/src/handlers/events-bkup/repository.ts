@@ -14,8 +14,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { and, eq, isNull } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { events, event_menu_items } from "@urm/db/legacy-schema/events"
+import { DB } from "@urm/database/layer"
+import { events, event_menu_items } from "@urm/database/legacy-schema/events"
 import {
     Event,
     EventMenuItem,

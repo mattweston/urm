@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto"
 import { sql } from "drizzle-orm"
 import { Cause, Effect, Schedule, Schema } from "effect"
-import { Sql, query_rows } from "@urm/db/sql"
+import { Sql, query_rows } from "@urm/database/sql"
 import {
     DeploymentJobRecord,
     PublishingError,

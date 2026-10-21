@@ -5,7 +5,7 @@
  * using Drizzle ORM with Effect integration.
  */
 
-// Restored runtime exports use legacy-schema. New schema: @urm/db/schema.
+// Restored runtime exports use legacy-schema. New schema: @urm/database/schema.
 export {
     schema,
     relations,
@@ -126,7 +126,7 @@ export {
 } from "./seeds/demo-seed.ts"
 
 // Build-time schema introspection (no connection side effects when
-// imported via the `@urm/db/introspection` subpath)
+// imported via the `@urm/database/introspection` subpath)
 export {
     schema_overview,
     type ColumnOverview,

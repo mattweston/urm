@@ -14,8 +14,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { and, asc, eq } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { messages } from "@urm/db/legacy-schema/chat"
+import { DB } from "@urm/database/layer"
+import { messages } from "@urm/database/legacy-schema/chat"
 
 import { ChatRepository, type ChatRepositoryType } from "@urm/contracts"
 import {

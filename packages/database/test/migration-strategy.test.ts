@@ -1,7 +1,7 @@
 /**
  * Migration Strategy Integration Tests
  *
- * @module @urm/db/test/migration-strategy.integration
+ * @module @urm/database/test/migration-strategy.integration
  */
 
 import { describe, it, expect } from "@effect/vitest"

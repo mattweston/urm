@@ -3,7 +3,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { entityKey, type Boundary } from "foldkit-remote"
 import { RemoteServer, RemoteServerError } from "foldkit-remote-server"
 import type { AccountPrincipal } from "@urm/auth"
-import { Sql, query_rows } from "@urm/db/sql"
+import { Sql, query_rows } from "@urm/database/sql"
 import {
     SysadminRemote,
     SysadminTelemetryEntity,

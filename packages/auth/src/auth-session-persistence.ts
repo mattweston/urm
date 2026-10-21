@@ -10,7 +10,7 @@ import {
     DatabaseOperationError,
     databaseOperationError,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 
 export type ContactAuthSessionRevocation = Readonly<{
     contact_id: string

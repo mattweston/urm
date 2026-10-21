@@ -14,8 +14,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { and, eq } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { members } from "@urm/db/legacy-schema/members"
+import { DB } from "@urm/database/layer"
+import { members } from "@urm/database/legacy-schema/members"
 import {
     Member,
     CreateMemberInput,

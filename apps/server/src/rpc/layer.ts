@@ -20,7 +20,7 @@ import {
     DatabaseLive,
     DemoWorkspaceProvisioningLive,
     MigratorLive,
-} from "@urm/db"
+} from "@urm/database"
 import { AuthConfigLive, ServerConfigLive } from "@urm/env/server"
 import { DeliveryPersistenceLive, EmailSqlLive } from "@urm/email/postgres"
 import {

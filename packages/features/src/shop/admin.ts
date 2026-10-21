@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import type { HtmlBuilder } from "foldkit/html"
 import { Submodel, Subscription } from "foldkit"
 import {
@@ -78,6 +79,6 @@ const adminViewForSubmodel = (model: Model, h: HtmlBuilder<Message>) =>
 export const view = Submodel.defineView<Model, Message>(adminViewForSubmodel)
 
 export const subscriptions = <ParentModel, ParentMessage>(_config: {
-    readonly toChildModel: (parentModel: ParentModel) => unknown
+    readonly read: (parentModel: ParentModel) => Option.Option<unknown>
     readonly toParentMessage: (message: Message) => ParentMessage
 }) => Subscription.make<ParentModel, ParentMessage>()(() => ({}))

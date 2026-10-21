@@ -10,12 +10,7 @@ type UpdateReturn = readonly [Model, ReadonlyArray<Command.Command<Message>>]
 
 const mapCommands = (
     commands: ReadonlyArray<Command.Command<Ui.Calendar.Message>>
-) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotCalendarMessage({ message }))
-        )
-    )
+) => Command.mapMessages(commands, (message) => GotCalendarMessage({ message }))
 
 export const init = (): UpdateReturn => {
     const today = Effect.runSync(Calendar.today.local)

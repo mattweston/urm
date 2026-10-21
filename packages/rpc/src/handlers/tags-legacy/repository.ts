@@ -14,8 +14,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { and, desc, eq, inArray, isNull } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { tags, entity_tags } from "@urm/db/legacy-schema/tags"
+import { DB } from "@urm/database/layer"
+import { tags, entity_tags } from "@urm/database/legacy-schema/tags"
 import {
     Tag,
     EntityTag,

@@ -2,7 +2,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { sql } from "drizzle-orm"
 import { Effect, Schema } from "effect"
-import { Sql, query_rows } from "@urm/db/sql"
+import { Sql, query_rows } from "@urm/database/sql"
 import { AccountProfile, AccountDomain } from "@urm/contracts/auth"
 import {
     PasswordRecord,

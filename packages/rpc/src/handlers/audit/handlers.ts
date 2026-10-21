@@ -10,7 +10,7 @@
 import { Effect } from "effect"
 import { and, desc, eq, gte, lte, count as countFn } from "drizzle-orm"
 import { AuditRpcs } from "@urm/contracts/audit"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import type { AuditEventItem } from "@urm/domain/schemas/audit"
 import { databaseError } from "../errors.ts"
 

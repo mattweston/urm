@@ -3,7 +3,7 @@ import { PGlite } from "@electric-sql/pglite"
 import { PgDialect } from "drizzle-orm/pg-core"
 import { Effect } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { Sql, SqlError, type SqlService } from "@urm/db/sql"
+import { Sql, SqlError, type SqlService } from "@urm/database/sql"
 import { load_publication_theme } from "../src/handlers/mail/repository.ts"
 
 const pg = new PGlite()

@@ -190,12 +190,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             UpdatedFirstName: ({ value }) => [
-                modifyFields(model, { firstName: () => validateFirstName(value) }),
+                modifyFields(model, {
+                    firstName: () => validateFirstName(value),
+                }),
                 [],
             ],
 
             UpdatedLastName: ({ value }) => [
-                modifyFields(model, { lastName: () => validateLastName(value) }),
+                modifyFields(model, {
+                    lastName: () => validateLastName(value),
+                }),
                 [],
             ],
 
@@ -258,12 +262,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                 onSome: ({ value }) => Option.some(value),
                             }),
                     }),
-                    listboxCommands.map(
-                        Command.mapEffect(
-                            Effect.map((innerMessage) =>
-                                GotPronounsMessage({ message: innerMessage })
-                            )
-                        )
+                    Command.mapMessages(listboxCommands, (innerMessage) =>
+                        GotPronounsMessage({ message: innerMessage })
                     ),
                 ]
             },
@@ -308,14 +308,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         availableDate: () => nextDate,
                         maybeAvailableDate: () => nextMaybeAvailableDate,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((innerMessage) =>
-                                GotAvailableDateMessage({
-                                    message: innerMessage,
-                                })
-                            )
-                        )
+                    Command.mapMessages(commands, (innerMessage) =>
+                        GotAvailableDateMessage({
+                            message: innerMessage,
+                        })
                     ),
                 ]
             },

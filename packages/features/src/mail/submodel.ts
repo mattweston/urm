@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 import { AppMessage, GotNewsletterMessage } from "./platform/app.message.ts"
 import type { AppModel } from "./platform/app.model.ts"
@@ -44,12 +45,12 @@ const mail_subscriptions = Subscription.lift(Newsletter.subscriptions)<
     AppModel,
     AppMessage
 >({
-    toChildModel: (model) => model.newsletter,
+    read: (model) => Option.some(model.newsletter),
     toParentMessage: (message) => GotNewsletterMessage({ message }),
 })
 
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (parentModel: ParentModel) => AppModel
+    readonly read: (parentModel: ParentModel) => Option.Option<AppModel>
     readonly toParentMessage: (message: AppMessage) => ParentMessage
     readonly when?: (parentModel: ParentModel) => boolean
 }) => Subscription.lift(mail_subscriptions)<ParentModel, ParentMessage>(config)

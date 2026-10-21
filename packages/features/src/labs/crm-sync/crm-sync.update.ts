@@ -115,10 +115,8 @@ const replaceSyncFilter = (filter: SyncFilter, navigation: NavigationMode) =>
 const mapVirtualListCommands = (
     commands: ReadonlyArray<Command.Command<Ui.VirtualList.Message>>
 ): ReadonlyArray<Command.Command<Message>> =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotSyncVirtualListMessage({ message }))
-        )
+    Command.mapMessages(commands, (message) =>
+        GotSyncVirtualListMessage({ message })
     )
 
 // How far a cached page is from the one being read. A page belonging to another
@@ -334,7 +332,9 @@ const scrollListToTop = (model: Model): UpdateReturn => {
     )
 
     return {
-        model: modifyFields(model, { list: () => modifyFields(list, { scrollTop: () => 0 }) }),
+        model: modifyFields(model, {
+            list: () => modifyFields(list, { scrollTop: () => 0 }),
+        }),
         commands: mapVirtualListCommands(commands),
     }
 }

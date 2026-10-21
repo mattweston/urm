@@ -1,4 +1,4 @@
-import { Effect, Option, Schema as S } from "effect"
+import { Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
 import { modifyFields } from "foldkit/struct"
@@ -47,12 +47,8 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                     onSome: ({ value }) => value,
                 }),
         }),
-        commands.map(
-            Command.mapEffect(
-                Effect.map((child_message) =>
-                    GotTabsMessage({ message: child_message })
-                )
-            )
+        Command.mapMessages(commands, (child_message) =>
+            GotTabsMessage({ message: child_message })
         ),
     ]
 }

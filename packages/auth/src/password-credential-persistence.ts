@@ -11,7 +11,7 @@ import {
     DatabaseOperationError,
     databaseOperationError,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 
 export type PasswordCredentialReplacement = Readonly<{
     contact_id: string

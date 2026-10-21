@@ -9,9 +9,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { and, eq, isNull } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { contacts } from "@urm/db/legacy-schema/contacts"
-import { domain_contacts } from "@urm/db/legacy-schema/domains"
+import { DB } from "@urm/database/layer"
+import { contacts } from "@urm/database/legacy-schema/contacts"
+import { domain_contacts } from "@urm/database/legacy-schema/domains"
 import {
     ContactId,
     Contact,

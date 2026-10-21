@@ -1,7 +1,7 @@
 /**
  * Pool Configuration Tests
  *
- * @module @urm/db/test/config/pool-config
+ * @module @urm/database/test/config/pool-config
  */
 
 import { describe, it, expect } from "@effect/vitest"

@@ -1131,6 +1131,9 @@ describe("migration regression audit", () => {
                                   _tag: "MutationSucceeded",
                                   requestId: "tag-write",
                                   entities: [],
+                                  // Fixed rather than a clock read: a story
+                                  // test should not vary run to run.
+                                  now: 0,
                               },
                               result: { _tag: "CreatedTag" },
                           }

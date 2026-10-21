@@ -1,4 +1,4 @@
-import { Effect, Option, Schema as S, Struct } from "effect"
+import { Clock, Effect, Option, Schema as S, Struct } from "effect"
 import { Command, File, Submodel, Subscription } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
@@ -268,6 +268,7 @@ const ChangeDocumentLibrary = Command.define("ChangeDocumentLibrary", {
                     requestId: request_id,
                     entities: outcome.entities,
                     connections: outcome.connections,
+                    now: yield* Clock.currentTimeMillis,
                 },
                 saved_id:
                     action._tag === "create" ||
@@ -587,7 +588,7 @@ export const subscriptions = Subscription.lift(Documents.subscriptions)<
     Model,
     Message
 >({
-    toChildModel: project,
+    read: (model) => Option.some(project(model)),
     toParentMessage: (message) => message,
 })
 export const view = Submodel.defineView<Model, Message, Documents.ViewInputs>(

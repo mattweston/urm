@@ -23,8 +23,8 @@ import {
 } from "@urm/domain/schemas/contacts"
 
 // Re-export Drizzle table and inferred types
-export { contacts } from "@urm/db/legacy-schema/contacts"
-export type { Contact as ContactRow, NewContact } from "@urm/db/legacy-schema/contacts"
+export { contacts } from "@urm/database/legacy-schema/contacts"
+export type { Contact as ContactRow, NewContact } from "@urm/database/legacy-schema/contacts"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

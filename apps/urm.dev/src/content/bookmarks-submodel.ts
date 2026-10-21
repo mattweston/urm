@@ -1,4 +1,4 @@
-import { Array, Effect, Option, Schema as S, Struct } from "effect"
+import { Array, Clock, Effect, Option, Schema as S, Struct } from "effect"
 import { Command, Submodel } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
@@ -202,6 +202,7 @@ const SaveCatalogBookmark = Command.define("SaveCatalogBookmark", {
                     requestId: request_id,
                     entities: outcome.entities,
                     connections: outcome.connections,
+                    now: yield* Clock.currentTimeMillis,
                 },
                 result: "saved",
             })
@@ -239,6 +240,7 @@ const DeleteCatalogBookmark = Command.define("DeleteCatalogBookmark", {
                     requestId: request_id,
                     entities: outcome.entities,
                     connections: outcome.connections,
+                    now: yield* Clock.currentTimeMillis,
                 },
                 result: "deleted",
             })

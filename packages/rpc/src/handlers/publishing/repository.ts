@@ -11,7 +11,7 @@ import { resolveSiteTheme } from "@urm/domain/schemas/site-appearance"
 import { randomUUID } from "node:crypto"
 import { sql } from "drizzle-orm"
 import { Context, Effect, Layer, Schema } from "effect"
-import { Sql, query_rows } from "@urm/db/sql"
+import { Sql, query_rows } from "@urm/database/sql"
 import {
     ReleaseRecord,
     PublishingError,

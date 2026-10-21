@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm"
 import { Effect, Schema } from "effect"
-import { Sql, query_rows } from "@urm/db/sql"
+import { Sql, query_rows } from "@urm/database/sql"
 import { ZernioProvider, ZernioProviderError } from "./provider.ts"
 
 const PendingEvent = Schema.Struct({

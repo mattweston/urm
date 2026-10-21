@@ -5,7 +5,7 @@
  * Database migrations, health checks, seed data.
  */
 import { Effect } from "effect"
-import { MigratorService, loadEnvironmentConfig } from "@urm/db"
+import { MigratorService, loadEnvironmentConfig } from "@urm/database"
 import { ensureUploadBucketCors } from "@urm/utils/upload"
 import { runtimeCapabilities } from "./demo-runtime.ts"
 

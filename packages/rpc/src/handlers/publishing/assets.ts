@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { sql } from "drizzle-orm"
 import { Context, Effect, Layer, Schema } from "effect"
 import { require_account_domain } from "@urm/auth"
-import { query_rows } from "@urm/db/sql"
+import { query_rows } from "@urm/database/sql"
 import {
     PublishingError,
     type ReleaseAssetSource,

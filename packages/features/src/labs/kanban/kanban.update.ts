@@ -1,4 +1,4 @@
-import { Array, Effect, Match as M, Option, String, pipe } from "effect"
+import { Array, Match as M, Option, String, pipe } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { modifyFields } from "foldkit/struct"
@@ -129,13 +129,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     maybeOutMessage_value
                 )
 
-                const mappedCommands = dragCommands.map(
-                    Command.mapEffect(
-                        Effect.map(
-                            (innerMessage): Message =>
-                                GotDragAndDropMessage({ message: innerMessage })
-                        )
-                    )
+                const mappedCommands = Command.mapMessages(
+                    dragCommands,
+                    (innerMessage): Message =>
+                        GotDragAndDropMessage({ message: innerMessage })
                 )
 
                 return Option.match(maybeOutMessage, {

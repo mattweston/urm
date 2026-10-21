@@ -1,4 +1,4 @@
-import { Array, Effect, Schema as S, Struct } from "effect"
+import { Array, Clock, Effect, Schema as S, Struct } from "effect"
 import { Command, Submodel } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
@@ -107,8 +107,7 @@ export const project = (model: Model): Tags.ModelType => {
             loading: freshness._tag === "Refreshing",
             // `Stale` means this value is the last good one and the newest read
             // failed; show both rather than silently serving stale data.
-            error:
-                freshness._tag === "Stale" ? freshness.error.message : null,
+            error: freshness._tag === "Stale" ? freshness.error.message : null,
         }),
     })
 }
@@ -173,6 +172,7 @@ const LoadTagCatalog = Command.define("LoadTagCatalog", {
                         requestId: request_id,
                         entities: outcome.entities,
                         connections: outcome.connections,
+                        now: yield* Clock.currentTimeMillis,
                     }
                 ).remote,
                 result: null,
@@ -207,6 +207,7 @@ const ChangeTagCatalog = Command.define("ChangeTagCatalog", {
                     requestId: request_id,
                     entities: outcome.entities,
                     connections: outcome.connections,
+                    now: yield* Clock.currentTimeMillis,
                 },
                 result: success,
             })

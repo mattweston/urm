@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 import * as YouTubeEmbed from "../labs/media/youtube-embed/submodel.ts"
 import { subscriptions as gallerySubscriptions } from "./gallery/gallery.subscription.ts"
@@ -77,17 +78,17 @@ const mediaGallerySubscriptions = Subscription.lift(gallerySubscriptions)<
     Model,
     Message
 >({
-    toChildModel: (model) => model,
+    read: (model) => Option.some(model),
     toParentMessage: ({ message }) => GotDragAndDropMessage({ message }),
 })
 
 const mediaYouTubeSubscriptions = YouTubeEmbed.subscriptions<Model, Message>({
-    toChildModel: (model) => model.youtubePlayer,
+    read: (model) => Option.some(model.youtubePlayer),
     toParentMessage: (message) => GotVideoYouTubeMessage({ message }),
 })
 
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (parentModel: ParentModel) => Model
+    readonly read: (parentModel: ParentModel) => Option.Option<Model>
     readonly toParentMessage: (message: Message) => ParentMessage
 }) => {
     const { dragPointer, dragEscape, dragKeyboard, autoScroll } =

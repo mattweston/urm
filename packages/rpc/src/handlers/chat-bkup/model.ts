@@ -21,8 +21,8 @@ import {
 } from "@urm/domain/schemas/chat"
 
 // Re-export Drizzle table and inferred types
-export { messages } from "@urm/db/legacy-schema/chat"
-export type { Message as MessageRow, NewMessage } from "@urm/db/legacy-schema/chat"
+export { messages } from "@urm/database/legacy-schema/chat"
+export type { Message as MessageRow, NewMessage } from "@urm/database/legacy-schema/chat"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

@@ -23,8 +23,8 @@
         "noEmit": true,
         "composite": false,
         "paths": {
-            "@urm/db": ["../../packages/db/src/index.ts"],
-            "@urm/db/*": ["../../packages/db/src/*"],
+            "@urm/database": ["../../packages/database/src/index.ts"],
+            "@urm/database/*": ["../../packages/database/src/*"],
             "@urm/contracts": ["../../packages/contracts/src/index.ts"],
             "@urm/contracts/*": ["../../packages/contracts/src/*"],
             "@urm/domain": ["../../packages/domain/src/schemas/index.ts"],

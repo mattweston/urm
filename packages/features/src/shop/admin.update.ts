@@ -1,4 +1,4 @@
-import { Array, Effect, Match as M, Option, Schema as S } from "effect"
+import { Array, Match as M, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { modifyFields } from "foldkit/struct"
@@ -209,15 +209,18 @@ const updateCheckoutDraftField = (
         | "postal",
     value: string
 ): CheckoutDraft => {
-    if (field === "email") return modifyFields(checkoutDraft, { email: () => value })
+    if (field === "email")
+        return modifyFields(checkoutDraft, { email: () => value })
     if (field === "firstName") {
         return modifyFields(checkoutDraft, { firstName: () => value })
     }
     if (field === "lastName") {
         return modifyFields(checkoutDraft, { lastName: () => value })
     }
-    if (field === "line1") return modifyFields(checkoutDraft, { line1: () => value })
-    if (field === "city") return modifyFields(checkoutDraft, { city: () => value })
+    if (field === "line1")
+        return modifyFields(checkoutDraft, { line1: () => value })
+    if (field === "city")
+        return modifyFields(checkoutDraft, { city: () => value })
     if (field === "province") {
         return modifyFields(checkoutDraft, { province: () => value })
     }
@@ -605,14 +608,18 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             UpdatedProductActive: ({ value }) => [
                 modifyFields(model, {
                     productDraft: () =>
-                        modifyFields(model.productDraft, { isActive: () => value }),
+                        modifyFields(model.productDraft, {
+                            isActive: () => value,
+                        }),
                 }),
                 [],
             ],
             UpdatedProductFeatured: ({ value }) => [
                 modifyFields(model, {
                     productDraft: () =>
-                        modifyFields(model.productDraft, { isFeatured: () => value }),
+                        modifyFields(model.productDraft, {
+                            isFeatured: () => value,
+                        }),
                 }),
                 [],
             ],
@@ -665,12 +672,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         selectedProductImageFiles: () =>
                             selectedProductImageFiles,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotProductImageDropMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotProductImageDropMessage({ message })
                     ),
                 ]
             },
@@ -843,7 +846,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             UpdatedCollectionActive: ({ value }) => [
                 modifyFields(model, {
                     collectionDraft: () =>
-                        modifyFields(model.collectionDraft, { isActive: () => value }),
+                        modifyFields(model.collectionDraft, {
+                            isActive: () => value,
+                        }),
                 }),
                 [],
             ],

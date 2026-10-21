@@ -7,7 +7,7 @@
 import { createHash, randomBytes } from "node:crypto"
 import { and, eq, isNull, ne } from "drizzle-orm"
 import { Duration, Effect, Metric } from "effect"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import { AuthConfig } from "@urm/env/server"
 import {
     AUTH_COOKIE_CLEAR,

@@ -23,7 +23,7 @@ import {
     databaseOperationError,
     loadEnvironmentConfig,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 
 type PlatformAdminOperation = "grant" | "revoke"
 

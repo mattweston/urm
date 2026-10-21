@@ -1,5 +1,5 @@
 import { category_key } from "./menu-categories.ts"
-import { Array, Effect, Match as M, Option } from "effect"
+import { Array, Match as M, Option } from "effect"
 import { AsyncData, Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { Url } from "foldkit/url"
@@ -551,12 +551,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         },
                         eventDatePicker: nextEventDatePicker,
                     },
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotEventDatePickerMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotEventDatePickerMessage({ message })
                     ),
                 ]
             },
@@ -726,12 +722,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         imageDrop: nextDrop,
                         selectedImageFiles: nextFiles,
                     },
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotImageDropMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotImageDropMessage({ message })
                     ),
                 ]
             },

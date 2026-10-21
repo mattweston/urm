@@ -717,7 +717,7 @@ const editor_drag_and_drop_subscriptions = Subscription.lift({
     pagesRichTextDragKeyboard: drag_and_drop_subscriptions.documentKeyboard,
     pagesRichTextAutoScroll: drag_and_drop_subscriptions.autoScroll,
 })<Model, Message>({
-    toChildModel: (model) => model.editor.dragAndDrop,
+    read: (model) => Option.some(model.editor.dragAndDrop),
     toParentMessage: (message) =>
         GotPageRichTextEditorMessage({
             message: GotRichTextDragAndDropMessage({ message }),

@@ -7,9 +7,9 @@
  *
  * Usage:
  *
- *   pnpm --filter @urm/db demo:workspaces -- expire
- *   pnpm --filter @urm/db demo:workspaces -- reset <contact-id> --confirm-reset=<contact-id>
- *   pnpm --filter @urm/db demo:workspaces -- purge --confirm-purge
+ *   pnpm --filter @urm/database demo:workspaces -- expire
+ *   pnpm --filter @urm/database demo:workspaces -- reset <contact-id> --confirm-reset=<contact-id>
+ *   pnpm --filter @urm/database demo:workspaces -- purge --confirm-purge
  */
 
 import {
@@ -19,7 +19,7 @@ import {
     loadEnvironmentConfig,
     purgeExpiredDemoWorkspaces,
     resetDemoWorkspace,
-} from "@urm/db"
+} from "@urm/database"
 import { Effect } from "effect"
 
 type LifecycleCommand =
@@ -29,7 +29,7 @@ type LifecycleCommand =
 
 const usage = (): Error =>
     new Error(
-        "Usage: pnpm --filter @urm/db demo:workspaces -- expire | reset <contact-id> --confirm-reset=<contact-id> | purge --confirm-purge"
+        "Usage: pnpm --filter @urm/database demo:workspaces -- expire | reset <contact-id> --confirm-reset=<contact-id> | purge --confirm-purge"
     )
 
 const parseCommand = (

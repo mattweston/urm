@@ -51,12 +51,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         datePicker: () => datePicker,
                         maybeSelectedDate: () => maybeSelectedDate,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotDatePickerMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotDatePickerMessage({ message })
                     ),
                 ]
             },

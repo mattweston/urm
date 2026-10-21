@@ -504,12 +504,9 @@ const blogStatusLabel = (status: typeof BlogStatus.Type): string =>
 const mapRichTextCommands = (
     commands: ReadonlyArray<Command.Command<RichTextEditorMessage>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map(
-                (message): Message => GotBlogRichTextEditorMessage({ message })
-            )
-        )
+    Command.mapMessages(
+        commands,
+        (message): Message => GotBlogRichTextEditorMessage({ message })
     )
 
 const addTag = (model: Model): Model => {
@@ -526,7 +523,9 @@ const addTag = (model: Model): Model => {
 }
 
 const removeTag = (model: Model, value: string): Model =>
-    modifyFields(model, { tags: () => model.tags.filter((tag) => tag !== value) })
+    modifyFields(model, {
+        tags: () => model.tags.filter((tag) => tag !== value),
+    })
 
 const markBlogDraftReady = (model: Model): Model =>
     modifyFields(model, {
@@ -699,7 +698,7 @@ const richTextDragAndDropSubscriptions = Subscription.lift({
     dragKeyboard: dragAndDropSubscriptions.documentKeyboard,
     autoScroll: dragAndDropSubscriptions.autoScroll,
 })<Model, Message>({
-    toChildModel: (model) => model.editor.dragAndDrop,
+    read: (model) => Option.some(model.editor.dragAndDrop),
     toParentMessage: (message) =>
         GotBlogRichTextEditorMessage({
             message: GotRichTextDragAndDropMessage({ message }),
@@ -1272,12 +1271,8 @@ const mapSidebarTooltipCommands = (
     key: string,
     commands: ReadonlyArray<Command.Command<Tooltip.Message>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) =>
-                GotSidebarTooltipMessage({ tooltipId: key, message })
-            )
-        )
+    Command.mapMessages(commands, (message) =>
+        GotSidebarTooltipMessage({ tooltipId: key, message })
     )
 
 const delegateSidebarTooltip = (

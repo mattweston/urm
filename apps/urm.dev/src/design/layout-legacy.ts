@@ -1196,14 +1196,12 @@ export const update = (
                 ...remaining.slice(out.toIndex),
             ])
         })
-        const mapped_drag_commands = drag_commands.map(
-            Command.mapEffect(
-                Effect.map((next_message) =>
-                    GotPublicationNavigationDragAndDropMessage({
-                        message: next_message,
-                    })
-                )
-            )
+        const mapped_drag_commands = Command.mapMessages(
+            drag_commands,
+            (next_message) =>
+                GotPublicationNavigationDragAndDropMessage({
+                    message: next_message,
+                })
         )
         return Option.match(reordered, {
             onNone: () => [
@@ -1708,7 +1706,7 @@ export const favicons_view = (model: Model, h: HtmlBuilder<Message>): Html => {
 const navigation_drag_subscriptions = Subscription.lift(
     Ui.DragAndDrop.subscriptions
 )<Model, Message>({
-    toChildModel: (model) => model.navigation_drag_and_drop,
+    read: (model) => Option.some(model.navigation_drag_and_drop),
     toParentMessage: (message) =>
         GotPublicationNavigationDragAndDropMessage({ message }),
     when: (model) =>

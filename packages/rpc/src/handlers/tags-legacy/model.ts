@@ -26,13 +26,13 @@ import {
 } from "@urm/domain/schemas/tags"
 
 // Re-export Drizzle tables and inferred types
-export { tags } from "@urm/db/legacy-schema/tags"
-export { entity_tags } from "@urm/db/legacy-schema/tags"
-export type { Tag as TagRow, NewTag } from "@urm/db/legacy-schema/tags"
+export { tags } from "@urm/database/legacy-schema/tags"
+export { entity_tags } from "@urm/database/legacy-schema/tags"
+export type { Tag as TagRow, NewTag } from "@urm/database/legacy-schema/tags"
 export type {
     EntityTag as EntityTagRow,
     NewEntityTag,
-} from "@urm/db/legacy-schema/tags"
+} from "@urm/database/legacy-schema/tags"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

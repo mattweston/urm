@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect"
 import { REMOTE_PROTOCOL_VERSION } from "foldkit-remote"
 import { readFile, readdir } from "node:fs/promises"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { Sql, SqlError, type SqlService } from "@urm/db/sql"
+import { Sql, SqlError, type SqlService } from "@urm/database/sql"
 import {
     SysadminTelemetryRepository,
     SysadminTelemetryRepositoryLive,
@@ -86,7 +86,7 @@ const read = (id: string) =>
 
 beforeAll(async () => {
     const base = new URL(
-        "../../../packages/db/src/migrations/",
+        "../../../packages/database/src/migrations/",
         import.meta.url
     )
     for (const entry of (await readdir(base, { withFileTypes: true }))

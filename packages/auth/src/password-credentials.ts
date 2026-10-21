@@ -6,7 +6,7 @@
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto"
 import { and, eq, isNull } from "drizzle-orm"
 import { Duration, Effect, Metric, Schema } from "effect"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import { PasswordCredentialPersistence } from "./password-credential-persistence.ts"
 
 export const PASSWORD_HASH_ALGORITHM = "scrypt"

@@ -1,4 +1,4 @@
-import { Effect, Option, Schema as S, Struct } from "effect"
+import { Clock, Effect, Option, Schema as S, Struct } from "effect"
 import { Command, File, Navigation, Submodel } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
@@ -360,6 +360,11 @@ const ChangeBlogLibrary = Command.define("ChangeBlogLibrary", {
                 { domain_id, account_id, subdomain_slug, action },
                 request_id
             ).pipe(Effect.provide(api.remote(domain_id)))
+            // `MutationSucceeded` gained a required `now` in foldkit-remote
+            // 0.18.0, for the freshness bookkeeping behind refresh policies.
+            // `mutate` does not return one — it is a client clock reading, so
+            // take it from the Effect clock to keep TestClock working.
+            const settled_at = yield* Clock.currentTimeMillis
             return Saved({
                 epoch,
                 editor_epoch,
@@ -368,6 +373,7 @@ const ChangeBlogLibrary = Command.define("ChangeBlogLibrary", {
                     requestId: request_id,
                     entities: outcome.entities,
                     connections: outcome.connections,
+                    now: settled_at,
                 },
                 saved_id:
                     action._tag === "save" || action._tag === "from_template"
@@ -788,10 +794,10 @@ export const view = Submodel.defineView<Model, Message, Blog.ViewInputs>(
         )
 )
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (model: ParentModel) => Model
+    readonly read: (model: ParentModel) => Option.Option<Model>
     readonly toParentMessage: (message: Message) => ParentMessage
 }) =>
     Blog.subscriptions<ParentModel, ParentMessage>({
-        toChildModel: (model) => project(config.toChildModel(model)),
+        read: (model) => Option.map(config.read(model), project),
         toParentMessage: config.toParentMessage,
     })

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto"
 import { Context, Effect, Layer, Schema } from "effect"
 import { sql } from "drizzle-orm"
 import { require_account_domain, type AccountPrincipal } from "@urm/auth"
-import { Sql, query_rows } from "@urm/db/sql"
+import { Sql, query_rows } from "@urm/database/sql"
 import {
     ChatMessage,
     ChatCatalogRecord,

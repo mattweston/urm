@@ -27,13 +27,13 @@ import {
 import { ValidationError } from "@urm/domain/errors"
 
 // Re-export Drizzle tables and inferred types
-export { events, event_menu_items } from "@urm/db/legacy-schema/events"
+export { events, event_menu_items } from "@urm/database/legacy-schema/events"
 export type {
     Event as EventRow,
     NewEvent,
     EventMenuItem as EventMenuItemRow,
     NewEventMenuItem,
-} from "@urm/db/legacy-schema/events"
+} from "@urm/database/legacy-schema/events"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

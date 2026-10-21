@@ -18,7 +18,7 @@ import {
     resolveDomainSessionScope,
 } from "@urm/auth/domain-sessions"
 import { getAuthSessionContactId } from "@urm/auth/sessions"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import { AuthConfig, ServerConfig } from "@urm/env/server"
 import { AuthorizationError } from "@urm/domain/errors"
 import {

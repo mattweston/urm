@@ -1,4 +1,4 @@
-import { Effect, Match as M } from "effect"
+import { Match as M } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { toString as urlToString } from "foldkit/url"
@@ -27,12 +27,8 @@ const mapSidebarTooltipCommands = (
     key: string,
     commands: ReadonlyArray<Command.Command<Ui.Tooltip.Message>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) =>
-                GotSidebarTooltipMessage({ tooltipId: key, message })
-            )
-        )
+    Command.mapMessages(commands, (message) =>
+        GotSidebarTooltipMessage({ tooltipId: key, message })
     )
 
 const delegateSidebarTooltip = (

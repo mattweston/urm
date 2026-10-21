@@ -12,15 +12,15 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { eq, and, count, inArray, isNull, sql } from "drizzle-orm"
 import { randomUUID } from "node:crypto"
-import { DB } from "@urm/db/layer"
-import { contacts } from "@urm/db/legacy-schema/contacts"
+import { DB } from "@urm/database/layer"
+import { contacts } from "@urm/database/legacy-schema/contacts"
 import {
     domain_admin,
     domain_contacts,
     domains,
     domain_hostnames,
-} from "@urm/db/legacy-schema/domains"
-import { org_contacts, orgs } from "@urm/db/legacy-schema/organisations"
+} from "@urm/database/legacy-schema/domains"
+import { org_contacts, orgs } from "@urm/database/legacy-schema/organisations"
 import {
     Domain,
     CreateDomainInput,

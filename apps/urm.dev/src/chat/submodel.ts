@@ -1,4 +1,5 @@
 import {
+    Clock,
     Effect,
     Function,
     Option,
@@ -224,6 +225,7 @@ const SendChatMessage = Command.define("SendChatMessage", {
                     requestId: args.message.id,
                     entities: result.entities,
                     connections: result.connections,
+                    now: yield* Clock.currentTimeMillis,
                 },
             })
         }).pipe(

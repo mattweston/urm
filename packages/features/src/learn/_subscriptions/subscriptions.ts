@@ -281,7 +281,7 @@ export const liftedChildSubscriptions = Subscription.lift(childSubscriptions)<
     Model,
     Message
 >({
-    toChildModel: (model) => model.child,
+    read: (model) => Option.some(model.child),
 
     toParentMessage: (message) =>
         Message.GotChildMessage({

@@ -4,7 +4,7 @@
  * HttpApiMiddleware tags for request-scoped services.
  *
  * Not applied anywhere: nothing in packages/ or apps/ imports either
- * middleware. The database layer that runs is @urm/db's, provided directly as
+ * middleware. The database layer that runs is @urm/database's, provided directly as
  * a Layer.
  *
  * Note this barrel re-exports the middleware classes and their errors but not

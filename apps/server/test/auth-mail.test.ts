@@ -1,6 +1,6 @@
-import * as ProjectsBrowser from "../../client/src/projects/submodel.ts"
-import * as ChatBrowser from "../../client/src/chat/submodel.ts"
-import * as MailBrowser from "../../client/src/mail/submodel.ts"
+import * as ProjectsBrowser from "../../urm.dev/src/projects/submodel.ts"
+import * as ChatBrowser from "../../urm.dev/src/chat/submodel.ts"
+import * as MailBrowser from "../../urm.dev/src/mail/submodel.ts"
 import { Surface } from "foldkit-surface"
 import type { SQL } from "drizzle-orm"
 import { EmailTransport } from "@urm/email"
@@ -44,21 +44,21 @@ import {
 import * as Subscriptions from "@urm/features/mail/subscriptions"
 import * as Mail from "@urm/features/mail/submodel"
 import * as SendFeature from "@urm/features/mail/send"
-import * as ChatUi from "../../client/src/chat/chat-ui.ts"
+import * as ChatUi from "../../urm.dev/src/chat/chat-ui.ts"
 import { ProjectAction } from "@urm/domain/projects"
 import { ChangeProjects } from "@urm/contracts/projects"
-import * as IssuesBrowser from "../../client/src/issues/submodel.ts"
+import * as IssuesBrowser from "../../urm.dev/src/issues/submodel.ts"
 import { IssueAction } from "@urm/domain/issues"
 import { ChangeIssues } from "@urm/contracts/issues"
-import * as SubdomainsBrowser from "../../client/src/domains/submodel.ts"
-import * as EventsBrowser from "../../client/src/events/submodel.ts"
-import * as ShopBrowser from "../../client/src/shop/submodel-postgres.ts"
-import * as DataBrowser from "../../client/src/data/submodel.ts"
-import * as FormsBrowser from "../../client/src/forms/submodel.ts"
+import * as SubdomainsBrowser from "../../urm.dev/src/domains/submodel.ts"
+import * as EventsBrowser from "../../urm.dev/src/events/submodel.ts"
+import * as ShopBrowser from "../../urm.dev/src/shop/submodel-postgres.ts"
+import * as DataBrowser from "../../urm.dev/src/data/submodel.ts"
+import * as FormsBrowser from "../../urm.dev/src/forms/submodel.ts"
 import {
     load_catalog as load_forms_catalog,
     load_detail as load_form_detail,
-} from "../../client/src/forms/api.ts"
+} from "../../urm.dev/src/forms/api.ts"
 import { FormsRepository } from "@urm/rpc/handlers/forms"
 import { FormDefinition } from "@urm/domain/schemas/forms"
 import type { FormsAction } from "@urm/domain/forms"
@@ -88,8 +88,8 @@ import {
     marketing_starter_landing_page,
     urm_marketing_landing_page,
 } from "@urm/domain/landing-page-presets"
-import * as LayoutBrowser from "../../client/src/design/layout-submodel.ts"
-import { DomainId } from "../../client/src/domains/domain-record.ts"
+import * as LayoutBrowser from "../../urm.dev/src/design/layout-submodel.ts"
+import { DomainId } from "../../urm.dev/src/domains/domain-record.ts"
 import {
     build_publication,
     run_development_job,
@@ -100,14 +100,14 @@ import { PublishingError, ReleaseAssetSource } from "@urm/domain/publishing"
 import { SiteBuildWriterLive } from "@urm/ssg/write-site-build"
 import { SiteBuildManifest } from "@urm/domain/schemas/document-site-builds"
 import { createHash } from "node:crypto"
-import * as PagesBrowser from "../../client/src/design/pages-submodel.ts"
-import * as PublishingBrowser from "../../client/src/domains/publishing-console.ts"
+import * as PagesBrowser from "../../urm.dev/src/design/pages-submodel.ts"
+import * as PublishingBrowser from "../../urm.dev/src/domains/publishing-console.ts"
 import { Url } from "foldkit/url"
 import { RepositoriesLive } from "@urm/rpc/repositories"
-import * as BlogBrowser from "../../client/src/blog/submodel.ts"
+import * as BlogBrowser from "../../urm.dev/src/blog/submodel.ts"
 import * as BlogFeature from "@urm/features/blog/submodel"
 import type { BlogAction } from "@urm/contracts/blog"
-import * as DocumentsBrowser from "../../client/src/documents/submodel.ts"
+import * as DocumentsBrowser from "../../urm.dev/src/documents/submodel.ts"
 import * as DocumentsFeature from "@urm/features/documents/submodel"
 import type { DocumentAction } from "@urm/contracts/documents"
 import {
@@ -135,7 +135,7 @@ import {
     it,
     vi,
 } from "vitest"
-import { Sql, SqlError, type SqlService } from "@urm/db/sql"
+import { Sql, SqlError, type SqlService } from "@urm/database/sql"
 import {
     authenticate_token,
     login_account,
@@ -170,28 +170,28 @@ import {
     DeleteMember,
 } from "@urm/contracts/members"
 import { members_remote_handlers } from "@urm/rpc/handlers/members"
-import * as BookmarksBrowser from "../../client/src/content/bookmarks-submodel.ts"
+import * as BookmarksBrowser from "../../urm.dev/src/content/bookmarks-submodel.ts"
 import type { BookmarkAction } from "@urm/contracts/bookmarks"
-import * as TagsBrowser from "../../client/src/tags/submodel.ts"
+import * as TagsBrowser from "../../urm.dev/src/tags/submodel.ts"
 import type { TagAction } from "@urm/contracts/tags"
-import * as MediaBrowser from "../../client/src/media/submodel.ts"
+import * as MediaBrowser from "../../urm.dev/src/media/submodel.ts"
 import { type MediaAction } from "@urm/contracts/media"
 import { api_handlers } from "@urm/rpc/api"
-import * as MembersBrowser from "../../client/src/members/model.ts"
+import * as MembersBrowser from "../../urm.dev/src/members/model.ts"
 import * as MembersManage from "@urm/features/mail/members/manage"
 import { contacts_client_layer } from "../scripts/contacts-client.ts"
-import { browser_api, ContactsApi } from "../../client/src/contacts/api.ts"
+import { browser_api, ContactsApi } from "../../urm.dev/src/contacts/api.ts"
 import {
     initial as browser_initial,
     Message as BrowserMessage,
     update as browser_update,
     page as browser_page,
-} from "../../client/src/contacts/model.ts"
-import type { Model as BrowserModel } from "../../client/src/contacts/model.ts"
+} from "../../urm.dev/src/contacts/model.ts"
+import type { Model as BrowserModel } from "../../urm.dev/src/contacts/model.ts"
 import {
     Data as BrowserData,
     contacts_page as searched_page,
-} from "../../client/src/contacts/remote.ts"
+} from "../../urm.dev/src/contacts/remote.ts"
 import {
     ContactsApp,
     ContactsData,
@@ -1778,7 +1778,7 @@ const login = (slug: string) =>
 
 beforeAll(async () => {
     const base = new URL(
-        "../../../packages/db/src/migrations/",
+        "../../../packages/database/src/migrations/",
         import.meta.url
     )
     for (const entry of (await readdir(base, { withFileTypes: true }))

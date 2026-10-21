@@ -1960,15 +1960,11 @@ const update_sidebar_tooltip = (
 
     return [
         modifyFields(model, { sidebar_tooltips: () => sidebar_tooltips }),
-        commands.map(
-            Command.mapEffect(
-                Effect.map((next_message) =>
-                    GotSidebarTooltipMessage({
-                        id: key,
-                        message: next_message,
-                    })
-                )
-            )
+        Command.mapMessages(commands, (next_message) =>
+            GotSidebarTooltipMessage({
+                id: key,
+                message: next_message,
+            })
         ),
     ]
 }
@@ -2006,12 +2002,9 @@ const update_inner = (
                         model.navigation_settings,
                         message
                     )
-                const commands: Commands = child_commands.map(
-                    Command.mapEffect(
-                        Effect.map((message) =>
-                            GotNavigationSettingsMessage({ message })
-                        )
-                    )
+                const commands: Commands = Command.mapMessages(
+                    child_commands,
+                    (message) => GotNavigationSettingsMessage({ message })
                 )
                 if (
                     message._tag !== "Save" ||
@@ -3081,7 +3074,9 @@ const update_inner = (
                     )
                     const next_model = modifyFields(model, {
                         auth: (auth) =>
-                            modifyFields(auth, { account_menu: () => account_menu }),
+                            modifyFields(auth, {
+                                account_menu: () => account_menu,
+                            }),
                     })
                     const menu_commands = Command.mapMessages(
                         commands,
@@ -3451,7 +3446,9 @@ const update_inner = (
                     message
                 )
                 return [
-                    modifyFields(model, { labs_flex_form: () => labs_flex_form }),
+                    modifyFields(model, {
+                        labs_flex_form: () => labs_flex_form,
+                    }),
                     Command.mapMessages(commands, (next_message) =>
                         GotLabsFlexFormMessage({ message: next_message })
                     ),
@@ -3489,7 +3486,9 @@ const update_inner = (
                     message
                 )
                 return [
-                    modifyFields(model, { labs_prop_grid: () => labs_prop_grid }),
+                    modifyFields(model, {
+                        labs_prop_grid: () => labs_prop_grid,
+                    }),
                     Command.mapMessages(commands, (next_message) =>
                         GotLabsPropGridMessage({ message: next_message })
                     ),
@@ -3624,7 +3623,9 @@ const update_inner = (
                     message
                 )
                 return [
-                    modifyFields(model, { labs_dom_depth: () => labs_dom_depth }),
+                    modifyFields(model, {
+                        labs_dom_depth: () => labs_dom_depth,
+                    }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsDomDepthMessage({ message })
                     ),
@@ -3636,7 +3637,9 @@ const update_inner = (
                     message
                 )
                 return [
-                    modifyFields(model, { labs_spreadsheets: () => labs_spreadsheets }),
+                    modifyFields(model, {
+                        labs_spreadsheets: () => labs_spreadsheets,
+                    }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsSpreadsheetsMessage({ message })
                     ),
@@ -3686,7 +3689,9 @@ const update_inner = (
                     message
                 )
                 return [
-                    modifyFields(model, { labs_breach_check: () => labs_breach_check }),
+                    modifyFields(model, {
+                        labs_breach_check: () => labs_breach_check,
+                    }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsBreachCheckMessage({ message })
                     ),
@@ -3698,7 +3703,9 @@ const update_inner = (
                     message
                 )
                 return [
-                    modifyFields(model, { labs_otp_field: () => labs_otp_field }),
+                    modifyFields(model, {
+                        labs_otp_field: () => labs_otp_field,
+                    }),
                     Command.mapMessages(commands, (message) =>
                         GotLabsOtpFieldMessage({ message })
                     ),
@@ -3783,7 +3790,9 @@ const update_inner = (
                     message
                 )
                 return [
-                    modifyFields(model, { labs_search_bar: () => labs_search_bar }),
+                    modifyFields(model, {
+                        labs_search_bar: () => labs_search_bar,
+                    }),
                     [],
                 ]
             },
@@ -4051,12 +4060,10 @@ const update_inner = (
                     maybe_selection_value
                 )
 
-                const mapped_commands = commands.map(
-                    Command.mapEffect(
-                        Effect.map((next_message) =>
-                            GotDomainSwitcherMessage({ message: next_message })
-                        )
-                    )
+                const mapped_commands = Command.mapMessages(
+                    commands,
+                    (next_message) =>
+                        GotDomainSwitcherMessage({ message: next_message })
                 )
                 const account_selection = model.contacts.session?.domains.find(
                     (domain) =>
@@ -4335,7 +4342,12 @@ const update_inner = (
             ReceivedDomainLogos: ({ account_id, catalog }) =>
                 model.contacts.session?.account_id === account_id &&
                 model.contacts.domain_id === catalog.domain_id
-                    ? [modifyFields(model, { domain_logos: () => catalog.drafts }), []]
+                    ? [
+                          modifyFields(model, {
+                              domain_logos: () => catalog.drafts,
+                          }),
+                          [],
+                      ]
                     : [model, []],
             FailedDomainLogos: () => [model, []],
             ReceivedLandingTemplates: ({ account_id, catalog }) =>
@@ -4368,7 +4380,9 @@ const update_inner = (
                     return [model, []]
                 return Option.match(model.forms, {
                     onNone: () => [
-                        modifyFields(model, { form_templates: () => catalog.templates }),
+                        modifyFields(model, {
+                            form_templates: () => catalog.templates,
+                        }),
                         [],
                     ],
                     onSome: (forms_model) => {
@@ -4419,7 +4433,9 @@ const update_inner = (
                             forms_domain_id(model)
                         )
                         return [
-                            modifyFields(model, { forms: () => Option.some(forms) }),
+                            modifyFields(model, {
+                                forms: () => Option.some(forms),
+                            }),
                             [],
                         ]
                     },
@@ -4430,12 +4446,19 @@ const update_inner = (
                 [],
             ],
             FailedNewsletterTemplates: ({ details }) => [
-                modifyFields(model, { maybe_error: () => Option.some(details) }),
+                modifyFields(model, {
+                    maybe_error: () => Option.some(details),
+                }),
                 [],
             ],
             ReceivedSocialTemplates: ({ domain_id, templates }) =>
                 Option.contains(social_domain_id(model), domain_id)
-                    ? [modifyFields(model, { social_templates: () => templates }), []]
+                    ? [
+                          modifyFields(model, {
+                              social_templates: () => templates,
+                          }),
+                          [],
+                      ]
                     : [model, []],
             ReceivedSocialData: ({
                 domain_id,
@@ -5347,7 +5370,9 @@ const update_inner = (
                     },
                 }),
             FailedData: ({ details }) => [
-                modifyFields(model, { maybe_error: () => Option.some(details) }),
+                modifyFields(model, {
+                    maybe_error: () => Option.some(details),
+                }),
                 [],
             ],
         })
@@ -5622,7 +5647,7 @@ export const update = (
 const navigation_subscriptions = FoldkitSubscription.lift(
     NavigationSettings.subscriptions
 )<Model, Message>({
-    toChildModel: (model) => model.navigation_settings,
+    read: (model) => Option.some(model.navigation_settings),
     toParentMessage: (message) => GotNavigationSettingsMessage({ message }),
     when: (model) =>
         model.route._tag === "Settings" &&
@@ -5634,14 +5659,13 @@ const forms_drag_subscriptions = FoldkitSubscription.lift(Forms.subscriptions)<
     Model,
     Message
 >({
-    toChildModel: (model) =>
-        Option.getOrElse(model.forms, () => inactive_forms_model),
+    read: (model) => Option.getOrElse(model.forms, () => inactive_forms_model),
     toParentMessage: (message) => GotFormsMessage({ message }),
     when: (model) => Option.isSome(model.forms),
 })
 
 const project_subscriptions = DesktopProjects.subscriptions<Model, Message>({
-    toChildModel: (model) => model.projects,
+    read: (model) => Option.some(model.projects),
     toActiveDomainId: (model) => module_domain(model, "Projects"),
     toParentMessage: (message) => GotProjectsMessage({ message }),
 })
@@ -5650,7 +5674,8 @@ const issue_drag_subscriptions = FoldkitSubscription.lift(
     Ui.DragAndDrop.subscriptions
 )<Model, Message>({
     when: (model) => module_enabled(model, "Issues"),
-    toChildModel: (model) => DesktopIssues.project(model.issues).dragAndDrop,
+    read: (model) =>
+        Option.some(DesktopIssues.project(model.issues).dragAndDrop),
     toParentMessage: (message) =>
         GotIssuesMessage({
             message: DesktopIssues.got_drag_and_drop_message({ message }),
@@ -5761,29 +5786,29 @@ const desktop_subscriptions = FoldkitSubscription.make<Model, Message>()(
 )
 
 const appearance_subscriptions = Appearance.subscriptions<Model, Message>({
-    toChildModel: (model) => model.appearance,
+    read: (model) => Option.some(model.appearance),
     toParentMessage: (message) => GotAppearanceMessage({ message }),
 })
 
 const media_subscriptions = DesktopMedia.subscriptions<Model, Message>({
-    toChildModel: (model) => model.media,
+    read: (model) => Option.some(model.media),
     toParentMessage: (message) => GotMediaMessage({ message }),
 })
 
 const event_subscriptions = DesktopEvents.subscriptions<Model, Message>({
-    toChildModel: (model) => DesktopEvents.project(model.events),
+    read: (model) => Option.some(DesktopEvents.project(model.events)),
     toParentMessage: (message) => GotEventsMessage({ message }),
 })
 
 const blog_subscriptions = DesktopBlog.subscriptions<Model, Message>({
-    toChildModel: (model) => model.blog,
+    read: (model) => Option.some(model.blog),
     toParentMessage: (message) => GotBlogMessage({ message }),
 })
 
 const document_subscriptions = FoldkitSubscription.lift(
     DesktopDocuments.subscriptions
 )<Model, Message>({
-    toChildModel: (model) => model.documents,
+    read: (model) => Option.some(model.documents),
     toParentMessage: (message) => GotDocumentsMessage({ message }),
     when: (model) =>
         module_enabled(model, "Documents") &&
@@ -5795,7 +5820,7 @@ const document_subscriptions = FoldkitSubscription.lift(
 const page_editor_subscriptions = FoldkitSubscription.lift(
     DesktopPages.subscriptions
 )<Model, Message>({
-    toChildModel: (model) => model.pages,
+    read: (model) => Option.some(model.pages),
     toParentMessage: (message) => GotPagesMessage({ message }),
     when: (model) =>
         is_pages_domain_route(model.route) &&
@@ -6051,7 +6076,7 @@ const forms_data_subscriptions = FoldkitSubscription.make<
 export const contacts_mail_subscriptions = FoldkitSubscription.lift(
     contacts_subscriptions
 )<Model, Message>({
-    toChildModel: (model) => model,
+    read: (model) => Option.some(model),
     toParentMessage: (message) => message,
     when: (model) =>
         has_verified_session(model) || model.host_context.kind === "central",
@@ -6072,23 +6097,23 @@ export const subscriptions = FoldkitSubscription.aggregate<
     auth_session_subscriptions,
     contacts_mail_subscriptions,
     FoldkitSubscription.lift(social_data_subscriptions)<Model, Message>({
-        toChildModel: (model) => model,
+        read: (model) => Option.some(model),
         toParentMessage: (message) => message,
         when: (model) =>
             has_verified_session(model) || account_domain(model) !== undefined,
     }),
     FoldkitSubscription.lift(forms_data_subscriptions)<Model, Message>({
-        toChildModel: (model) => model,
+        read: (model) => Option.some(model),
         toParentMessage: (message) => message,
         when: (model) => Option.isSome(forms_domain_id(model)),
     }),
     FoldkitSubscription.lift(SearchBarLab.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.labs_search_bar,
+        read: (model) => Option.some(model.labs_search_bar),
         toParentMessage: (message) => GotLabsSearchBarMessage({ message }),
         when: (model) => app_surface(model) === "domain",
     }),
     FoldkitSubscription.lift(MarketingLanding.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.labs_marketing_landing,
+        read: (model) => Option.some(model.labs_marketing_landing),
         toParentMessage: (message) =>
             GotLabsMarketingLandingMessage({ message }),
         when: (model) =>
@@ -6102,7 +6127,7 @@ export const subscriptions = FoldkitSubscription.aggregate<
                 MarketingLanding.isLandingEditorPath(model.route.labs_path)),
     }),
     FoldkitSubscription.lift(FoldkitLesson.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.learn.foldkit,
+        read: (model) => Option.some(model.learn.foldkit),
         toParentMessage: (message) =>
             GotLearnMessage({ message: Learn.GotFoldkitMessage({ message }) }),
         when: (model) =>
@@ -6110,7 +6135,7 @@ export const subscriptions = FoldkitSubscription.aggregate<
             FoldkitLesson.isFoldkitPath(model.route.learn_path),
     }),
     FoldkitSubscription.lift(EffectRunner.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.learn.effect_runner,
+        read: (model) => Option.some(model.learn.effect_runner),
         toParentMessage: (message) =>
             GotLearnMessage({
                 message: Learn.GotEffectRunnerMessage({ message }),
@@ -6120,13 +6145,13 @@ export const subscriptions = FoldkitSubscription.aggregate<
             EffectRunner.isEffectExamplePath(model.route.learn_path),
     }),
     FoldkitSubscription.lift(DesktopChat.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.chat,
+        read: (model) => Option.some(model.chat),
         toParentMessage: (message) => GotChatMessage({ message }),
         when: (model) =>
             model.route._tag === "Chat" && has_verified_session(model),
     }),
     DesktopMail.subscriptions<Model, Message>({
-        toChildModel: (model) => model.mail,
+        read: (model) => Option.some(model.mail),
         toParentMessage: (message) => GotMailMessage({ message }),
         when: (model) =>
             model.route._tag === "Content" &&
@@ -6134,12 +6159,12 @@ export const subscriptions = FoldkitSubscription.aggregate<
             model.mail.newsletter.editing,
     }),
     FoldkitSubscription.lift(desktop_subscriptions)<Model, Message>({
-        toChildModel: (model) => model,
+        read: (model) => Option.some(model),
         toParentMessage: (message) => message,
         when: has_verified_session,
     }),
     FoldkitSubscription.lift(grep_search_subscriptions)<Model, Message>({
-        toChildModel: (model) => model.dev.grep,
+        read: (model) => Option.some(model.dev.grep),
         toParentMessage: (message) =>
             GotDevMessage({ message: Dev.GotGrepMessage({ message }) }),
         when: (model) =>
@@ -6149,14 +6174,14 @@ export const subscriptions = FoldkitSubscription.aggregate<
             model.route.dev_path === "/dev/grep",
     }),
     FoldkitSubscription.lift(SlowWarningsLab.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.labs_slow_warnings.warnings,
+        read: (model) => Option.some(model.labs_slow_warnings.warnings),
         toParentMessage: (message) => GotLabsSlowWarningsMessage({ message }),
         when: (model) =>
             has_verified_session(model) && model.labs_slow_warnings.active,
     }),
     navigation_subscriptions,
     FoldkitSubscription.lift(DesktopDesign.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.design,
+        read: (model) => Option.some(model.design),
         toParentMessage: (message) => GotDesignMessage({ message }),
         when: (model) =>
             model.route._tag === "Design" &&
@@ -6164,63 +6189,63 @@ export const subscriptions = FoldkitSubscription.aggregate<
     }),
     forms_drag_subscriptions,
     FoldkitSubscription.lift(project_subscriptions)<Model, Message>({
-        toChildModel: (model) => model,
+        read: (model) => Option.some(model),
         toParentMessage: (message) => message,
         when: (model) => module_enabled(model, "Projects"),
     }),
     appearance_subscriptions,
     FoldkitSubscription.lift(media_subscriptions)<Model, Message>({
-        toChildModel: (model) => model,
+        read: (model) => Option.some(model),
         toParentMessage: (message) => message,
         when: (model) => module_enabled(model, "Media"),
     }),
     FoldkitSubscription.lift(event_subscriptions)<Model, Message>({
-        toChildModel: (model) => model,
+        read: (model) => Option.some(model),
         toParentMessage: (message) => message,
         when: (model) => module_enabled(model, "Events"),
     }),
     FoldkitSubscription.lift(SpreadsheetsLab.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.labs_spreadsheets,
+        read: (model) => Option.some(model.labs_spreadsheets),
         toParentMessage: (message) => GotLabsSpreadsheetsMessage({ message }),
         when: (model) =>
             model.route._tag === "Labs" &&
             SpreadsheetsLab.is_spreadsheets_path(model.route.labs_path),
     }),
     FoldkitSubscription.lift(blog_subscriptions)<Model, Message>({
-        toChildModel: (model) => model,
+        read: (model) => Option.some(model),
         toParentMessage: (message) => message,
         when: (model) => module_enabled(model, "Blog"),
     }),
     document_subscriptions,
     page_editor_subscriptions,
     FoldkitSubscription.lift(UiLabs.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.labs_ui,
+        read: (model) => Option.some(model.labs_ui),
         toParentMessage: (message) => GotLabsUiMessage({ message }),
         when: (model) =>
             model.route._tag === "Labs" && is_ui_path(model.route.labs_path),
     }),
     FoldkitSubscription.lift(ChartingLab.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.labs_charting,
+        read: (model) => Option.some(model.labs_charting),
         toParentMessage: (message) => GotLabsChartingMessage({ message }),
         when: (model) =>
             model.route._tag === "Labs" &&
             ChartingLab.is_charting_path(model.route.labs_path),
     }),
     FoldkitSubscription.lift(DataTables.subscriptions)<Model, Message>({
-        toChildModel: (model) => model.data,
+        read: (model) => Option.some(model.data),
         toParentMessage: (message) => GotDataMessage({ message }),
         when: (model) =>
             model.route._tag === "Data" && module_enabled(model, "Data"),
     }),
     YouTubeLab.subscriptions<Model, Message>({
-        toChildModel: (model) => model.labs_youtube,
+        read: (model) => Option.some(model.labs_youtube),
         toParentMessage: (message) => GotLabsYouTubeMessage({ message }),
         when: (model) =>
             model.route._tag === "Labs" &&
             YouTubeLab.is_embed_path(model.route.labs_path),
     }),
     DesktopMaps.subscriptions<Model, Message>({
-        toChildModel: (model) => model.labs_maps,
+        read: (model) => Option.some(model.labs_maps),
         toParentMessage: (message) => GotLabsMapMessage({ message }),
         when: (model) =>
             model.route._tag === "Labs" &&
@@ -6231,7 +6256,7 @@ export const subscriptions = FoldkitSubscription.aggregate<
 const learn_managed_resources = ManagedResource.lift(
     ManagedResourceLayer.managedResources
 )<Model, Message>({
-    toChildModel: (model) =>
+    read: (model) =>
         model.route._tag === "Learn" &&
         ManagedResourceLayer.isManagedResourceLayerPath(model.route.learn_path)
             ? Option.some(model.learn.managed_resource_layer)
@@ -6245,7 +6270,7 @@ const learn_managed_resources = ManagedResource.lift(
 const learn_foldkit_managed_resources = ManagedResource.lift(
     FoldkitLesson.managedResources
 )<Model, Message>({
-    toChildModel: (model) =>
+    read: (model) =>
         model.route._tag === "Learn" &&
         FoldkitLesson.isFoldkitPath(model.route.learn_path)
             ? Option.some(model.learn.foldkit)
@@ -6257,7 +6282,7 @@ const learn_foldkit_managed_resources = ManagedResource.lift(
 const learn_effect_runner_managed_resources = ManagedResource.lift(
     EffectRunner.managedResources
 )<Model, Message>({
-    toChildModel: (model) =>
+    read: (model) =>
         model.route._tag === "Learn" &&
         EffectRunner.isEffectExamplePath(model.route.learn_path)
             ? Option.some(model.learn.effect_runner)

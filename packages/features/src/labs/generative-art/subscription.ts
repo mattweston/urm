@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Slider } from "@foldkit/ui"
 import { Subscription } from "foldkit"
 import {
@@ -12,7 +13,7 @@ const flowSliderSubscriptions = Subscription.lift({
     generativeArtFlowPointer: Slider.subscriptions.dragPointer,
     generativeArtFlowEscape: Slider.subscriptions.dragEscape,
 })<GenerativeArtModel, GenerativeArtMessage>({
-    toChildModel: (model) => model.flowStrengthSlider,
+    read: (model) => Option.some(model.flowStrengthSlider),
     toParentMessage: (message) => GotFlowStrengthSliderMessage({ message }),
 })
 
@@ -20,7 +21,7 @@ const noiseSliderSubscriptions = Subscription.lift({
     generativeArtNoisePointer: Slider.subscriptions.dragPointer,
     generativeArtNoiseEscape: Slider.subscriptions.dragEscape,
 })<GenerativeArtModel, GenerativeArtMessage>({
-    toChildModel: (model) => model.noiseScaleSlider,
+    read: (model) => Option.some(model.noiseScaleSlider),
     toParentMessage: (message) => GotNoiseScaleSliderMessage({ message }),
 })
 

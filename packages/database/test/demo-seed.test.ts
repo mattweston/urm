@@ -1,7 +1,7 @@
 /**
  * Demo Seeding Utilities Tests
  *
- * @module @urm/db/test/demo-seed.test
+ * @module @urm/database/test/demo-seed.test
  */
 
 import { describe, it, expect } from "@effect/vitest"

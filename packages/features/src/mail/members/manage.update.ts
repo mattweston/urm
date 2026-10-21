@@ -1,4 +1,4 @@
-import { Array, Effect, Match as M, Option } from "effect"
+import { Array, Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 
@@ -244,12 +244,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         avatarDrop: nextDrop,
                         selectedAvatarFiles: nextFiles,
                     },
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((nextMessage) =>
-                                GotAvatarDropMessage({ message: nextMessage })
-                            )
-                        )
+                    Command.mapMessages(commands, (nextMessage) =>
+                        GotAvatarDropMessage({ message: nextMessage })
                     ),
                 ]
             },

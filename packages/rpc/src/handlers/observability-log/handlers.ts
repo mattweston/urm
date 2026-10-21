@@ -10,7 +10,7 @@
 import { Effect } from "effect"
 import { and, desc, eq, gte, lte, count as countFn } from "drizzle-orm"
 import { ObservabilityLogRpcs } from "@urm/contracts/observability-log"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import type { ObservabilityLogItem } from "@urm/domain/schemas/observability-log"
 import { databaseError } from "../errors.ts"
 

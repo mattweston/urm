@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 import * as Ui from "@foldkit/ui"
 
@@ -8,7 +9,7 @@ import { Model } from "./model.ts"
 // unmeasured list renders no rows at all. The resize half of this is what makes
 // the demo visible; the scroll half is what keeps it in sync.
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (parentModel: ParentModel) => Model
+    readonly read: (parentModel: ParentModel) => Option.Option<Model>
     readonly toParentMessage: (message: Message) => ParentMessage
 }) => {
     const listSubscriptions = Subscription.aggregate<Model, Message>()(
@@ -16,14 +17,14 @@ export const subscriptions = <ParentModel, ParentMessage>(config: {
             labsVirtualListFixedContainer:
                 Ui.VirtualList.subscriptions.containerEvents,
         })({
-            toChildModel: (model: Model) => model.fixed,
+            read: (model: Model) => Option.some(model.fixed),
             toParentMessage: (message) => GotFixedMessage({ message }),
         }),
         Subscription.lift({
             labsVirtualListVariableContainer:
                 Ui.VirtualList.subscriptions.containerEvents,
         })({
-            toChildModel: (model: Model) => model.variable,
+            read: (model: Model) => Option.some(model.variable),
             toParentMessage: (message) => GotVariableMessage({ message }),
         })
     )

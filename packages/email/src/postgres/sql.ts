@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import type { SQL } from "drizzle-orm"
-import { DB, type DBShape } from "@urm/db/services/database-service"
+import { DB, type DBShape } from "@urm/database/services/database-service"
 
 export class EmailPersistenceError extends Schema.TaggedError<EmailPersistenceError>()(
     "EmailPersistenceError",

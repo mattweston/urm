@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 import { Layer, ManagedRuntime } from "effect"
-import { makeDatabaseLiveFromUrl } from "@urm/db"
-import { SqlLive } from "@urm/db/sql"
+import { makeDatabaseLiveFromUrl } from "@urm/database"
+import { SqlLive } from "@urm/database/sql"
 import { localPublicationHost } from "@urm/utils/hosts"
 import { loadEnv, type Connect, type Plugin } from "vite"
 

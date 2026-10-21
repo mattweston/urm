@@ -5,7 +5,7 @@ import {
     BlogLibrarySummary,
     PublicationBlog,
 } from "@urm/contracts/blog"
-import { Effect, Option, Schema as S, Struct } from "effect"
+import { Clock, Effect, Option, Schema as S, Struct } from "effect"
 import { Command, File, Submodel, Subscription } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
@@ -600,6 +600,7 @@ const SavePublicationConfiguration = Command.define(
                         requestId: request_id,
                         entities: outcome.entities,
                         connections: outcome.connections,
+                        now: yield* Clock.currentTimeMillis,
                     },
                     mode: args.mode,
                     asset_url,
@@ -1003,7 +1004,10 @@ export const update = (
 export const subscriptions = Subscription.lift(Legacy.subscriptions)<
     Model,
     Message
->({ toChildModel: project, toParentMessage: (message) => message })
+>({
+    read: (model) => Option.some(project(model)),
+    toParentMessage: (message) => message,
+})
 export const submodelView = Submodel.defineView<Model, Message>((model, h) =>
     h.div(
         [h.Class("contents")],

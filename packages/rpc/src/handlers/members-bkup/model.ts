@@ -23,11 +23,11 @@ import {
 import { ValidationError } from "@urm/domain/errors"
 
 // Re-export Drizzle tables and inferred types
-export { members } from "@urm/db/legacy-schema/members"
+export { members } from "@urm/database/legacy-schema/members"
 export type {
     Member as MemberRow,
     NewMember,
-} from "@urm/db/legacy-schema/members"
+} from "@urm/database/legacy-schema/members"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

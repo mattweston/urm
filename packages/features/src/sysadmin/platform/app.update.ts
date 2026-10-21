@@ -1,4 +1,4 @@
-import { Effect, Match as M, Option, Result } from "effect"
+import { Match as M, Option, Result } from "effect"
 import { AsyncData, Command, Struct } from "foldkit"
 import { toString as urlToString } from "foldkit/url"
 import { Tooltip } from "@foldkit/ui"
@@ -31,12 +31,8 @@ const mapSidebarTooltipCommands = (
     key: string,
     commands: ReadonlyArray<Command.Command<Tooltip.Message>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) =>
-                GotSidebarTooltipMessage({ tooltipId: key, message })
-            )
-        )
+    Command.mapMessages(commands, (message) =>
+        GotSidebarTooltipMessage({ tooltipId: key, message })
     )
 
 const delegateSidebarTooltip = (
@@ -345,7 +341,10 @@ export const update = (model: Model, message: Message): UpdateReturn => {
             ]
         case "ClearedFilter":
             return [
-                beginLoad(Struct.modifyFields(model, { filter: () => ({}) }), "Audit"),
+                beginLoad(
+                    Struct.modifyFields(model, { filter: () => ({}) }),
+                    "Audit"
+                ),
                 [fetchAuditEvents({})],
             ]
         case "SucceededLoadAuditEvents":
@@ -455,7 +454,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 return [model, []]
             return [
                 completeLoad(
-                    Struct.modifyFields(model, { metrics: () => message.metrics }),
+                    Struct.modifyFields(model, {
+                        metrics: () => message.metrics,
+                    }),
                     "Metrics",
                     null
                 ),
@@ -470,7 +471,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 return [model, []]
             return [
                 completeLoad(
-                    Struct.modifyFields(model, { system: () => message.snapshot }),
+                    Struct.modifyFields(model, {
+                        system: () => message.snapshot,
+                    }),
                     "System",
                     null
                 ),

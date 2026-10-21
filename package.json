@@ -38,7 +38,7 @@
         "prepare": "effect-tsgo patch",
         "diagnostics": "effect-tsgo diagnostics --project tsconfig.json",
         "check": "pnpm typecheck && pnpm lint && pnpm test",
-        "typecheck:core": "pnpm --filter @urm/contracts --filter @urm/db --filter @urm/domain --filter @urm/env --filter @urm/utils typecheck"
+        "typecheck:core": "pnpm --filter @urm/contracts --filter @urm/database --filter @urm/domain --filter @urm/env --filter @urm/utils typecheck"
     },
     "devDependencies": {
         "@effect/tsgo": "catalog:server",

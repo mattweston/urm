@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect"
-import { Sql } from "@urm/db/sql"
+import { Sql } from "@urm/database/sql"
 import { SocialAnalyticsSnapshot } from "@urm/contracts/social"
 import { connect_social_account, sync_social_accounts } from "./accounts.ts"
 import { refresh_social_analytics } from "./analytics.ts"

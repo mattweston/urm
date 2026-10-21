@@ -27,7 +27,7 @@ import {
 import { StudioOrganisationRpcs, StudioRpcs } from "@urm/contracts/sysadmin"
 import { AuthenticatedRequestContext } from "@urm/contracts/auth-legacy"
 import { AuthorizationError } from "@urm/domain/errors"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import { StudioSessionsFilter } from "@urm/domain/schemas/studio"
 import type {
     StudioMetricSnapshot,

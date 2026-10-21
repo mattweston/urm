@@ -3,7 +3,7 @@
  *
  * Thin application layer wiring together:
  * - RPC handlers from `@urm/rpc`
- * - Database layer from `@urm/db`
+ * - Database layer from `@urm/database`
  * - Migrations at startup
  *
  * Runs as a stateful Node.js process behind a public API origin.
@@ -23,7 +23,7 @@ dotenvConfig({ path: envPath })
 
 import { createServer } from "node:http"
 import { Effect, Fiber, Layer, ManagedRuntime, Schedule } from "effect"
-import { DatabaseLive, loadEnvironmentConfig } from "@urm/db"
+import { DatabaseLive, loadEnvironmentConfig } from "@urm/database"
 import {
     findPublicGalleryImageUrl,
     findPublicProductImageUrl,
@@ -85,7 +85,7 @@ import {
     ZernioProviderLive,
 } from "@urm/rpc/handlers/social"
 import { startup } from "./startup.ts"
-import { SqlLive } from "@urm/db/sql"
+import { SqlLive } from "@urm/database/sql"
 import {
     handle_upload_request,
     UploadStorageLive,

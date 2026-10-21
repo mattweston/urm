@@ -1,7 +1,7 @@
 /**
  * Database Environment Selector Integration Tests
  *
- * @module @urm/db/test/database-selector.integration
+ * @module @urm/database/test/database-selector.integration
  */
 
 import { describe, it, expect } from "@effect/vitest"

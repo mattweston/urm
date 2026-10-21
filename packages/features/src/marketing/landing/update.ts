@@ -1,4 +1,4 @@
-import { Effect, Match as M, Option, Schema as S } from "effect"
+import { Match as M, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 import { DragAndDrop, FileDrop } from "@foldkit/ui"
@@ -764,12 +764,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         hero_image_upload_busy: () => upload_state.busy,
                         hero_image_upload_error: () => upload_state.error,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotHeroImageDropMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotHeroImageDropMessage({ message })
                     ),
                 ]
             },
@@ -864,12 +860,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                 ? Option.some("Choose an image file.")
                                 : Option.none(),
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotLogoImageDropMessage({ itemId, message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotLogoImageDropMessage({ itemId, message })
                     ),
                 ]
             },
@@ -936,12 +928,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         drag_and_drop: () => drag_and_drop,
                         blocks: () => blocks,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotLandingDragAndDropMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotLandingDragAndDropMessage({ message })
                     ),
                 ]
             },

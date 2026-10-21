@@ -11,7 +11,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { eq } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
+import { DB } from "@urm/database/layer"
 import {
     products,
     product_collections,
@@ -19,7 +19,7 @@ import {
     cart_items,
     orders,
     order_items,
-} from "@urm/db/legacy-schema/shop"
+} from "@urm/database/legacy-schema/shop"
 import {
     Product,
     ProductCollection,

@@ -81,13 +81,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    modifyFields(model, { personalInfo: () => nextPersonalInfo }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotPersonalInfoMessage({ message })
-                            )
-                        )
+                    modifyFields(model, {
+                        personalInfo: () => nextPersonalInfo,
+                    }),
+                    Command.mapMessages(commands, (message) =>
+                        GotPersonalInfoMessage({ message })
                     ),
                 ]
             },
@@ -100,12 +98,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return [
                     modifyFields(model, { workHistory: () => nextWorkHistory }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotWorkHistoryMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotWorkHistoryMessage({ message })
                     ),
                 ]
             },
@@ -118,12 +112,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return [
                     modifyFields(model, { education: () => nextEducation }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotEducationMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotEducationMessage({ message })
                     ),
                 ]
             },
@@ -136,12 +126,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return [
                     modifyFields(model, { skills: () => nextSkills }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotSkillsMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotSkillsMessage({ message })
                     ),
                 ]
             },
@@ -154,12 +140,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return [
                     modifyFields(model, { coverLetter: () => nextCoverLetter }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotCoverLetterMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotCoverLetterMessage({ message })
                     ),
                 ]
             },
@@ -172,12 +154,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                 return [
                     modifyFields(model, { attachments: () => nextAttachments }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotAttachmentsMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotAttachmentsMessage({ message })
                     ),
                 ]
             },
@@ -202,12 +180,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         currentStep: () => nextStep,
                         stepMenu: () => nextStepMenu,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotStepMenuMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotStepMenuMessage({ message })
                     ),
                 ]
             },
@@ -218,7 +192,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             ClickedNext: () => [
-                modifyFields(model, { currentStep: () => nextStep(model.currentStep) }),
+                modifyFields(model, {
+                    currentStep: () => nextStep(model.currentStep),
+                }),
                 [],
             ],
 
@@ -230,7 +206,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             ToggledPreview: () => [
-                modifyFields(model, { isPreviewVisible: (isVisible) => !isVisible }),
+                modifyFields(model, {
+                    isPreviewVisible: (isVisible) => !isVisible,
+                }),
                 [],
             ],
 
@@ -245,7 +223,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             ],
 
             FailedSubmitApplication: ({ error }) => [
-                modifyFields(model, { submission: () => SubmitError({ error }) }),
+                modifyFields(model, {
+                    submission: () => SubmitError({ error }),
+                }),
                 [],
             ],
         })

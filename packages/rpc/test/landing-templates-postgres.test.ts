@@ -4,7 +4,7 @@ import { PgDialect } from "drizzle-orm/pg-core"
 import { Effect, Schema } from "effect"
 import { RemoteServer } from "foldkit-remote-server"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { Sql, SqlError, type SqlService } from "@urm/db/sql"
+import { Sql, SqlError, type SqlService } from "@urm/database/sql"
 import { SaveLandingTemplateInput } from "@urm/domain/landing-templates"
 import {
     LandingTemplatesRepository,

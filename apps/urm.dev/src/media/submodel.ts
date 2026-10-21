@@ -746,11 +746,11 @@ export const view = Submodel.defineView<Model, Message, Media.MediaViewHrefs>(
         )
 )
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (model: ParentModel) => Model
+    readonly read: (model: ParentModel) => Option.Option<Model>
     readonly toParentMessage: (message: Message) => ParentMessage
 }) =>
     Media.subscriptions<ParentModel, ParentMessage>({
-        toChildModel: (model) => project(config.toChildModel(model)),
+        read: (model) => Option.map(config.read(model), project),
         toParentMessage: config.toParentMessage,
     })
 export const clicked_save_image_edits = Media.ClickedSaveImageEdits

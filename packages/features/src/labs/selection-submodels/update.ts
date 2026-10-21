@@ -1,4 +1,4 @@
-import { Effect, Match as M, Option } from "effect"
+import { Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { modifyFields } from "foldkit/struct"
@@ -41,12 +41,8 @@ export const update = (
                                 onSome: ({ value }) => Option.some(value),
                             }),
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotSelectionSubmodelsListboxMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotSelectionSubmodelsListboxMessage({ message })
                     ),
                 ]
             },

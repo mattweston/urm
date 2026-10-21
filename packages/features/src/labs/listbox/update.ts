@@ -1,5 +1,5 @@
 import * as Ui from "@foldkit/ui"
-import { Array, Effect, Match as M, Option } from "effect"
+import { Array, Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 import {
@@ -50,12 +50,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                 onSome: ({ value }) => Option.some(value),
                             }),
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotBasicMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotBasicMessage({ message })
                     ),
                 ]
             },
@@ -82,12 +78,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         multi: () => multi,
                         selectedMultiItems: () => selectedMultiItems,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotMultiMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotMultiMessage({ message })
                     ),
                 ]
             },
@@ -108,12 +100,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                 onSome: ({ value }) => Option.some(value),
                             }),
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotGroupedMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotGroupedMessage({ message })
                     ),
                 ]
             },

@@ -1,4 +1,4 @@
-import { Array, Effect, Match as M, Option } from "effect"
+import { Array, Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import {
     init as initTransactional,
@@ -90,89 +90,56 @@ const withUpdateReturn = M.withReturnType<UpdateReturn>()
 
 const mapContactsCommands = (
     commands: ReadonlyArray<Command.Command<ContactsMessage>>
-) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotContactsMessage({ message }))
-        )
-    )
+) => Command.mapMessages(commands, (message) => GotContactsMessage({ message }))
 
 const mapMembersCommands = (
     commands: ReadonlyArray<Command.Command<MembersMessage>>
-) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotMembersMessage({ message }))
-        )
-    )
+) => Command.mapMessages(commands, (message) => GotMembersMessage({ message }))
 
 const mapMembersManageCommands = (
     commands: ReadonlyArray<Command.Command<MembersManageMessage>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotMembersManageMessage({ message }))
-        )
+    Command.mapMessages(commands, (message) =>
+        GotMembersManageMessage({ message })
     )
 
 const mapNewsletterCommands = (
     commands: ReadonlyArray<Command.Command<NewsletterMessage>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotNewsletterMessage({ message }))
-        )
+    Command.mapMessages(commands, (message) =>
+        GotNewsletterMessage({ message })
     )
 
 const mapSendCommands = (
     commands: ReadonlyArray<Command.Command<SendMessage>>
-) =>
-    commands.map(
-        Command.mapEffect(Effect.map((message) => GotSendMessage({ message })))
-    )
+) => Command.mapMessages(commands, (message) => GotSendMessage({ message }))
 
 const mapSentCommands = (
     commands: ReadonlyArray<Command.Command<SentMessage>>
-) =>
-    commands.map(
-        Command.mapEffect(Effect.map((message) => GotSentMessage({ message })))
-    )
+) => Command.mapMessages(commands, (message) => GotSentMessage({ message }))
 
 const mapStatsCommands = (
     commands: ReadonlyArray<Command.Command<StatsMessage>>
-) =>
-    commands.map(
-        Command.mapEffect(Effect.map((message) => GotStatsMessage({ message })))
-    )
+) => Command.mapMessages(commands, (message) => GotStatsMessage({ message }))
 
 const mapSubscriptionsCommands = (
     commands: ReadonlyArray<Command.Command<SubscriptionsMessage>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotSubscriptionsMessage({ message }))
-        )
+    Command.mapMessages(commands, (message) =>
+        GotSubscriptionsMessage({ message })
     )
 
 const mapTemplatesCommands = (
     commands: ReadonlyArray<Command.Command<TemplatesMessage>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotTemplatesMessage({ message }))
-        )
-    )
+    Command.mapMessages(commands, (message) => GotTemplatesMessage({ message }))
 
 const mapSidebarTooltipCommands = (
     key: string,
     commands: ReadonlyArray<Command.Command<Ui.Tooltip.Message>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) =>
-                GotSidebarTooltipMessage({ tooltipId: key, message })
-            )
-        )
+    Command.mapMessages(commands, (message) =>
+        GotSidebarTooltipMessage({ tooltipId: key, message })
     )
 
 const delegateSidebarTooltip = (
@@ -465,12 +432,8 @@ export const update = (model: AppModel, message: AppMessage): UpdateReturn =>
                             transactional_templates: transactional.states,
                         },
                     },
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotTransactionalMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotTransactionalMessage({ message })
                     ),
                 ]
             },

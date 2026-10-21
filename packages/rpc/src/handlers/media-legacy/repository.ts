@@ -14,8 +14,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { and, eq, gt } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { images } from "@urm/db/legacy-schema/media/images"
+import { DB } from "@urm/database/layer"
+import { images } from "@urm/database/legacy-schema/media/images"
 import {
     Image,
     CreateImageInput,

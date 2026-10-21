@@ -3,7 +3,7 @@ import { Effect, Layer, ManagedRuntime, Ref, Schema } from "effect"
 import { RpcTest } from "effect/rpc"
 import { describe, expect, it } from "vitest"
 import { AuthPersistence } from "@urm/auth/auth-persistence"
-import { DemoWorkspaceProvisioning } from "@urm/db"
+import { DemoWorkspaceProvisioning } from "@urm/database"
 import {
     AuthenticatedRequestContext,
     AuthenticatedRpcMiddleware,

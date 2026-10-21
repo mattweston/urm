@@ -14,8 +14,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { asc, and, eq, type SQL } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { todo_list_items } from "@urm/db/legacy-schema/tasks"
+import { DB } from "@urm/database/layer"
+import { todo_list_items } from "@urm/database/legacy-schema/tasks"
 import {
     TodoListItem,
     CreateTodoListItemInput,

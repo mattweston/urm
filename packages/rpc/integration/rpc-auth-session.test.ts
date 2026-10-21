@@ -14,7 +14,7 @@ import {
     makeMigratorLive,
     migrator,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 import { AuthorizationError } from "@urm/domain/errors"
 import { AuthConfig, ServerConfig } from "@urm/env/server"
 import {

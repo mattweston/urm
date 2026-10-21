@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect } from "effect"
-import { Sql } from "@urm/db/sql"
+import { Sql } from "@urm/database/sql"
 import { describe, expect, it } from "vitest"
 
 import {

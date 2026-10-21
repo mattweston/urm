@@ -8,7 +8,7 @@ import {
     OrganisationMember,
     OrganisationsRpcs,
 } from "@urm/contracts/organisations"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import { ServerConfig } from "@urm/env/server"
 import { EmailTransport } from "@urm/email"
 import {

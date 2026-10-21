@@ -18,8 +18,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { and, eq, gt } from "drizzle-orm"
-import { DB } from "@urm/db/layer"
-import { csv_uploads, csv_data } from "@urm/db/legacy-schema/csv"
+import { DB } from "@urm/database/layer"
+import { csv_uploads, csv_data } from "@urm/database/legacy-schema/csv"
 import {
     CsvUpload,
     CsvData,

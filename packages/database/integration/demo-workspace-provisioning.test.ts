@@ -8,7 +8,7 @@ import {
     provisionDemoWorkspace,
     resetDemoWorkspace,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import { Effect, Layer } from "effect"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"

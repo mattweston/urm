@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm"
 import { Effect, Schema } from "effect"
 import { Breach, BreachCheckResult } from "@urm/contracts/auth"
-import { Sql, query_rows } from "@urm/db/sql"
+import { Sql, query_rows } from "@urm/database/sql"
 import { AccountPrincipal, AuthError } from "./service.ts"
 
 const Input = Schema.Struct({

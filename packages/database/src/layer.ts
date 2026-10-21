@@ -17,7 +17,7 @@ export { schema, relations }
 
 // Reads DATABASE_URL at module scope — a variable URM never sets, since it uses
 // DATABASE_URL_DEV/_STAGE/_PROD. The package re-exports this, so importing
-// @urm/db evaluates it; nothing crashes only because the layer is lazy and the
+// @urm/database evaluates it; nothing crashes only because the layer is lazy and the
 // non-null assertion silences the type.
 export const PgClientLive = PgClient.layer({
     url: Redacted.make(process.env.DATABASE_URL!),

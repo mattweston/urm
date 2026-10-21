@@ -1,4 +1,4 @@
-import { Effect, Option, Schema as S } from "effect"
+import { Option, Schema as S } from "effect"
 import { Command, Subscription } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
 import type { Html, HtmlBuilder } from "foldkit/html"
@@ -275,12 +275,8 @@ export const update = (
                         model.dirty_sidebar || order !== model.sidebar_order,
                     drag_and_drop,
                 },
-                commands.map(
-                    Command.mapEffect(
-                        Effect.map((message) =>
-                            GotDragAndDropMessage({ message })
-                        )
-                    )
+                Command.mapMessages(commands, (message) =>
+                    GotDragAndDropMessage({ message })
                 ),
             ]
         }
@@ -290,7 +286,7 @@ const drag_subscriptions = Subscription.lift(Ui.DragAndDrop.subscriptions)<
     Model,
     Message
 >({
-    toChildModel: (model) => model.drag_and_drop,
+    read: (model) => Option.some(model.drag_and_drop),
     toParentMessage: (message) => GotDragAndDropMessage({ message }),
     when: (model) => model.saving === "idle" && Option.isSome(model.snapshot),
 })

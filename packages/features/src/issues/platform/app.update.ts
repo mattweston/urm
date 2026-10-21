@@ -493,12 +493,10 @@ export const update = (model: Model, message: AppMessage): UpdateReturn =>
                     maybeOutMessage_value
                 )
 
-                const mappedCommands = dragCommands.map(
-                    Command.mapEffect(
-                        Effect.map((innerMessage) =>
-                            GotDragAndDropMessage({ message: innerMessage })
-                        )
-                    )
+                const mappedCommands = Command.mapMessages(
+                    dragCommands,
+                    (innerMessage) =>
+                        GotDragAndDropMessage({ message: innerMessage })
                 )
 
                 return Option.match(maybeOutMessage, {
@@ -889,12 +887,8 @@ export const update = (model: Model, message: AppMessage): UpdateReturn =>
                         pending_delete_issue_id: Option.some(issueId),
                         delete_issue_dialog,
                     },
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotDeleteIssueDialogMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotDeleteIssueDialogMessage({ message })
                     ),
                 ]
             },
@@ -905,14 +899,10 @@ export const update = (model: Model, message: AppMessage): UpdateReturn =>
 
                 return [
                     { ...model, delete_issue_dialog },
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((next_message) =>
-                                GotDeleteIssueDialogMessage({
-                                    message: next_message,
-                                })
-                            )
-                        )
+                    Command.mapMessages(commands, (next_message) =>
+                        GotDeleteIssueDialogMessage({
+                            message: next_message,
+                        })
                     ),
                 ]
             },
@@ -937,14 +927,10 @@ export const update = (model: Model, message: AppMessage): UpdateReturn =>
                                 delete_issue_dialog,
                             },
                             [
-                                ...commands.map(
-                                    Command.mapEffect(
-                                        Effect.map((message) =>
-                                            GotDeleteIssueDialogMessage({
-                                                message,
-                                            })
-                                        )
-                                    )
+                                ...Command.mapMessages(commands, (message) =>
+                                    GotDeleteIssueDialogMessage({
+                                        message,
+                                    })
                                 ),
                                 ...(issue === undefined
                                     ? []

@@ -17,7 +17,7 @@
         "@tailwindcss/vite": "catalog:layout",
         "@urm/auth": "workspace:*",
         "@urm/contracts": "workspace:*",
-        "@urm/db": "workspace:*",
+        "@urm/database": "workspace:*",
         "@urm/domain": "workspace:*",
         "@urm/email": "workspace:*",
         "@urm/env": "workspace:*",

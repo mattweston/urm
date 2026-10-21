@@ -1,4 +1,4 @@
-import { Effect, Match as M, Option } from "effect"
+import { Match as M, Option } from "effect"
 import { Command } from "foldkit"
 
 import { GotToastDemoMessage, type ToastDemoMessage } from "./message.ts"
@@ -13,11 +13,7 @@ type UpdateReturn = readonly [
 const mapCommands = (
     commands: ReadonlyArray<Command.Command<typeof Toast.Message.Type>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotToastDemoMessage({ message }))
-        )
-    )
+    Command.mapMessages(commands, (message) => GotToastDemoMessage({ message }))
 
 export const init = (): UpdateReturn => [
     Toast.init({ id: "labs-toast-demo" }),

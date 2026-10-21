@@ -28,13 +28,13 @@ import {
 } from "@urm/domain/schemas/issues"
 
 // Re-export Drizzle tables and inferred types
-export { issues, issue_labels } from "@urm/db/legacy-schema/issues"
+export { issues, issue_labels } from "@urm/database/legacy-schema/issues"
 export type {
     Issue as IssueRow,
     NewIssue,
     IssueLabel as IssueLabelRow,
     NewIssueLabel,
-} from "@urm/db/legacy-schema/issues"
+} from "@urm/database/legacy-schema/issues"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

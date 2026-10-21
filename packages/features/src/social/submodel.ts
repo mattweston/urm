@@ -1175,14 +1175,10 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                     schedule_time_picker: schedule.time_picker,
                     pending_publication: null,
                 },
-                commands.map(
-                    Command.mapEffect(
-                        Effect.map((child_message) =>
-                            GotScheduleDatePickerMessage({
-                                message: child_message,
-                            })
-                        )
-                    )
+                Command.mapMessages(commands, (child_message) =>
+                    GotScheduleDatePickerMessage({
+                        message: child_message,
+                    })
                 ),
             ]
         }
@@ -1211,14 +1207,10 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                     ),
                     pending_publication: null,
                 },
-                commands.map(
-                    Command.mapEffect(
-                        Effect.map((child_message) =>
-                            GotScheduleDatePickerMessage({
-                                message: child_message,
-                            })
-                        )
-                    )
+                Command.mapMessages(commands, (child_message) =>
+                    GotScheduleDatePickerMessage({
+                        message: child_message,
+                    })
                 ),
             ]
         }

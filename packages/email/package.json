@@ -21,7 +21,7 @@
         "@urm/env": "workspace:*",
         "alchemy": "2.0.0-beta.67",
         "effect": "catalog:",
-        "@urm/db": "workspace:*",
+        "@urm/database": "workspace:*",
         "drizzle-orm": "catalog:database"
     },
     "devDependencies": {

@@ -342,12 +342,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         uploadDrop: () => nextDrop,
                         selectedUploadFiles: () => nextFiles,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((nextMessage) =>
-                                GotUploadDropMessage({ message: nextMessage })
-                            )
-                        )
+                    Command.mapMessages(commands, (nextMessage) =>
+                        GotUploadDropMessage({ message: nextMessage })
                     ),
                 ]
             },
@@ -511,12 +507,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     maybeOutMessage_value
                 )
 
-                const mappedCommands = dragCommands.map(
-                    Command.mapEffect(
-                        Effect.map((nextMessage) =>
-                            GotDragAndDropMessage({ message: nextMessage })
-                        )
-                    )
+                const mappedCommands = Command.mapMessages(
+                    dragCommands,
+                    (nextMessage) =>
+                        GotDragAndDropMessage({ message: nextMessage })
                 )
 
                 return Option.match(maybeOutMessage, {

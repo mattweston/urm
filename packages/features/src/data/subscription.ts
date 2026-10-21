@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 import * as Spreadsheet from "../spreadsheet/index.ts"
 import type { Model } from "./model.ts"
@@ -15,7 +16,7 @@ export const subscriptions = Subscription.lift(table_subscriptions)<
     Model,
     Message
 >({
-    toChildModel: (model) => model.tables.spreadsheet,
+    read: (model) => Option.some(model.tables.spreadsheet),
     toParentMessage: (message) =>
         GotTableMessage({ message: GotSpreadsheetMessage({ message }) }),
     when: (model) => model.route === "Home" || model.route === "Spreadsheets",

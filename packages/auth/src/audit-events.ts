@@ -4,7 +4,7 @@ import {
     DatabaseOperationError,
     databaseOperationError,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 
 /**
  * Outcome of the audited action.

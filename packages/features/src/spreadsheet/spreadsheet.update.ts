@@ -1,4 +1,4 @@
-import { Effect, Match as M } from "effect"
+import { Match as M } from "effect"
 import { Command, type Update } from "foldkit"
 import { VirtualList } from "@foldkit/ui"
 import { modifyFields } from "foldkit/struct"
@@ -33,9 +33,7 @@ const ROW_HEADER_WIDTH = 54
 const mapRowsCommands = (
     commands: ReadonlyArray<Command.Command<VirtualList.Message>>
 ): ReadonlyArray<Command.Command<Message>> =>
-    commands.map(
-        Command.mapEffect(Effect.map((message) => GotRowsMessage({ message })))
-    )
+    Command.mapMessages(commands, (message) => GotRowsMessage({ message }))
 
 export const init = (): UpdateReturn => ({
     model: {
@@ -190,13 +188,16 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 commands: [],
             }),
             DoubleClickedCell: ({ address }) => ({
-                model: modifyFields(select(model, address.row, address.column), {
-                    editor: () =>
-                        EditingCell({
-                            address,
-                            draft: read_cell(model, address),
-                        }),
-                }),
+                model: modifyFields(
+                    select(model, address.row, address.column),
+                    {
+                        editor: () =>
+                            EditingCell({
+                                address,
+                                draft: read_cell(model, address),
+                            }),
+                    }
+                ),
                 commands: [focusEditor(address)],
             }),
             UpdatedEditorDraft: ({ value }) => updateEditorDraft(model, value),
@@ -293,7 +294,9 @@ export const update = (model: Model, message: Message): UpdateReturn => {
                 commands: [],
             }),
             SucceededSaveWorkbook: () => ({
-                model: modifyFields(model, { status: () => "All changes saved" }),
+                model: modifyFields(model, {
+                    status: () => "All changes saved",
+                }),
                 commands: [],
             }),
             FailedSaveWorkbook: () => ({

@@ -22,8 +22,8 @@ import {
 } from "@urm/domain/schemas/media"
 
 // Re-export Drizzle tables and inferred types
-export { images } from "@urm/db/legacy-schema/media/images"
-export type { Image as ImageRow, NewImage } from "@urm/db/legacy-schema/media/images"
+export { images } from "@urm/database/legacy-schema/media/images"
+export type { Image as ImageRow, NewImage } from "@urm/database/legacy-schema/media/images"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

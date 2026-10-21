@@ -6,7 +6,7 @@
  */
 import { createHash, randomBytes } from "node:crypto"
 import { Effect, Metric } from "effect"
-import type { DatabaseOperationError } from "@urm/db"
+import type { DatabaseOperationError } from "@urm/database"
 import { AuthPersistence } from "./auth-persistence.ts"
 
 const authPasswordResetTotal = Metric.counter("auth_password_reset_total").pipe(

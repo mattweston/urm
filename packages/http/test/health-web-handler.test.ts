@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { expect, test } from "vitest"
-import { Sql, SqlError } from "@urm/db/sql"
+import { Sql, SqlError } from "@urm/database/sql"
 import { handle_health_request } from "../src/health-web-handler.ts"
 
 test("health responds ready when PostgreSQL answers", async () => {

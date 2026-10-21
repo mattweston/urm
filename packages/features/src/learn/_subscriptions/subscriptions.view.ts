@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import * as Ui from "@foldkit/ui"
 import type { Html, HtmlBuilder } from "foldkit/html"
 
@@ -752,8 +753,8 @@ const lift_view = <ParentMessage>(
   Subscription.lift(
     childSubscriptions
   )<Model, Message>({
-    toChildModel:
-      model => model.child,
+    read:
+      model => Option.some(model.child),
 
     toParentMessage:
       message =>

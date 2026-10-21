@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm"
 import { Effect, Schema } from "effect"
-import { query_rows } from "@urm/db/sql"
+import { query_rows } from "@urm/database/sql"
 import { ZernioProvider, ZernioProviderError } from "./provider.ts"
 import { SocialStore } from "./store.ts"
 

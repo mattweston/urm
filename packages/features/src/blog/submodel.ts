@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import type { LinkSuggestion } from "@urm/ui/foldkit/rich-text-editor/rich-text-editor.view.ts"
 import { Submodel, Subscription } from "foldkit"
 
@@ -71,7 +72,7 @@ export const view = Submodel.defineView<BlogModel, BlogMessage, ViewInputs>(
 )
 
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (parentModel: ParentModel) => BlogModel
+    readonly read: (parentModel: ParentModel) => Option.Option<BlogModel>
     readonly toParentMessage: (message: BlogMessage) => ParentMessage
     readonly when?: (parentModel: ParentModel) => boolean
 }) => Subscription.lift(blogSubscriptions)<ParentModel, ParentMessage>(config)

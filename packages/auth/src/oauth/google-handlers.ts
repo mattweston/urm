@@ -8,8 +8,8 @@ import { generateState, generateCodeVerifier, OAuth2RequestError } from "arctic"
 import { HttpServerRequest, HttpServerResponse } from "effect/http"
 import { Effect, Metric, Redacted, Schema } from "effect"
 import { AuthConfig, ServerConfig } from "@urm/env/server"
-import { DB } from "@urm/db"
-import { schema } from "@urm/db"
+import { DB } from "@urm/database"
+import { schema } from "@urm/database"
 import {
     recordAuditEvent,
     type AuditEventInput,

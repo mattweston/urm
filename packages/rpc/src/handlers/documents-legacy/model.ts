@@ -25,11 +25,11 @@ import { Context, type Effect, type Schema } from "effect"
 import type { ActiveDomainRequestContext } from "@urm/contracts/auth-legacy"
 
 // Re-export Drizzle table and inferred types
-export { documents } from "@urm/db/legacy-schema/documents"
+export { documents } from "@urm/database/legacy-schema/documents"
 export type {
     Document as DocumentRow,
     NewDocument,
-} from "@urm/db/legacy-schema/documents"
+} from "@urm/database/legacy-schema/documents"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

@@ -1,0 +1,41 @@
+export const demos = [
+    { slug: "callout", label: "Callout" },
+    { slug: "steps", label: "Steps" },
+    { slug: "selection-submodels", label: "Selection Submodels" },
+    { slug: "button", label: "Button" },
+    { slug: "input", label: "Input" },
+    { slug: "textarea", label: "Textarea" },
+    { slug: "checkbox", label: "Checkbox" },
+    { slug: "fieldset", label: "Fieldset" },
+    { slug: "radio-group", label: "Radio Group" },
+    { slug: "switch", label: "Switch" },
+    { slug: "slider", label: "Slider" },
+    { slug: "select", label: "Select" },
+    { slug: "listbox", label: "Listbox" },
+    { slug: "combobox", label: "Combobox" },
+    { slug: "dialog", label: "Dialog" },
+    { slug: "menu", label: "Menu" },
+    { slug: "popover", label: "Popover" },
+    { slug: "tooltip", label: "Tooltip" },
+    { slug: "hover-intent", label: "Hover Intent" },
+    { slug: "toast", label: "Toast" },
+    { slug: "disclosure", label: "Disclosure" },
+    { slug: "tabs", label: "Tabs" },
+    { slug: "nav", label: "Nav" },
+    { slug: "nav/graph", label: "Nav / Graph" },
+    { slug: "drag-and-drop", label: "Drag and Drop" },
+    { slug: "file-drop", label: "File Drop" },
+    { slug: "file-tree", label: "File Tree" },
+    { slug: "calendar", label: "Calendar" },
+    { slug: "date-picker", label: "Date Picker" },
+    { slug: "time-picker", label: "Time Picker" },
+    { slug: "animation", label: "Animation" },
+    { slug: "anchor", label: "Anchor" },
+    { slug: "virtual-list", label: "Virtual List" },
+    { slug: "data-table", label: "Data Table" },
+]
+
+export const index_href = () => "/labs/ui"
+export const demo_href = (slug: string) => `${index_href()}/${slug}`
+export const is_ui_path = (path: string) =>
+    path === "/labs/ui" || path.startsWith("/labs/ui/")

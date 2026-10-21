@@ -126,9 +126,7 @@ const map_toast_commands = (
         Command.Command<typeof PublicationToast.Message.Type>
     >
 ): ReadonlyArray<Command.Command<Message>> =>
-    commands.map(
-        Command.mapEffect(Effect.map((message) => GotToastMessage({ message })))
-    )
+    Command.mapMessages(commands, (message) => GotToastMessage({ message }))
 
 export const init = (): Model => ({
     selected_subdomain_id: "",

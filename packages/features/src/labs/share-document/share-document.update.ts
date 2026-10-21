@@ -1,6 +1,6 @@
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { Effect, Match as M, Option } from "effect"
+import { Match as M, Option } from "effect"
 import { modifyFields } from "foldkit/struct"
 import type { Message } from "./share-document.message.ts"
 import { GotPermissionListboxMessage } from "./share-document.message.ts"
@@ -15,12 +15,8 @@ const mapPermissionListboxCommands = (
     index: number,
     commands: ReadonlyArray<Command.Command<Ui.Listbox.Message>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) =>
-                GotPermissionListboxMessage({ personIndexId: index, message })
-            )
-        )
+    Command.mapMessages(commands, (message) =>
+        GotPermissionListboxMessage({ personIndexId: index, message })
     )
 
 const initialPeople = [

@@ -246,12 +246,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         uploadDrop: () => nextDrop,
                         selectedUploadFiles: () => nextFiles,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((nextMessage) =>
-                                GotUploadDropMessage({ message: nextMessage })
-                            )
-                        )
+                    Command.mapMessages(commands, (nextMessage) =>
+                        GotUploadDropMessage({ message: nextMessage })
                     ),
                 ]
             },
@@ -409,12 +405,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         deleteConfirmationDialog: () =>
                             deleteConfirmationDialog,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotDeleteConfirmationDialogMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotDeleteConfirmationDialogMessage({ message })
                     ),
                 ]
             },
@@ -428,14 +420,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         deleteConfirmationDialog: () =>
                             deleteConfirmationDialog,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((nextMessage) =>
-                                GotDeleteConfirmationDialogMessage({
-                                    message: nextMessage,
-                                })
-                            )
-                        )
+                    Command.mapMessages(commands, (nextMessage) =>
+                        GotDeleteConfirmationDialogMessage({
+                            message: nextMessage,
+                        })
                     ),
                 ]
             },
@@ -474,14 +462,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                             deleteConfirmationDialog,
                     }),
                     [
-                        ...dialogCommands.map(
-                            Command.mapEffect(
-                                Effect.map((message) =>
-                                    GotDeleteConfirmationDialogMessage({
-                                        message,
-                                    })
-                                )
-                            )
+                        ...Command.mapMessages(dialogCommands, (message) =>
+                            GotDeleteConfirmationDialogMessage({
+                                message,
+                            })
                         ),
                         DeleteUpload(),
                     ],

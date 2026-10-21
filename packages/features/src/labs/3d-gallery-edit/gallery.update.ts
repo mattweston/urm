@@ -1,4 +1,4 @@
-import { Array, Effect, Match as M, Option, Record } from "effect"
+import { Array, Match as M, Option, Record } from "effect"
 import { Command } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 import { FileDrop } from "@foldkit/ui"
@@ -394,14 +394,12 @@ const updateMessage = (
                         image_busy: () => replaceCommands.length > 0,
                     }),
                     [
-                        ...fileDropCommands.map(
-                            Command.mapEffect(
-                                Effect.map((nestedMessage) =>
-                                    GotFileDropMessage({
-                                        message: nestedMessage,
-                                    })
-                                )
-                            )
+                        ...Command.mapMessages(
+                            fileDropCommands,
+                            (nestedMessage) =>
+                                GotFileDropMessage({
+                                    message: nestedMessage,
+                                })
                         ),
                         ...replaceCommands,
                     ],

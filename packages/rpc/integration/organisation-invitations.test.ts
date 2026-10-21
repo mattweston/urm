@@ -10,7 +10,7 @@ import {
     makeMigratorLive,
     migrator,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 import { ContactId } from "@urm/domain/schemas/contacts"
 import { EmailTransport, type EmailSendInput } from "@urm/email"
 import { ServerConfig } from "@urm/env/server"

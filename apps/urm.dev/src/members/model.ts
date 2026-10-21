@@ -471,15 +471,11 @@ export const update = (model: Model, message: Message): Result => {
                         avatar_files: next.selectedAvatarFiles,
                         error: null,
                     },
-                    commands: commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                Message.AvatarDropResult({
-                                    epoch: model.epoch,
-                                    message,
-                                })
-                            )
-                        )
+                    commands: Command.mapMessages(commands, (message) =>
+                        Message.AvatarDropResult({
+                            epoch: model.epoch,
+                            message,
+                        })
                     ),
                 }
             }

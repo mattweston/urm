@@ -10,9 +10,9 @@
  *
  * This command intentionally exits with an error. Use:
  *
- *   pnpm --filter @urm/db demo:workspaces -- expire
- *   pnpm --filter @urm/db demo:workspaces -- reset <contact-id> --confirm-reset=<contact-id>
- *   pnpm --filter @urm/db demo:workspaces -- purge --confirm-purge
+ *   pnpm --filter @urm/database demo:workspaces -- expire
+ *   pnpm --filter @urm/database demo:workspaces -- reset <contact-id> --confirm-reset=<contact-id>
+ *   pnpm --filter @urm/database demo:workspaces -- purge --confirm-purge
  */
 
 console.error(

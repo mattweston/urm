@@ -4,7 +4,7 @@ import { PgDialect } from "drizzle-orm/pg-core"
 import { ConfigProvider, Effect, Exit, Redacted, Schema } from "effect"
 import { RemoteServer } from "foldkit-remote-server"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { Sql, SqlError, type SqlService } from "@urm/db/sql"
+import { Sql, SqlError, type SqlService } from "@urm/database/sql"
 import {
     SocialStoreLive,
     SocialStore,

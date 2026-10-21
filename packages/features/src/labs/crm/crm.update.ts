@@ -1,4 +1,4 @@
-import { Array, Effect, Match as M, Option, String, pipe } from "effect"
+import { Array, Match as M, Option, String, pipe } from "effect"
 import { Command, Update } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { modifyFields } from "foldkit/struct"
@@ -61,10 +61,8 @@ const filterContactIds = (
 const mapVirtualListCommands = (
     commands: ReadonlyArray<Command.Command<Ui.VirtualList.Message>>
 ): ReadonlyArray<Command.Command<Message>> =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotVirtualListMessage({ message }))
-        )
+    Command.mapMessages(commands, (message) =>
+        GotVirtualListMessage({ message })
     )
 
 const scrollListToTop = (model: Model): UpdateReturn => {
@@ -154,7 +152,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ),
             SelectedActivityRecency: ({ activityRecency }) =>
                 applyFilters(
-                    modifyFields(model, { activityRecency: () => activityRecency })
+                    modifyFields(model, {
+                        activityRecency: () => activityRecency,
+                    })
                 ),
             ClickedClearFilters: () =>
                 applyFilters(

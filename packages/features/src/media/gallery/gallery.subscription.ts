@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 import * as Ui from "@foldkit/ui"
 
@@ -9,6 +10,6 @@ export const subscriptions = Subscription.lift({
     dragKeyboard: Ui.DragAndDrop.subscriptions.documentKeyboard,
     autoScroll: Ui.DragAndDrop.subscriptions.autoScroll,
 })<import("./gallery.model.ts").Model, typeof GotDragAndDropMessage.Type>({
-    toChildModel: (model) => model.dragAndDrop,
+    read: (model) => Option.some(model.dragAndDrop),
     toParentMessage: (message) => GotDragAndDropMessage({ message }),
 })

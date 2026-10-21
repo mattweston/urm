@@ -1,4 +1,4 @@
-import { Array, Effect, Match as M, Option, Schema as S } from "effect"
+import { Array, Match as M, Option, Schema as S } from "effect"
 import { Command, type Update } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
 import { modifyFields } from "foldkit/struct"
@@ -95,14 +95,9 @@ const lift_composer_commands = (
     thread_id: number,
     commands: Update.Commands<Composer.Message>
 ): Update.Commands<Message> =>
-    Array.map(
+    Command.mapMessages(
         commands,
-        Command.mapEffect(
-            Effect.map(
-                (message): Message =>
-                    GotComposerMessage({ id: thread_id, message })
-            )
-        )
+        (message): Message => GotComposerMessage({ id: thread_id, message })
     )
 
 export const update = (model: Model, message: Message): UpdateReturn =>
@@ -130,7 +125,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
                         return {
                             model: apply_out_message(
-                                modifyFields(thread, { composer: () => composer }),
+                                modifyFields(thread, {
+                                    composer: () => composer,
+                                }),
                                 maybe_out_message
                             ),
                             commands: lift_composer_commands(

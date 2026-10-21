@@ -3,7 +3,7 @@ import { TagsWriteError } from "@urm/domain/tags"
 import { sql } from "drizzle-orm"
 import { Context, Effect, Layer, Schema } from "effect"
 import { require_account_domain, type AccountPrincipal } from "@urm/auth"
-import { Sql, query_rows } from "@urm/db/sql"
+import { Sql, query_rows } from "@urm/database/sql"
 import { TagCatalogRecord, type TagAction } from "@urm/domain/tags"
 
 export interface TagsPrincipal extends AccountPrincipal {

@@ -88,7 +88,7 @@ import {
     PasswordResetConfirmInput,
     PasswordResetRequestInput,
 } from "@urm/contracts/auth-legacy"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import { AuthConfig, ServerConfig } from "@urm/env/server"
 import {
     authEmailVerificationTemplate,

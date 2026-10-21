@@ -3,7 +3,7 @@ import { ShopRpcs } from "@urm/contracts/shop"
 import { ShopRpcHandlersTag } from "./tag.ts"
 import { ActiveDomainRequestContext } from "@urm/contracts/auth-legacy"
 import { AuthPersistence } from "@urm/auth/auth-persistence"
-import { DB } from "@urm/db/layer"
+import { DB } from "@urm/database/layer"
 import {
     products,
     product_variants,
@@ -12,8 +12,8 @@ import {
     cart_items,
     orders,
     order_items,
-} from "@urm/db/legacy-schema/shop"
-import { images } from "@urm/db/legacy-schema/media/images"
+} from "@urm/database/legacy-schema/shop"
+import { images } from "@urm/database/legacy-schema/media/images"
 import {
     Product,
     ProductCollection,

@@ -1,4 +1,4 @@
-import { Effect, Match as M, Option } from "effect"
+import { Match as M, Option } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { modifyFields } from "foldkit/struct"
@@ -45,12 +45,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                 onSome: ({ value }) => value,
                             }),
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotHorizontalTabsMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotHorizontalTabsMessage({ message })
                     ),
                 ]
             },
@@ -71,12 +67,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                                 onSome: ({ value }) => value,
                             }),
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotVerticalTabsMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotVerticalTabsMessage({ message })
                     ),
                 ]
             },

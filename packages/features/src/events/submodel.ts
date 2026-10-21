@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 
 import { subscriptions as eventSubscriptions } from "./platform/app.subscription.ts"
@@ -47,7 +48,7 @@ export { init, update } from "./platform/app.update.ts"
 export { submodelView as view } from "./platform/app.view.ts"
 
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (parentModel: ParentModel) => Model
+    readonly read: (parentModel: ParentModel) => Option.Option<Model>
     readonly toParentMessage: (message: Message) => ParentMessage
 }) => {
     const { maybeEventMapHostId } = Subscription.lift(eventSubscriptions)<

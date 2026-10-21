@@ -27,13 +27,13 @@ import {
 } from "@urm/domain/schemas/csv"
 
 // Re-export Drizzle tables and inferred types
-export { csv_uploads, csv_data } from "@urm/db/legacy-schema/csv"
+export { csv_uploads, csv_data } from "@urm/database/legacy-schema/csv"
 export type {
     CsvUpload as CsvUploadRow,
     NewCsvUpload,
     CsvData as CsvDataRow,
     NewCsvData,
-} from "@urm/db/legacy-schema/csv"
+} from "@urm/database/legacy-schema/csv"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

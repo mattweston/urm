@@ -56,10 +56,8 @@ const mapEntryCommands = (
     entryId: string,
     commands: ReadonlyArray<Command.Command<Entry.Message>>
 ): ReadonlyArray<Command.Command<Message>> =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotEntryMessage({ entryId, message }))
-        )
+    Command.mapMessages(commands, (message) =>
+        GotEntryMessage({ entryId, message })
     )
 
 export const update = (model: Model, message: Message): UpdateReturn =>

@@ -1,4 +1,4 @@
-import { Effect, Option, Schema as S, Struct, Function } from "effect"
+import { Clock, Effect, Function, Option, Schema as S, Struct } from "effect"
 import { Command, Submodel } from "foldkit"
 import { taggedStruct } from "foldkit/schema"
 import { defineMessageUnion } from "foldkit/message"
@@ -195,6 +195,7 @@ const SaveProjectCatalog = Command.define("SaveProjectCatalog", {
                     requestId: request_id,
                     entities: outcome.entities,
                     connections: outcome.connections,
+                    now: yield* Clock.currentTimeMillis,
                 },
             })
         }).pipe(
@@ -509,13 +510,13 @@ export const update = (
     return [next, commands]
 }
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    toChildModel: (model: ParentModel) => Model
+    read: (model: ParentModel) => Option.Option<Model>
     toActiveDomainId: (model: ParentModel) => Option.Option<string>
     toParentMessage: (message: Message) => ParentMessage
 }) =>
     Projects.subscriptions<ParentModel, ParentMessage>({
         ...config,
-        toChildModel: (parent) => project(config.toChildModel(parent)),
+        read: (parent) => Option.map(config.read(parent), project),
     })
 export const view = Submodel.defineView<Model, Message>((model, h) =>
     h.div(

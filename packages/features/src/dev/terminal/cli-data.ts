@@ -36,7 +36,7 @@ export const cliCommands: ReadonlyArray<CliCommand> = [
     },
     {
         command:
-            "pnpm --filter @urm/db exec drizzle-kit generate --dialect postgresql --schema ./src/schema/index.ts --out ./src/migrations --name descriptive_change",
+            "pnpm --filter @urm/database exec drizzle-kit generate --dialect postgresql --schema ./src/schema/index.ts --out ./src/migrations --name descriptive_change",
         description: "Generate an additive PostgreSQL migration.",
         tags: ["urm", "database", "migration"],
         comments: [

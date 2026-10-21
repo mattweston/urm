@@ -5,7 +5,7 @@
  * Usage:
  *
  * ```sh
- * pnpm --filter @urm/db bootstrap:sysadmin your-email@example.com
+ * pnpm --filter @urm/database bootstrap:sysadmin your-email@example.com
  * ```
  *
  * The contact must already exist and be active — this grants access to an
@@ -16,7 +16,7 @@ import { config } from "dotenv"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
-// Loaded before @urm/db, which reads its configuration at module scope: an
+// Loaded before @urm/database, which reads its configuration at module scope: an
 // import evaluated first would predate these values.
 //
 // The workspace root holds the real file; dotenv keeps the first value it sees,
@@ -34,7 +34,7 @@ import {
     databaseOperationError,
     loadEnvironmentConfig,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 
 const grantSysadmin = Effect.fn("BootstrapSysadmin.grant")(function* (
     email: string
@@ -108,7 +108,7 @@ const email = process.argv[2]?.trim()
 
 if (email === undefined || email.length === 0) {
     console.error(
-        "Usage: node_modules/.bin/tsx packages/db/scripts/bootstrap-sysadmin.ts you@example.com. pnpm --filter @urm/db bootstrap:sysadmin your-real-email@example.com"
+        "Usage: node_modules/.bin/tsx packages/db/scripts/bootstrap-sysadmin.ts you@example.com. pnpm --filter @urm/database bootstrap:sysadmin your-real-email@example.com"
     )
     process.exitCode = 1
 } else {

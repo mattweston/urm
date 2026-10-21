@@ -6,7 +6,7 @@ import {
     ChangePublicationConfiguration,
 } from "@urm/contracts/publication-config"
 import { content_item_href } from "@urm/features/content"
-import { Effect, Option, Schema as S, Struct } from "effect"
+import { Clock, Effect, Option, Schema as S, Struct } from "effect"
 import { Command, File, Navigation, Submodel, Subscription } from "foldkit"
 import { defineMessageUnion } from "foldkit/message"
 import { taggedStruct } from "foldkit/schema"
@@ -334,6 +334,7 @@ const ChangePagesLibrary = Command.define("ChangePagesLibrary", {
                     requestId: request_id,
                     entities: outcome.entities,
                     connections: outcome.connections,
+                    now: yield* Clock.currentTimeMillis,
                 },
                 saved: true,
                 created_template_id:
@@ -385,6 +386,7 @@ const ChangePublicationModule = Command.define("ChangePublicationModule", {
                     requestId: request_id,
                     entities: outcome.entities,
                     connections: outcome.connections,
+                    now: yield* Clock.currentTimeMillis,
                 },
                 saved: false,
                 created_template_id: null,
@@ -773,7 +775,10 @@ export const update = (
 export const subscriptions = Subscription.lift(Pages.subscriptions)<
     Model,
     Message
->({ toChildModel: project, toParentMessage: (message) => message })
+>({
+    read: (model) => Option.some(project(model)),
+    toParentMessage: (message) => message,
+})
 export type { ViewInputs } from "./pages-legacy.ts"
 export const view = Submodel.defineView<Model, Message, Pages.ViewInputs>(
     (model, inputs, h) => {

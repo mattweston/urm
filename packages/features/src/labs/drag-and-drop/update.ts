@@ -1,5 +1,5 @@
 import * as Ui from "@foldkit/ui"
-import { Array, Effect, Match as M, Option, pipe } from "effect"
+import { Array, Match as M, Option, pipe } from "effect"
 import { Command } from "foldkit"
 import { modifyFields } from "foldkit/struct"
 import type { DemoColumn } from "./columns.ts"
@@ -120,12 +120,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         dragAndDrop: () => dragAndDrop,
                         columns: () => columns,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotDragAndDropMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotDragAndDropMessage({ message })
                     ),
                 ]
             },

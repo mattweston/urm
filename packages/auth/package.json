@@ -22,7 +22,7 @@
     "dependencies": {
         "@urm/config": "workspace:*",
         "@urm/contracts": "workspace:*",
-        "@urm/db": "workspace:*",
+        "@urm/database": "workspace:*",
         "@urm/env": "workspace:*",
         "arctic": "catalog:auth",
         "drizzle-orm": "catalog:database",

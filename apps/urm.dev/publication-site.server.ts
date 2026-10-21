@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { Effect, Schema } from "effect"
 import { sql } from "drizzle-orm"
-import { query_rows } from "@urm/db/sql"
+import { query_rows } from "@urm/database/sql"
 import { SiteBuildManifest } from "@urm/domain"
 
 const DomainPointer = Schema.Struct({

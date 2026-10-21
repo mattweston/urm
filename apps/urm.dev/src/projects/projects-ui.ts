@@ -583,7 +583,9 @@ export const update = (
                 [],
             ],
             FailedData: ({ details }) => [
-                modifyFields(model, { maybe_error: () => Option.some(details) }),
+                modifyFields(model, {
+                    maybe_error: () => Option.some(details),
+                }),
                 [],
             ],
             ClickedAddProject: ({ status }) => [
@@ -670,14 +672,12 @@ export const update = (
                     maybe_out_message_value
                 )
 
-                const mapped_commands = commands.map(
-                    Command.mapEffect(
-                        Effect.map((next_message) =>
-                            GotProjectDragAndDropMessage({
-                                message: next_message,
-                            })
-                        )
-                    )
+                const mapped_commands = Command.mapMessages(
+                    commands,
+                    (next_message) =>
+                        GotProjectDragAndDropMessage({
+                            message: next_message,
+                        })
                 )
 
                 return Option.match(maybe_out_message, {
@@ -841,12 +841,8 @@ export const update = (
                             Option.some(project_id),
                         delete_project_dialog: () => delete_project_dialog,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((message) =>
-                                GotDeleteProjectDialogMessage({ message })
-                            )
-                        )
+                    Command.mapMessages(commands, (message) =>
+                        GotDeleteProjectDialogMessage({ message })
                     ),
                 ]
             },
@@ -858,14 +854,10 @@ export const update = (
                     modifyFields(model, {
                         delete_project_dialog: () => delete_project_dialog,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((next_message) =>
-                                GotDeleteProjectDialogMessage({
-                                    message: next_message,
-                                })
-                            )
-                        )
+                    Command.mapMessages(commands, (next_message) =>
+                        GotDeleteProjectDialogMessage({
+                            message: next_message,
+                        })
                     ),
                 ]
             },
@@ -886,14 +878,10 @@ export const update = (
                                     delete_project_dialog,
                             }),
                             [
-                                ...commands.map(
-                                    Command.mapEffect(
-                                        Effect.map((message) =>
-                                            GotDeleteProjectDialogMessage({
-                                                message,
-                                            })
-                                        )
-                                    )
+                                ...Command.mapMessages(commands, (message) =>
+                                    GotDeleteProjectDialogMessage({
+                                        message,
+                                    })
                                 ),
                                 DeleteProject({ project_id }),
                             ],
@@ -946,14 +934,12 @@ export const update = (
                     maybe_out_message_value
                 )
 
-                const mapped_commands = commands.map(
-                    Command.mapEffect(
-                        Effect.map((next_message) =>
-                            GotTaskDragAndDropMessage({
-                                message: next_message,
-                            })
-                        )
-                    )
+                const mapped_commands = Command.mapMessages(
+                    commands,
+                    (next_message) =>
+                        GotTaskDragAndDropMessage({
+                            message: next_message,
+                        })
                 )
 
                 return Option.match(maybe_out_message, {
@@ -1230,7 +1216,10 @@ export const subscriptions = <ParentModel, ParentMessage>(
         ParentModel,
         ParentMessage
     >({
-        toChildModel: config.toChildModel,
+        // Adapt at the foldkit boundary rather than renaming this module's own
+        // config: `lift` wants `read` returning an Option, while callers of
+        // `subscriptions` still pass `toChildModel`.
+        read: (model) => Option.some(config.toChildModel(model)),
         toParentMessage: config.toParentMessage,
     })
     return interactions

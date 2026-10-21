@@ -1,6 +1,6 @@
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
-import { Match as M, Effect, Option } from "effect"
+import { Match as M, Option } from "effect"
 import { modifyFields } from "foldkit/struct"
 import type { Message } from "./report-an-issue.message.ts"
 import {
@@ -17,19 +17,15 @@ const Listbox = Ui.Listbox.create<string>()
 const mapAreaListboxCommands = (
     commands: ReadonlyArray<Command.Command<Ui.Listbox.Message>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotAreaListboxMessage({ message }))
-        )
+    Command.mapMessages(commands, (message) =>
+        GotAreaListboxMessage({ message })
     )
 
 const mapSecurityLevelListboxCommands = (
     commands: ReadonlyArray<Command.Command<Ui.Listbox.Message>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotSecurityLevelListboxMessage({ message }))
-        )
+    Command.mapMessages(commands, (message) =>
+        GotSecurityLevelListboxMessage({ message })
     )
 
 export const init = (): UpdateReturn => {

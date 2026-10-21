@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull } from "drizzle-orm"
 import { Effect, Schema } from "effect"
-import { DB, schema } from "@urm/db"
+import { DB, schema } from "@urm/database"
 import { ServerConfig } from "@urm/env/server"
 import {
     createDomainSessionHandoff,

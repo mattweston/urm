@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 import { subscriptions as issueSubscriptions } from "./platform/app.subscription.ts"
 import { AppMessage } from "./platform/app.message.ts"
@@ -44,7 +45,7 @@ export { Tag } from "@urm/domain/schemas/tags"
 export { isAppScope } from "./platform/route.ts"
 
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (parentModel: ParentModel) => Model
+    readonly read: (parentModel: ParentModel) => Option.Option<Model>
     readonly toParentMessage: (message: AppMessage) => ParentMessage
 }) => {
     const {

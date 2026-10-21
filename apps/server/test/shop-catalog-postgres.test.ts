@@ -4,7 +4,7 @@ import { Effect, Exit, Layer, Schema } from "effect"
 import { REMOTE_PROTOCOL_VERSION } from "foldkit-remote"
 import { readFile, readdir } from "node:fs/promises"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { Sql, SqlError, type SqlService } from "@urm/db/sql"
+import { Sql, SqlError, type SqlService } from "@urm/database/sql"
 import { ShopCheckoutInput } from "@urm/domain/shop"
 import {
     ShopCatalogRepository,
@@ -109,7 +109,7 @@ const product_fields = {
 
 beforeAll(async () => {
     const base = new URL(
-        "../../../packages/db/src/migrations/",
+        "../../../packages/database/src/migrations/",
         import.meta.url
     )
     for (const entry of (await readdir(base, { withFileTypes: true }))

@@ -1,4 +1,4 @@
-import { Effect, Match as M } from "effect"
+import { Match as M } from "effect"
 import { Command, Update } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { modifyFields } from "foldkit/struct"
@@ -30,8 +30,8 @@ const toFixed = (
     model: Model
 ): UpdateReturn => [
     modifyFields(model, { fixed: () => result.model }),
-    (result.commands ?? []).map(
-        Command.mapEffect(Effect.map((message) => GotFixedMessage({ message })))
+    Command.mapMessages(result.commands, (message) =>
+        GotFixedMessage({ message })
     ),
 ]
 
@@ -40,10 +40,8 @@ const toVariable = (
     model: Model
 ): UpdateReturn => [
     modifyFields(model, { variable: () => result.model }),
-    (result.commands ?? []).map(
-        Command.mapEffect(
-            Effect.map((message) => GotVariableMessage({ message }))
-        )
+    Command.mapMessages(result.commands, (message) =>
+        GotVariableMessage({ message })
     ),
 ]
 

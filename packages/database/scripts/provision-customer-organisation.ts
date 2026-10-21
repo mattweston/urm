@@ -7,7 +7,7 @@
  * Usage:
  *
  * ```sh
- * pnpm --filter @urm/db provision:customer -- owner@example.com "Customer Ltd" customer customer
+ * pnpm --filter @urm/database provision:customer -- owner@example.com "Customer Ltd" customer customer
  * ```
  *
  * Add `--confirm-production` when NODE_ENV=production.
@@ -21,7 +21,7 @@ import {
     databaseOperationError,
     loadEnvironmentConfig,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 
 const provisionError = (reason: string) =>
     databaseOperationError("ProvisionCustomerOrganisation.run", reason)
@@ -271,7 +271,7 @@ if (
     domain_name === undefined
 ) {
     console.error(
-        'Usage: pnpm --filter @urm/db provision:customer -- owner@example.com "Customer Ltd" customer customer [--confirm-production]'
+        'Usage: pnpm --filter @urm/database provision:customer -- owner@example.com "Customer Ltd" customer customer [--confirm-production]'
     )
     process.exitCode = 1
 } else {

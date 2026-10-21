@@ -23,11 +23,11 @@ import {
 import { ValidationError } from "@urm/domain/errors"
 
 // Re-export Drizzle tables and inferred types
-export { preferences } from "@urm/db/legacy-schema/settings"
+export { preferences } from "@urm/database/legacy-schema/settings"
 export type {
     Preference as PreferenceRow,
     NewPreference,
-} from "@urm/db/legacy-schema/settings"
+} from "@urm/database/legacy-schema/settings"
 
 // Re-export Effect schemas (used in routes and handlers)
 export {

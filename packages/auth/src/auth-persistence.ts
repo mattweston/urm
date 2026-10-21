@@ -11,7 +11,7 @@ import {
     DatabaseOperationError,
     databaseOperationError,
     schema,
-} from "@urm/db"
+} from "@urm/database"
 
 export type AuthTokenContext = Readonly<{
     request_ip_hash?: string | undefined

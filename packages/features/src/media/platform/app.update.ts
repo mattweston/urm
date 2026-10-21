@@ -181,22 +181,16 @@ const youtube_player_for_route = (
 const map_youtube_commands = (
     commands: ReadonlyArray<Command.Command<YouTubeEmbed.MessageType>>
 ): ReadonlyArray<Command.Command<Message>> =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) => GotVideoYouTubeMessage({ message }))
-        )
+    Command.mapMessages(commands, (message) =>
+        GotVideoYouTubeMessage({ message })
     )
 
 const mapSidebarTooltipCommands = (
     key: string,
     commands: ReadonlyArray<Command.Command<Ui.Tooltip.Message>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map((message) =>
-                GotSidebarTooltipMessage({ tooltipId: key, message })
-            )
-        )
+    Command.mapMessages(commands, (message) =>
+        GotSidebarTooltipMessage({ tooltipId: key, message })
     )
 
 const delegateSidebarTooltip = (
@@ -814,12 +808,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                         uploadDrop: () => nextDrop,
                         selectedUploadFiles: () => nextFiles,
                     }),
-                    commands.map(
-                        Command.mapEffect(
-                            Effect.map((nextMessage) =>
-                                GotUploadDropMessage({ message: nextMessage })
-                            )
-                        )
+                    Command.mapMessages(commands, (nextMessage) =>
+                        GotUploadDropMessage({ message: nextMessage })
                     ),
                 ]
             },
@@ -1199,12 +1189,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     maybeOutMessage_value
                 )
 
-                const mappedCommands = dragCommands.map(
-                    Command.mapEffect(
-                        Effect.map((nextMessage) =>
-                            GotDragAndDropMessage({ message: nextMessage })
-                        )
-                    )
+                const mappedCommands = Command.mapMessages(
+                    dragCommands,
+                    (nextMessage) =>
+                        GotDragAndDropMessage({ message: nextMessage })
                 )
 
                 return Option.match(maybeOutMessage, {
@@ -1339,12 +1327,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 )
 
                 return [
-                    modifyFields(model, { youtubePlayer: () => youtube_player }),
+                    modifyFields(model, {
+                        youtubePlayer: () => youtube_player,
+                    }),
                     map_youtube_commands(commands),
                 ]
             },
             ToggledVideoTheatreMode: () => [
-                modifyFields(model, { video_theatre_mode: (current) => !current }),
+                modifyFields(model, {
+                    video_theatre_mode: (current) => !current,
+                }),
                 [],
             ],
             ToggledVideoEditing: () => [

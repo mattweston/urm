@@ -12,7 +12,7 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { Config, Effect, Option, Redacted, Result, Schema } from "effect"
-import { Sql } from "@urm/db/sql"
+import { Sql } from "@urm/database/sql"
 import { record_social_provider_event } from "@urm/rpc/handlers/social"
 
 const Webhook = Schema.Struct({

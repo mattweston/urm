@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { Effect, Schema } from "effect"
 import { sql } from "drizzle-orm"
-import { Sql, query_rows } from "@urm/db/sql"
+import { Sql, query_rows } from "@urm/database/sql"
 const Id = Schema.Struct({ id: Schema.String })
 export const upsert_directory_tag = Effect.fn("Tags.upsertDirectory")(
     function* (

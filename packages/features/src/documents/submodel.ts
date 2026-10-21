@@ -230,7 +230,8 @@ const hydrate = (model: ModelType): ModelType => {
         })
     }
     if (model.route === "New") {
-        if (model.is_dirty) return modifyFields(model, { load_status: () => "ready" })
+        if (model.is_dirty)
+            return modifyFields(model, { load_status: () => "ready" })
         return modifyFields(model, {
             title: () => "",
             document_status: () => "draft",
@@ -242,7 +243,8 @@ const hydrate = (model: ModelType): ModelType => {
         })
     }
 
-    if (model.is_dirty) return modifyFields(model, { load_status: () => "ready" })
+    if (model.is_dirty)
+        return modifyFields(model, { load_status: () => "ready" })
 
     const document = model.documents.find(
         (candidate) => candidate.id === model.document_id
@@ -291,12 +293,9 @@ export const init = (location: string): UpdateReturn => {
 const map_editor_commands = (
     commands: ReadonlyArray<Command.Command<RichTextEditorMessage>>
 ) =>
-    commands.map(
-        Command.mapEffect(
-            Effect.map(
-                (message): MessageType => GotDocumentEditorMessage({ message })
-            )
-        )
+    Command.mapMessages(
+        commands,
+        (message): MessageType => GotDocumentEditorMessage({ message })
     )
 
 const upsert_document = (
@@ -550,7 +549,7 @@ const drag_subscriptions = Subscription.lift({
     internalDocumentDragKeyboard: DragAndDrop.subscriptions.documentKeyboard,
     internalDocumentAutoScroll: DragAndDrop.subscriptions.autoScroll,
 })<ModelType, MessageType>({
-    toChildModel: (model) => model.editor.dragAndDrop,
+    read: (model) => Option.some(model.editor.dragAndDrop),
     toParentMessage: (message) =>
         GotDocumentEditorMessage({
             message: GotRichTextDragAndDropMessage({ message }),

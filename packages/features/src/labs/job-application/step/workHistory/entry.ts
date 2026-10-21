@@ -1,4 +1,4 @@
-import { Array, Effect, Match as M, Option, Schema as S } from "effect"
+import { Array, Match as M, Option, Schema as S } from "effect"
 import { Command } from "foldkit"
 import * as Ui from "@foldkit/ui"
 import { CalendarDate } from "foldkit/calendar"
@@ -118,13 +118,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     maybeOutMessage_value
                 )
 
-                const mappedCommands = Array.map(
+                const mappedCommands = Command.mapMessages(
                     commands,
-                    Command.mapEffect(
-                        Effect.map((message) =>
-                            GotStartDateMessage({ message })
-                        )
-                    )
+                    (message) => GotStartDateMessage({ message })
                 )
 
                 // The picker no longer stores the selection, so the entry keeps
@@ -135,7 +131,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     onSome: M.type<Ui.DatePicker.OutMessage>().pipe(
                         M.tagsExhaustive({
                             ChangedViewMonth: () =>
-                                modifyFields(model, { startDate: () => nextStartDate }),
+                                modifyFields(model, {
+                                    startDate: () => nextStartDate,
+                                }),
                             SelectedDate: ({ date }) =>
                                 modifyFields(model, {
                                     startDate: () => nextStartDate,
@@ -173,19 +171,20 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     maybeOutMessage_value
                 )
 
-                const mappedCommands = Array.map(
+                const mappedCommands = Command.mapMessages(
                     commands,
-                    Command.mapEffect(
-                        Effect.map((message) => GotEndDateMessage({ message }))
-                    )
+                    (message) => GotEndDateMessage({ message })
                 )
 
                 const nextModel = Option.match(maybeOutMessage, {
-                    onNone: () => modifyFields(model, { endDate: () => nextEndDate }),
+                    onNone: () =>
+                        modifyFields(model, { endDate: () => nextEndDate }),
                     onSome: M.type<Ui.DatePicker.OutMessage>().pipe(
                         M.tagsExhaustive({
                             ChangedViewMonth: () =>
-                                modifyFields(model, { endDate: () => nextEndDate }),
+                                modifyFields(model, {
+                                    endDate: () => nextEndDate,
+                                }),
                             SelectedDate: ({ date }) =>
                                 modifyFields(model, {
                                     endDate: () => nextEndDate,

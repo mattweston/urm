@@ -1,3 +1,4 @@
+import { Option } from "effect"
 import { Subscription } from "foldkit"
 
 import { subscriptions as interactiveMapSubscriptions } from "./interactive-map/interactive-map.subscription.ts"
@@ -34,29 +35,29 @@ export { init, update } from "./app.update.ts"
 export { view } from "./app.view.ts"
 
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (parentModel: ParentModel) => Model
+    readonly read: (parentModel: ParentModel) => Option.Option<Model>
     readonly toParentMessage: (message: Message) => ParentMessage
     readonly when?: (model: ParentModel) => boolean
 }) => {
     const mapAppSubscriptions = Subscription.aggregate<Model, Message>()(
         Subscription.lift(interactiveMapSubscriptions)({
-            toChildModel: (model: Model) => model.interactiveMap,
+            read: (model: Model) => Option.some(model.interactiveMap),
             toParentMessage: (message) => GotInteractiveMapMessage({ message }),
         }),
         Subscription.lift(mapSubscriptions)({
-            toChildModel: (model: Model) => model.map,
+            read: (model: Model) => Option.some(model.map),
             toParentMessage: (message) => GotMapMessage({ message }),
         }),
         Subscription.lift(isochroneSubscriptions)({
-            toChildModel: (model: Model) => model.isochrone,
+            read: (model: Model) => Option.some(model.isochrone),
             toParentMessage: (message) => GotIsochroneMessage({ message }),
         }),
         Subscription.lift(storymapSubscriptions)({
-            toChildModel: (model: Model) => model.storymap,
+            read: (model: Model) => Option.some(model.storymap),
             toParentMessage: (message) => GotStorymapMessage({ message }),
         }),
         Subscription.lift(weatherMapSubscriptions)({
-            toChildModel: (model: Model) => model.weatherMap,
+            read: (model: Model) => Option.some(model.weatherMap),
             toParentMessage: (message) => GotWeatherMapMessage({ message }),
         })
     )

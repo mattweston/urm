@@ -18,7 +18,7 @@ export interface SqlService {
     ) => Effect.Effect<A, E | SqlError, R>
 }
 
-export class Sql extends Context.Service<Sql, SqlService>()("@urm/db/Sql") {}
+export class Sql extends Context.Service<Sql, SqlService>()("@urm/database/Sql") {}
 
 export const SqlLive = Layer.effect(
     Sql,
