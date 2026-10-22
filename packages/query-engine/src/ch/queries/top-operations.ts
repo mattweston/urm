@@ -1,0 +1,95 @@
+// Top Operations
+//
+// DSL port of the previously string-interpolated query in
+// `observability/top-operations.ts`. Groups spans for one service by SpanName
+// and ranks them by the requested metric (count, latency quantiles, error
+// rate, or apdex). OrgId-scoped per the Warehouse Query Pattern.
+
+import { finiteOrZero } from "./format"
+import { Match } from "effect"
+import type { TracesMetric } from "@maple/domain/query-engine"
+import { compile } from "@maple-dev/effect-orm/sql"
+import * as CH from "@maple-dev/effect-orm/expr"
+import { avg, count, countIf, quantile } from "@maple-dev/effect-orm/clickhouse"
+import { if_ } from "@maple-dev/effect-orm/clickhouse"
+import { round } from "@maple-dev/effect-orm/clickhouse"
+import { param } from "@maple-dev/effect-orm/clickhouse"
+import { from } from "@maple-dev/effect-orm/clickhouse"
+import { Traces, orgIdParam } from "../tables"
+import * as T from "@maple-dev/effect-orm/clickhouse"
+
+/**
+ * Wrap an expression in parentheses. The DSL's arithmetic combinators
+ * (`add`/`mul`/`div`) emit flat infix SQL without grouping, so explicit
+ * grouping is required when a sum must bind before a division.
+ */
+const paren = (expr: CH.Expr<number>): CH.Expr<number> =>
+	CH.rawExpr(`(${compile(expr.toFragment())})`, T.float64)
+
+export type TopOperationsMetric = TracesMetric
+
+export interface TopOperationsOpts {
+	readonly metric: TopOperationsMetric
+	readonly limit?: number
+}
+
+export interface TopOperationsOutput {
+	readonly name: string
+	readonly value: number
+}
+
+const durationMs = <N extends number | null>(col: CH.Expr<N>) => col.div(1000000)
+
+const metricExpr = (
+	metric: TopOperationsMetric,
+	$: { readonly Duration: CH.Expr<number>; readonly StatusCode: CH.Expr<string> },
+): CH.Expr<number | null> =>
+	Match.value(metric).pipe(
+		Match.when("count", () => count()),
+		Match.when("avg_duration", () => durationMs(avg($.Duration))),
+		Match.when("p50_duration", () => durationMs(quantile(0.5)($.Duration))),
+		Match.when("p95_duration", () => durationMs(quantile(0.95)($.Duration))),
+		Match.when("p99_duration", () => durationMs(quantile(0.99)($.Duration))),
+		Match.when("error_rate", () =>
+			if_(count().gt(0), countIf($.StatusCode.eq("Error")).div(count()), CH.lit(0)),
+		),
+		Match.when("apdex", () =>
+			if_(
+				count().gt(0),
+				round(
+					// (satisfied + tolerating * 0.5) / total — the numerator must be
+					// grouped so the division binds after the sum.
+					paren(
+						countIf(durationMs($.Duration).lt(500)).add(
+							countIf(durationMs($.Duration).gte(500).and(durationMs($.Duration).lt(2000))).mul(
+								0.5,
+							),
+						),
+					).div(count()),
+					4,
+				),
+				CH.lit(0),
+			),
+		),
+		Match.exhaustive,
+	)
+
+export function topOperationsQuery(opts: TopOperationsOpts) {
+	const limit = opts.limit ?? 20
+
+	return from(Traces)
+		.select(($) => ({
+			name: $.SpanName,
+			value: finiteOrZero(metricExpr(opts.metric, $)),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.ServiceName.eq(param.string("serviceName")),
+			$.Timestamp.gte(param.dateTime("startTime")),
+			$.Timestamp.lte(param.dateTime("endTime")),
+		])
+		.groupBy("name")
+		.orderBy(["value", "desc"])
+		.limit(limit)
+		.format("JSON")
+}

@@ -1,0 +1,284 @@
+---
+/**
+ * LocalProductHero: hero for the /local product page.
+ *
+ * Positions Maple Local as a standalone dev tool: a replacement for the local
+ * compose stack rather than a mode of the hosted product. Headline + install command
+ * on the left; on the right the real `maple start` banner streams in line by
+ * line, which is the one animated moment the page keeps. No glow, grain, or
+ * badge pulses; the terminal is the atmosphere.
+ */
+const INSTALL = "brew install Makisuo/tap/maple";
+
+// Tidied reproduction of the startup banner from apps/cli/src/commands/server.ts.
+const banner: Array<{ key?: string; value: string; tone?: "amber" | "green" | "dim" }> = [
+	{ value: "🍁 maple  · local mode", tone: "amber" },
+	{ value: "● listening on http://127.0.0.1:4318", tone: "green" },
+	{ value: "" },
+	{ key: "OTLP/HTTP", value: "POST /v1/{traces,logs,metrics}" },
+	{ key: "query", value: "POST /local/query" },
+	{ key: "dashboard", value: "https://local.maple.dev", tone: "amber" },
+	{ key: "data", value: "~/.maple/data" },
+	{ key: "pid", value: "48213  · stop with `maple stop`", tone: "dim" },
+];
+
+const facts = ["1 process", "1 port", "0 containers", "0 accounts"];
+---
+
+<section class="lph">
+	<div class="mx-auto max-w-6xl px-6 pt-24 md:pt-32 pb-20 md:pb-28">
+		<div class="grid items-center gap-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,520px)] lg:gap-16">
+			<!-- Left: headline + install -->
+			<div class="lph-rise">
+				<p class="text-[10px] font-medium uppercase tracking-[0.18em] text-fg-muted">
+					Maple Local · free · works offline
+				</p>
+
+				<h1
+					class="mt-6 max-w-[16ch] font-display text-4xl font-semibold leading-[1.04] tracking-[-0.025em] text-fg sm:text-5xl md:text-6xl"
+				>
+					The local observability stack, in one command.
+				</h1>
+
+				<p class="mt-6 max-w-[54ch] text-base leading-relaxed text-fg-muted">
+					Point any OpenTelemetry exporter at localhost and see traces, logs, metrics, errors, sessions,
+					and a service map while you build. One process instead of a compose file, with no containers
+					and no account to create.
+				</p>
+
+				<div class="lph__install mt-8" data-copy={INSTALL}>
+					<span class="text-fg-muted select-none" aria-hidden="true">$</span>
+					<code>{INSTALL}</code>
+					<button class="lph__copy" type="button" aria-label="Copy install command">Copy</button>
+				</div>
+
+				<div class="mt-6 flex flex-wrap items-center gap-3">
+					<a
+						href="/docs/local-mode"
+						class="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+					>
+						Read the docs
+					</a>
+					<a
+						href="https://github.com/MapleTechLabs/maple"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="inline-flex h-10 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-fg transition-colors hover:bg-bg-elevated"
+					>
+						View on GitHub
+					</a>
+				</div>
+			</div>
+
+			<!-- Right: maple start, streaming in -->
+			<div class="lph-rise" style="--d:120ms">
+				<div class="live-frame">
+					<div class="live-frame__head">
+						<span>~/your-app</span>
+						<span class="live-frame__live"><span class="live-frame__live-dot"></span>local</span>
+					</div>
+
+					<div class="lph__body">
+						<div class="lph__cmd">
+							<span class="text-fg-muted select-none" aria-hidden="true">$</span>
+							<code>maple start</code>
+						</div>
+
+						<pre class="lph__out" aria-label="maple start output">{
+							banner.map((line, i) => (
+								<div
+									class:list={["lph__row", line.tone && `lph__row--${line.tone}`]}
+									style={`--i:${i}`}
+								>
+									{line.key ? <span class="lph__row-key">{line.key}</span> : null}
+									<span class="lph__row-val">{line.value}</span>
+								</div>
+							))
+						}<span class="lph__caret" aria-hidden="true"></span></pre>
+					</div>
+				</div>
+
+				<p class="mt-4 flex flex-wrap gap-x-5 gap-y-1 px-1 font-mono text-[12px] text-fg-muted" aria-label="Local mode at a glance">
+					{facts.map((f) => <span>{f}</span>)}
+				</p>
+			</div>
+		</div>
+	</div>
+</section>
+
+<script>
+	import { bindCopyButtons } from "../../lib/copy-to-clipboard";
+	bindCopyButtons({ hostSelector: ".lph__install[data-copy]", buttonSelector: ".lph__copy" });
+</script>
+
+<style>
+	.lph {
+		--stream-lead: 560ms;
+		--stream-step: 90ms;
+	}
+
+	.lph-rise {
+		opacity: 0;
+		transform: translateY(8px);
+		animation: lph-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+		animation-delay: var(--d, 0ms);
+	}
+
+	/* Install command: a quiet chip with the copy control inside it. */
+	.lph__install {
+		display: inline-flex;
+		align-items: center;
+		gap: 12px;
+		max-width: 100%;
+		padding: 6px 6px 6px 14px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--bg-elevated);
+		font-family: var(--font-mono);
+		font-size: 13px;
+	}
+	.lph__install code {
+		font-family: var(--font-mono);
+		background: none;
+		border: 0;
+		padding: 0;
+		color: var(--foreground);
+		overflow-x: auto;
+		white-space: nowrap;
+	}
+	.lph__copy {
+		flex: none;
+		font-size: 12px;
+		font-family: var(--font-sans);
+		color: var(--muted-foreground);
+		background: none;
+		border: 1px solid transparent;
+		border-radius: calc(var(--radius-lg) - 4px);
+		padding: 5px 10px;
+		cursor: pointer;
+		transition: color 140ms ease, background-color 140ms ease;
+	}
+	.lph__copy:hover {
+		color: var(--foreground);
+		background: var(--bg);
+	}
+	.lph__copy.is-done {
+		color: var(--chart-3);
+	}
+
+	/* Terminal body */
+	.lph__body {
+		padding: 16px 16px 18px;
+		font-family: var(--font-mono);
+		font-size: 12.5px;
+		line-height: 1.55;
+	}
+	.lph__cmd {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		color: var(--foreground);
+	}
+	.lph__cmd code {
+		font-family: var(--font-mono);
+		background: none;
+		border: 0;
+		padding: 0;
+		color: var(--foreground);
+	}
+	.lph__out {
+		margin: 14px 0 0;
+		padding: 12px 0 0;
+		background: none;
+		border: 0;
+		border-top: 1px solid var(--border);
+		overflow-x: auto;
+	}
+
+	.lph__row {
+		display: flex;
+		gap: 12px;
+		min-height: 1.55em;
+		color: var(--muted-foreground);
+		white-space: nowrap;
+		opacity: 0;
+		animation: lph-line 280ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+		animation-delay: calc(var(--stream-lead) + var(--i) * var(--stream-step));
+	}
+	.lph__row-key {
+		flex: none;
+		width: 9ch;
+		color: var(--muted-foreground);
+	}
+	.lph__row-val {
+		color: var(--foreground);
+	}
+	.lph__row--amber .lph__row-val {
+		color: var(--primary);
+	}
+	.lph__row--green .lph__row-val {
+		color: var(--chart-3);
+	}
+	.lph__row--dim .lph__row-val {
+		color: var(--muted-foreground);
+	}
+
+	.lph__caret {
+		display: inline-block;
+		width: 7px;
+		height: 1em;
+		margin-top: 4px;
+		background: var(--foreground);
+		vertical-align: -0.15em;
+		opacity: 0;
+		animation:
+			lph-caret-in 1ms linear calc(var(--stream-lead) + 8 * var(--stream-step)) forwards,
+			lph-caret-blink 1.05s steps(1) calc(var(--stream-lead) + 8 * var(--stream-step)) infinite;
+	}
+
+	@keyframes lph-rise {
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+	@keyframes lph-line {
+		to {
+			opacity: 1;
+		}
+	}
+	@keyframes lph-caret-in {
+		to {
+			opacity: 1;
+		}
+	}
+	@keyframes lph-caret-blink {
+		0%,
+		49% {
+			opacity: 1;
+		}
+		50%,
+		100% {
+			opacity: 0;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.lph__body {
+			font-size: 11.5px;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.lph-rise,
+		.lph__row {
+			opacity: 1 !important;
+			transform: none !important;
+			animation: none !important;
+		}
+		.lph__caret {
+			animation: none !important;
+			opacity: 0.4 !important;
+		}
+	}
+</style>

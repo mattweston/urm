@@ -1,0 +1,362 @@
+import { randomUUID } from "node:crypto"
+import {
+	ActorDocument,
+	type ActorId,
+	ActorId as ActorIdSchema,
+	ActorNotFoundError,
+	ActorsListResponse,
+	ErrorPersistenceError,
+	ErrorValidationError,
+	type OrgId,
+	type UserId,
+} from "@maple/domain/http"
+import * as PG from "@maple-dev/effect-orm/postgres"
+import { Actors, type ActorInsert, type ActorRow } from "@maple/db/tables"
+import { Clock, Context, Effect, Layer, Option, Schema } from "effect"
+import { Database } from "@maple/backend/platform/DatabaseLive"
+import { isReservedAgentName, SYSTEM_ERRORS_AGENT_NAME } from "@maple/backend/services/auth/system-actors"
+import { makeErrorDatabaseExecute } from "./error-persistence"
+import { summarizeCause } from "@maple/backend/platform/describe-cause"
+
+const decodeActorIdSync = Schema.decodeUnknownSync(ActorIdSchema)
+const decodeActorDateTimeSync = Schema.decodeUnknownSync(ActorDocument.fields.lastActiveAt)
+const decodeStoredJsonArray = Schema.decodeUnknownOption(Schema.Array(Schema.Unknown))
+
+const parseCapabilities = (raw: unknown): ReadonlyArray<string> =>
+	Option.getOrElse(decodeStoredJsonArray(raw), (): ReadonlyArray<unknown> => []).filter(
+		(value): value is string => typeof value === "string",
+	)
+
+export const actorRowToDocument = (row: ActorRow): ActorDocument =>
+	new ActorDocument({
+		id: row.id,
+		type: row.type,
+		userId: row.userId ?? null,
+		agentName: row.agentName ?? null,
+		model: row.model ?? null,
+		capabilities: parseCapabilities(row.capabilitiesJson),
+		lastActiveAt:
+			row.lastActiveAt == null
+				? null
+				: decodeActorDateTimeSync(new Date(row.lastActiveAt).toISOString()),
+	})
+
+export interface ErrorActorsPublicApi {
+	readonly registerAgent: (
+		orgId: OrgId,
+		byUserId: UserId,
+		request: {
+			readonly name: string
+			readonly model?: string
+			readonly capabilities?: ReadonlyArray<string>
+		},
+	) => Effect.Effect<ActorDocument, ErrorPersistenceError | ErrorValidationError>
+	readonly listAgents: (orgId: OrgId) => Effect.Effect<ActorsListResponse, ErrorPersistenceError>
+	readonly lookupActor: (
+		orgId: OrgId,
+		actorId: ActorId,
+	) => Effect.Effect<ActorDocument, ErrorPersistenceError | ActorNotFoundError>
+	readonly ensureUserActor: (
+		orgId: OrgId,
+		userId: UserId,
+	) => Effect.Effect<ActorDocument, ErrorPersistenceError>
+}
+
+export interface ErrorActorsServiceApi extends ErrorActorsPublicApi {
+	/** Existence check used by assignment without changing its span topology. */
+	readonly actorExists: (orgId: OrgId, actorId: ActorId) => Effect.Effect<boolean, ErrorPersistenceError>
+	/** System actor used by the scheduled error workflow. */
+	readonly ensureSystemActor: (orgId: OrgId) => Effect.Effect<ActorDocument, ErrorPersistenceError>
+	/**
+	 * Idempotent get-or-create of an agent actor by name. Unlike
+	 * `registerAgent` this reuses an existing row instead of failing, and it
+	 * does NOT guard reserved names — callers passing externally supplied
+	 * names must validate with `isReservedAgentName` first.
+	 */
+	readonly ensureAgentActor: (
+		orgId: OrgId,
+		agentName: string,
+		opts?: {
+			readonly createdBy?: UserId
+			readonly capabilities?: ReadonlyArray<string>
+		},
+	) => Effect.Effect<ActorDocument, ErrorPersistenceError>
+	/**
+	 * The org's agent actor with this id, when `createdBy` created it and its name is not one of
+	 * Maple's reserved agents. What a caller-supplied agent id must match before it is acted as.
+	 */
+	readonly findOwnedAgentActor: (
+		orgId: OrgId,
+		actorId: ActorId,
+		createdBy: UserId,
+	) => Effect.Effect<Option.Option<ActorDocument>, ErrorPersistenceError>
+	/** Best-effort activity bookkeeping for issue mutations. */
+	readonly touchActor: (orgId: OrgId, actorId: ActorId, timestamp: number) => Effect.Effect<void>
+	/** Batch hydration used by issue and event response mapping. */
+	readonly collectActorDocs: (
+		orgId: OrgId,
+		actorIds: ReadonlyArray<ActorId | null>,
+	) => Effect.Effect<Map<ActorId, ActorDocument>, ErrorPersistenceError>
+}
+
+const make: Effect.Effect<ErrorActorsServiceApi, never, Database> = Effect.gen(function* () {
+	const database = yield* Database
+	const dbExecute = makeErrorDatabaseExecute(database, "ErrorActorsService")
+	const newActorId = () => decodeActorIdSync(randomUUID())
+
+	const selectActorRow = (orgId: OrgId, actorId: ActorId) =>
+		dbExecute((db) =>
+			db.run(
+				PG.from(Actors)
+					.select()
+					.where(($) => [$.orgId.eq(orgId), $.id.eq(actorId)])
+					.limit(1),
+			),
+		).pipe(Effect.map((rows) => rows[0] ?? null))
+
+	const selectUserActor = (orgId: OrgId, userId: UserId) =>
+		dbExecute((db) =>
+			db.run(
+				PG.from(Actors)
+					.select()
+					.where(($) => [$.orgId.eq(orgId), $.type.eq("user"), $.userId.eq(userId)])
+					.limit(1),
+			),
+		)
+
+	const selectAgentByName = (orgId: OrgId, agentName: string) =>
+		dbExecute((db) =>
+			db.run(
+				PG.from(Actors)
+					.select()
+					.where(($) => [$.orgId.eq(orgId), $.type.eq("agent"), $.agentName.eq(agentName)])
+					.limit(1),
+			),
+		)
+
+	const insertActorIfAbsent = (insert: ActorInsert) =>
+		dbExecute((db) => db.run(PG.insertInto(Actors).values(insert).onConflictDoNothing()))
+
+	const lookupActor: ErrorActorsServiceApi["lookupActor"] = Effect.fn("ErrorActorsService.lookupActor")(
+		function* (orgId, actorId) {
+			const row = yield* selectActorRow(orgId, actorId)
+			if (!row) {
+				return yield* Effect.fail(
+					new ActorNotFoundError({
+						message: `Actor '${actorId}' not found`,
+						actorId,
+					}),
+				)
+			}
+			return actorRowToDocument(row)
+		},
+	)
+
+	const findOwnedAgentActor: ErrorActorsServiceApi["findOwnedAgentActor"] = (orgId, actorId, createdBy) =>
+		selectActorRow(orgId, actorId).pipe(
+			Effect.map((row) =>
+				row !== null &&
+				row.type === "agent" &&
+				row.createdBy === createdBy &&
+				row.agentName !== null &&
+				!isReservedAgentName(row.agentName)
+					? Option.some(actorRowToDocument(row))
+					: Option.none(),
+			),
+		)
+
+	const actorExists: ErrorActorsServiceApi["actorExists"] = (orgId, actorId) =>
+		selectActorRow(orgId, actorId).pipe(Effect.map((row) => row !== null))
+
+	// Best-effort: a failed lastActiveAt bump must never fail the calling
+	// mutation, but persistent failures should still be diagnosable.
+	const touchActor: ErrorActorsServiceApi["touchActor"] = (orgId, actorId, timestamp) =>
+		dbExecute((db) =>
+			db.run(
+				PG.update(Actors)
+					.set({ lastActiveAt: timestamp })
+					.where(($) => [$.orgId.eq(orgId), $.id.eq(actorId)]),
+			),
+		).pipe(
+			Effect.tapCause((cause) =>
+				Effect.logWarning("ErrorsService.touchActor failed to update lastActiveAt").pipe(
+					Effect.annotateLogs({ orgId, actorId, cause: summarizeCause(cause) }),
+				),
+			),
+			Effect.ignore,
+		)
+
+	const ensureUserActor: ErrorActorsServiceApi["ensureUserActor"] = Effect.fn(
+		"ErrorActorsService.ensureUserActor",
+	)(function* (orgId, userId) {
+		const existing = yield* selectUserActor(orgId, userId)
+		if (existing[0]) return actorRowToDocument(existing[0])
+
+		const timestamp = yield* Clock.currentTimeMillis
+		const id = newActorId()
+		const insert: ActorInsert = {
+			id,
+			orgId,
+			type: "user",
+			userId,
+			agentName: null,
+			model: null,
+			capabilitiesJson: [],
+			createdBy: userId,
+			createdAt: timestamp,
+			lastActiveAt: timestamp,
+		}
+		yield* insertActorIfAbsent(insert)
+		const after = yield* selectUserActor(orgId, userId)
+		const row = after[0]
+		if (!row) {
+			return yield* Effect.fail(
+				new ErrorPersistenceError({ message: "Failed to ensure user actor row" }),
+			)
+		}
+		return actorRowToDocument(row)
+	})
+
+	const ensureAgentActor: ErrorActorsServiceApi["ensureAgentActor"] = Effect.fn(
+		"ErrorActorsService.ensureAgentActor",
+	)(function* (orgId, agentName, opts) {
+		const selectByName = selectAgentByName(orgId, agentName)
+		const existing = yield* selectByName
+		if (existing[0]) return actorRowToDocument(existing[0])
+
+		const timestamp = yield* Clock.currentTimeMillis
+		const id = newActorId()
+		const insert: ActorInsert = {
+			id,
+			orgId,
+			type: "agent",
+			userId: null,
+			agentName,
+			model: null,
+			capabilitiesJson: opts?.capabilities ?? [],
+			createdBy: opts?.createdBy ?? null,
+			createdAt: timestamp,
+			lastActiveAt: timestamp,
+		}
+		yield* insertActorIfAbsent(insert)
+		const after = yield* selectByName
+		const row = after[0]
+		if (!row) {
+			return yield* Effect.fail(
+				new ErrorPersistenceError({ message: `Failed to ensure agent actor row '${agentName}'` }),
+			)
+		}
+		return actorRowToDocument(row)
+	})
+
+	const ensureSystemActor: ErrorActorsServiceApi["ensureSystemActor"] = (orgId) =>
+		ensureAgentActor(orgId, SYSTEM_ERRORS_AGENT_NAME, { capabilities: ["system", "auto-triage"] })
+
+	const registerAgent: ErrorActorsServiceApi["registerAgent"] = Effect.fn(
+		"ErrorActorsService.registerAgent",
+	)(function* (orgId, byUserId, request) {
+		const name = request.name.trim()
+		if (name.length === 0) {
+			return yield* Effect.fail(
+				new ErrorValidationError({
+					message: "Agent name must not be empty",
+					details: [request.name],
+				}),
+			)
+		}
+		if (isReservedAgentName(name)) {
+			return yield* Effect.fail(
+				new ErrorValidationError({
+					message: `Agent name '${name}' is reserved`,
+					details: [name],
+				}),
+			)
+		}
+
+		const timestamp = yield* Clock.currentTimeMillis
+		const id = newActorId()
+		const capabilities = request.capabilities ?? []
+		const insert: ActorInsert = {
+			id,
+			orgId,
+			type: "agent",
+			userId: null,
+			agentName: name,
+			model: request.model ?? null,
+			capabilitiesJson: capabilities,
+			createdBy: byUserId,
+			createdAt: timestamp,
+			lastActiveAt: timestamp,
+		}
+
+		yield* insertActorIfAbsent(insert)
+		const rows = yield* selectAgentByName(orgId, name)
+		const row = rows[0]
+		if (!row) {
+			return yield* Effect.fail(new ErrorPersistenceError({ message: "Failed to register agent" }))
+		}
+		if (row.id !== id) {
+			return yield* Effect.fail(
+				new ErrorValidationError({
+					message: `An agent named '${name}' already exists for this org`,
+					details: [name],
+				}),
+			)
+		}
+		return actorRowToDocument(row)
+	})
+
+	const listAgents: ErrorActorsServiceApi["listAgents"] = Effect.fn("ErrorActorsService.listAgents")(
+		function* (orgId) {
+			const rows = yield* dbExecute((db) =>
+				db.run(
+					PG.from(Actors)
+						.select()
+						.where(($) => [$.orgId.eq(orgId), $.type.eq("agent")])
+						.orderBy(["createdAt", "desc"]),
+				),
+			)
+			return new ActorsListResponse({ actors: rows.map(actorRowToDocument) })
+		},
+	)
+
+	const collectActorDocs: ErrorActorsServiceApi["collectActorDocs"] = (orgId, actorIds) => {
+		const [first, ...rest] = Array.from(
+			new Set(actorIds.filter((value): value is ActorId => value != null)),
+		)
+		if (first === undefined) return Effect.succeed(new Map<ActorId, ActorDocument>())
+		return dbExecute((db) =>
+			db.run(
+				PG.from(Actors)
+					.select()
+					.where(($) => [$.orgId.eq(orgId), $.id.in_(first, ...rest)]),
+			),
+		).pipe(
+			Effect.map((rows) => {
+				const map = new Map<ActorId, ActorDocument>()
+				for (const row of rows) map.set(row.id, actorRowToDocument(row))
+				return map
+			}),
+		)
+	}
+
+	return ErrorActorsService.of({
+		registerAgent,
+		listAgents,
+		lookupActor,
+		actorExists,
+		findOwnedAgentActor,
+		ensureUserActor,
+		ensureSystemActor,
+		ensureAgentActor,
+		touchActor,
+		collectActorDocs,
+	})
+})
+
+export class ErrorActorsService extends Context.Service<ErrorActorsService, ErrorActorsServiceApi>()(
+	"@maple/api/services/errors/ErrorActorsService",
+	{ make },
+) {
+	static readonly layer = Layer.effect(this, this.make)
+}

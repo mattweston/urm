@@ -1,0 +1,113 @@
+import * as Cloudflare from "alchemy/Cloudflare"
+import type * as Output from "alchemy/Output"
+import * as Context from "effect/Context"
+import type * as Redacted from "effect/Redacted"
+import * as Effect from "effect/Effect"
+import type { WorkerDev } from "@maple/alchemy-portless"
+import { type DevApp, isDevApp } from "../dev-urls.ts"
+import { Stage } from "alchemy/Stage"
+import type { MapleAwsPrincipalEnv } from "../aws/integration-principal.ts"
+import type { MapleProfile } from "../profile.ts"
+import type { MapleRegion } from "../region.ts"
+import {
+	type MapleDbConsumer,
+	type MapleDeployment,
+	type MapleDomains,
+	type MapleStage,
+	parseMapleDeployment,
+	resolveWorkerName,
+	resolveWorkerPlacement,
+} from "./stage.ts"
+
+/** A Postgres login for an ECS service. A changed `id` rolls the tasks before the old login goes. */
+export interface MapleDbLogin {
+	readonly id: Output.Output<string>
+	readonly url: Output.Output<Redacted.Redacted<string>>
+}
+
+/**
+ * A deploy-declared database (PlanetScale on prd, Neon on previews): the migrated branch, the
+ * Hyperdrive config each consumer binds as `MAPLE_DB` (undefined on US prd), and the ECS logins.
+ */
+export interface MapleDbResources {
+	/** The branch's name. As Worker env it orders the upload after the migrations. */
+	readonly branch: Output.Output<string>
+	readonly hyperdrives: Record<MapleDbConsumer, Cloudflare.Hyperdrive.Connection> | undefined
+	/** The ingest gateway's pooled login. */
+	readonly ingest: MapleDbLogin
+	/** Electric's direct replication login, where the profile deploys Electric. */
+	readonly electric: MapleDbLogin | undefined
+}
+
+/** Inter-app public origins as plan-time strings (custom domains, portless routes, or env). */
+export interface MapleUrls {
+	readonly api: string
+	readonly ingest: string
+	readonly electricSync: string
+}
+
+export interface MapleStackContext {
+	readonly stage: MapleStage
+	/** The instance this deploy belongs to; `us` unless the stage string says `-eu`. */
+	readonly region: MapleRegion
+	readonly domains: MapleDomains
+	/** What this deployment runs and how big (`resolveMapleProfile`). */
+	readonly profile: MapleProfile
+	readonly urls: MapleUrls
+	/** A Worker's `dev` block under `bun dev` (served, or left `external`); undefined on a deploy. */
+	readonly workerDev: (app: DevApp) => WorkerDev | undefined
+	/** Inter-app URLs under `bun dev`, spread last so `.env.local` cannot override them. */
+	readonly devEnv: Record<string, string> | undefined
+	/** The declared database (prd and previews); undefined on dev. */
+	readonly db: MapleDbResources | undefined
+	/** Maple's AWS integration identity, as api's and alerting's env; undefined on dev. */
+	readonly awsPrincipal: MapleAwsPrincipalEnv | undefined
+}
+
+/** The deploy context Worker props read. Plan-time only: read behind `__ALCHEMY_RUNTIME__`. */
+export class MapleStack extends Context.Service<MapleStack, MapleStackContext>()("@maple/infra/MapleStack") {}
+
+/**
+ * The deployed api Worker, for web's `API` binding. Not a `Worker.ref`: that reads stored
+ * state and cannot see a sibling created by the same deploy.
+ */
+export class ApiWorker extends Context.Service<ApiWorker, Cloudflare.Worker>()("@maple/infra/ApiWorker") {}
+
+/** The deployed sandbox Worker, for maple-ai's binding (see {@link ApiWorker}). */
+export class SandboxWorker extends Context.Service<SandboxWorker, Cloudflare.Worker>()(
+	"@maple/infra/SandboxWorker",
+) {}
+
+/** The deployed AI Worker, for api's binding that forwards `/mcp` and chat (see {@link ApiWorker}). */
+export class AiWorker extends Context.Service<AiWorker, Cloudflare.Worker>()("@maple/infra/AiWorker") {}
+
+/**
+ * Props for a module-scope resource with a stage-derived name. Reads alchemy's `Stage` (not
+ * `MapleStack`) so it can be yielded from a Worker init too; returns `{}` under `__ALCHEMY_RUNTIME__`.
+ */
+export const stageProps = <Props extends object>(
+	base: string,
+	make: (name: string, deployment: MapleDeployment) => Props,
+): Effect.Effect<Partial<Props>, never, Stage> =>
+	Effect.gen(function* () {
+		if (globalThis.__ALCHEMY_RUNTIME__) return {}
+		const deployment = parseMapleDeployment(yield* Stage)
+		return make(resolveWorkerName(base, deployment.stage, deployment.region), deployment)
+	})
+
+/** {@link stageProps} for the common case: a resource whose only stage-derived prop is `name`. */
+export const stageNamed = (base: string) => stageProps(base, (name) => ({ name }))
+
+/** Workers runtime compatibility date for every Maple Worker. */
+export const WORKER_COMPATIBILITY_DATE = "2026-10-01"
+
+/**
+ * The props every Maple Worker shares: its physical name, compatibility date, placement and
+ * `bun dev` block. `app` is also the name base, so it must match the Worker's existing name.
+ */
+export const mapleWorkerProps = (app: string, { stage, region, workerDev }: MapleStackContext) => ({
+	name: resolveWorkerName(app, stage, region),
+	compatibility: { date: WORKER_COMPATIBILITY_DATE },
+	placement: resolveWorkerPlacement(region),
+	...(isDevApp(app) && { dev: workerDev(app) }),
+})

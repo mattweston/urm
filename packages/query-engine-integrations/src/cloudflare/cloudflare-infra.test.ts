@@ -1,0 +1,126 @@
+import { describe, expect, it } from "vitest"
+import { compileUnsafe } from "@maple-dev/effect-orm/clickhouse"
+import {
+	cloudflareWorkerCountersSQL,
+	cloudflareWorkerLatencySQL,
+	cloudflareZoneCacheTimeseriesSQL,
+	cloudflareZoneCountersSQL,
+	cloudflareZoneLatencySQL,
+	cloudflareZoneLatencyTimeseriesSQL,
+	cloudflareZoneStatusTimeseriesSQL,
+	cloudflareZoneTimeseriesSQL,
+} from "./cloudflare-infra"
+import { OrgId } from "@maple/domain"
+
+const baseParams = {
+	orgId: OrgId.make("org_1"),
+	startTime: "2026-07-02 00:00:00.000",
+	endTime: "2026-07-03 00:00:00.000",
+}
+
+const timeseriesParams = { ...baseParams, bucketSeconds: 300 }
+
+describe("cloudflareZoneCountersSQL", () => {
+	it("rolls up HTTP counters per zone with 5xx and served-by-cache breakdowns", () => {
+		const { sql } = compileUnsafe(cloudflareZoneCountersSQL(), baseParams)
+		expect(sql).toContain("FROM metrics_sum")
+		expect(sql).toContain("OrgId = 'org_1'")
+		expect(sql).toContain(
+			"MetricName IN ('cloudflare.http.requests', 'cloudflare.http.bytes', 'cloudflare.http.visits')",
+		)
+		expect(sql).toContain("http.status_class'] = '5xx'")
+		expect(sql).toContain("cache.status'] IN ('hit', 'stale', 'revalidated', 'updating')")
+		expect(sql).toContain("sumIf(metrics_sum.Value, metrics_sum.MetricName = 'cloudflare.http.bytes')")
+		expect(sql).toContain("sumIf(metrics_sum.Value, metrics_sum.MetricName = 'cloudflare.http.visits')")
+		// Worker analytics live in their own queries.
+		expect(sql).not.toContain("cloudflare.worker")
+		expect(sql).toContain("GROUP BY serviceName")
+	})
+})
+
+describe("cloudflareZoneLatencySQL", () => {
+	it("guards each percentile against empty-set NaN and reads all three quantiles", () => {
+		const { sql } = compileUnsafe(cloudflareZoneLatencySQL(), baseParams)
+		expect(sql).toContain("FROM metrics_gauge")
+		expect(sql).toContain(
+			"MetricName IN ('cloudflare.http.edge.ttfb', 'cloudflare.http.origin.duration')",
+		)
+		expect(sql).toContain("quantile'] = '0.5'")
+		expect(sql).toContain("quantile'] = '0.95'")
+		expect(sql).toContain("quantile'] = '0.99'")
+		expect(sql).toContain("ifNull(ifNotFinite(avgIf(")
+		expect(sql).not.toContain("cloudflare.worker")
+		expect(sql).toContain("GROUP BY serviceName")
+	})
+})
+
+describe("cloudflareZoneTimeseriesSQL", () => {
+	it("buckets zone counters by interval and orders for chart consumption", () => {
+		const { sql } = compileUnsafe(cloudflareZoneTimeseriesSQL(), timeseriesParams)
+		expect(sql).toContain("toStartOfInterval(metrics_sum.TimeUnix, INTERVAL 300 SECOND)")
+		expect(sql).toContain("http.status_class'] = '5xx'")
+		expect(sql).toContain("GROUP BY serviceName, bucket")
+		expect(sql).toContain("ORDER BY serviceName ASC, bucket ASC")
+	})
+})
+
+const detailParams = { ...timeseriesParams, serviceName: "cloudflare/example.com" }
+
+describe("cloudflareZoneStatusTimeseriesSQL", () => {
+	it("groups one zone's requests by bucket and status class", () => {
+		const { sql } = compileUnsafe(cloudflareZoneStatusTimeseriesSQL(), detailParams)
+		expect(sql).toContain("ServiceName = 'cloudflare/example.com'")
+		expect(sql).toContain("MetricName = 'cloudflare.http.requests'")
+		// oxlint-disable-next-line test-slop/no-sql-text-pin -- the attribute the chart groups by
+		expect(sql).toContain("http.status_class'] AS statusClass")
+		expect(sql).toContain("GROUP BY bucket, statusClass")
+	})
+})
+
+describe("cloudflareZoneCacheTimeseriesSQL", () => {
+	it("groups one zone's requests by bucket and raw cache status", () => {
+		const { sql } = compileUnsafe(cloudflareZoneCacheTimeseriesSQL(), detailParams)
+		expect(sql).toContain("ServiceName = 'cloudflare/example.com'")
+		// oxlint-disable-next-line test-slop/no-sql-text-pin -- the attribute the chart groups by
+		expect(sql).toContain("cache.status'] AS cacheStatus")
+		expect(sql).toContain("GROUP BY bucket, cacheStatus")
+	})
+})
+
+describe("cloudflareZoneLatencyTimeseriesSQL", () => {
+	it("buckets NaN-guarded percentiles for one zone", () => {
+		const { sql } = compileUnsafe(cloudflareZoneLatencyTimeseriesSQL(), detailParams)
+		expect(sql).toContain("FROM metrics_gauge")
+		expect(sql).toContain("ServiceName = 'cloudflare/example.com'")
+		expect(sql).toContain("quantile'] = '0.95'")
+		expect(sql).toContain("ifNull(ifNotFinite(avgIf(")
+		expect(sql).toContain("GROUP BY bucket")
+	})
+})
+
+describe("cloudflareWorkerCountersSQL", () => {
+	it("rolls up Worker invocations / errors / subrequests per script", () => {
+		const { sql } = compileUnsafe(cloudflareWorkerCountersSQL(), baseParams)
+		expect(sql).toContain("FROM metrics_sum")
+		expect(sql).toContain(
+			"MetricName IN ('cloudflare.worker.requests', 'cloudflare.worker.errors', 'cloudflare.worker.subrequests')",
+		)
+		expect(sql).toContain(
+			"sumIf(metrics_sum.Value, metrics_sum.MetricName = 'cloudflare.worker.subrequests')",
+		)
+		expect(sql).not.toContain("cloudflare.http")
+		expect(sql).toContain("GROUP BY serviceName")
+	})
+})
+
+describe("cloudflareWorkerLatencySQL", () => {
+	it("reads only the quantiles the poller emits for Workers (0.5 / 0.99)", () => {
+		const { sql } = compileUnsafe(cloudflareWorkerLatencySQL(), baseParams)
+		expect(sql).toContain("FROM metrics_gauge")
+		expect(sql).toContain("MetricName IN ('cloudflare.worker.duration', 'cloudflare.worker.cpu_time')")
+		expect(sql).toContain("quantile'] = '0.5'")
+		expect(sql).toContain("quantile'] = '0.99'")
+		expect(sql).not.toContain("'0.95'")
+		expect(sql).toContain("ifNull(ifNotFinite(avgIf(")
+	})
+})

@@ -1,0 +1,185 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/Nav.astro";
+import FeatureHero from "../components/FeatureHero.astro";
+import FAQ from "../components/FAQ.astro";
+import BottomCTA from "../components/BottomCTA.astro";
+import Footer from "../components/Footer.astro";
+import SeoHead from "../components/SeoHead.astro";
+import Breadcrumb from "../components/Breadcrumb.astro";
+
+const pageTitle = "What is observability? Traces, logs, and metrics explained | Maple";
+const pageDescription =
+    "A plain-English guide to observability: the three pillars (traces, logs, metrics), how it differs from monitoring, and how to choose a platform.";
+
+const lastUpdated = "June 2026";
+
+const pillarFaqs = [
+    {
+        question: "What is observability in software?",
+        answer:
+            "The ability to understand what is happening inside a software system from the telemetry it emits. A system is observable when you can answer new questions about it without shipping new instrumentation.",
+    },
+    {
+        question: "What are the three pillars of observability?",
+        answer:
+            "Traces, logs, and metrics. Together they let you go from a symptom to its cause.",
+    },
+    {
+        question: "What's the difference between observability and monitoring?",
+        answer:
+            "Monitoring tells you whether a system is broken. Observability helps you understand why.",
+    },
+    {
+        question: "How is observability related to OpenTelemetry?",
+        answer:
+            "OpenTelemetry is the vendor-neutral standard for producing traces, logs, and metrics. Instrument once and send the data to any compatible backend.",
+    },
+    {
+        question: "What should I look for in an observability platform?",
+        answer:
+            "Native OpenTelemetry support, all three signals in one place, fast queries at high cardinality, transparent pricing, and the option to self-host.",
+    },
+];
+---
+
+<Layout title={pageTitle} description={pageDescription}>
+    <SeoHead title={pageTitle} description={pageDescription} type="WebPage" />
+    <Nav />
+    <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "What is observability?" }]} />
+
+    <FeatureHero
+        label="Learn"
+        title="What is observability?"
+        subtitle="Understand a system's internal state from the outside by collecting and correlating the telemetry it emits."
+    />
+
+    <!-- Definition -->
+    <section class="py-16 md:py-24">
+        <div class="mx-auto max-w-6xl px-6">
+            <span class="text-[11px] text-primary uppercase tracking-wider">Definition</span>
+            <h2 class="mt-3 text-2xl md:text-3xl font-bold text-fg max-w-2xl">A plain-English definition</h2>
+            <div class="mt-6 max-w-3xl space-y-4">
+                <p class="text-base md:text-lg text-fg leading-relaxed">
+                    Observability is the ability to understand what's happening inside a software system from the
+                    outside, by collecting and correlating the telemetry it emits: traces, logs, and metrics.
+                </p>
+                <p class="text-sm md:text-base text-fg-muted leading-relaxed">
+                    The term comes from control theory, where a system is “observable” if you can infer its internal
+                    state from its outputs. Applied to software, it means a well-instrumented service produces enough
+                    signal that you can answer new questions about its behavior (including ones you didn't anticipate)
+                    without stopping to add new instrumentation first.
+                </p>
+                <p class="text-sm md:text-base text-fg-muted leading-relaxed">
+                    This matters most during incidents. In a distributed system, the failure you're debugging is often
+                    one nobody predicted. With good telemetry you can investigate it from data you already collect,
+                    without first shipping new logging.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- The three pillars -->
+    <section class="py-16 md:py-24">
+        <div class="mx-auto max-w-6xl px-6">
+            <span class="text-[11px] text-primary uppercase tracking-wider">The three pillars</span>
+            <h2 class="mt-3 text-2xl md:text-3xl font-bold text-fg mb-12 max-w-2xl">Traces, logs, and metrics</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-px bg-border border border-border">
+                <div class="bg-bg p-6 md:p-8">
+                    <h3 class="text-base font-semibold text-fg mb-2">Traces</h3>
+                    <p class="text-sm text-fg-muted leading-relaxed">
+                        A trace records the full path of a single request as it moves through your services, broken into
+                        timed spans. Traces show you where time went and which hop failed.
+                    </p>
+                </div>
+                <div class="bg-bg p-6 md:p-8">
+                    <h3 class="text-base font-semibold text-fg mb-2">Logs</h3>
+                    <p class="text-sm text-fg-muted leading-relaxed">
+                        Logs are timestamped, structured records of discrete events: the detail you read when you need
+                        to know exactly what happened at a specific moment.
+                    </p>
+                </div>
+                <div class="bg-bg p-6 md:p-8">
+                    <h3 class="text-base font-semibold text-fg mb-2">Metrics</h3>
+                    <p class="text-sm text-fg-muted leading-relaxed">
+                        Metrics are numeric measurements sampled over time (request rate, error rate, latency,
+                        saturation), suited to dashboards, trends, and alerting.
+                    </p>
+                </div>
+            </div>
+            <p class="mt-6 max-w-3xl text-sm md:text-base text-fg-muted leading-relaxed">
+                The pillars are most useful together. A metric tells you the error rate spiked. A trace shows the request
+                path responsible. The logs on that span tell you why. You need all three linked to get from a symptom to
+                a cause.
+            </p>
+        </div>
+    </section>
+
+    <!-- Observability vs monitoring -->
+    <section class="py-16 md:py-24">
+        <div class="mx-auto max-w-6xl px-6">
+            <span class="text-[11px] text-primary uppercase tracking-wider">Observability vs monitoring</span>
+            <h2 class="mt-3 text-2xl md:text-3xl font-bold text-fg max-w-2xl">How they differ</h2>
+            <div class="mt-6 max-w-3xl space-y-4">
+                <p class="text-base md:text-lg text-fg leading-relaxed">
+                    Monitoring tells you whether a system is broken; observability helps you understand why.
+                </p>
+                <p class="text-sm md:text-base text-fg-muted leading-relaxed">
+                    Monitoring watches known failure modes with predefined dashboards and alerts. It is how you find out
+                    a service is down or latency crossed a threshold. It answers questions you knew to ask in advance.
+                </p>
+                <p class="text-sm md:text-base text-fg-muted leading-relaxed">
+                    Observability covers the cases monitoring can't. If you keep detailed, high-cardinality telemetry
+                    that you can query after the fact, you can investigate problems you never anticipated. Monitoring is
+                    one of the things an observable system lets you do.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Observability and OpenTelemetry -->
+    <section class="py-16 md:py-24">
+        <div class="mx-auto max-w-6xl px-6">
+            <span class="text-[11px] text-primary uppercase tracking-wider">Standards</span>
+            <h2 class="mt-3 text-2xl md:text-3xl font-bold text-fg max-w-2xl">Observability and OpenTelemetry</h2>
+            <div class="mt-6 max-w-3xl space-y-4">
+                <p class="text-sm md:text-base text-fg-muted leading-relaxed">
+                    OpenTelemetry is the open, vendor-neutral standard for generating and exporting traces, logs, and
+                    metrics. Instrumenting with OpenTelemetry means your telemetry isn't tied to any one vendor. You can
+                    send it to any compatible backend and switch tools without re-instrumenting your code.
+                </p>
+                <p class="text-sm md:text-base text-fg-muted leading-relaxed">
+                    Most new observability tooling now builds on OpenTelemetry. Read
+                    <a href="/opentelemetry" class="text-primary hover:underline">our guide to OpenTelemetry</a> for how
+                    the standard works and how Maple follows it.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- How to choose -->
+    <section class="py-24 md:py-32">
+        <div class="mx-auto max-w-6xl px-6">
+            <span class="text-[11px] text-primary uppercase tracking-wider">Choosing a platform</span>
+            <h2 class="mt-3 text-2xl md:text-3xl font-bold text-fg max-w-2xl">How to choose an observability platform</h2>
+            <div class="mt-6 max-w-3xl space-y-4">
+                <p class="text-sm md:text-base text-fg-muted leading-relaxed">
+                    Look for native OpenTelemetry support so you avoid lock-in, unified traces, logs, and metrics in one
+                    place, query speed at high cardinality, transparent pricing that doesn't punish you for scaling, and
+                    the option to self-host.
+                </p>
+                <p class="text-sm md:text-base text-fg-muted leading-relaxed">
+                    For a side-by-side of the leading open-source options, see our roundup of the
+                    <a href="/best-open-source-observability-tools" class="text-primary hover:underline">
+                        best open-source observability tools
+                    </a>.
+                </p>
+            </div>
+            <p class="mt-8 text-[11px] text-fg-muted uppercase tracking-wider">Last updated: {lastUpdated}</p>
+        </div>
+    </section>
+
+    <FAQ items={pillarFaqs} />
+    <BottomCTA />
+    <Footer />
+</Layout>

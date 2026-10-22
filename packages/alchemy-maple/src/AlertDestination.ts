@@ -1,0 +1,212 @@
+import { Schema } from "effect"
+import * as Effect from "effect/Effect"
+import * as Config from "effect/Config"
+import * as Redacted from "effect/Redacted"
+import { deepEqual, isResolved } from "alchemy/Diff"
+import * as Provider from "alchemy/Provider"
+import { Resource } from "alchemy/Resource"
+import { isOutput } from "alchemy/Output"
+import { listAll, MapleApi } from "./MapleApi"
+import { MapleErrorTags } from "./errors"
+import type { Providers } from "./Providers"
+
+/** A write-only channel secret: plain string or `Redacted` (recommended). */
+type SecretInput = string | Redacted.Redacted<string>
+
+interface DestinationBaseProps {
+	/** Human-readable label for the destination. */
+	name: string
+	/** Whether the destination starts enabled. Defaults to `true`. */
+	enabled?: boolean
+}
+
+/**
+ * Alert destination props, discriminated on `type` — mirrors the v2
+ * `POST /v2/alerts/destinations` body. Channel secrets are write-only:
+ * the API never returns them, so drift on secret fields is detected from
+ * prop changes only.
+ */
+type DestinationVariant =
+	| (DestinationBaseProps & { type: "pagerduty"; integration_key: SecretInput })
+	| (DestinationBaseProps & { type: "webhook"; url: string; signing_secret?: SecretInput })
+	| (DestinationBaseProps & { type: "discord"; webhook_url: SecretInput })
+	| (DestinationBaseProps & { type: "telegram"; bot_token: SecretInput; chat_id: string })
+	| (DestinationBaseProps & { type: "email"; member_user_ids: string[] })
+
+// Explicitly exclude other variants' fields: Input wraps the discriminant too,
+// so TypeScript's usual excess-property check alone cannot keep them separate.
+type VariantKeys<T> = T extends unknown ? keyof T : never
+type ExclusiveVariant<T, All = T> = T extends unknown
+	? T & Partial<Record<Exclude<VariantKeys<All>, keyof T>, never>>
+	: never
+export type AlertDestinationProps = ExclusiveVariant<DestinationVariant>
+
+export type AlertDestination = Resource<
+	"Maple.AlertDestination",
+	AlertDestinationProps,
+	{
+		/** The `dest_…` public ID — reference it from `Maple.AlertRule` `destination_ids`. */
+		destinationId: string
+		name: string
+		type: string
+		enabled: boolean
+	},
+	never,
+	Providers
+>
+
+/**
+ * A notification channel (PagerDuty, webhook, Discord, Telegram, or
+ * workspace-member email) that `Maple.AlertRule`s deliver to. Chat-connector and
+ * Hazel destinations use integrations linked in Maple and are managed there.
+ *
+ * @example
+ * ```typescript
+ * const oncall = yield* Maple.AlertDestination("oncall", {
+ *   type: "pagerduty",
+ *   name: "On-call PagerDuty",
+ *   integration_key: Redacted.make(process.env.PAGERDUTY_ROUTING_KEY!),
+ * })
+ * ```
+ */
+export const AlertDestination = Resource<AlertDestination>("Maple.AlertDestination")
+
+const WireDestination = Schema.Struct({
+	id: Schema.String,
+	name: Schema.String,
+	type: Schema.String,
+	enabled: Schema.Boolean,
+	channel_label: Schema.NullOr(Schema.String),
+})
+const decodeWireDestination = Schema.decodeUnknownEffect(WireDestination)
+
+const unwrap = (value: SecretInput): string => (Redacted.isRedacted(value) ? Redacted.value(value) : value)
+
+/** The create/update body: all declared props, secrets unwrapped. */
+const desiredBody = (props: AlertDestinationProps): Record<string, unknown> => {
+	const body: Record<string, unknown> = { type: props.type, name: props.name } satisfies Record<
+		string,
+		unknown
+	>
+	body.enabled = props.enabled ?? true
+	switch (props.type) {
+		case "pagerduty":
+			body.integration_key = unwrap(props.integration_key)
+			break
+		case "webhook":
+			body.url = props.url
+			if (props.signing_secret !== undefined) body.signing_secret = unwrap(props.signing_secret)
+			break
+		case "discord":
+			body.webhook_url = unwrap(props.webhook_url)
+			break
+		case "telegram":
+			body.bot_token = unwrap(props.bot_token)
+			body.chat_id = props.chat_id
+			break
+		case "email":
+			body.member_user_ids = props.member_user_ids
+			break
+	}
+	return body
+}
+
+/**
+ * Observable drift only — secrets are write-only, so the server can never
+ * disagree with them; they change via prop changes (caught in `diff`).
+ */
+const drifted = (
+	props: AlertDestinationProps,
+	observed: Schema.Schema.Type<typeof WireDestination>,
+): boolean => props.name !== observed.name || (props.enabled ?? true) !== observed.enabled
+
+const toAttributes = (observed: Schema.Schema.Type<typeof WireDestination>) => ({
+	destinationId: observed.id,
+	name: observed.name,
+	type: observed.type,
+	enabled: observed.enabled,
+})
+
+export const AlertDestinationProvider = () =>
+	Provider.effect(
+		AlertDestination,
+		Effect.gen(function* () {
+			const api = yield* MapleApi
+			return {
+				stables: ["destinationId" as const],
+				diff: Effect.fn(function* ({ news, olds, output }) {
+					if (isOutput(news) || Effect.isEffect(news) || Config.isConfig(news))
+						return { action: "replace" } as const
+					// `type` is immutable server-side — changing it replaces the destination.
+					if (
+						(output?.type ?? olds?.type) !== undefined &&
+						(!isResolved(news.type) || news.type !== (output?.type ?? olds?.type))
+					) {
+						return { action: "replace" } as const
+					}
+					if (!isResolved(news)) return undefined
+					if (olds !== undefined && !deepEqual(olds, news, { stripNullish: true })) {
+						return { action: "update", stables: ["destinationId"] } as const
+					}
+					return undefined
+				}),
+				reconcile: Effect.fn(function* ({ news, olds, output }) {
+					let observed: Schema.Schema.Type<typeof WireDestination> | undefined
+					if (output?.destinationId) {
+						const fetched = yield* api
+							.get(`/v2/alerts/destinations/${output.destinationId}`)
+							.pipe(
+								Effect.catchTag(MapleErrorTags.alertDestinationNotFound, () =>
+									Effect.succeed(undefined),
+								),
+							)
+						if (fetched !== undefined) observed = yield* decodeWireDestination(fetched)
+					}
+
+					if (observed === undefined) {
+						const created = yield* api.post("/v2/alerts/destinations", desiredBody(news))
+						observed = yield* decodeWireDestination(created)
+					} else if (
+						drifted(news, observed) ||
+						olds === undefined ||
+						!deepEqual(olds, news, { stripNullish: true })
+					) {
+						// Write-only secrets must be pushed because they cannot be compared.
+						const updated = yield* api.patch(
+							`/v2/alerts/destinations/${observed.id}`,
+							desiredBody(news),
+						)
+						observed = yield* decodeWireDestination(updated)
+					}
+
+					return toAttributes(observed)
+				}),
+				delete: Effect.fn(function* ({ output }) {
+					yield* api
+						.delete(`/v2/alerts/destinations/${output.destinationId}`)
+						.pipe(Effect.catchTag(MapleErrorTags.alertDestinationNotFound, () => Effect.void))
+				}),
+				read: Effect.fn(function* ({ output }) {
+					if (!output?.destinationId) return undefined
+					const fetched = yield* api
+						.get(`/v2/alerts/destinations/${output.destinationId}`)
+						.pipe(
+							Effect.catchTag(MapleErrorTags.alertDestinationNotFound, () =>
+								Effect.succeed(undefined),
+							),
+						)
+					if (fetched === undefined) return undefined
+					return toAttributes(yield* decodeWireDestination(fetched))
+				}),
+				list: Effect.fn(function* () {
+					const items = yield* listAll(api, "/v2/alerts/destinations")
+					return yield* Effect.forEach(items, (item) =>
+						Effect.map(decodeWireDestination(item), toAttributes),
+					)
+				}),
+			}
+		}),
+	)
+
+/** @internal Exposed for the in-repo contract test against `@maple/domain`. */
+export const _alertDestinationCreateBody = desiredBody

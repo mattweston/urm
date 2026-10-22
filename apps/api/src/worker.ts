@@ -1,0 +1,96 @@
+/**
+ * The api Worker (alchemy single-module form): both the resource the root stack
+ * yields and the init the deployed isolate runs. Hosted classes (the Workflow)
+ * are exported from the generated entry because the init yields them.
+ */
+import { AiWorker, mapleDbEnv, MapleStack, mapleWorkerProps } from "@maple/infra/cloudflare"
+import { WORKER_PURE_OPTIONS } from "@maple/infra/worker-build"
+import { IsolateAge } from "@maple/infra/isolate-age"
+import { isolateContext } from "@maple/infra/worker-http"
+import { WorkerTelemetry } from "@maple/infra/worker-telemetry"
+import * as Cloudflare from "alchemy/Cloudflare"
+import { makeRandom } from "alchemy/Random"
+import * as AlchemyTelemetry from "alchemy/Telemetry"
+import { Effect, Layer } from "effect"
+import { makeVcsSyncIsolateCaches } from "@maple/backend/services/integrations/vcs/vcs-sync-isolate-caches"
+import { ApiObservabilityLive } from "./http/api-observability"
+import { apiConfiguredEnv } from "./resources/env"
+import { ApiBindingsLive, apiPorts, bindApiClients } from "./worker/bindings"
+import { registerQueueConsumers } from "./worker/consumers"
+import { registerCrons } from "./worker/crons"
+import { makeAppGraphs, makeFetch } from "./worker/http"
+import { vcsSyncBatchRoute } from "./worker/vcs-sync"
+import { SELF_BINDING, VCS_SYNC_HOP_SECRET } from "./worker/vcs-sync-dispatch"
+import ClickHouseSchemaApplyWorkflow from "./workflows/ClickHouseSchemaApplyWorkflow"
+
+/** `__ALCHEMY_RUNTIME__` folds to `true` in the bundle, so the stack-side branch is tree-shaken. */
+const props = Effect.gen(function* () {
+	if (globalThis.__ALCHEMY_RUNTIME__) return { main: import.meta.url }
+	const stack = yield* MapleStack
+	const { stage, region, domains, devEnv, db, awsPrincipal } = stack
+	// api keeps the hostname and OAuth, and forwards `/mcp` and chat to maple-ai.
+	const ai = yield* AiWorker
+	// Resolved up front so a misconfigured deploy fails before applying anything.
+	const configuredEnv = yield* apiConfiguredEnv(stage, region, domains)
+	return {
+		main: import.meta.url,
+		...mapleWorkerProps("api", stack),
+		workersDev: true,
+		// Eager module evaluation keeps the DB graph's init off the first Postgres
+		// dial of a cold isolate (docs/infra-history.md, "The cold-start regression").
+		build: { output: { strictExecutionOrder: false }, pure: WORKER_PURE_OPTIONS },
+		// Custom domain, not a zone route: routes create no DNS, so pr hosts would NXDOMAIN.
+		domain: domains.api,
+		// `devEnv` last, so `.env.local` cannot override the inter-app URLs.
+		env: {
+			...mapleDbEnv(db, "api"),
+			AI_WORKER: ai,
+			// VCS sync batches hop through it so they run where placement applies.
+			[SELF_BINDING]: Cloudflare.Workers.Self,
+			// Minted once and kept in state; bound to this Worker alone.
+			[VCS_SYNC_HOP_SECRET]: yield* makeRandom("VcsSyncHopSecret"),
+			...configuredEnv,
+			// After the config entries: a deploy's own identity wins over a stray MAPLE_AWS_* var.
+			...awsPrincipal,
+			...devEnv,
+		},
+	}
+})
+
+export default class MapleApi extends Cloudflare.Worker<MapleApi>()(
+	"api",
+	props,
+	Effect.gen(function* () {
+		// Yielding a hosted class binds, registers and exports it; do not move it to another Worker.
+		const schemaApply = yield* ClickHouseSchemaApplyWorkflow
+		const clients = yield* bindApiClients
+		const env = yield* Cloudflare.WorkerEnvironment
+		const ports = apiPorts(clients, schemaApply, env)
+		// Graphs build on the first event, not here: init also runs at plan time, where
+		// alchemy would auto-bind every `Config` read. Lazy build keeps `/health` answering.
+		const isolate = isolateContext(yield* Effect.context())
+		const { app, queryApp } = yield* makeAppGraphs(isolate, ports)
+		yield* registerCrons(ports)
+		// The init runs once per isolate, so these caches outlive each VCS batch's layer.
+		const vcsSyncCaches = yield* makeVcsSyncIsolateCaches
+		yield* registerQueueConsumers(ports, env, vcsSyncCaches)
+		return {
+			fetch: yield* makeFetch(app, ports, queryApp, vcsSyncBatchRoute(ports, env, vcsSyncCaches)),
+		}
+	}).pipe(
+		// The init is the entry point: cron and queue sources need the host Worker.
+		// oxlint-disable-next-line effecttsgo/strict-effect-provide
+		Effect.provide(
+			Layer.mergeAll(
+				ApiBindingsLive,
+				// The init runs once per isolate, so this is the isolate's request counter.
+				IsolateAge.layer,
+				Cloudflare.Workers.CronEventSourceLive,
+				Cloudflare.Queues.EventSourceLive,
+				WorkerTelemetry({ serviceName: "maple-api" }),
+				// Read by the bridge's `HttpMiddleware.tracer`; cannot live in the app graph.
+				AlchemyTelemetry.layer(ApiObservabilityLive),
+			),
+		),
+	),
+) {}

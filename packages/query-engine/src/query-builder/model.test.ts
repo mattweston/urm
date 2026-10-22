@@ -1,0 +1,805 @@
+import { describe, expect, it } from "vitest"
+import type { QueryBuilderQueryDraftPayload } from "@maple/domain/http"
+import type { QueryBuilderDataSource } from "@maple/query-model"
+import {
+	AGGREGATIONS_BY_SOURCE,
+	buildBreakdownQuerySpec,
+	buildTimeseriesQuerySpec,
+	formatFiltersAsWhereClause,
+	GROUP_BY_TOKENS,
+	resolveGroupBy,
+} from "./model"
+
+// Minimal traces draft factory — only the fields the builder reads matter; the
+// rest satisfy the payload shape.
+function tracesDraft(overrides: Partial<QueryBuilderQueryDraftPayload> = {}): QueryBuilderQueryDraftPayload {
+	return {
+		id: "q1",
+		name: "A",
+		enabled: true,
+		hidden: false,
+		dataSource: "traces",
+		aggregation: "count",
+		whereClause: "",
+		stepInterval: "",
+		orderByDirection: "desc",
+		addOns: { groupBy: false, having: false, orderBy: false, limit: false, legend: false },
+		groupBy: [],
+		having: "",
+		orderBy: "",
+		limit: "",
+		legend: "",
+		...overrides,
+	} as QueryBuilderQueryDraftPayload
+}
+
+function attrFilters(whereClause: string) {
+	const result = buildTimeseriesQuerySpec(tracesDraft({ whereClause }))
+	const filters = (result.query as { filters?: { attributeFilters?: unknown[] } } | null)?.filters
+	return { warnings: result.warnings, attributeFilters: filters?.attributeFilters ?? [], filters }
+}
+
+describe("buildTimeseriesQuerySpec where-clause → attribute filters", () => {
+	it("auto-prefixes a bare attribute key instead of silently dropping it", () => {
+		const { warnings, attributeFilters } = attrFilters('query.context = "tracesList"')
+		expect(warnings).toEqual([])
+		expect(attributeFilters).toEqual([{ key: "query.context", mode: "equals", value: "tracesList" }])
+	})
+
+	it("maps != to equals + negated (the negation-collapse bug fix)", () => {
+		const { warnings, attributeFilters } = attrFilters('error.type != "Timeout"')
+		expect(warnings).toEqual([])
+		expect(attributeFilters).toEqual([
+			{ key: "error.type", mode: "equals", negated: true, value: "Timeout" },
+		])
+	})
+
+	it("maps !contains to contains + negated", () => {
+		const { attributeFilters } = attrFilters('http.route !contains "/health"')
+		expect(attributeFilters).toEqual([
+			{ key: "http.route", mode: "contains", negated: true, value: "/health" },
+		])
+	})
+
+	it("maps exists / !exists with no value", () => {
+		expect(attrFilters("db.system exists").attributeFilters).toEqual([
+			{ key: "db.system", mode: "exists" },
+		])
+		expect(attrFilters("db.system !exists").attributeFilters).toEqual([
+			{ key: "db.system", mode: "exists", negated: true },
+		])
+	})
+
+	it("still routes explicit attr.* and resource.* prefixes", () => {
+		expect(attrFilters('attr.foo != "bar"').attributeFilters).toEqual([
+			{ key: "foo", mode: "equals", negated: true, value: "bar" },
+		])
+		const resource = buildTimeseriesQuerySpec(
+			tracesDraft({ whereClause: 'resource.host.name = "server-1"' }),
+		)
+		const resFilters = (resource.query as { filters?: { resourceAttributeFilters?: unknown[] } } | null)
+			?.filters
+		expect(resFilters?.resourceAttributeFilters).toEqual([
+			{ key: "host.name", mode: "equals", value: "server-1" },
+		])
+	})
+
+	it("keeps recognized structured keys bare (no attr prefix)", () => {
+		const { attributeFilters, filters } = attrFilters('service.name = "api"')
+		expect(attributeFilters).toEqual([])
+		expect((filters as { serviceName?: string }).serviceName).toBe("api")
+	})
+
+	it("warns (blocking) when the 5 attr-filter cap is exceeded", () => {
+		const clause = ["a = 1", "b = 2", "c = 3", "d = 4", "e = 5", "f = 6"].join(" AND ")
+		const { warnings, attributeFilters } = attrFilters(clause)
+		expect(attributeFilters).toHaveLength(5)
+		expect(warnings.some((w) => w.includes("Maximum of 5 attr.* filters"))).toBe(true)
+	})
+})
+
+describe("traces structured keys honor the operator", () => {
+	function tracesFilters(whereClause: string) {
+		const result = buildTimeseriesQuerySpec(tracesDraft({ whereClause }))
+		return {
+			warnings: result.warnings,
+			filters: (result.query as { filters?: Record<string, unknown> } | null)?.filters,
+		}
+	}
+
+	it("lowers != on columns to the excluded lists, not an exact match", () => {
+		const { warnings, filters } = tracesFilters(
+			'service.name != "a" AND service.name != "b" AND span.name != "GET /health" AND deployment.environment != "dev,staging" AND vcs.ref.head.revision != "abc"',
+		)
+		expect(warnings).toEqual([])
+		expect(filters).toEqual({
+			excludedServiceNames: ["a", "b"],
+			excludedSpanNames: ["GET /health"],
+			excludedEnvironments: ["dev", "staging"],
+			excludedCommitShas: ["abc"],
+		})
+	})
+
+	it("lowers contains on columns to a substring match mode", () => {
+		const { warnings, filters } = tracesFilters(
+			'service.name contains "check" AND span.name contains "GET" AND deployment.environment contains "prod"',
+		)
+		expect(warnings).toEqual([])
+		expect(filters).toEqual({
+			serviceName: "check",
+			spanName: "GET",
+			environments: ["prod"],
+			matchModes: { serviceName: "contains", spanName: "contains", deploymentEnv: "contains" },
+		})
+	})
+
+	it("drops a stale match mode when a later = replaces the value", () => {
+		const { filters } = tracesFilters('service.name contains "check" AND service.name = "api"')
+		expect(filters).toEqual({ serviceName: "api" })
+	})
+
+	it.each([
+		['service.name !contains "x"', "service.name", "!contains"],
+		["service.name > 3", "service.name", ">"],
+		["span.name exists", "span.name", "exists"],
+		['vcs.ref.head.revision contains "ab"', "vcs.ref.head.revision", "contains"],
+		["has_error != true", "has_error", "!="],
+		["root_only exists", "root_only", "exists"],
+		["min_duration_ms > 5", "min_duration_ms", ">"],
+	])("warns instead of compiling %s to an exact match", (clause, key, operator) => {
+		const { warnings, filters } = tracesFilters(clause)
+		expect(filters).toBeUndefined()
+		expect(warnings).toHaveLength(1)
+		expect(warnings[0]).toContain(key)
+		expect(warnings[0]).toContain(`ignoring ${operator}`)
+	})
+
+	it("lowers min/max_duration_ms to the duration bounds", () => {
+		const { warnings, filters } = tracesFilters("min_duration_ms = 250 AND max_duration_ms = 1000")
+		expect(warnings).toEqual([])
+		expect(filters).toEqual({ minDurationMs: 250, maxDurationMs: 1000 })
+		expect(tracesFilters("min_duration_ms = slow").warnings).toEqual([
+			"Invalid min_duration_ms value ignored: slow",
+		])
+	})
+
+	it("keeps attribute key case as typed on attr.*, resource.* and bare keys", () => {
+		const { filters } = tracesFilters('attr.userId = "u1" AND resource.K8s.Pod = "p" AND tenantId exists')
+		expect(filters).toEqual({
+			attributeFilters: [
+				{ key: "userId", mode: "equals", value: "u1" },
+				{ key: "tenantId", mode: "exists" },
+			],
+			resourceAttributeFilters: [{ key: "K8s.Pod", mode: "equals", value: "p" }],
+		})
+	})
+
+	it("round-trips the new fields through formatFiltersAsWhereClause", () => {
+		const whereClause =
+			'service.name contains "check" AND min_duration_ms = 250 AND span.name != "GET /health" AND attr.msg = \'say "hi"\''
+		const { filters } = tracesFilters(whereClause)
+		const formatted = formatFiltersAsWhereClause({ filters })
+		expect(formatted).toBe(
+			'service.name contains "check" AND min_duration_ms = 250 AND span.name != "GET /health" AND attr.msg = \'say "hi"\'',
+		)
+		expect(tracesFilters(formatted).filters).toEqual(filters)
+	})
+})
+
+describe("logs where clauses", () => {
+	function logsFilters(whereClause: string) {
+		const result = buildTimeseriesQuerySpec(tracesDraft({ dataSource: "logs", whereClause }))
+		return {
+			warnings: result.warnings,
+			filters: (result.query as { filters?: Record<string, unknown> } | null)?.filters,
+		}
+	}
+
+	it("lowers the keys the autocomplete offers, in both polarities", () => {
+		const { warnings, filters } = logsFilters(
+			'service.name != "noisy" AND severity = "ERROR" AND severity != "DEBUG" AND attr.userId exists AND resource.host.name contains "web"',
+		)
+		expect(warnings).toEqual([])
+		expect(filters).toEqual({
+			severity: "ERROR",
+			excludedServiceNames: ["noisy"],
+			excludedSeverities: ["DEBUG"],
+			attributeFilters: [{ key: "userId", mode: "exists" }],
+			resourceAttributeFilters: [{ key: "host.name", mode: "contains", value: "web" }],
+		})
+	})
+
+	it("warns on an operator a column cannot take", () => {
+		const { warnings, filters } = logsFilters('service.name contains "api" AND severity > "WARN"')
+		expect(filters).toBeUndefined()
+		expect(warnings).toEqual([
+			"Logs filter service.name supports only = and !=; ignoring contains",
+			"Logs filter severity supports only = and !=; ignoring >",
+		])
+	})
+
+	it("still warns on unknown keys", () => {
+		expect(logsFilters('http.route = "/"').warnings).toEqual([
+			"Unsupported logs filter ignored: http.route",
+		])
+	})
+})
+
+describe("buildTimeseriesQuerySpec series limit", () => {
+	function seriesLimitOf(overrides: Partial<QueryBuilderQueryDraftPayload>) {
+		const result = buildTimeseriesQuerySpec(tracesDraft(overrides))
+		return {
+			warnings: result.warnings,
+			seriesLimit: (result.query as { seriesLimit?: number } | null)?.seriesLimit,
+		}
+	}
+
+	it("forwards a positive integer seriesLimit onto the spec", () => {
+		const { seriesLimit, warnings } = seriesLimitOf({ seriesLimit: "5" })
+		expect(seriesLimit).toBe(5)
+		expect(warnings).toEqual([])
+	})
+
+	it("leaves seriesLimit undefined when blank", () => {
+		expect(seriesLimitOf({ seriesLimit: "" }).seriesLimit).toBeUndefined()
+		expect(seriesLimitOf({}).seriesLimit).toBeUndefined()
+	})
+
+	it("warns and disables the cap for a non-positive or non-integer value", () => {
+		const zero = seriesLimitOf({ seriesLimit: "0" })
+		expect(zero.seriesLimit).toBeUndefined()
+		expect(zero.warnings.some((w) => w.includes("series limit"))).toBe(true)
+
+		expect(seriesLimitOf({ seriesLimit: "-3" }).seriesLimit).toBeUndefined()
+		expect(seriesLimitOf({ seriesLimit: "abc" }).seriesLimit).toBeUndefined()
+	})
+})
+
+describe("group-by token aliases (MAP-49)", () => {
+	const breakdownDraft = (overrides: Partial<QueryBuilderQueryDraftPayload> = {}) =>
+		tracesDraft({
+			addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+			groupBy: ["service.name"],
+			...overrides,
+		})
+
+	it("accepts canonical and snake_case traces group-by tokens", () => {
+		for (const token of ["service.name", "service_name", "span_name", "status_code"]) {
+			const result = buildBreakdownQuerySpec(breakdownDraft({ groupBy: [token] }))
+			expect(result.query, `token ${token}`).not.toBeNull()
+			expect(result.warnings).toEqual([])
+		}
+	})
+
+	it("accepts snake_case logs group-by tokens", () => {
+		for (const token of ["severity", "severity_text", "service_name"]) {
+			const result = buildBreakdownQuerySpec(breakdownDraft({ dataSource: "logs", groupBy: [token] }))
+			expect(result.query, `token ${token}`).not.toBeNull()
+			expect(result.warnings).toEqual([])
+		}
+	})
+
+	it("still rejects unknown tokens", () => {
+		const result = buildBreakdownQuerySpec(breakdownDraft({ groupBy: ["not_a_column"] }))
+		expect(result.query).toBeNull()
+	})
+})
+
+describe("metrics resource.* support", () => {
+	function metricsDraft(
+		overrides: Partial<QueryBuilderQueryDraftPayload> = {},
+	): QueryBuilderQueryDraftPayload {
+		return tracesDraft({
+			dataSource: "metrics",
+			aggregation: "avg",
+			metricName: "system.cpu.utilization",
+			metricType: "gauge",
+			isMonotonic: false,
+			signalSource: "default",
+			...overrides,
+		} as Partial<QueryBuilderQueryDraftPayload>)
+	}
+
+	function metricsFiltersOf(overrides: Partial<QueryBuilderQueryDraftPayload>) {
+		const result = buildTimeseriesQuerySpec(metricsDraft(overrides))
+		return {
+			result,
+			warnings: result.warnings,
+			groupBy: (result.query as { groupBy?: string[] } | null)?.groupBy,
+			filters: (result.query as { filters?: Record<string, unknown> } | null)?.filters,
+		}
+	}
+
+	it("warns instead of turning != on service.name into an exact match", () => {
+		const { warnings, filters } = metricsFiltersOf({ whereClause: 'service.name != "api"' })
+		expect(filters?.serviceName).toBeUndefined()
+		expect(warnings).toEqual(["Metrics filter service.name supports only =; ignoring !="])
+	})
+
+	it("keeps attribute key case as typed", () => {
+		const { filters } = metricsFiltersOf({ whereClause: 'attr.Route = "/" AND resource.Host.Name = "h"' })
+		expect(filters?.attributeFilters).toEqual([{ key: "Route", mode: "equals", value: "/" }])
+		expect(filters?.resourceAttributeFilters).toEqual([{ key: "Host.Name", mode: "equals", value: "h" }])
+	})
+
+	it("resource.<key> where clauses become resourceAttributeFilters", () => {
+		const { warnings, filters } = metricsFiltersOf({
+			whereClause: 'resource.host.name = "web-01" AND resource.k8s.cluster.name != "staging"',
+		})
+		expect(warnings).toEqual([])
+		expect(filters?.resourceAttributeFilters).toEqual([
+			{ key: "host.name", mode: "equals", value: "web-01" },
+			{ key: "k8s.cluster.name", mode: "equals", negated: true, value: "staging" },
+		])
+	})
+
+	it("omits resourceAttributeFilters entirely when no resource.* clause is present", () => {
+		const { filters } = metricsFiltersOf({ whereClause: 'service.name = "api"' })
+		expect(filters).not.toHaveProperty("resourceAttributeFilters")
+		expect(filters?.serviceName).toBe("api")
+	})
+
+	it("lowers deployment environments into the metrics filter", () => {
+		const { warnings, filters } = metricsFiltersOf({
+			whereClause: 'deployment.environment = "production,staging"',
+		})
+		expect(warnings).toEqual([])
+		expect(filters?.environments).toEqual(["production", "staging"])
+	})
+
+	it("lowers a negated attr.* filter so per-state CPU can exclude idle", () => {
+		const { warnings, filters } = metricsFiltersOf({ whereClause: 'attr.state != "idle"' })
+		expect(warnings).toEqual([])
+		expect(filters?.attributeFilters).toEqual([
+			{ key: "state", mode: "equals", negated: true, value: "idle" },
+		])
+	})
+
+	it("keeps several attr.* filters and lowers OR groups onto one filter", () => {
+		const { warnings, filters } = metricsFiltersOf({
+			whereClause: 'attr.cpu exists AND (attr.state = "user" OR attr.state = "system")',
+		})
+		expect(warnings).toEqual([])
+		expect(filters?.attributeFilters).toEqual([
+			{ key: "cpu", mode: "exists" },
+			{
+				key: "state",
+				mode: "equals",
+				value: "user",
+				or: [{ key: "state", mode: "equals", value: "system" }],
+			},
+		])
+	})
+
+	it("drops a metrics OR group that mixes in a named dimension", () => {
+		const { warnings, filters } = metricsFiltersOf({
+			whereClause: '(attr.state = "user" OR service.name = "api")',
+		})
+		expect(filters).not.toHaveProperty("attributeFilters")
+		expect(warnings.some((w) => w.includes("Metrics OR group ignored"))).toBe(true)
+	})
+
+	it("warns when the 5 resource-filter cap is exceeded", () => {
+		const clause = ["a", "b", "c", "d", "e", "f"].map((k) => `resource.${k} = "1"`).join(" AND ")
+		const { warnings, filters } = metricsFiltersOf({ whereClause: clause })
+		expect(filters?.resourceAttributeFilters).toHaveLength(5)
+		expect(warnings.some((w) => w.includes("Maximum of 5 resource.* filters"))).toBe(true)
+	})
+
+	it("resource.<key> group-by resolves to resource_attribute + groupByResourceAttributeKey", () => {
+		const { warnings, groupBy, filters } = metricsFiltersOf({
+			addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+			groupBy: ["resource.k8s.pod.name"],
+		})
+		expect(warnings).toEqual([])
+		expect(groupBy).toEqual(["resource_attribute"])
+		expect(filters?.groupByResourceAttributeKey).toBe("k8s.pod.name")
+	})
+
+	it("keeps the first attr.* group-by and warns about later dimensions", () => {
+		const { warnings, groupBy, filters } = metricsFiltersOf({
+			addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+			groupBy: ["attr.http.method", "attr.http.route"],
+		})
+		expect(groupBy).toEqual(["attribute"])
+		expect(filters?.groupByAttributeKey).toBe("http.method")
+		expect(warnings).toEqual([
+			"Metrics queries support a single attr.* group by; ignoring attr.http.route",
+		])
+	})
+
+	it("keeps the first dimension and warns when attr.* and resource.* group-bys are combined", () => {
+		const { warnings, groupBy, filters } = metricsFiltersOf({
+			addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+			groupBy: ["attr.state", "resource.host.name"],
+		})
+		expect(warnings.some((w) => w.includes("single attribute group by"))).toBe(true)
+		expect(groupBy).toEqual(["attribute"])
+		expect(filters?.groupByAttributeKey).toBe("state")
+		expect(filters).not.toHaveProperty("groupByResourceAttributeKey")
+	})
+
+	it("resource.* group-by drives breakdown specs", () => {
+		const result = buildBreakdownQuerySpec(
+			metricsDraft({
+				addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+				groupBy: ["resource.host.name"],
+			}),
+		)
+		expect(result.error).toBeNull()
+		expect(result.warnings).toEqual([])
+		expect((result.query as { groupBy?: string } | null)?.groupBy).toBe("resource_attribute")
+	})
+})
+
+describe("has_error tri-state (MAP-49)", () => {
+	const errorsOnlyOf = (whereClause: string) => {
+		const result = buildTimeseriesQuerySpec(tracesDraft({ whereClause }))
+		return (result.query as { filters?: { errorsOnly?: boolean } } | null)?.filters?.errorsOnly
+	}
+
+	it("has_error = true → errorsOnly: true", () => {
+		expect(errorsOnlyOf("has_error = true")).toBe(true)
+	})
+
+	it("has_error = false survives as errorsOnly: false (not dropped)", () => {
+		expect(errorsOnlyOf("has_error = false")).toBe(false)
+	})
+
+	it("absent clause leaves errorsOnly unset", () => {
+		expect(errorsOnlyOf("")).toBeUndefined()
+	})
+})
+
+// `GROUP_BY_TOKENS` is a documentation catalog exported alongside the `Match`
+// chains rather than derived from them, so nothing but a test keeps the two in
+// step. The MCP schema doc renders from this catalog; a token listed here but
+// dropped by the resolver would teach an agent to write a group-by that
+// silently does nothing.
+describe("GROUP_BY_TOKENS catalog matches the resolvers", () => {
+	const draftFor = (
+		dataSource: QueryBuilderDataSource,
+		groupBy: ReadonlyArray<string>,
+	): QueryBuilderQueryDraftPayload => {
+		const base = {
+			...tracesDraft(),
+			dataSource,
+			addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+			groupBy: [...groupBy],
+		}
+		if (dataSource === "logs") return { ...base, aggregation: "count" } as QueryBuilderQueryDraftPayload
+		if (dataSource === "metrics") {
+			return {
+				...base,
+				aggregation: "avg",
+				metricName: "http.server.duration",
+				metricType: "gauge",
+			} as QueryBuilderQueryDraftPayload
+		}
+		return base as QueryBuilderQueryDraftPayload
+	}
+
+	for (const source of ["traces", "logs", "metrics", "product_events"] as const) {
+		for (const token of GROUP_BY_TOKENS[source].literals) {
+			it(`${source}: "${token}" resolves without a warning`, () => {
+				const result = buildTimeseriesQuerySpec(draftFor(source, [token]))
+				expect(result.error).toBeNull()
+				expect(result.warnings).toEqual([])
+			})
+		}
+
+		for (const prefix of GROUP_BY_TOKENS[source].prefixes) {
+			it(`${source}: "${prefix}myKey" resolves without a warning`, () => {
+				const result = buildTimeseriesQuerySpec(draftFor(source, [`${prefix}myKey`]))
+				expect(result.error).toBeNull()
+				expect(result.warnings).toEqual([])
+			})
+		}
+	}
+
+	it("logs does not support attr.* — the catalog lists no prefixes for it", () => {
+		const result = buildTimeseriesQuerySpec(draftFor("logs", ["attr.anything"]))
+		expect(result.warnings.join(" ")).toContain("logs source does not support attr.*")
+	})
+
+	// The catalogue is the documented vocabulary (MCP schema doc renders it) and
+	// the dashboard builder is one consumer of it; `resolveGroupBy` is the other
+	// (alert compilation). Before these were generated from one alias map the
+	// alert side silently omitted every snake_case alias, so a token an agent
+	// read out of the docs and saved in a widget hard-failed alert validation.
+	for (const source of ["traces", "logs", "metrics", "product_events"] as const) {
+		for (const token of GROUP_BY_TOKENS[source].literals) {
+			it(`${source}: "${token}" resolves through resolveGroupBy too`, () => {
+				const resolved = resolveGroupBy(source, [token])
+				expect(resolved.warnings).toEqual([])
+				expect(resolved.tokens.length).toBe(1)
+			})
+		}
+
+		for (const prefix of GROUP_BY_TOKENS[source].prefixes) {
+			it(`${source}: "${prefix}myKey" resolves through resolveGroupBy too`, () => {
+				const resolved = resolveGroupBy(source, [`${prefix}myKey`])
+				expect(resolved.warnings).toEqual([])
+				expect(resolved.tokens.length).toBe(1)
+			})
+		}
+	}
+
+	// Same token, same meaning on both sides — not merely "both accept it".
+	it("builder and resolveGroupBy agree on the canonical token for every alias", () => {
+		for (const source of ["traces", "logs", "metrics", "product_events"] as const) {
+			for (const token of GROUP_BY_TOKENS[source].literals) {
+				const built = buildTimeseriesQuerySpec(draftFor(source, [token]))
+				const spec = built.query as { groupBy?: ReadonlyArray<string> } | null
+				const builderTokens = spec?.groupBy ?? []
+				const resolverTokens = resolveGroupBy(source, [token]).tokens
+				expect({ source, token, tokens: [...builderTokens] }).toEqual({
+					source,
+					token,
+					tokens: [...resolverTokens],
+				})
+			}
+		}
+	})
+})
+
+// Aggregation enforcement now reads `AGGREGATIONS_BY_SOURCE`, the same array the
+// builder UI and the MCP schema doc render. These pin the two together.
+describe("aggregation enforcement follows AGGREGATIONS_BY_SOURCE", () => {
+	for (const source of ["traces", "logs", "metrics", "product_events"] as const) {
+		for (const option of AGGREGATIONS_BY_SOURCE[source]) {
+			it(`${source}: "${option.value}" is accepted`, () => {
+				const draft = {
+					...tracesDraft(),
+					dataSource: source,
+					aggregation: option.value,
+					...(source === "metrics"
+						? { metricName: "http.server.duration", metricType: "gauge" }
+						: undefined),
+				} as QueryBuilderQueryDraftPayload
+				expect(buildTimeseriesQuerySpec(draft).error).toBeNull()
+			})
+		}
+	}
+
+	it("bare p95 on traces is rejected, and the error names valueField", () => {
+		const result = buildTimeseriesQuerySpec(tracesDraft({ aggregation: "p95" }))
+		expect(result.error).toContain("valueField")
+	})
+
+	it("bare p95 on traces is accepted once valueField names a numeric attribute", () => {
+		const result = buildTimeseriesQuerySpec(
+			tracesDraft({ aggregation: "p95", valueField: "attr.result.rowCount" }),
+		)
+		expect(result.error).toBeNull()
+	})
+
+	it("p95 on metrics is rejected and the error lists the valid set", () => {
+		const result = buildTimeseriesQuerySpec({
+			...tracesDraft(),
+			dataSource: "metrics",
+			aggregation: "p95",
+			metricName: "http.server.duration",
+			metricType: "gauge",
+		} as QueryBuilderQueryDraftPayload)
+		expect(result.error).toContain("Unsupported metrics aggregation")
+		expect(result.error).toContain("rate")
+	})
+})
+
+describe("product_events drafts", () => {
+	const draft = (overrides: Partial<QueryBuilderQueryDraftPayload> = {}) =>
+		({ ...tracesDraft(), dataSource: "product_events", ...overrides }) as QueryBuilderQueryDraftPayload
+
+	const filtersOf = (whereClause: string) => {
+		const result = buildTimeseriesQuerySpec(draft({ whereClause }))
+		return {
+			warnings: result.warnings,
+			filters: (result.query as { filters?: Record<string, unknown> } | null)?.filters,
+		}
+	}
+
+	it("lowers row columns to list filters and != to the excluded list", () => {
+		const { filters, warnings } = filtersOf(
+			'event.name = "signup_completed, plan_started" AND host != "localhost" AND service.name = "maple-api"',
+		)
+		expect(warnings).toEqual([])
+		expect(filters).toEqual({
+			eventNames: ["signup_completed", "plan_started"],
+			excludedHosts: ["localhost"],
+			serviceNames: ["maple-api"],
+		})
+	})
+
+	it("lowers session dimensions to the semi-join fields", () => {
+		const { filters } = filtersOf('country = "DE" AND utm.source = "twitter" AND visitor.type = "new"')
+		expect(filters).toEqual({ country: "DE", utmSource: "twitter", visitorType: "new" })
+	})
+
+	it("treats bare and attr.-prefixed keys as track() props", () => {
+		const { filters } = filtersOf('plan = "startup" AND attr.seats > 5')
+		expect(filters?.attributeFilters).toEqual([
+			{ key: "plan", mode: "equals", value: "startup" },
+			{ key: "seats", mode: "gt", value: "5" },
+		])
+	})
+
+	it("warns on an operator a row column cannot take", () => {
+		const { filters, warnings } = filtersOf('event.name contains "signup"')
+		expect(filters).toBeUndefined()
+		expect(warnings.join(" ")).toContain("supports only = and !=")
+	})
+
+	it("carries a single attr.* group-by key on the filters", () => {
+		const result = buildTimeseriesQuerySpec(
+			draft({
+				addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+				groupBy: ["event.name", "attr.plan"],
+			}),
+		)
+		expect(result.error).toBeNull()
+		expect(result.query).toMatchObject({
+			source: "product_events",
+			metric: "count",
+			groupBy: ["event_name", "attribute"],
+			filters: { groupByAttributeKey: "plan" },
+		})
+	})
+
+	it("rejects an aggregation from another source", () => {
+		const result = buildTimeseriesQuerySpec(draft({ aggregation: "p95_duration" }))
+		expect(result.error).toContain("Unsupported product events aggregation")
+		expect(result.error).toContain("persons")
+	})
+
+	it("builds a breakdown from the first real group-by", () => {
+		const result = buildBreakdownQuerySpec(
+			draft({
+				aggregation: "sessions",
+				addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+				groupBy: ["page.path"],
+			}),
+		)
+		expect(result.query).toMatchObject({
+			kind: "breakdown",
+			source: "product_events",
+			metric: "sessions",
+			groupBy: "page_path",
+		})
+	})
+})
+
+describe("product_events clause edge cases", () => {
+	const draft = (overrides: Partial<QueryBuilderQueryDraftPayload> = {}) =>
+		({ ...tracesDraft(), dataSource: "product_events", ...overrides }) as QueryBuilderQueryDraftPayload
+
+	it("keeps the case of prop keys in filters and group-bys", () => {
+		const result = buildTimeseriesQuerySpec(
+			draft({
+				whereClause: 'attr.planTier = "pro" AND Channel = "cli"',
+				addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+				groupBy: ["attr.planTier"],
+			}),
+		)
+		expect(result.query).toMatchObject({
+			filters: {
+				groupByAttributeKey: "planTier",
+				attributeFilters: [
+					{ key: "planTier", mode: "equals", value: "pro" },
+					{ key: "Channel", mode: "equals", value: "cli" },
+				],
+			},
+		})
+	})
+
+	it("slices the prop key at the prefix even when lowercasing changes its length", () => {
+		const result = buildTimeseriesQuerySpec(
+			draft({
+				addOns: { groupBy: true, having: false, orderBy: false, limit: false, legend: false },
+				groupBy: ["attr.İstanbul"],
+			}),
+		)
+		expect(result.query).toMatchObject({ filters: { groupByAttributeKey: "İstanbul" } })
+	})
+
+	it("rejects != on visitor.type instead of selecting the negated value", () => {
+		const result = buildTimeseriesQuerySpec(draft({ whereClause: 'visitor.type != "new"' }))
+		expect(result.query).toMatchObject({ filters: undefined })
+		expect(result.warnings.join(" ")).toContain("supports only =")
+	})
+})
+
+describe("buildTimeseriesQuerySpec where-clause OR groups", () => {
+	it("lowers a span-attribute group onto one filter with or alternatives", () => {
+		const { warnings, attributeFilters } = attrFilters(
+			'(messaging.destination.name = "kafka" OR messaging.destination.name !exists) AND db.system = "x"',
+		)
+		expect(warnings).toEqual([])
+		expect(attributeFilters).toEqual([
+			{ key: "db.system", mode: "equals", value: "x" },
+			{
+				key: "messaging.destination.name",
+				mode: "equals",
+				value: "kafka",
+				or: [{ key: "messaging.destination.name", mode: "exists", negated: true }],
+			},
+		])
+	})
+
+	it("keeps a resource-attribute group on the resource map", () => {
+		const { warnings, filters } = attrFilters(
+			'(resource.k8s.namespace.name = "a" OR resource.k8s.namespace.name = "b")',
+		)
+		expect(warnings).toEqual([])
+		expect(filters).toMatchObject({
+			resourceAttributeFilters: [
+				{ key: "k8s.namespace.name", value: "a", or: [{ key: "k8s.namespace.name", value: "b" }] },
+			],
+		})
+	})
+
+	it("drops a group that ORs a named dimension or mixes maps, with a warning", () => {
+		for (const whereClause of [
+			'(service.name = "api" OR http.route = "/x")',
+			'(attr.a = "1" OR resource.b = "2")',
+		]) {
+			const { warnings, attributeFilters } = attrFilters(whereClause)
+			expect(attributeFilters).toEqual([])
+			expect(warnings).toHaveLength(1)
+			expect(warnings[0]).toContain("OR group ignored")
+		}
+	})
+
+	it("applies groups to logs and metrics and reports them as unsupported elsewhere", () => {
+		const logs = buildTimeseriesQuerySpec(
+			tracesDraft({ dataSource: "logs", whereClause: '(attr.a = "1" OR attr.b = "2")' }),
+		)
+		expect(logs.warnings).toEqual([])
+		expect(logs.query).toMatchObject({
+			filters: { attributeFilters: [{ key: "a", value: "1", or: [{ key: "b", value: "2" }] }] },
+		})
+
+		const metrics = buildTimeseriesQuerySpec(
+			tracesDraft({
+				dataSource: "metrics",
+				metricName: "http.server.request.duration",
+				aggregation: "avg",
+				whereClause: '(attr.a = "1" OR attr.b = "2")',
+			}),
+		)
+		expect(metrics.warnings).toEqual([])
+		expect(metrics.query).toMatchObject({
+			filters: { attributeFilters: [{ key: "a", value: "1", or: [{ key: "b", value: "2" }] }] },
+		})
+
+		const productEvents = buildTimeseriesQuerySpec(
+			tracesDraft({
+				dataSource: "product_events",
+				aggregation: "count",
+				whereClause: '(event.kind = "a" OR event.kind = "b")',
+			}),
+		)
+		expect(productEvents.warnings).toContain(
+			'Unsupported clause syntax ignored: (event.kind = "a" OR event.kind = "b")',
+		)
+	})
+
+	it("round-trips a group through formatFiltersAsWhereClause", () => {
+		const formatted = formatFiltersAsWhereClause({
+			filters: {
+				attributeFilters: [
+					{
+						key: "a",
+						mode: "equals",
+						value: "1",
+						or: [{ key: "b", mode: "exists", negated: true }],
+					},
+				],
+			},
+		})
+		expect(formatted).toBe('(attr.a = "1" OR attr.b !exists)')
+		expect(attrFilters(formatted).attributeFilters).toEqual([
+			{ key: "a", mode: "equals", value: "1", or: [{ key: "b", mode: "exists", negated: true }] },
+		])
+	})
+})

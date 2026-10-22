@@ -1,0 +1,1291 @@
+import { Array as Arr, Order, Schema } from "effect"
+import { QueryEngineAlertReducer, QueryEngineNoDataBehavior } from "../query-engine"
+import {
+	AlertDeliveryEventId,
+	AlertDestinationId,
+	AlertIncidentId,
+	AlertRuleId,
+	ChatConnectorId,
+	ChatWorkspaceId,
+	ErrorIssueId,
+	HazelChannelId,
+	HazelOrganizationId,
+	IsoDateTimeString,
+	PostgresTransactionId,
+	RoleName,
+	UserId,
+} from "../primitives"
+import { QueryBuilderQueryDraftSchema } from "./query-engine"
+import { HttpTaggedError } from "./error-policy"
+
+export const AlertDestinationType = Schema.Literals([
+	"pagerduty",
+	"webhook",
+	"hazel-oauth",
+	"discord",
+	"telegram",
+	"email",
+	"chat",
+]).annotate({
+	identifier: "@maple/AlertDestinationType",
+	title: "Alert Destination Type",
+})
+export type AlertDestinationType = Schema.Schema.Type<typeof AlertDestinationType>
+
+export const AlertSeverity = Schema.Literals(["warning", "critical"]).annotate({
+	identifier: "@maple/AlertSeverity",
+	title: "Alert Severity",
+})
+export type AlertSeverity = Schema.Schema.Type<typeof AlertSeverity>
+
+export const AlertSignalType = Schema.Literals([
+	"error_rate",
+	"p95_latency",
+	"p99_latency",
+	"apdex",
+	"throughput",
+	"builder_query",
+	"raw_query",
+]).annotate({
+	identifier: "@maple/AlertSignalType",
+	title: "Alert Signal Type",
+})
+export type AlertSignalType = Schema.Schema.Type<typeof AlertSignalType>
+
+export const AlertGroupByDimension = Schema.String.check(Schema.isMinLength(1), Schema.isTrimmed()).annotate({
+	identifier: "@maple/AlertGroupByDimension",
+	title: "Alert Group By Dimension",
+})
+export type AlertGroupByDimension = Schema.Schema.Type<typeof AlertGroupByDimension>
+
+export const AlertGroupBy = Schema.Array(AlertGroupByDimension)
+	.pipe(Schema.check(Schema.isMinLength(1)))
+	.annotate({
+		identifier: "@maple/AlertGroupBy",
+		title: "Alert Group By",
+	})
+export type AlertGroupBy = Schema.Schema.Type<typeof AlertGroupBy>
+
+export const AlertComparator = Schema.Literals([
+	"gt",
+	"gte",
+	"lt",
+	"lte",
+	"eq",
+	"neq",
+	"between",
+	"not_between",
+]).annotate({
+	identifier: "@maple/AlertComparator",
+	title: "Alert Comparator",
+})
+export type AlertComparator = Schema.Schema.Type<typeof AlertComparator>
+
+/**
+ * Comparators that require a second threshold (`thresholdUpper`).
+ * For these, the rule fires when the value falls inside / outside
+ * `[threshold, thresholdUpper]`.
+ */
+export const isRangeComparator = (c: AlertComparator): c is "between" | "not_between" =>
+	c === "between" || c === "not_between"
+
+/**
+ * The group key an *ungrouped* rule stores its state, incidents and check rows
+ * under. It is part of the public surface — the v2 wire, the ClickHouse
+ * `alert_checks.GroupKey` column and the Electric-synced web collection all
+ * carry it — so it can never be renamed.
+ *
+ * The query engine has its own generic vocabulary for the same idea (`"all"`),
+ * which is deliberately not this constant: `AlertsService.evaluateRule` is the
+ * single boundary that translates, so `"all"` never escapes into storage and no
+ * other call site re-derives the key.
+ */
+export const UNGROUPED_GROUP_KEY = "__total__"
+
+export const AlertIncidentStatus = Schema.Literals(["open", "resolved"]).annotate({
+	identifier: "@maple/AlertIncidentStatus",
+	title: "Alert Incident Status",
+})
+export type AlertIncidentStatus = Schema.Schema.Type<typeof AlertIncidentStatus>
+
+/**
+ * Why an open incident is waiting on telemetry instead of resolving. The
+ * breach stopped appearing in evaluations, but the liveness probe could not
+ * prove the service's data was still flowing, so the all-clear is deferred.
+ * `status` stays `"open"` while held — a hold is a sub-state of open, not a
+ * third status, so every consumer of `open`/`resolved` keeps working.
+ */
+export const AlertIncidentHoldReason = Schema.Literals([
+	"no_data",
+	"volume_collapsed",
+	"sampling_changed",
+	"probe_failed",
+]).annotate({
+	identifier: "@maple/AlertIncidentHoldReason",
+	title: "Alert Incident Hold Reason",
+})
+export type AlertIncidentHoldReason = Schema.Schema.Type<typeof AlertIncidentHoldReason>
+
+export const AlertEventType = Schema.Literals(["trigger", "resolve", "renotify", "test"]).annotate({
+	identifier: "@maple/AlertEventType",
+	title: "Alert Event Type",
+})
+export type AlertEventType = Schema.Schema.Type<typeof AlertEventType>
+
+export const AlertDeliveryStatus = Schema.Literals(["queued", "processing", "success", "failed"]).annotate({
+	identifier: "@maple/AlertDeliveryStatus",
+	title: "Alert Delivery Status",
+})
+export type AlertDeliveryStatus = Schema.Schema.Type<typeof AlertDeliveryStatus>
+
+export const AlertEvaluationStatus = Schema.Literals(["breached", "healthy", "skipped"]).annotate({
+	identifier: "@maple/AlertEvaluationStatus",
+	title: "Alert Evaluation Status",
+})
+export type AlertEvaluationStatus = Schema.Schema.Type<typeof AlertEvaluationStatus>
+
+/**
+ * Status of a recorded check row in the audit trail. Superset of
+ * {@link AlertEvaluationStatus}: `"error"` marks a scheduler tick whose query
+ * failed outright — no observation was produced, only an error message.
+ * Kept separate so the evaluation state machine stays a closed 3-state union.
+ */
+export const AlertCheckStatus = Schema.Literals(["breached", "healthy", "skipped", "error"]).annotate({
+	identifier: "@maple/AlertCheckStatus",
+	title: "Alert Check Status",
+})
+export type AlertCheckStatus = Schema.Schema.Type<typeof AlertCheckStatus>
+
+/**
+ * Why a check was skipped: the window had no data, fewer samples than the
+ * rule's minimum, or data without a usable scalar.
+ */
+export const AlertSkipReason = Schema.Literals(["no_data", "below_min_samples", "no_value"]).annotate({
+	identifier: "@maple/AlertSkipReason",
+	title: "Alert Skip Reason",
+})
+export type AlertSkipReason = Schema.Schema.Type<typeof AlertSkipReason>
+
+const ChannelLabel = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isTrimmed()))
+
+const NonEmptyString = Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isTrimmed()))
+
+const OptionalNonEmptyString = Schema.optionalKey(
+	Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isTrimmed())),
+)
+
+const PositiveInt = Schema.Number.pipe(Schema.check(Schema.isInt(), Schema.isGreaterThan(0)))
+
+const NonNegativeInt = Schema.Number.pipe(Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))
+
+const PositiveFloat = Schema.Number.pipe(Schema.check(Schema.isFinite(), Schema.isGreaterThan(0)))
+
+export const MAX_ALERT_WINDOW_MINUTES = 24 * 60
+export const AlertWindowMinutes = PositiveInt.pipe(
+	Schema.check(Schema.isLessThanOrEqualTo(MAX_ALERT_WINDOW_MINUTES)),
+)
+
+/** Check intervals a rule can pick. A longer interval gets a longer query time limit. */
+export const ALERT_EVALUATION_INTERVALS = [1, 5, 10, 15, 30, 60] as const
+export const AlertEvaluationIntervalMinutes = Schema.Literals(ALERT_EVALUATION_INTERVALS)
+export type AlertEvaluationIntervalMinutes = typeof AlertEvaluationIntervalMinutes.Type
+
+/**
+ * Why a rule's last check failed: its query ran past its time or memory limit, the
+ * query itself is invalid, or something else went wrong.
+ */
+export const AlertEvaluationErrorKind = Schema.Literals([
+	"query_too_slow",
+	"query_too_much_memory",
+	"invalid_query",
+	"other",
+])
+export type AlertEvaluationErrorKind = typeof AlertEvaluationErrorKind.Type
+
+/** Longest "N of the last M checks" window a rule can count over. */
+export const MAX_ALERT_BREACH_WINDOW = 30
+export const AlertBreachWindow = PositiveInt.pipe(
+	Schema.check(Schema.isLessThanOrEqualTo(MAX_ALERT_BREACH_WINDOW)),
+)
+
+/**
+ * One severity tier: the value that opens or escalates to it, an optional recovery value to cross
+ * back before it clears, and its destinations. A critical incident also notifies lower tiers'.
+ */
+export const AlertThreshold = Schema.Struct({
+	severity: AlertSeverity,
+	value: Schema.Number,
+	/** Upper bound for `between` / `not_between`. */
+	upper: Schema.NullOr(Schema.Number),
+	/** Null recovers as soon as the trigger stops holding. */
+	recoveryValue: Schema.NullOr(Schema.Number),
+	destinationIds: Schema.Array(AlertDestinationId),
+}).annotate({ identifier: "@maple/AlertThreshold", title: "Alert Threshold" })
+export type AlertThreshold = Schema.Schema.Type<typeof AlertThreshold>
+
+export const AlertThresholds = Schema.NonEmptyArray(AlertThreshold)
+	.check(Schema.isMaxLength(2))
+	.annotate({ identifier: "@maple/AlertThresholds", title: "Alert Thresholds" })
+export type AlertThresholds = Schema.Schema.Type<typeof AlertThresholds>
+
+export const ALERT_SEVERITY_RANK = { warning: 1, critical: 2 } as const satisfies Record<
+	AlertSeverity,
+	number
+>
+
+/** Lowest severity first. */
+export const alertSeverityOrder: Order.Order<{ readonly severity: AlertSeverity }> = Order.mapInput(
+	Order.Number,
+	(tier) => ALERT_SEVERITY_RANK[tier.severity],
+)
+
+/** Tiers lowest severity first, each tier's destinations deduped. */
+export const sortAlertThresholds = (thresholds: AlertThresholds): AlertThresholds =>
+	Arr.map(Arr.sort(thresholds, alertSeverityOrder), (tier) => ({
+		...tier,
+		destinationIds: Arr.dedupe(tier.destinationIds),
+	}))
+
+/** The single tier a rule written before tiers stands for. */
+export const legacyAlertThreshold = (fields: {
+	readonly severity: AlertSeverity
+	readonly threshold: number
+	readonly thresholdUpper: number | null
+	readonly destinationIds: ReadonlyArray<AlertDestinationId>
+}): AlertThreshold => ({
+	severity: fields.severity,
+	value: fields.threshold,
+	upper: fields.thresholdUpper,
+	recoveryValue: null,
+	destinationIds: fields.destinationIds,
+})
+
+/**
+ * The single-threshold fields pre-tier readers still use: the highest tier's
+ * severity, the lowest tier's value, and every tier's destinations. A one-tier
+ * rule maps onto exactly the fields it was written with.
+ */
+export const alertThresholdLegacyFields = (thresholds: AlertThresholds) => {
+	const sorted = sortAlertThresholds(thresholds)
+	const primary = Arr.headNonEmpty(sorted)
+	return {
+		severity: Arr.lastNonEmpty(sorted).severity,
+		threshold: primary.value,
+		thresholdUpper: primary.upper,
+		destinationIds: Arr.dedupe(sorted.flatMap((tier) => tier.destinationIds)),
+	}
+}
+
+export class PagerDutyAlertDestinationConfig extends Schema.Class<PagerDutyAlertDestinationConfig>(
+	"PagerDutyAlertDestinationConfig",
+)({
+	type: Schema.Literal("pagerduty"),
+	name: ChannelLabel,
+	integrationKey: NonEmptyString,
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class WebhookAlertDestinationConfig extends Schema.Class<WebhookAlertDestinationConfig>(
+	"WebhookAlertDestinationConfig",
+)({
+	type: Schema.Literal("webhook"),
+	name: ChannelLabel,
+	url: NonEmptyString,
+	signingSecret: Schema.optionalKey(Schema.String),
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class HazelOAuthAlertDestinationConfig extends Schema.Class<HazelOAuthAlertDestinationConfig>(
+	"HazelOAuthAlertDestinationConfig",
+)({
+	type: Schema.Literal("hazel-oauth"),
+	name: ChannelLabel,
+	hazelOrganizationId: HazelOrganizationId,
+	hazelOrganizationName: NonEmptyString,
+	hazelOrganizationLogoUrl: Schema.optionalKey(Schema.NullOr(NonEmptyString)),
+	hazelChannelId: HazelChannelId,
+	hazelChannelName: NonEmptyString,
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class DiscordAlertDestinationConfig extends Schema.Class<DiscordAlertDestinationConfig>(
+	"DiscordAlertDestinationConfig",
+)({
+	type: Schema.Literal("discord"),
+	name: ChannelLabel,
+	webhookUrl: NonEmptyString,
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class TelegramAlertDestinationConfig extends Schema.Class<TelegramAlertDestinationConfig>(
+	"TelegramAlertDestinationConfig",
+)({
+	type: Schema.Literal("telegram"),
+	name: ChannelLabel,
+	/** Bot token from @BotFather (`<botId>:<secret>`). Write-only — never returned. */
+	botToken: NonEmptyString,
+	/** Target chat: a numeric id (`-1001234567890`) or an `@channelusername`. */
+	chatId: NonEmptyString,
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+/**
+ * A channel in a chat workspace linked through a chat connector. Which connector posts it is read
+ * from the workspace row, never taken from the request — the workspace must belong to the org, and
+ * the channel must be one the workspace's connector lists; its name is read from that listing.
+ */
+export class ChatAlertDestinationConfig extends Schema.Class<ChatAlertDestinationConfig>(
+	"ChatAlertDestinationConfig",
+)({
+	type: Schema.Literal("chat"),
+	name: ChannelLabel,
+	workspaceId: ChatWorkspaceId,
+	channelId: NonEmptyString,
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export const MAX_EMAIL_RECIPIENTS = 10
+
+/**
+ * Recipients are workspace members, referenced by user id. The server resolves
+ * each id to the member's email via the auth provider (Clerk) at save time, so
+ * clients can never route alerts to arbitrary addresses.
+ */
+const MemberUserIdList = Schema.Array(UserId).check(
+	Schema.isMinLength(1),
+	Schema.isMaxLength(MAX_EMAIL_RECIPIENTS),
+)
+
+export class EmailAlertDestinationConfig extends Schema.Class<EmailAlertDestinationConfig>(
+	"EmailAlertDestinationConfig",
+)({
+	type: Schema.Literal("email"),
+	name: ChannelLabel,
+	memberUserIds: MemberUserIdList,
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export const AlertDestinationCreateRequest = Schema.Union([
+	PagerDutyAlertDestinationConfig,
+	WebhookAlertDestinationConfig,
+	HazelOAuthAlertDestinationConfig,
+	DiscordAlertDestinationConfig,
+	TelegramAlertDestinationConfig,
+	EmailAlertDestinationConfig,
+	ChatAlertDestinationConfig,
+])
+export type AlertDestinationCreateRequest = Schema.Schema.Type<typeof AlertDestinationCreateRequest>
+
+export class UpdatePagerDutyAlertDestinationConfig extends Schema.Class<UpdatePagerDutyAlertDestinationConfig>(
+	"UpdatePagerDutyAlertDestinationConfig",
+)({
+	name: OptionalNonEmptyString,
+	integrationKey: Schema.optionalKey(Schema.String),
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class UpdateWebhookAlertDestinationConfig extends Schema.Class<UpdateWebhookAlertDestinationConfig>(
+	"UpdateWebhookAlertDestinationConfig",
+)({
+	name: OptionalNonEmptyString,
+	url: Schema.optionalKey(Schema.String),
+	signingSecret: Schema.optionalKey(Schema.String),
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class UpdateHazelOAuthAlertDestinationConfig extends Schema.Class<UpdateHazelOAuthAlertDestinationConfig>(
+	"UpdateHazelOAuthAlertDestinationConfig",
+)({
+	name: OptionalNonEmptyString,
+	hazelOrganizationId: Schema.optionalKey(HazelOrganizationId),
+	hazelOrganizationName: Schema.optionalKey(Schema.String),
+	hazelOrganizationLogoUrl: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	hazelChannelId: Schema.optionalKey(HazelChannelId),
+	hazelChannelName: Schema.optionalKey(Schema.String),
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class UpdateDiscordAlertDestinationConfig extends Schema.Class<UpdateDiscordAlertDestinationConfig>(
+	"UpdateDiscordAlertDestinationConfig",
+)({
+	name: OptionalNonEmptyString,
+	webhookUrl: Schema.optionalKey(Schema.String),
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class UpdateTelegramAlertDestinationConfig extends Schema.Class<UpdateTelegramAlertDestinationConfig>(
+	"UpdateTelegramAlertDestinationConfig",
+)({
+	name: OptionalNonEmptyString,
+	botToken: Schema.optionalKey(Schema.String),
+	chatId: Schema.optionalKey(Schema.String),
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class UpdateEmailAlertDestinationConfig extends Schema.Class<UpdateEmailAlertDestinationConfig>(
+	"UpdateEmailAlertDestinationConfig",
+)({
+	name: OptionalNonEmptyString,
+	memberUserIds: Schema.optionalKey(MemberUserIdList),
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+/** The workspace is fixed at creation; moving a destination is a new channel in the same one. */
+export class UpdateChatAlertDestinationConfig extends Schema.Class<UpdateChatAlertDestinationConfig>(
+	"UpdateChatAlertDestinationConfig",
+)({
+	name: OptionalNonEmptyString,
+	channelId: OptionalNonEmptyString,
+	enabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export const AlertDestinationUpdateRequest = Schema.Union([
+	Schema.Struct({
+		type: Schema.Literal("pagerduty"),
+		...UpdatePagerDutyAlertDestinationConfig.fields,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("webhook"),
+		...UpdateWebhookAlertDestinationConfig.fields,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("hazel-oauth"),
+		...UpdateHazelOAuthAlertDestinationConfig.fields,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("discord"),
+		...UpdateDiscordAlertDestinationConfig.fields,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("telegram"),
+		...UpdateTelegramAlertDestinationConfig.fields,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("email"),
+		...UpdateEmailAlertDestinationConfig.fields,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("chat"),
+		...UpdateChatAlertDestinationConfig.fields,
+	}),
+])
+export type AlertDestinationUpdateRequest = Schema.Schema.Type<typeof AlertDestinationUpdateRequest>
+
+export class AlertDestinationDocument extends Schema.Class<AlertDestinationDocument>(
+	"AlertDestinationDocument",
+)({
+	id: AlertDestinationId,
+	name: Schema.String,
+	type: AlertDestinationType,
+	enabled: Schema.Boolean,
+	summary: Schema.String,
+	channelLabel: Schema.NullOr(Schema.String),
+	/** Selected workspace-member recipients (email destinations only). */
+	memberUserIds: Schema.NullOr(Schema.Array(Schema.String)),
+	/** The connector and linked workspace a `chat` destination posts through; absent otherwise. */
+	chatConnector: Schema.optionalKey(ChatConnectorId),
+	chatWorkspaceId: Schema.optionalKey(ChatWorkspaceId),
+	lastTestedAt: Schema.NullOr(IsoDateTimeString),
+	lastTestError: Schema.NullOr(Schema.String),
+	/**
+	 * Delivery-health state, so the UI can say "we stopped trying, and why"
+	 * instead of showing a silently dead destination as merely `enabled: false`.
+	 * `optionalKey` because these arrived after the document shipped — an older
+	 * writer that omits them still decodes.
+	 */
+	consecutiveFailures: Schema.optionalKey(Schema.Number),
+	lastFailureAt: Schema.optionalKey(Schema.NullOr(IsoDateTimeString)),
+	/** Non-null only when Maple auto-disabled the destination. */
+	disabledAt: Schema.optionalKey(Schema.NullOr(IsoDateTimeString)),
+	disabledReason: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	createdAt: IsoDateTimeString,
+	updatedAt: IsoDateTimeString,
+	// Postgres txid of the write, present only on create/update responses so the
+	// Electric alert_destinations collection can resolve optimistic state.
+	txid: Schema.optionalKey(PostgresTransactionId),
+}) {}
+
+export class AlertDestinationDeleteResponse extends Schema.Class<AlertDestinationDeleteResponse>(
+	"AlertDestinationDeleteResponse",
+)({
+	id: AlertDestinationId,
+	// Txid of the delete, for the Electric alert_destinations collection's onDelete.
+	txid: Schema.optionalKey(PostgresTransactionId),
+}) {}
+
+export class AlertDestinationsListResponse extends Schema.Class<AlertDestinationsListResponse>(
+	"AlertDestinationsListResponse",
+)({
+	destinations: Schema.Array(AlertDestinationDocument),
+}) {}
+
+/**
+ * A single template string (title or body). Capped to keep stored configs and
+ * rendered notifications bounded. Markdown is allowed in `body`; channels render
+ * it per their own dialect (Discord markdown, Telegram HTML, plain text).
+ */
+const TemplateString = Schema.String.check(Schema.isMaxLength(4_000))
+
+/** A single rule tag. Free-form, bounded so the list/group UI stays legible. */
+const TagString = Schema.String.check(Schema.isMaxLength(32))
+/** The tags array on a rule — capped to keep grouping and filtering manageable. */
+const RuleTags = Schema.Array(TagString).check(Schema.isMaxLength(20))
+
+export const AlertNotificationTemplateOverride = Schema.Struct({
+	title: Schema.optionalKey(Schema.NullOr(TemplateString)),
+	body: Schema.optionalKey(Schema.NullOr(TemplateString)),
+}).annotate({ identifier: "@maple/AlertNotificationTemplateOverride" })
+export type AlertNotificationTemplateOverride = Schema.Schema.Type<typeof AlertNotificationTemplateOverride>
+
+/**
+ * User-customizable notification message. `title` + Markdown `body` use
+ * `{{ variable }}` substitution over {@link ALERT_TEMPLATE_VARIABLES}. `overrides`
+ * keyed by destination type let power users tailor a specific channel; unset
+ * fields fall back override → top-level → built-in default. A `null` template
+ * (or unset field) reproduces Maple's built-in notification format exactly.
+ */
+export const AlertNotificationTemplate = Schema.Struct({
+	title: Schema.optionalKey(Schema.NullOr(TemplateString)),
+	body: Schema.optionalKey(Schema.NullOr(TemplateString)),
+	overrides: Schema.optionalKey(
+		Schema.NullOr(Schema.Record(Schema.String, AlertNotificationTemplateOverride)),
+	),
+}).annotate({ identifier: "@maple/AlertNotificationTemplate" })
+export type AlertNotificationTemplate = Schema.Schema.Type<typeof AlertNotificationTemplate>
+
+/**
+ * The variables available to notification templates. Every value is a
+ * pre-formatted string (so templates never do arithmetic). Mirrors the fields
+ * the built-in formatters surface. Surfaced in the rule editor as a reference.
+ */
+export const ALERT_TEMPLATE_VARIABLES: ReadonlyArray<{
+	readonly key: string
+	readonly description: string
+}> = [
+	{ key: "rule.name", description: "Alert rule name" },
+	{ key: "rule.id", description: "Alert rule id" },
+	{ key: "event.type", description: "trigger | resolve | renotify | test" },
+	{ key: "event.label", description: 'Human label, e.g. "Triggered"' },
+	{ key: "event.emoji", description: "Event emoji" },
+	{ key: "severity", description: "warning | critical (the incident's current severity)" },
+	{ key: "signal", description: "Raw signal type" },
+	{ key: "signal.label", description: 'Human signal label, e.g. "Error Rate"' },
+	{ key: "comparator.label", description: 'Comparison operator, e.g. ">"' },
+	{ key: "threshold", description: "Formatted threshold value" },
+	{ key: "thresholdUpper", description: "Formatted upper threshold (range alerts)" },
+	{ key: "value", description: "Formatted observed value" },
+	{ key: "observed.summary", description: "Observed value + comparison" },
+	{ key: "sampleCount", description: "Number of samples in the window" },
+	{ key: "group", description: 'Group key, or "all"' },
+	{ key: "window", description: 'Evaluation window, e.g. "5m"' },
+	{ key: "incidentId", description: "Incident id (empty for tests)" },
+	{ key: "incidentStatus", description: "open | resolved" },
+	{ key: "links.app", description: "Deep link to the alert in Maple" },
+	{ key: "links.chat", description: "Deep link to Maple AI for this alert" },
+	{ key: "sentAt", description: "ISO timestamp the notification was sent" },
+]
+
+export class AlertRuleDocument extends Schema.Class<AlertRuleDocument>("AlertRuleDocument")({
+	id: AlertRuleId,
+	name: Schema.String,
+	notes: Schema.NullOr(Schema.String),
+	notificationTemplate: Schema.NullOr(AlertNotificationTemplate),
+	enabled: Schema.Boolean,
+	/** The highest tier's severity. Derived from `thresholds`; kept for single-threshold readers. */
+	severity: AlertSeverity,
+	/** Severity tiers, lowest first. */
+	thresholds: AlertThresholds,
+	serviceNames: Schema.Array(Schema.String),
+	excludeServiceNames: Schema.Array(Schema.String),
+	/**
+	 * Deployment environments the rule is scoped to. Empty means every
+	 * environment. Ignored for `builder_query` / `raw_query`, whose queries carry
+	 * their own filters.
+	 */
+	environments: Schema.Array(Schema.String),
+	/** Free-form tags used to group and filter rules in the alerts list. */
+	tags: Schema.Array(Schema.String),
+	groupBy: Schema.NullOr(AlertGroupBy),
+	signalType: AlertSignalType,
+	comparator: AlertComparator,
+	/** The lowest tier's value. Derived from `thresholds`. */
+	threshold: Schema.Number,
+	thresholdUpper: Schema.NullOr(Schema.Number),
+	windowMinutes: AlertWindowMinutes,
+	/** Minutes between checks. Null derives it from the window (1 to 5). */
+	evaluationIntervalMinutes: Schema.NullOr(AlertEvaluationIntervalMinutes),
+	minimumSampleCount: NonNegativeInt,
+	/** N: breaching checks needed to open (or escalate). */
+	consecutiveBreachesRequired: PositiveInt,
+	/** M: the N are counted over the last M checks. Null means N in a row. */
+	breachesOutOf: Schema.NullOr(AlertBreachWindow),
+	consecutiveHealthyRequired: PositiveInt,
+	renotifyIntervalMinutes: PositiveInt,
+	apdexThresholdMs: Schema.NullOr(PositiveFloat),
+	queryBuilderDraft: Schema.NullOr(QueryBuilderQueryDraftSchema),
+	rawQuerySql: Schema.NullOr(Schema.String),
+	rawQueryReducer: Schema.NullOr(QueryEngineAlertReducer),
+	/** Every tier's destinations. Derived from `thresholds`. */
+	destinationIds: Schema.Array(AlertDestinationId),
+	/** What the evaluator does when the window has no data: skip the check or treat it as zero. */
+	noDataBehavior: QueryEngineNoDataBehavior,
+	/** Most recent evaluation error for this rule, surfaced from `alertRuleStates.lastError`. */
+	lastEvaluationError: Schema.NullOr(Schema.String),
+	lastEvaluationErrorKind: Schema.NullOr(AlertEvaluationErrorKind),
+	/**
+	 * Set when the scheduler slowed the rule down after its query kept hitting its limit:
+	 * it is checked at least this far apart until it is edited.
+	 */
+	slowedIntervalMinutes: Schema.NullOr(AlertEvaluationIntervalMinutes),
+	slowedAt: Schema.NullOr(IsoDateTimeString),
+	lastEvaluatedAt: Schema.NullOr(IsoDateTimeString),
+	/** Last time the scheduler picked this rule up for evaluation. */
+	lastScheduledAt: Schema.NullOr(IsoDateTimeString),
+	createdAt: IsoDateTimeString,
+	updatedAt: IsoDateTimeString,
+	createdBy: UserId,
+	updatedBy: UserId,
+	// Postgres txid of the write, present only on create/update responses so the
+	// web's ElectricSQL alert_rules collection can resolve optimistic state on the
+	// exact synced transaction. Absent on list/read responses.
+	txid: Schema.optionalKey(PostgresTransactionId),
+}) {}
+
+export class AlertRuleUpsertRequest extends Schema.Class<AlertRuleUpsertRequest>("AlertRuleUpsertRequest")({
+	name: ChannelLabel,
+	notes: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	notificationTemplate: Schema.optionalKey(Schema.NullOr(AlertNotificationTemplate)),
+	enabled: Schema.optionalKey(Schema.Boolean),
+	/**
+	 * Severity tiers. When set, `severity`, `threshold`, `thresholdUpper` and
+	 * `destinationIds` are ignored; when absent, those four make one tier.
+	 */
+	thresholds: Schema.optionalKey(AlertThresholds),
+	severity: Schema.optionalKey(AlertSeverity),
+	serviceNames: Schema.optionalKey(Schema.Array(Schema.String)),
+	excludeServiceNames: Schema.optionalKey(Schema.Array(Schema.String)),
+	environments: Schema.optionalKey(Schema.Array(Schema.String)),
+	tags: Schema.optionalKey(RuleTags),
+	groupBy: Schema.optionalKey(Schema.NullOr(AlertGroupBy)),
+	signalType: AlertSignalType,
+	comparator: AlertComparator,
+	threshold: Schema.optionalKey(Schema.Number),
+	thresholdUpper: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	windowMinutes: AlertWindowMinutes,
+	evaluationIntervalMinutes: Schema.optionalKey(Schema.NullOr(AlertEvaluationIntervalMinutes)),
+	minimumSampleCount: Schema.optionalKey(NonNegativeInt),
+	consecutiveBreachesRequired: Schema.optionalKey(PositiveInt),
+	breachesOutOf: Schema.optionalKey(Schema.NullOr(AlertBreachWindow)),
+	consecutiveHealthyRequired: Schema.optionalKey(PositiveInt),
+	renotifyIntervalMinutes: Schema.optionalKey(PositiveInt),
+	apdexThresholdMs: Schema.optionalKey(Schema.NullOr(PositiveFloat)),
+	queryBuilderDraft: Schema.optionalKey(Schema.NullOr(QueryBuilderQueryDraftSchema)),
+	rawQuerySql: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	rawQueryReducer: Schema.optionalKey(Schema.NullOr(QueryEngineAlertReducer)),
+	/** Count a window with no data as a breach instead of skipping it. Default false. */
+	alertOnNoData: Schema.optionalKey(Schema.Boolean),
+	destinationIds: Schema.optionalKey(Schema.Array(AlertDestinationId)),
+}) {}
+
+export class AlertRulesListResponse extends Schema.Class<AlertRulesListResponse>("AlertRulesListResponse")({
+	rules: Schema.Array(AlertRuleDocument),
+}) {}
+
+export class AlertRuleDeleteResponse extends Schema.Class<AlertRuleDeleteResponse>("AlertRuleDeleteResponse")(
+	{
+		id: AlertRuleId,
+		// Txid of the delete, for the Electric alert_rules collection's onDelete.
+		txid: Schema.optionalKey(PostgresTransactionId),
+	},
+) {}
+
+export class AlertRuleTestRequest extends Schema.Class<AlertRuleTestRequest>("AlertRuleTestRequest")({
+	rule: AlertRuleUpsertRequest,
+	sendNotification: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class AlertEvaluationResult extends Schema.Class<AlertEvaluationResult>("AlertEvaluationResult")({
+	status: AlertEvaluationStatus,
+	value: Schema.NullOr(Schema.Number),
+	sampleCount: Schema.Number,
+	threshold: Schema.Number,
+	thresholdUpper: Schema.NullOr(Schema.Number),
+	comparator: AlertComparator,
+	reason: Schema.String,
+	/** Set on `status: "skipped"`. */
+	skipReason: Schema.optionalKey(AlertSkipReason),
+}) {}
+
+export class AlertRulePreviewRequest extends Schema.Class<AlertRulePreviewRequest>("AlertRulePreviewRequest")(
+	{
+		rule: AlertRuleUpsertRequest,
+		startTime: IsoDateTimeString,
+		endTime: IsoDateTimeString,
+	},
+) {}
+
+/**
+ * One evaluator-faithful data point: what the scheduler would have observed for
+ * this group in the window ending at `bucket`, and the verdict
+ * `applyEvaluationLogic` would have produced (before consecutive-breach counting).
+ */
+export class AlertRulePreviewPoint extends Schema.Class<AlertRulePreviewPoint>("AlertRulePreviewPoint")({
+	bucket: IsoDateTimeString,
+	value: Schema.NullOr(Schema.Number),
+	sampleCount: Schema.Number,
+	status: AlertEvaluationStatus,
+	/** The highest tier this window breached; absent when none did or it skipped. */
+	level: Schema.optionalKey(AlertSeverity),
+	/** Set on `status: "skipped"` points. */
+	skipReason: Schema.optionalKey(AlertSkipReason),
+	/**
+	 * The trailing in-progress window: evaluated over less than a full
+	 * `windowMinutes`, so its value may still move as data arrives.
+	 */
+	provisional: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class AlertRulePreviewSeries extends Schema.Class<AlertRulePreviewSeries>("AlertRulePreviewSeries")({
+	groupKey: Schema.String,
+	points: Schema.Array(AlertRulePreviewPoint),
+}) {}
+
+/** A span during which the rule's state machine would have held an open incident. */
+export class AlertRulePreviewFiringSpan extends Schema.Class<AlertRulePreviewFiringSpan>(
+	"AlertRulePreviewFiringSpan",
+)({
+	groupKey: Schema.String,
+	start: IsoDateTimeString,
+	end: IsoDateTimeString,
+	/** The incident's severity during the span; a span splits at each severity change. */
+	severity: AlertSeverity,
+}) {}
+
+/** How long one check of a raw SQL rule takes, timed once on the latest window. */
+export class AlertQueryTiming extends Schema.Class<AlertQueryTiming>("AlertQueryTiming")({
+	/** Milliseconds one check took, or null when it did not finish within `probeLimitMs`. */
+	elapsedMs: Schema.NullOr(Schema.Number),
+	/** Why it did not finish, when it did not. */
+	failure: Schema.NullOr(Schema.Literals(["query_too_slow", "query_too_much_memory"])),
+	/** The longest any check may run, so the timing stops there. */
+	probeLimitMs: Schema.Number,
+	/** The rule's check interval and that interval's time limit. */
+	intervalMinutes: Schema.Number,
+	limitMs: Schema.Number,
+	/**
+	 * Intervals up to the window whose time limit the query fits with a fifth to spare. Time only:
+	 * the probe runs with the top memory, and a check that runs out of memory slows the rule down.
+	 */
+	fitsIntervalMinutes: Schema.Array(AlertEvaluationIntervalMinutes),
+}) {}
+
+/**
+ * Evaluator-faithful preview of an alert rule over a time range: the exact
+ * per-window observations the scheduler computes (tumbling `windowMinutes`
+ * buckets — the live scheduler slides every tick, so `wouldFire` spans are an
+ * approximation between bucket boundaries).
+ */
+export class AlertRulePreviewResponse extends Schema.Class<AlertRulePreviewResponse>(
+	"AlertRulePreviewResponse",
+)({
+	bucketSeconds: Schema.Number,
+	windowMinutes: Schema.Number,
+	threshold: Schema.Number,
+	thresholdUpper: Schema.NullOr(Schema.Number),
+	thresholds: AlertThresholds,
+	comparator: AlertComparator,
+	/** Set when the requested range was clamped to the preview bucket cap. */
+	truncatedToStart: Schema.NullOr(IsoDateTimeString),
+	series: Schema.Array(AlertRulePreviewSeries),
+	wouldFire: Schema.Array(AlertRulePreviewFiringSpan),
+	/** Raw SQL rules only: how long one check takes against each interval's limit. */
+	queryTiming: Schema.optionalKey(AlertQueryTiming),
+	/** Raw SQL rules only: the range was too heavy to chart, so `series` is empty. */
+	seriesFailure: Schema.optionalKey(Schema.Literals(["query_too_slow", "query_too_much_memory"])),
+}) {}
+
+export class AlertIncidentDocument extends Schema.Class<AlertIncidentDocument>("AlertIncidentDocument")({
+	id: AlertIncidentId,
+	ruleId: AlertRuleId,
+	ruleName: Schema.String,
+	groupKey: Schema.NullOr(Schema.String),
+	signalType: AlertSignalType,
+	/** Current severity: moves when a tiered rule escalates or de-escalates. */
+	severity: AlertSeverity,
+	/** Highest severity reached; null on incidents recorded before tiers. */
+	peakSeverity: Schema.NullOr(AlertSeverity),
+	status: AlertIncidentStatus,
+	comparator: AlertComparator,
+	threshold: Schema.Number,
+	thresholdUpper: Schema.NullOr(Schema.Number),
+	firstTriggeredAt: IsoDateTimeString,
+	lastTriggeredAt: IsoDateTimeString,
+	resolvedAt: Schema.NullOr(IsoDateTimeString),
+	lastObservedValue: Schema.NullOr(Schema.Number),
+	lastSampleCount: Schema.NullOr(Schema.Number),
+	dedupeKey: Schema.String,
+	lastDeliveredEventType: Schema.NullOr(AlertEventType),
+	lastNotifiedAt: Schema.NullOr(IsoDateTimeString),
+	/** Set while the incident is open but waiting on telemetry; see {@link AlertIncidentHoldReason}. */
+	holdReason: Schema.NullOr(AlertIncidentHoldReason),
+	heldSince: Schema.NullOr(IsoDateTimeString),
+	errorIssueId: Schema.NullOr(ErrorIssueId),
+}) {}
+
+export class AlertIncidentsListResponse extends Schema.Class<AlertIncidentsListResponse>(
+	"AlertIncidentsListResponse",
+)({
+	incidents: Schema.Array(AlertIncidentDocument),
+}) {}
+
+export class AlertDeliveryEventDocument extends Schema.Class<AlertDeliveryEventDocument>(
+	"AlertDeliveryEventDocument",
+)({
+	id: AlertDeliveryEventId,
+	incidentId: Schema.NullOr(AlertIncidentId),
+	ruleId: AlertRuleId,
+	destinationId: AlertDestinationId,
+	destinationName: Schema.String,
+	destinationType: AlertDestinationType,
+	deliveryKey: Schema.String,
+	eventType: AlertEventType,
+	attemptNumber: PositiveInt,
+	status: AlertDeliveryStatus,
+	scheduledAt: IsoDateTimeString,
+	attemptedAt: Schema.NullOr(IsoDateTimeString),
+	providerMessage: Schema.NullOr(Schema.String),
+	providerReference: Schema.NullOr(Schema.String),
+	responseCode: Schema.NullOr(Schema.Number),
+	errorMessage: Schema.NullOr(Schema.String),
+}) {}
+
+export class AlertDeliveryEventsListResponse extends Schema.Class<AlertDeliveryEventsListResponse>(
+	"AlertDeliveryEventsListResponse",
+)({
+	events: Schema.Array(AlertDeliveryEventDocument),
+}) {}
+
+export class AlertDestinationTestResponse extends Schema.Class<AlertDestinationTestResponse>(
+	"AlertDestinationTestResponse",
+)({
+	success: Schema.Boolean,
+	message: Schema.String,
+}) {}
+
+export class AlertForbiddenError extends HttpTaggedError<AlertForbiddenError>()(
+	"@maple/http/errors/AlertForbiddenError",
+	{
+		message: Schema.String,
+		roles: Schema.optionalKey(Schema.Array(RoleName)),
+	},
+	{
+		status: 403,
+		code: "alert_forbidden",
+		title: "Permission required",
+		message: "You do not have permission to perform this alert operation.",
+		retry: "never",
+		recovery: "request_access",
+		exposure: "redacted",
+	},
+) {}
+
+export class AlertValidationError extends HttpTaggedError<AlertValidationError>()(
+	"@maple/http/errors/AlertValidationError",
+	{
+		message: Schema.String,
+		details: Schema.Array(Schema.String),
+		cause: Schema.optionalKey(Schema.Defect()),
+	},
+	{
+		status: 400,
+		code: "alert_invalid",
+		title: "Invalid alert request",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "public_message",
+	},
+) {}
+
+/** Maple could not encrypt a destination secret before storing it. */
+export class AlertDestinationEncryptionError extends HttpTaggedError<AlertDestinationEncryptionError>()(
+	"@maple/http/errors/AlertDestinationEncryptionError",
+	{
+		message: Schema.String,
+		destinationId: AlertDestinationId,
+	},
+	{
+		status: 500,
+		code: "alert_destination_encryption_failed",
+		title: "Alert destination could not be secured",
+		message: "Maple could not securely store the alert destination.",
+		retry: "never",
+		recovery: "contact_support",
+		exposure: "redacted",
+	},
+) {}
+
+/** Maple could not decrypt the secret already stored for a destination. */
+export class AlertDestinationDecryptionError extends HttpTaggedError<AlertDestinationDecryptionError>()(
+	"@maple/http/errors/AlertDestinationDecryptionError",
+	{
+		message: Schema.String,
+		destinationId: AlertDestinationId,
+	},
+	{
+		status: 500,
+		code: "alert_destination_decryption_failed",
+		title: "Alert destination credentials could not be read",
+		message: "Maple could not read the stored alert destination credentials.",
+		retry: "never",
+		recovery: "contact_support",
+		exposure: "redacted",
+	},
+) {}
+
+/** A saved destination no longer decodes as the configuration shape Maple expects. */
+export class AlertDestinationStoredConfigInvalidError extends HttpTaggedError<AlertDestinationStoredConfigInvalidError>()(
+	"@maple/http/errors/AlertDestinationStoredConfigInvalidError",
+	{
+		message: Schema.String,
+		destinationId: AlertDestinationId,
+		component: Schema.Literals(["document", "public_config", "secret_config"]),
+		cause: Schema.Defect(),
+	},
+	{
+		status: 500,
+		code: "alert_destination_stored_config_invalid",
+		title: "Stored alert destination is invalid",
+		message: "The stored alert destination configuration could not be read.",
+		retry: "never",
+		recovery: "contact_support",
+		exposure: "redacted",
+	},
+) {}
+
+/** One or more requested email recipients are not members of the workspace. */
+export class AlertRecipientSelectionError extends HttpTaggedError<AlertRecipientSelectionError>()(
+	"@maple/http/errors/AlertRecipientSelectionError",
+	{
+		message: Schema.String,
+		unknownUserIds: Schema.Array(UserId),
+	},
+	{
+		status: 400,
+		code: "alert_recipient_invalid",
+		title: "Invalid alert recipient",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "public_message",
+	},
+) {}
+
+/** This deployment has no workspace-member directory for email destinations. */
+export class AlertMemberDirectoryNotConfiguredError extends HttpTaggedError<AlertMemberDirectoryNotConfiguredError>()(
+	"@maple/http/errors/AlertMemberDirectoryNotConfiguredError",
+	{ message: Schema.String },
+	{
+		status: 500,
+		code: "alert_member_directory_not_configured",
+		title: "Workspace member lookup is not configured",
+		message: "Workspace member lookup is not configured for this Maple deployment.",
+		retry: "never",
+		recovery: "contact_support",
+		exposure: "redacted",
+	},
+) {}
+
+/** The configured workspace-member directory could not be reached. */
+export class AlertMemberDirectoryUnavailableError extends HttpTaggedError<AlertMemberDirectoryUnavailableError>()(
+	"@maple/http/errors/AlertMemberDirectoryUnavailableError",
+	{ message: Schema.String, cause: Schema.Defect() },
+	{
+		status: 503,
+		code: "alert_member_directory_unavailable",
+		title: "Workspace members are temporarily unavailable",
+		message: "Workspace members could not be loaded. Retry in a few seconds.",
+		retry: "backoff",
+		recovery: "retry",
+		exposure: "redacted",
+	},
+) {}
+
+export class AlertPersistenceError extends HttpTaggedError<AlertPersistenceError>()(
+	"@maple/http/errors/AlertPersistenceError",
+	{
+		message: Schema.String,
+		cause: Schema.optionalKey(Schema.String),
+	},
+	{
+		status: 503,
+		code: "alerts_unavailable",
+		title: "Alerts are temporarily unavailable",
+		message: "Alerts are temporarily unavailable. Retry in a few seconds.",
+		retry: "backoff",
+		recovery: "retry",
+		exposure: "redacted",
+	},
+) {}
+
+export class AlertRuleNotFoundError extends HttpTaggedError<AlertRuleNotFoundError>()(
+	"@maple/http/errors/AlertRuleNotFoundError",
+	{ message: Schema.String, ruleId: AlertRuleId },
+	{
+		status: 404,
+		code: "alert_rule_not_found",
+		title: "Alert rule not found",
+		message: "No such alert rule.",
+		param: "id",
+		retry: "never",
+		recovery: "none",
+		exposure: "redacted",
+	},
+) {}
+
+export class AlertDestinationNotFoundError extends HttpTaggedError<AlertDestinationNotFoundError>()(
+	"@maple/http/errors/AlertDestinationNotFoundError",
+	{ message: Schema.String, destinationId: AlertDestinationId },
+	{
+		status: 404,
+		code: "alert_destination_not_found",
+		title: "Alert destination not found",
+		message: "No such alert destination.",
+		param: "id",
+		retry: "never",
+		recovery: "none",
+		exposure: "redacted",
+	},
+) {}
+
+/** An alert rule references a destination that does not exist in this organization. */
+export class AlertRuleDestinationNotFoundError extends HttpTaggedError<AlertRuleDestinationNotFoundError>()(
+	"@maple/http/errors/AlertRuleDestinationNotFoundError",
+	{ message: Schema.String, destinationId: AlertDestinationId },
+	{
+		status: 404,
+		code: "alert_rule_destination_not_found",
+		title: "Alert rule destination not found",
+		message: "An alert destination referenced by this rule does not exist.",
+		param: "destination_ids",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "redacted",
+	},
+) {}
+
+/** A saved alert rule no longer decodes as the configuration shape Maple expects. */
+export class AlertRuleStoredConfigInvalidError extends HttpTaggedError<AlertRuleStoredConfigInvalidError>()(
+	"@maple/http/errors/AlertRuleStoredConfigInvalidError",
+	{
+		message: Schema.String,
+		ruleId: AlertRuleId,
+		component: Schema.Literals([
+			"document",
+			"destination_ids",
+			"compiled_plan",
+			"service_names",
+			"exclude_service_names",
+			"environments",
+			"tags",
+			"group_by",
+			"notification_template",
+			"query_builder_draft",
+			"thresholds",
+		]),
+		cause: Schema.Defect(),
+	},
+	{
+		status: 500,
+		code: "alert_rule_stored_config_invalid",
+		title: "Stored alert rule is invalid",
+		message: "The stored alert rule configuration could not be read.",
+		retry: "never",
+		recovery: "contact_support",
+		exposure: "redacted",
+	},
+) {}
+
+export class AlertIncidentNotFoundError extends HttpTaggedError<AlertIncidentNotFoundError>()(
+	"@maple/http/errors/AlertIncidentNotFoundError",
+	{ message: Schema.String, incidentId: AlertIncidentId },
+	{
+		status: 404,
+		code: "alert_incident_not_found",
+		title: "Alert incident not found",
+		message: "No such alert incident.",
+		param: "id",
+		retry: "never",
+		recovery: "none",
+		exposure: "redacted",
+	},
+) {}
+
+export type AlertNotFoundError =
+	| AlertRuleNotFoundError
+	| AlertDestinationNotFoundError
+	| AlertIncidentNotFoundError
+
+// Alert delivery failures are one class per failure mode, discriminated by
+// `_tag`/`catchTags`, for the same reason the warehouse errors are (see the
+// header comment in `warehouse-errors.ts`): `retryable` is derived from the
+// class policy and baked into each endpoint's OpenAPI as a literal, so a
+// `reason` field inside a single class could not change it without the
+// published schema lying.
+//
+// It also matters operationally. Every delivery failure used to be one
+// `AlertDeliveryError` carrying `retry: "backoff"`, and the queue reads
+// `error.error.retryable` to decide whether to re-enqueue — so a destination
+// whose token had been revoked was retried the full `MAX_DELIVERY_ATTEMPTS`
+// against a provider that would never accept it. Splitting the class is what
+// makes "reconfigure the channel" terminal.
+
+const alertDeliveryErrorFields = {
+	message: Schema.String,
+	destinationType: Schema.optionalKey(AlertDestinationType),
+	/** Provider HTTP status, when the failure came from a response. */
+	providerStatus: Schema.optionalKey(Schema.Number),
+	/** Provider-specific failure code, e.g. a chat platform's `not_in_channel`. */
+	providerErrorCode: Schema.optionalKey(Schema.String),
+	cause: Schema.optionalKey(Schema.Defect()),
+}
+
+/** Transient provider failure — timeout, network, 5xx, 429. Worth retrying. */
+export class AlertDeliveryError extends HttpTaggedError<AlertDeliveryError>()(
+	"@maple/http/errors/AlertDeliveryError",
+	alertDeliveryErrorFields,
+	{
+		status: 502,
+		code: "alert_delivery_failed",
+		title: "Alert provider request failed",
+		message: "The alert provider request failed.",
+		retry: "backoff",
+		recovery: "retry",
+		exposure: "redacted",
+	},
+) {}
+
+/** Provider rejected our credentials (401/403). Terminal until reconfigured. */
+export class AlertDeliveryAuthError extends HttpTaggedError<AlertDeliveryAuthError>()(
+	"@maple/http/errors/AlertDeliveryAuthError",
+	alertDeliveryErrorFields,
+	{
+		status: 502,
+		code: "alert_delivery_auth_failed",
+		title: "Alert destination rejected our credentials",
+		message: "The destination rejected Maple's credentials. Reconnect it in settings.",
+		retry: "never",
+		recovery: "reconnect",
+		exposure: "redacted",
+	},
+) {}
+
+/**
+ * The target channel/endpoint is gone or unreachable as configured — a 404, a
+ * deleted webhook, or a chat channel the bot can no longer post to. Retrying
+ * cannot fix it; the destination has to be pointed somewhere else.
+ */
+export class AlertDeliveryTargetMissingError extends HttpTaggedError<AlertDeliveryTargetMissingError>()(
+	"@maple/http/errors/AlertDeliveryTargetMissingError",
+	alertDeliveryErrorFields,
+	{
+		status: 502,
+		code: "alert_delivery_target_missing",
+		title: "Alert destination no longer exists",
+		message: "The destination no longer exists or is not reachable. Update it in settings.",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "redacted",
+	},
+) {}
+
+/** Provider refused the request itself (a non-auth 4xx). Retrying re-sends the same rejected payload. */
+export class AlertDeliveryRejectedError extends HttpTaggedError<AlertDeliveryRejectedError>()(
+	"@maple/http/errors/AlertDeliveryRejectedError",
+	alertDeliveryErrorFields,
+	{
+		status: 502,
+		code: "alert_delivery_rejected",
+		title: "Alert provider rejected the request",
+		message: "The alert provider rejected the request.",
+		retry: "never",
+		recovery: "contact_support",
+		exposure: "redacted",
+	},
+) {}
+
+/**
+ * Any delivery failure. Use at seams that only propagate; `catchTags` on the
+ * individual classes where the distinction matters.
+ */
+export type AlertDeliveryFailure =
+	| AlertDeliveryError
+	| AlertDeliveryAuthError
+	| AlertDeliveryTargetMissingError
+	| AlertDeliveryRejectedError
+
+export class AlertDestinationInUseError extends HttpTaggedError<AlertDestinationInUseError>()(
+	"@maple/http/errors/AlertDestinationInUseError",
+	{
+		message: Schema.String,
+		destinationId: AlertDestinationId,
+		ruleIds: Schema.Array(AlertRuleId),
+		ruleNames: Schema.Array(Schema.String),
+	},
+	{
+		status: 409,
+		code: "alert_destination_in_use",
+		title: "Alert destination is in use",
+		message: "The alert destination is currently used by one or more alert rules.",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "redacted",
+	},
+) {}
+
+export const AlertIncidentTransition = Schema.Literals(["none", "opened", "continued", "resolved"]).annotate({
+	identifier: "@maple/AlertIncidentTransition",
+	title: "Alert Incident Transition",
+})
+export type AlertIncidentTransition = Schema.Schema.Type<typeof AlertIncidentTransition>
+
+export class AlertCheckDocument extends Schema.Class<AlertCheckDocument>("AlertCheckDocument")({
+	timestamp: IsoDateTimeString,
+	groupKey: Schema.String,
+	status: AlertCheckStatus,
+	/** Populated on `status: "skipped"` rows; null on rows recorded before it existed. */
+	skipReason: Schema.NullOr(AlertSkipReason),
+	signalType: AlertSignalType,
+	comparator: AlertComparator,
+	threshold: Schema.Number,
+	thresholdUpper: Schema.NullOr(Schema.Number),
+	observedValue: Schema.NullOr(Schema.Number),
+	sampleCount: Schema.Number,
+	windowMinutes: Schema.Number,
+	windowStart: IsoDateTimeString,
+	windowEnd: IsoDateTimeString,
+	consecutiveBreaches: Schema.Number,
+	consecutiveHealthy: Schema.Number,
+	incidentId: Schema.NullOr(AlertIncidentId),
+	incidentTransition: AlertIncidentTransition,
+	/** Highest tier this check breached; null when none did or on rows before tiers. */
+	level: Schema.NullOr(AlertSeverity),
+	evaluationDurationMs: Schema.Number,
+	/** Populated on `status: "error"` rows — why the evaluation failed. */
+	errorMessage: Schema.NullOr(Schema.String),
+	/** Failure category (e.g. "validation", "tinybird_quota") on `status: "error"` rows. */
+	errorCategory: Schema.NullOr(Schema.String),
+}) {}
+
+export class AlertChecksListResponse extends Schema.Class<AlertChecksListResponse>("AlertChecksListResponse")(
+	{
+		checks: Schema.Array(AlertCheckDocument),
+	},
+) {}
+
+export const ListRuleChecksQuery = Schema.Struct({
+	groupKey: Schema.optionalKey(Schema.String),
+	since: Schema.optionalKey(IsoDateTimeString),
+	until: Schema.optionalKey(IsoDateTimeString),
+	limit: Schema.optionalKey(
+		Schema.NumberFromString.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 2000 })),
+	),
+})

@@ -1,0 +1,316 @@
+import { describe, expect, it } from "vitest"
+import {
+	normalizeKey,
+	parseBoolean,
+	parseNumber,
+	parseWhereClause,
+	quoteWhereValue,
+	splitCsv,
+} from "./where-clause"
+
+describe("normalizeKey", () => {
+	it("normalizes service alias", () => {
+		expect(normalizeKey("service")).toBe("service.name")
+		expect(normalizeKey("Service")).toBe("service.name")
+	})
+
+	it("normalizes environment aliases", () => {
+		expect(normalizeKey("env")).toBe("deployment.environment")
+		expect(normalizeKey("environment")).toBe("deployment.environment")
+		expect(normalizeKey("deployment.environment")).toBe("deployment.environment")
+		expect(normalizeKey("deployment.environment.name")).toBe("deployment.environment")
+	})
+
+	it("normalizes commit_sha alias", () => {
+		expect(normalizeKey("commit_sha")).toBe("vcs.ref.head.revision")
+		expect(normalizeKey("deployment.commit_sha")).toBe("vcs.ref.head.revision")
+		expect(normalizeKey("vcs.ref.head.revision")).toBe("vcs.ref.head.revision")
+	})
+
+	it("passes through unknown keys", () => {
+		expect(normalizeKey("severity")).toBe("severity")
+		expect(normalizeKey("http.method")).toBe("http.method")
+		expect(normalizeKey("attr.user_id")).toBe("attr.user_id")
+	})
+
+	it("handles whitespace and case", () => {
+		expect(normalizeKey("  Service  ")).toBe("service.name")
+		expect(normalizeKey("ENV")).toBe("deployment.environment")
+	})
+})
+
+describe("parseBoolean", () => {
+	it("parses true values", () => {
+		expect(parseBoolean("true")).toBe(true)
+		expect(parseBoolean("1")).toBe(true)
+		expect(parseBoolean("yes")).toBe(true)
+		expect(parseBoolean("y")).toBe(true)
+		expect(parseBoolean("TRUE")).toBe(true)
+	})
+
+	it("parses false values", () => {
+		expect(parseBoolean("false")).toBe(false)
+		expect(parseBoolean("0")).toBe(false)
+		expect(parseBoolean("no")).toBe(false)
+		expect(parseBoolean("n")).toBe(false)
+	})
+
+	it("returns null for invalid values", () => {
+		expect(parseBoolean("maybe")).toBeNull()
+		expect(parseBoolean("")).toBeNull()
+	})
+})
+
+describe("parseNumber", () => {
+	it("parses valid numbers", () => {
+		expect(parseNumber("42")).toBe(42)
+		expect(parseNumber("3.14")).toBe(3.14)
+		expect(parseNumber("0")).toBe(0)
+	})
+
+	it("returns null for invalid numbers", () => {
+		expect(parseNumber("abc")).toBeNull()
+		expect(parseNumber("")).toBeNull()
+		expect(parseNumber("  ")).toBeNull()
+	})
+})
+
+describe("splitCsv", () => {
+	it("splits comma-separated values", () => {
+		expect(splitCsv("a,b,c")).toEqual(["a", "b", "c"])
+	})
+
+	it("trims whitespace", () => {
+		expect(splitCsv(" a , b , c ")).toEqual(["a", "b", "c"])
+	})
+
+	it("filters empty values", () => {
+		expect(splitCsv("a,,b")).toEqual(["a", "b"])
+	})
+})
+
+describe("parseWhereClause", () => {
+	it("returns empty for blank expression", () => {
+		const result = parseWhereClause("")
+		expect(result.clauses).toEqual([])
+		expect(result.warnings).toEqual([])
+	})
+
+	it("parses single equals clause", () => {
+		const result = parseWhereClause('service.name = "api"')
+		expect(result.clauses).toEqual([
+			{ key: "service.name", rawKey: "service.name", operator: "=", value: "api" },
+		])
+		expect(result.warnings).toEqual([])
+	})
+
+	it("parses single-quoted values", () => {
+		const result = parseWhereClause("service.name = 'api'")
+		expect(result.clauses).toEqual([
+			{ key: "service.name", rawKey: "service.name", operator: "=", value: "api" },
+		])
+	})
+
+	it("parses unquoted values", () => {
+		const result = parseWhereClause("root_only = true")
+		expect(result.clauses).toEqual([
+			{ key: "root_only", rawKey: "root_only", operator: "=", value: "true" },
+		])
+	})
+
+	it("parses contains with unquoted value", () => {
+		const result = parseWhereClause("service.name contains api")
+		expect(result.clauses).toEqual([
+			{ key: "service.name", rawKey: "service.name", operator: "contains", value: "api" },
+		])
+	})
+
+	it("parses multiple AND-joined clauses", () => {
+		const result = parseWhereClause('service.name = "api" AND has_error = true AND min_duration_ms > 100')
+		expect(result.clauses).toHaveLength(3)
+		expect(result.clauses[0]).toEqual({
+			key: "service.name",
+			rawKey: "service.name",
+			operator: "=",
+			value: "api",
+		})
+		expect(result.clauses[1]).toEqual({
+			key: "has_error",
+			rawKey: "has_error",
+			operator: "=",
+			value: "true",
+		})
+		expect(result.clauses[2]).toEqual({
+			key: "min_duration_ms",
+			rawKey: "min_duration_ms",
+			operator: ">",
+			value: "100",
+		})
+	})
+
+	it("handles case-insensitive AND", () => {
+		const result = parseWhereClause('service.name = "api" and root_only = true')
+		expect(result.clauses).toHaveLength(2)
+	})
+
+	it("does not split on AND inside quoted values", () => {
+		const result = parseWhereClause("span.name = \"buy and sell\" AND service.name = 'ship AND handle'")
+		expect(result.clauses).toEqual([
+			{ key: "span.name", rawKey: "span.name", operator: "=", value: "buy and sell" },
+			{ key: "service.name", rawKey: "service.name", operator: "=", value: "ship AND handle" },
+		])
+		expect(result.warnings).toHaveLength(0)
+	})
+
+	it("produces warning for unparseable clauses", () => {
+		const result = parseWhereClause("not a valid clause")
+		expect(result.clauses).toEqual([])
+		expect(result.warnings).toHaveLength(1)
+		expect(result.warnings[0].message).toContain("Unsupported clause syntax ignored")
+	})
+
+	it("handles mix of valid and invalid clauses", () => {
+		const result = parseWhereClause('service.name = "api" AND invalid clause AND root_only = true')
+		expect(result.clauses).toHaveLength(2)
+		expect(result.warnings).toHaveLength(1)
+	})
+
+	it("detects unclosed quotes", () => {
+		const result = parseWhereClause('service.name = "unclosed')
+		expect(result.clauses).toEqual([])
+		expect(result.warnings).toHaveLength(1)
+		expect(result.warnings[0].message).toContain("Unclosed quote")
+	})
+
+	it("lowercases keys and keeps the raw spelling beside them", () => {
+		const result = parseWhereClause('Service.Name = "api"')
+		expect(result.clauses[0].key).toBe("service.name")
+		expect(result.clauses[0].rawKey).toBe("Service.Name")
+	})
+
+	it("parses mixed positive and negative clauses", () => {
+		const result = parseWhereClause(
+			'service.name = "api" AND span.name != "GET /health" AND attr.user_id !exists',
+		)
+		expect(result.clauses).toEqual([
+			{ key: "service.name", rawKey: "service.name", operator: "=", value: "api" },
+			{ key: "span.name", rawKey: "span.name", operator: "!=", value: "GET /health" },
+			{ key: "attr.user_id", rawKey: "attr.user_id", operator: "!exists", value: "" },
+		])
+		expect(result.warnings).toEqual([])
+	})
+})
+
+describe("parseWhereClause operator coverage", () => {
+	// Consumers switch on `operator`; each one the grammar accepts must reach them with the
+	// key as typed, so a case-sensitive attribute key survives.
+	it.each([
+		["attr.userId = 1", "=", "1"],
+		["attr.userId != 1", "!=", "1"],
+		["attr.userId > 1", ">", "1"],
+		["attr.userId < 1", "<", "1"],
+		["attr.userId >= 1", ">=", "1"],
+		["attr.userId <= 1", "<=", "1"],
+		['attr.userId contains "a"', "contains", "a"],
+		['attr.userId !contains "a"', "!contains", "a"],
+		["attr.userId exists", "exists", ""],
+		["attr.userId !exists", "!exists", ""],
+	])("%s", (expression, operator, value) => {
+		const result = parseWhereClause(expression)
+		expect(result.warnings).toEqual([])
+		expect(result.clauses).toEqual([{ key: "attr.userid", rawKey: "attr.userId", operator, value }])
+	})
+})
+
+describe("quoteWhereValue", () => {
+	it("picks the quote the value does not contain, so the parser reads it back verbatim", () => {
+		for (const value of ["plain", "it's", 'say "hi"', "%a_b%", "back\\slash"]) {
+			const result = parseWhereClause(`k = ${quoteWhereValue(value)}`)
+			expect(result.warnings).toEqual([])
+			expect(result.clauses[0]?.value).toBe(value)
+		}
+	})
+
+	it("has no escape character: a backslash-escaped quote is not read back as a quote", () => {
+		const escaped = parseWhereClause('k = "say \\"hi\\""')
+		expect(escaped.clauses.map((clause) => clause.value)).not.toContain('say "hi"')
+		const quoted = parseWhereClause(`k = ${quoteWhereValue('say "hi"')}`)
+		expect(quoted.clauses[0]?.value).toBe('say "hi"')
+	})
+
+	it("leaves a value carrying both quote kinds for the parser to reject, never altered", () => {
+		const result = parseWhereClause(`k = ${quoteWhereValue(`it's "x"`)}`)
+		expect(result.clauses).toEqual([])
+		expect(result.warnings).toHaveLength(1)
+	})
+})
+
+describe("OR groups", () => {
+	const orGroups = { orGroups: true }
+
+	it("parses a parenthesized OR group next to plain clauses", () => {
+		const result = parseWhereClause(
+			'service.name = "api" AND (messaging.destination.name = "kafka" OR messaging.destination.name !exists)',
+			orGroups,
+		)
+		expect(result.warnings).toEqual([])
+		expect(result.clauses).toEqual([
+			{ key: "service.name", rawKey: "service.name", operator: "=", value: "api" },
+		])
+		expect(result.groups).toEqual([
+			[
+				{
+					key: "messaging.destination.name",
+					rawKey: "messaging.destination.name",
+					operator: "=",
+					value: "kafka",
+				},
+				{
+					key: "messaging.destination.name",
+					rawKey: "messaging.destination.name",
+					operator: "!exists",
+					value: "",
+				},
+			],
+		])
+	})
+
+	it("reports a group as unsupported unless the caller opts in", () => {
+		const result = parseWhereClause("(a = 1 OR b = 2) AND c = 3")
+		expect(result.groups).toEqual([])
+		expect(result.clauses).toHaveLength(1)
+		expect(result.warnings.map((w) => w.message)).toEqual([
+			"Unsupported clause syntax ignored: (a = 1 OR b = 2)",
+		])
+	})
+
+	it("does not split on AND or OR inside a quoted value or a group", () => {
+		const result = parseWhereClause(
+			`(note = "buy and sell" OR note = 'this or that') AND x = 1`,
+			orGroups,
+		)
+		expect(result.warnings).toEqual([])
+		expect(result.groups[0]?.map((c) => c.value)).toEqual(["buy and sell", "this or that"])
+		expect(result.clauses.map((c) => c.key)).toEqual(["x"])
+	})
+
+	it("treats a single parenthesized clause as a plain clause", () => {
+		const result = parseWhereClause("(a = 1)")
+		expect(result.warnings).toEqual([])
+		expect(result.clauses).toEqual([{ key: "a", rawKey: "a", operator: "=", value: "1" }])
+	})
+
+	it("rejects AND and nesting inside a group instead of guessing precedence", () => {
+		for (const expression of ["(a = 1 AND b = 2 OR c = 3)", "(a = 1 OR (b = 2 OR c = 3))"]) {
+			const result = parseWhereClause(expression, orGroups)
+			expect(result.groups).toEqual([])
+			expect(result.warnings).toHaveLength(1)
+		}
+	})
+
+	it("keeps `(a) AND (b)` as two clauses", () => {
+		const result = parseWhereClause("(a = 1) AND (b = 2)", orGroups)
+		expect(result.warnings).toEqual([])
+		expect(result.clauses.map((c) => c.key)).toEqual(["a", "b"])
+	})
+})

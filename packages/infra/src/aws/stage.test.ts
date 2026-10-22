@@ -1,0 +1,82 @@
+import { describe, expect, it } from "vitest"
+import { parseMapleStage } from "../cloudflare/stage.ts"
+import {
+	parseMapleRegion,
+	resolveAwsRegion,
+	resolveAwsResourceName,
+	resolveCollectorEndpoint,
+	resolveIngestCidrBlock,
+	resolveIngestNamespaceName,
+} from "./stage.ts"
+
+describe("parseMapleRegion", () => {
+	it("defaults to us when unset", () => {
+		expect(parseMapleRegion(undefined)).toBe("us")
+		expect(parseMapleRegion("")).toBe("us")
+		expect(parseMapleRegion("  ")).toBe("us")
+	})
+
+	it("accepts either region, case-insensitively", () => {
+		expect(parseMapleRegion("EU")).toBe("eu")
+		expect(parseMapleRegion(" us ")).toBe("us")
+	})
+
+	it("rejects anything else rather than silently defaulting", () => {
+		expect(() => parseMapleRegion("apac")).toThrow(/Unsupported Maple region/)
+	})
+})
+
+describe("resolveAwsResourceName", () => {
+	it("leaves us unsuffixed so adding eu renames nothing", () => {
+		expect(resolveAwsResourceName("ingest", parseMapleStage("prd"), "us")).toBe("maple-ingest")
+		expect(resolveAwsResourceName("ingest", parseMapleStage("pr-12"), "us")).toBe("maple-ingest-pr-12")
+	})
+
+	it("defaults to us when no region is passed", () => {
+		expect(resolveAwsResourceName("ingest", parseMapleStage("prd"))).toBe("maple-ingest")
+	})
+
+	it("suffixes eu, keeping the two instances distinct at every stage", () => {
+		expect(resolveAwsResourceName("ingest", parseMapleStage("prd"), "eu")).toBe("maple-ingest-eu")
+		expect(resolveAwsResourceName("ingest", parseMapleStage("pr-12"), "eu")).toBe("maple-ingest-eu-pr-12")
+	})
+
+	it("rejects the removed stg stage rather than naming a dev stack after it", () => {
+		expect(() => parseMapleStage("stg")).toThrow(/"stg" stage was removed/)
+	})
+})
+
+/** The [first, last] IPv4 addresses a CIDR block covers, as integers. */
+const cidrRange = (cidr: string): readonly [number, number] => {
+	const [ip = "", bits = "32"] = cidr.split("/")
+	const base = ip.split(".").reduce((acc, octet) => acc * 256 + Number(octet), 0)
+	const size = 2 ** (32 - Number(bits))
+	const first = base - (base % size)
+	return [first, first + size - 1]
+}
+
+describe("region topology", () => {
+	it("maps each region to a distinct AWS region and a non-overlapping CIDR", () => {
+		expect(resolveAwsRegion("us")).not.toBe(resolveAwsRegion("eu"))
+		const [usFirst, usLast] = cidrRange(resolveIngestCidrBlock("us"))
+		const [euFirst, euLast] = cidrRange(resolveIngestCidrBlock("eu"))
+		expect(usLast < euFirst || euLast < usFirst).toBe(true)
+	})
+})
+
+describe("collector service discovery", () => {
+	it("puts the collector in a per-stage namespace the gateway can name at plan time", () => {
+		expect(resolveIngestNamespaceName(parseMapleStage("prd"))).toBe("maple-ingest.internal")
+		expect(resolveIngestNamespaceName(parseMapleStage("pr-12"))).toBe("maple-ingest-pr-12.internal")
+		expect(resolveIngestNamespaceName(parseMapleStage("prd"), "eu")).toBe("maple-ingest-eu.internal")
+	})
+
+	it("derives the gateway's forward endpoint from the same names", () => {
+		expect(resolveCollectorEndpoint(parseMapleStage("prd"))).toBe(
+			"http://otel-collector.maple-ingest.internal:4318",
+		)
+		expect(resolveCollectorEndpoint(parseMapleStage("pr-12"), "eu")).toBe(
+			"http://otel-collector.maple-ingest-eu-pr-12.internal:4318",
+		)
+	})
+})

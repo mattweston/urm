@@ -1,0 +1,85 @@
+name: deploy setup
+description: >-
+    Everything an alchemy deploy job needs after checkout: the toolchain,
+    Infisical secrets, AWS OIDC credentials, dependencies, and (optionally)
+    the prebuilt ingest binary. Shared by deploy-prd and deploy-pr-preview so
+    the order is decided once.
+
+inputs:
+    infisical-env-slug:
+        description: Infisical environment to export (prod, dev).
+        required: true
+    infisical-identity-id:
+        description: The Infisical machine identity (a repo secret; composites cannot read secrets).
+        required: true
+    infisical-project-slug:
+        description: The Infisical project.
+        required: true
+    aws-role-arn:
+        description: The deploy role to assume over OIDC.
+        required: true
+    aws-region:
+        description: >-
+            `resolveAwsRegion` for the instance; the stack refuses a mismatch.
+        required: false
+        default: us-east-1
+    ingest-binary:
+        description: >-
+            Download the `maple-ingest` artifact the build-ingest-binary job
+            uploaded into apps/ingest/dist. "false" on a teardown, where nothing is built.
+        required: false
+        default: "true"
+
+outputs:
+    aws-account-id:
+        description: The AWS account the role belongs to; alchemy needs it as AWS_ACCOUNT_ID.
+        value: ${{ steps.aws.outputs.aws-account-id }}
+
+runs:
+    using: composite
+    steps:
+        # Before secrets load, so install scripts never see them.
+        - name: Toolchain and dependencies
+          uses: ./.github/actions/setup
+          with:
+              turbo-cache: "false"
+
+        - name: Load deployment secrets from Infisical
+          uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+          with:
+              method: "oidc"
+              identity-id: ${{ inputs.infisical-identity-id }}
+              project-slug: ${{ inputs.infisical-project-slug }}
+              env-slug: ${{ inputs.infisical-env-slug }}
+              export-type: "env"
+              secret-path: "/"
+
+        # AFTER Infisical, so the OIDC AWS_* env vars (read by alchemy under CI=true)
+        # win over any stale ones from Infisical.
+        - name: Configure AWS credentials (OIDC)
+          id: aws
+          uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+          with:
+              role-to-assume: ${{ inputs.aws-role-arn }}
+              aws-region: ${{ inputs.aws-region }}
+
+        # `Dockerfile.prebuilt` targets linux/arm64 and has a `RUN apt-get` layer,
+        # so this x86 runner needs binfmt for that one layer.
+        - name: Register arm64 binfmt handlers (QEMU)
+          if: ${{ inputs.ingest-binary == 'true' }}
+          uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+          with:
+              platforms: arm64
+
+        - name: Download ingest binary
+          if: ${{ inputs.ingest-binary == 'true' }}
+          uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+          with:
+              name: maple-ingest
+              path: apps/ingest/dist
+
+        # Artifact upload drops the exec bit; the image copies the file mode as-is.
+        - name: Restore exec bit on ingest binary
+          if: ${{ inputs.ingest-binary == 'true' }}
+          shell: bash
+          run: chmod +x apps/ingest/dist/maple-ingest

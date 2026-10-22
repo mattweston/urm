@@ -1,0 +1,272 @@
+import { MapleApi, MapleInternalApi } from "@maple/domain/http"
+import { MapleApiV2 } from "@maple/domain/http/v2"
+import { Effect, Layer } from "effect"
+import { HttpRouter, HttpServerResponse } from "effect/http"
+import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
+import { API_CORS_OPTIONS } from "@maple/backend/http/api-cors"
+import { Env } from "@maple/backend/platform/Env"
+import { HttpAiModelsInternalLive } from "@/routes/internal/ai-models.http"
+import { HttpAiSessionsInternalLive } from "@/routes/internal/ai-sessions.http"
+import { HttpAiTriageLive } from "@/routes/internal/ai-triage.http"
+import { HttpOpenRouterKeyLive } from "@/routes/internal/openrouter-key.http"
+import { HttpAuthLive, HttpAuthPublicLive, HttpAuthSessionLive } from "@/routes/auth.http"
+import { HttpBillingLive } from "@/routes/internal/billing.http"
+import { HttpBillingPublicLive } from "@/routes/billing-public.http"
+import { HttpEmailPublicLive } from "@/routes/email-public.http"
+import { HttpV2SharePublicLive } from "@/routes/v2/share.http"
+import { ApiErrorBoundaryLive } from "@maple/backend/http/error-boundary"
+import { HttpDemoLive } from "@/routes/internal/demo.http"
+import { DiscoveryRouter, instanceApiV2, NotFoundRouter } from "@/routes/discovery.http"
+import { HttpDigestLive } from "@/routes/internal/digest.http"
+import { HttpCodeReviewLive } from "@/routes/internal/code-review.http"
+import { HttpErrorsLive } from "@/routes/internal/errors.http"
+import { HttpIntegrationsLive } from "@/routes/internal/integrations.http"
+import { IntegrationsCallbackRouter } from "@/routes/integrations-callback.http"
+import { OAuthDiscoveryRouter } from "@/routes/oauth-discovery.http"
+import { HttpOrgClickHouseSettingsLive } from "@/routes/internal/org-clickhouse-settings.http"
+import {
+	HttpOrganizationCreationLive,
+	HttpOrganizationRegionLive,
+	HttpOrganizationsLive,
+} from "@/routes/internal/organizations.http"
+import { PlanetScaleWebhookRouter } from "@/routes/webhooks/planetscale.http"
+import { HttpQueryEngineLive } from "@/routes/internal/query-engine.http"
+import { HttpSessionReplaysInternalLive } from "@/routes/internal/session-replays.http"
+import { ScraperInternalRouter } from "@/routes/scraper-internal.http"
+import { ChatCallbackRouter } from "@/routes/chat-integration.http"
+import { VcsWebhookRouter } from "@/routes/webhooks/vcs.http"
+import { AutumnWebhookRouter } from "@/routes/webhooks/autumn.http"
+import { ClerkWebhookRouter } from "@/routes/webhooks/clerk.http"
+import { HttpV2AlertDeliveriesLive } from "@/routes/v2/alert-deliveries.http"
+import { HttpV2AlertDestinationsLive } from "@/routes/v2/alert-destinations.http"
+import { HttpV2AlertIncidentsLive } from "@/routes/v2/alert-incidents.http"
+import { HttpV2AlertRulesLive } from "@/routes/v2/alert-rules.http"
+import { HttpV2AnomaliesLive } from "@/routes/v2/anomalies.http"
+import { HttpV2ApiKeysLive } from "@/routes/v2/api-keys.http"
+import { HttpV2AttributeMappingsLive } from "@/routes/v2/attribute-mappings.http"
+import { HttpV2DashboardsLive } from "@/routes/v2/dashboards.http"
+import { V2TransportErrorBoundaryLive } from "@/routes/v2/error-envelope"
+import { HttpV2ErrorIssuesLive } from "@/routes/v2/error-issues.http"
+import { HttpV2IngestKeysLive } from "@/routes/v2/ingest-keys.http"
+import { HttpV2SourcesLive } from "@/routes/v2/sources.http"
+import { HttpV2ChatIntegrationsLive } from "@/routes/v2/integrations-chat.http"
+import { HttpV2AwsIntegrationsLive } from "@/routes/v2/integrations-aws.http"
+import { HttpV2GcpIntegrationsLive } from "@/routes/v2/integrations-gcp.http"
+import { HttpV2PlanetScaleIntegrationsLive } from "@/routes/v2/integrations.http"
+import { HttpV2InvestigationsLive } from "@/routes/v2/investigations.http"
+import { HttpV2AgentFeedbackLive } from "@/routes/v2/agent-feedback.http"
+import { HttpV2McpConnectionsLive } from "@/routes/v2/mcp-connections.http"
+import { HttpV2MobileDevicesLive } from "@/routes/v2/mobile-devices.http"
+import { HttpV2OrganizationLive } from "@/routes/v2/organization.http"
+import { HttpV2InstrumentationRecommendationsLive } from "@/routes/v2/recommendations.http"
+import { HttpV2AuditLogLive } from "@/routes/v2/audit-log.http"
+import { AuditLogService } from "@maple/backend/services/audit/AuditLogService"
+import { HttpV2ScrapeTargetsLive } from "@/routes/v2/scrape-targets.http"
+import { HttpV2InstrumentationAuditLive } from "@/routes/v2/setup-audit.http"
+import { HttpV2OnboardingChecklistLive } from "@/routes/v2/onboarding-checklist.http"
+import { HttpV2SupportChannelLive } from "@/routes/v2/support-channel.http"
+import { HttpV2TelemetrySignalsLive } from "@/routes/v2/telemetry-signals.http"
+import { HttpV2SessionReplaysLive } from "@/routes/v2/session-replays.http"
+import {
+	HttpV2EnvironmentsLive,
+	HttpV2LogsLive,
+	HttpV2MetricsLive,
+	HttpV2ServiceMapLive,
+	HttpV2ServicesLive,
+	HttpV2TracesLive,
+} from "@/routes/v2/telemetry.http"
+import { HttpV2WidgetSummaryLive } from "@/routes/v2/widget-summary.http"
+import { HttpV2WidgetCredentialsLive } from "@/routes/v2/widget-credentials.http"
+import { ApiAuthorizationLive } from "@maple/backend/services/auth/ApiAuthorizationLive"
+import { ApiAuthorizationV2Live } from "@maple/backend/services/auth/ApiAuthorizationV2Live"
+import {
+	RegionlessSessionAuthorizationLive,
+	SessionAuthorizationLive,
+} from "@maple/backend/services/auth/SessionAuthorizationLive"
+import { UserSessionAuthorizationLive } from "@maple/backend/services/auth/UserSessionAuthorizationLive"
+import { OrganizationRegionService } from "@maple/backend/services/org/OrganizationRegionService"
+import { ApiV2RateLimiter } from "@maple/backend/services/auth/ApiV2RateLimiter"
+import { McpToolRateLimiter } from "@maple/backend/services/auth/McpToolRateLimiter"
+import { EdgeCacheServiceLive } from "@maple/backend/platform/CacheBackendLive"
+import { OrgMembershipService } from "@maple/backend/services/auth/OrgMembershipService"
+import { ApiKeysService } from "@maple/backend/services/org/ApiKeysService"
+import type { ApiPortsLayer } from "@/worker/bindings"
+
+const HealthRouter = HttpRouter.use((router) => router.add("GET", "/health", HttpServerResponse.text("OK")))
+
+// `layerCdn` loads Scalar's browser bundle from jsDelivr at runtime instead of
+// inlining its ~MB `standalone.min.js` string into the worker bundle — keeps the
+// script out of the deployed bundle (guards the 3 MB worker size limit, error
+// 10027). The reference pages depend on jsDelivr being reachable from the browser.
+// `/docs` and `/v2/docs` serve the same public v2 reference.
+const apiReferenceRoute = (path: `/${string}`) =>
+	Layer.unwrap(
+		Effect.gen(function* () {
+			const env = yield* Env
+			return HttpApiScalar.layerCdn(instanceApiV2(env.MAPLE_API_BASE_URL.replace(/\/+$/, "")), { path })
+		}),
+	)
+const DocsRoute = apiReferenceRoute("/docs")
+const DocsV2Route = apiReferenceRoute("/v2/docs")
+
+const ApiRoutes = HttpApiBuilder.layer(MapleApi).pipe(
+	Layer.provide(HttpAuthPublicLive),
+	Layer.provide(HttpAuthLive),
+	Layer.provide(HttpAuthSessionLive),
+	Layer.provide(HttpBillingPublicLive),
+	Layer.provide(HttpEmailPublicLive),
+	Layer.provide(ApiErrorBoundaryLive),
+)
+
+/**
+ * The dashboard's private transport, served under `/internal/*`.
+ *
+ * Session-only: `SessionAuthorizationLive` refuses API-key-shaped bearers, so
+ * nothing here is reachable as public API, and it is absent from the API reference.
+ */
+const ApiInternalRoutes = HttpApiBuilder.layer(MapleInternalApi).pipe(
+	Layer.provide(
+		Layer.mergeAll(
+			HttpQueryEngineLive,
+			HttpSessionReplaysInternalLive,
+			HttpAiSessionsInternalLive,
+			HttpAiModelsInternalLive,
+		),
+	),
+	Layer.provide(
+		Layer.mergeAll(
+			HttpAiTriageLive,
+			HttpBillingLive,
+			HttpDemoLive,
+			HttpDigestLive,
+			HttpOpenRouterKeyLive,
+		),
+	),
+	Layer.provide(
+		Layer.mergeAll(
+			HttpCodeReviewLive,
+			HttpErrorsLive,
+			HttpIntegrationsLive,
+			HttpOrgClickHouseSettingsLive,
+			HttpOrganizationsLive,
+			HttpOrganizationCreationLive,
+			HttpOrganizationRegionLive,
+		),
+	),
+	Layer.provide(ApiErrorBoundaryLive),
+)
+
+const ApiV2Routes = HttpApiBuilder.layer(MapleApiV2).pipe(
+	Layer.provide(
+		Layer.mergeAll(
+			HttpV2ApiKeysLive,
+			HttpV2DashboardsLive,
+			HttpV2AlertDeliveriesLive,
+			HttpV2AlertRulesLive,
+			HttpV2AlertDestinationsLive,
+			HttpV2AlertIncidentsLive,
+			HttpV2IngestKeysLive,
+			HttpV2SourcesLive,
+			HttpV2ChatIntegrationsLive,
+			HttpV2PlanetScaleIntegrationsLive,
+			HttpV2GcpIntegrationsLive,
+			HttpV2AwsIntegrationsLive,
+			HttpV2ErrorIssuesLive,
+			HttpV2AttributeMappingsLive,
+			HttpV2AuditLogLive,
+			HttpV2ScrapeTargetsLive,
+			HttpV2InstrumentationRecommendationsLive,
+			HttpV2InstrumentationAuditLive,
+			HttpV2OnboardingChecklistLive,
+			HttpV2SupportChannelLive,
+			HttpV2TelemetrySignalsLive,
+			HttpV2SharePublicLive,
+			HttpV2InvestigationsLive,
+			HttpV2AnomaliesLive,
+			HttpV2OrganizationLive,
+			HttpV2MobileDevicesLive,
+			HttpV2McpConnectionsLive,
+			HttpV2AgentFeedbackLive,
+			HttpV2SessionReplaysLive,
+			HttpV2TracesLive,
+			HttpV2LogsLive,
+			HttpV2MetricsLive,
+			HttpV2ServicesLive,
+			HttpV2ServiceMapLive,
+			HttpV2EnvironmentsLive,
+			HttpV2WidgetSummaryLive,
+			HttpV2WidgetCredentialsLive,
+		),
+	),
+	Layer.provide(V2TransportErrorBoundaryLive),
+)
+
+/**
+ * Services a raw router's handlers still expect from the request context, beyond the Worker's
+ * ports, which every request carries. Each is a runtime "Service not found".
+ */
+type LeakedRequestServices<Routes extends Layer.Any> =
+	Layer.Services<Routes> extends infer Marker
+		? Marker extends HttpRouter.Request<"Requires", infer Service>
+			? Exclude<Service, Layer.Success<ApiPortsLayer>>
+			: never
+		: never
+
+/**
+ * A raw `HttpRouter` handler runs in the request's own context — unlike an `HttpApiBuilder`
+ * group, nothing carries the router's build context into it — so a service it reads per request
+ * has to arrive through `HttpRouter.provideRequest` (see `ChatSessionsRouter`). Read inside the
+ * handler instead, it compiles, because the isolate builder erases the marker, and fails every
+ * request with "Service not found", which is what took the chat routes down on 2026-09-08. This
+ * turns that into a build failure naming the leaked service.
+ */
+const rawRoutes = <Routes extends Layer.Any>(
+	routes: Routes &
+		([LeakedRequestServices<Routes>] extends [never]
+			? unknown
+			: { readonly leakedRequestServices: LeakedRequestServices<Routes> }),
+) => routes
+
+const RawRoutes = rawRoutes(
+	Layer.mergeAll(
+		IntegrationsCallbackRouter,
+		ChatCallbackRouter,
+		OAuthDiscoveryRouter,
+		PlanetScaleWebhookRouter,
+		ScraperInternalRouter,
+		VcsWebhookRouter,
+		ClerkWebhookRouter,
+		AutumnWebhookRouter,
+		HealthRouter,
+		DocsRoute,
+		DocsV2Route,
+		DiscoveryRouter,
+		// Last by convention only — find-my-way ranks the wildcard below every other
+		// route regardless of registration order.
+		NotFoundRouter,
+	),
+)
+
+export const AllRoutes = Layer.mergeAll(ApiRoutes, ApiInternalRoutes, ApiV2Routes, RawRoutes).pipe(
+	Layer.provideMerge(HttpRouter.cors(API_CORS_OPTIONS)),
+)
+
+export const ApiAuthLive = Layer.mergeAll(
+	ApiAuthorizationLive,
+	ApiAuthorizationV2Live,
+	SessionAuthorizationLive,
+	RegionlessSessionAuthorizationLive,
+	UserSessionAuthorizationLive,
+).pipe(
+	Layer.provideMerge(ApiV2RateLimiter.layer),
+	Layer.provideMerge(McpToolRateLimiter.layer),
+	Layer.provideMerge(ApiKeysService.layer),
+	Layer.provideMerge(OrganizationRegionService.layer),
+	// Denied attempts and audited reads are recorded from inside the auth layers.
+	Layer.provideMerge(AuditLogService.layer),
+	// Membership verification for `x-maple-org-id`. Only the v2 layer asks for
+	// it; without it that layer cannot build, which is deliberate — the header
+	// must never end up silently ignored in a runtime that forgot to wire this.
+	Layer.provideMerge(OrgMembershipService.layer.pipe(Layer.provide(EdgeCacheServiceLive))),
+	Layer.provideMerge(Layer.mergeAll(Env.layer, EdgeCacheServiceLive)),
+)

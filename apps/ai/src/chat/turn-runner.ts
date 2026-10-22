@@ -1,0 +1,780 @@
+/**
+ * Running one chat turn, inside the `ChatSession` Durable Object.
+ *
+ * This module is the heavy half of the DO: the Effect runtime, the app service graph and the agent
+ * engine. `ChatSession.ts` reaches it through a dynamic import for the same reason
+ * `worker.ts` dynamic-imports its route graph — the static graph builds hundreds of Schema ASTs at
+ * module scope, which would blow Cloudflare's ~1s startup-CPU budget (error 10021) on a class that
+ * is exported from the worker entry.
+ *
+ * Two things changed shape when the turn moved in here:
+ *
+ *   - **Appends are method calls.** The turn used to run in the request that submitted the message
+ *     and write back over the DO stub, one RPC per token delta. It now holds the object itself.
+ *   - **`submit_diagnosis` resolves itself.** It used to be threaded in as a callback from three
+ *     call sites, because `InvestigationService` starting an investigation's own turn would have
+ *     made the service require itself through the Effect requirements channel. Here the turn builds
+ *     its *own* runtime, so it just resolves `InvestigationService` — no cycle, and no
+ *     `env: workerEnv ?? {}` fallback silently degrading the model config when a caller forgot to
+ *     thread the worker env through.
+ */
+import { MCP_ANTICIPATED_ERROR_IDENTIFIERS } from "../mcp/expected-failures"
+import { ChatMessage, type ChatTurnOrigin, type ChatTurnTenantEncoded } from "@maple/domain/chat-session"
+import type { PrReviewFailureReason } from "@maple/domain/http"
+import { type ChatSessionNamespace, chatSessionsLayerIfBound } from "@maple/backend/platform/chat-sessions"
+import { envPorts } from "@maple/backend/platform/env-ports"
+import { CodeLoader } from "@maple/backend/platform/bindings"
+import { forkRequestScoped } from "@maple/backend/platform/fork-request-scoped"
+import { runtimeTelemetry } from "@maple/infra/worker-telemetry"
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Match, Option, Redacted } from "effect"
+import { FetchHttpClient } from "effect/http"
+import type { WorkersAiBinding } from "../platform/WorkersAiHttpClient"
+import { ReturnedToolFailuresOkLive } from "../platform/genai-spans"
+import type { ChatSession } from "./ChatSession"
+import type { ChatTurnEvent } from "./events"
+import { withToolTranscript } from "./close-out"
+import { CLOSE_OUT_PROMPT, PR_REPLY_CLOSE_OUT_PROMPT, PR_REVIEW_CLOSE_OUT_PROMPT } from "./prompts"
+import { INVESTIGATION_PROGRESS_HEARTBEAT, makeProgressFeed, parseToolInput, stepLabel } from "./progress"
+import { makeReviewCoverage } from "./review-coverage"
+import { reviewFailureError, reviewFailureReason } from "./review-failure"
+import { makeReviewLedger } from "./review-ledger"
+import {
+	investigationForSession,
+	isAutonomousTurn,
+	makeRunUsage,
+	prReplyForSession,
+	prReviewForSession,
+	type RunUsage,
+	savedFindingsRequest,
+	SUBMIT_DIAGNOSIS,
+	SUBMIT_REVIEW,
+} from "./tools"
+
+import { interruptOnAbort, makeTurnObservability, turnSpanAttributes } from "./turn-outcome"
+import { agentForSession } from "./agents"
+import { profileForTurn } from "./profiles"
+import { runChatTurn, type ChatRunOutcome } from "./run"
+import type { TenantContext } from "@maple/backend/services/auth/tenant-context"
+import { toTenantContext, turnTenant } from "./turn-actor"
+import { summarizeCause } from "@maple/backend/platform/describe-cause"
+import { trackAiCredits, trackTokenUsage } from "@maple/backend/services/billing/autumn-tracker"
+
+/**
+ * The engine's per-step bookkeeping, which is named and therefore traced.
+ *
+ * Until effect-agent beta.104 this list also held `AgentRuntime.ownModelResponsePart`, one span per
+ * streamed delta: 99.8% of this service's spans on 2026-09-18, evicting the run's real spans from
+ * the SDK's 10,000-span buffer. Upstream removed it; these are the zero-content leftovers.
+ *
+ * Named one by one rather than by an `AgentRuntime.` prefix: `AgentRuntime.model` is the model
+ * call, and `dropSpanNames` matches on prefix.
+ */
+const ENGINE_BOOKKEEPING_SPANS = [
+	"AgentRuntime.estimateContextTokens",
+	"AgentRuntime.nextContextEstimate",
+	"AgentRuntime.decodeEventJson",
+	"AgentRuntime.schedulingConcurrency",
+	"ToolExposure.eligibleCatalog",
+]
+
+// Deliberately not `maple-api`: background work sharing the request-facing
+// service's name skewed its percentiles (p99 32s, 2026-09-04).
+const telemetry = runtimeTelemetry({
+	serviceName: "maple-chat",
+	anticipatedErrorIdentifiers: MCP_ANTICIPATED_ERROR_IDENTIFIERS,
+	dropSpanNames: ENGINE_BOOKKEEPING_SPANS,
+})
+
+export interface RunChatSessionTurnInput {
+	/** The Durable Object itself. Appends are direct calls, not stub RPC. */
+	readonly session: ChatSession
+	readonly sessionId: string
+	readonly env: Record<string, unknown>
+	/** The Workers AI gateway binding, from the activation; none sends Workers AI calls over REST. */
+	readonly workersAi?: Option.Option<WorkersAiBinding>
+	/** This Worker's `ChatSession` namespace, from the activation; the graph's `ChatSessions` port. */
+	readonly chatSessions?: ChatSessionNamespace
+	readonly messageId: string
+	readonly tenant: ChatTurnTenantEncoded
+	/** Who is driving the turn, stated by whoever raised it. */
+	readonly origin: ChatTurnOrigin
+	/**
+	 * Set when the session starts an evicted turn again. The kickoff is already in the log, under
+	 * `userMessageId`, followed by the dead attempt; the run reads from the kickoff, not the tail.
+	 */
+	readonly resume?: { readonly userMessageId: string; readonly text: string; readonly attempt: number }
+	/** The turn was evicted too often to start again: record that it failed, and run nothing. */
+	readonly abandoned?: true
+	/** Aborted, with a `ChatAbortReason`, when the session aborts this turn: the run is interrupted. */
+	readonly signal?: AbortSignal
+}
+
+/**
+ * Metering is housekeeping, and it runs after the answer, on the way out of the turn.
+ *
+ * `endTurn` sits in the `finally` of `ChatSession.runTurn`, so whatever the metering finalizer
+ * waits on holds the session's turn slot, and the stale-claim reclaim is tens of minutes out
+ * (`TURN_STALE_MS` in `ChatSession.ts`). Unbounded, a POST to Autumn that never answers is a way
+ * for a third party's outage to wedge a conversation.
+ *
+ * On timeout the request is abandoned rather than aborted: it may still land, and if it does not,
+ * one turn goes unbilled. That is the trade the tracker already makes for a failed request.
+ */
+const METERING_TIMEOUT = "5 seconds"
+
+/** Stable copy for the durable/browser event; detailed causes stay server-side. */
+const CHAT_TURN_FAILED = "Maple couldn't complete this response."
+const NO_DIAGNOSIS_MESSAGE = "Maple ended this investigation without a diagnosis."
+/** What the row records when the pass and its close-out both ended in prose or on an error. */
+const NO_DIAGNOSIS_ERROR = "no_diagnosis: the agent ended its pass without submitting a diagnosis; retry"
+const NO_REVIEW_MESSAGE = "Maple ended this review without a report."
+const NO_REPLY_MESSAGE = "Maple ended this answer without posting it."
+const NO_REPLY_ERROR = "no_reply: the agent ended its pass without submitting an answer"
+
+/**
+ * Meter what this turn spent into the org's AI usage.
+ *
+ * **One meter per turn, and this is it.** Two things used to bill the same tokens from different
+ * angles: `submit_diagnosis` billed the running total it reports to `InvestigationService`, keyed
+ * on the bare investigation id, so an investigation was charged exactly once however much it went
+ * on to cost: every follow-up turn was free, and so was any turn that errored or ran out of steps
+ * before reaching the tool. Suppressing this one in its favour lost the charge entirely, because a
+ * superseding diagnosis deduplicates against the first. So the investigation still records its
+ * tokens on the row, and this bills them, once, per turn.
+ *
+ * **Source and key follow the session.** An investigation session bills as `triage`, keyed
+ * `<investigationId>:turn-<messageId>`; every other session keys on `<sessionId>:<messageId>` and
+ * bills under its origin's profile surface. The `turn-` prefix is kept: the deleted fan-out billed
+ * `<id>:<attempt>` under this same source, and rows under those keys are still in Autumn, so an
+ * unprefixed turn id could still collide with an old attempt number and swallow a real charge.
+ * Either way the key carries the turn, so a turn that somehow ran twice still meters once, and a
+ * restarted investigation's new turn is real new spend that bills.
+ *
+ * `usage` is the turn's whole total: every model call the run made, including any the engine spent
+ * compacting, and any a sub-agent made against the parent's accumulator.
+ *
+ * **Two meters while AI credits roll out.** `ai_credits` charges each model call in dollars,
+ * priced by Autumn from the model's rates, so a cache read or a cheap model costs what it costs.
+ * The raw `ai_input_tokens` / `ai_output_tokens` counts keep running beside it for comparison.
+ *
+ * **In a finalizer, not on the happy path.** A turn that failed, was stopped, or ran out of steps
+ * is still billed for every step the provider actually served — the loop accounts a step's usage
+ * before it checks whether the turn survived. Metering follows the spend, not the outcome. (A step
+ * interrupted before the provider's terminal event reports no usage at all, so that much is
+ * unbillable rather than unbilled.)
+ *
+ * **Nothing for a turn on the org's own key.** OpenRouter bills the org for those tokens directly,
+ * so charging them here as well would bill the same spend twice.
+ */
+export const meterTurn = (
+	input: Pick<RunChatSessionTurnInput, "sessionId" | "messageId">,
+	tenant: Pick<TenantContext, "orgId">,
+	origin: ChatTurnOrigin,
+	usage: Pick<RunUsage, "input" | "output" | "charges">,
+	options: { readonly ownKey?: boolean } = {},
+): Effect.Effect<void> => {
+	if (options.ownKey === true) return Effect.void
+	if (usage.input <= 0 && usage.output <= 0) return Effect.void
+	const billing = investigationBilling(input.sessionId, input.messageId) ??
+		reviewBilling(input.sessionId, input.messageId) ?? {
+			source: profileForTurn(agentForSession(input.sessionId), origin).surface,
+			idempotencyKey: `${input.sessionId}:${input.messageId}`,
+		}
+	// Bookkeeping must never fail a delivered answer: the tracker is infallible and bounded here too.
+	// It runs as a finalizer, outside any graph that is sure to carry an HttpClient, so it brings its own.
+	return Effect.all(
+		[
+			trackAiCredits({
+				orgId: tenant.orgId,
+				spends: usage.charges,
+				idempotencyKey: billing.idempotencyKey,
+				source: billing.source,
+			}),
+			trackTokenUsage({
+				orgId: tenant.orgId,
+				inputTokens: usage.input,
+				outputTokens: usage.output,
+				idempotencyKey: billing.idempotencyKey,
+				source: billing.source,
+			}),
+		],
+		{ concurrency: "unbounded", discard: true },
+	).pipe(
+		Effect.timeout(METERING_TIMEOUT),
+		Effect.ignore,
+		// oxlint-disable-next-line effecttsgo/strict-effect-provide
+		Effect.provide(FetchHttpClient.layer),
+	)
+}
+
+/**
+ * `triage` billing coordinates for an investigation session, or `undefined` if this is not one.
+ *
+ * The `InvestigationId` decode is the same guard `buildDiagnosisCompletion` uses, so the set of
+ * sessions that bill as triage is exactly the set that gets a `submit_diagnosis` tool: an `inv-`
+ * suffix that is not a UUID is not an investigation, and must not be charged as one. It still
+ * bills — as the plain chat turn it is.
+ */
+const investigationBilling = (
+	sessionId: string,
+	messageId: string,
+): { readonly source: "triage"; readonly idempotencyKey: string } | undefined => {
+	const investigationId = investigationForSession(sessionId)
+	if (investigationId === undefined) return undefined
+	return { source: "triage", idempotencyKey: `${investigationId}:turn-${messageId}` }
+}
+
+/** A pull request review's turn bills as `review`, keyed on the review, like an investigation's. */
+const reviewBilling = (
+	sessionId: string,
+	messageId: string,
+): { readonly source: "review"; readonly idempotencyKey: string } | undefined => {
+	const reviewId = prReviewForSession(sessionId) ?? prReplyForSession(sessionId)
+	if (reviewId === undefined) return undefined
+	return { source: "review", idempotencyKey: `${reviewId}:turn-${messageId}` }
+}
+
+/**
+ * Drive one turn to completion.
+ *
+ * Resolves as a promise because the caller is a Durable Object method, not an Effect. Failures are
+ * recorded into the log as a terminal event rather than propagated: the log is the only thing the
+ * client reads, so a turn that dies without one is indistinguishable from a turn that hung.
+ */
+export const runChatSessionTurn = async (input: RunChatSessionTurnInput): Promise<void> => {
+	const origin = input.origin
+
+	const [
+		{ InvestigationServicesLive },
+		{ DatabasePgLive },
+		{ layerMapleDbConnection },
+		{
+			layerDecisionModelFromConfig,
+			FindingEmbedderFromConfigLive,
+			layerLlmFromConfig,
+			layerOpenRouterClient,
+			loadLlmSettings,
+			resolveReviewModel,
+			resolveTriageModel,
+			withOrgOpenRouterKey,
+		},
+		{ McpToolExecutor },
+		{ withSandboxBreaker },
+	] = await Promise.all([
+		import("../runtime/mcp-service-graph"),
+		import("@maple/backend/platform/DatabasePgLive"),
+		import("@maple/backend/platform/pg-connection-source"),
+		import("../platform/Llm"),
+		import("../mcp/dispatcher"),
+		import("./sandbox-breaker"),
+	])
+	const { InvestigationService } = await import("@maple/backend/services/errors/InvestigationService")
+	const { PrReviewService } = await import("@maple/backend/services/pr-review/PrReviewService")
+	const { PrReviewConversationService } =
+		await import("@maple/backend/services/pr-review/PrReviewConversationService")
+	const { OrgOpenRouterKeyService } = await import("@maple/backend/services/org/OrgOpenRouterKeyService")
+
+	const runtime = ManagedRuntime.make(
+		InvestigationServicesLive.pipe(
+			Layer.provideMerge(layerDecisionModelFromConfig(input.workersAi)),
+			// Read by `PrReviewService` as it is built: the review's feedback filter.
+			Layer.provideMerge(FindingEmbedderFromConfigLive),
+			Layer.provideMerge(layerLlmFromConfig(input.workersAi)),
+			Layer.provideMerge(DatabasePgLive),
+			Layer.provideMerge(layerMapleDbConnection(input.env)),
+			Layer.provideMerge(envPorts(input.env)),
+			Layer.provideMerge(chatSessionsLayerIfBound(input.chatSessions, input.env)),
+			Layer.provideMerge(ReturnedToolFailuresOkLive.pipe(Layer.provideMerge(telemetry.layer))),
+		),
+	)
+
+	const tenant = toTenantContext(input.tenant, origin)
+	// One answer for the model's tags and the turn span, the same one the toolkit is built from.
+	// `meterTurn` resolves its own because it runs as a finalizer and is separately exported.
+	const agent = agentForSession(input.sessionId)
+	const surface = profileForTurn(agent, origin).surface
+	const observability = makeTurnObservability()
+	// Hoisted out of the program: `submit_diagnosis` reads it mid-run — the tool is invoked mid-run
+	// so there is no later moment to hand it a total — and the metering finalizer reads it after the
+	// turn has ended, including when it ended by failing.
+	const usage = makeRunUsage()
+	let recordedTerminal = false
+	// `empty_output` and `recovery_count` are gone with the machinery that produced them: they
+	// counted the old loop's own repair attempts, and the engine has no equivalent to report.
+	const annotateTurn = () => Effect.annotateCurrentSpan(turnSpanAttributes(observability, input.signal))
+
+	const investigationId = investigationForSession(input.sessionId)
+	const prReviewId = prReviewForSession(input.sessionId)
+	const prReplyId = prReplyForSession(input.sessionId)
+
+	const turnBody = (orgKey: Option.Option<Redacted.Redacted<string>>) =>
+		Effect.gen(function* () {
+			const investigations = yield* InvestigationService
+			const reviews = yield* PrReviewService
+			const conversations = yield* PrReviewConversationService
+			// Shared by the kickoff's clone, every pass of the turn and its review_files children.
+			const toolExecutor = yield* withSandboxBreaker(yield* McpToolExecutor)
+			const runTenant = yield* turnTenant(tenant, origin).pipe(
+				// The asker's linked Maple user may not read this org: nothing runs, and the message
+				// is the only thing that tells them why.
+				Effect.catchTag("@maple/ai/LinkedUserNotPermitted", (refusal) =>
+					Effect.sync(() => {
+						observability.outcome = "error"
+						observability.failureReason = `LinkedUserNotPermitted:${refusal.reason}`
+						input.session.append({
+							type: "turn-end",
+							messageId: input.messageId,
+							reason: "error",
+							error: refusal.message,
+						})
+						recordedTerminal = true
+						return undefined
+					}),
+				),
+			)
+			if (runTenant === undefined) return yield* annotateTurn()
+			if (prReviewId !== undefined && input.abandoned === true) {
+				observability.outcome = "abandoned"
+				yield* reviews
+					.failReview(tenant.orgId, prReviewId, reviewFailureError("interrupted"))
+					.pipe(
+						Effect.catchCause((cause) =>
+							Effect.logError("Could not record the abandoned review", cause),
+						),
+					)
+				yield* annotateTurn()
+				return
+			}
+			// The dead attempt may have filed its report, or a newer head superseded it, before the
+			// object went down: then there is nothing left to run.
+			if (prReviewId !== undefined && input.resume !== undefined) {
+				yield* Effect.annotateCurrentSpan("maple.pr_review.resume_attempt", input.resume.attempt)
+				// An unreadable row reviews anyway: the row's own guards still refuse a second report.
+				const current = yield* reviews
+					.getReview(tenant.orgId, prReviewId)
+					.pipe(
+						Effect.catchCause((cause) =>
+							Effect.logWarning(
+								"Could not read the review being resumed; reviewing anyway",
+								cause,
+							).pipe(Effect.as(Option.none())),
+						),
+					)
+				const settled = Option.match(current, {
+					onNone: () => false,
+					onSome: (review) => review.status !== "queued" && review.status !== "running",
+				})
+				if (settled) {
+					observability.outcome = "resume_skipped"
+					input.session.append({ type: "turn-end", messageId: input.messageId, reason: "stop" })
+					recordedTerminal = true
+					yield* annotateTurn()
+					return
+				}
+			}
+			// Clone the commit while the model reads the diff, rather than when its first source tool
+			// asks and waits on it. A child of the turn (no request Scope here, so `forkRequestScoped`
+			// parents it on this fiber): a clone still running when the turn ends carries on in the container.
+			if (prReviewId !== undefined) {
+				yield* reviews.reviewTarget(tenant.orgId, prReviewId).pipe(
+					Effect.flatMap(
+						Option.match({
+							onNone: () => Effect.void,
+							onSome: (target) =>
+								toolExecutor.prepareRepository(runTenant, {
+									repository: target.repository,
+									ref: target.headSha,
+								}),
+						}),
+					),
+					Effect.catch((error) =>
+						Effect.logInfo("Could not prepare the review's checkout").pipe(
+							Effect.annotateLogs({ sessionId: input.sessionId, error: error.message }),
+						),
+					),
+					forkRequestScoped,
+				)
+			}
+			// An investigation picks its commit from telemetry mid-pass, so warm the repositories it
+			// could read instead: the deployed commit then clones from a filled mirror in seconds.
+			if (investigationId !== undefined) {
+				yield* forkRequestScoped(toolExecutor.prepareConnectedRepositories(runTenant))
+			}
+			const history = input.session.history()
+			const tags = { surface, orgId: tenant.orgId, sessionId: input.sessionId, turnId: input.messageId }
+			const deploySettings = yield* loadLlmSettings
+			// An org on its own OpenRouter key runs every model call of the turn on it.
+			const settings = Option.match(orgKey, {
+				onNone: () => deploySettings,
+				onSome: (apiKey) => withOrgOpenRouterKey(deploySettings, apiKey),
+			})
+			// Rebuilt from the turn's settings so the org's key, when there is one, replaces the runtime's.
+			const openRouterClient = layerOpenRouterClient(settings)
+			const model = yield* Match.value(agent.model).pipe(
+				Match.when("triage", () =>
+					Effect.succeed(
+						resolveTriageModel(settings, tags, isAutonomousTurn(input.sessionId, origin)),
+					),
+				),
+				Match.when("review", () =>
+					reviews
+						.reviewModel(tenant.orgId)
+						.pipe(Effect.map((chosen) => resolveReviewModel(settings, tags, chosen))),
+				),
+				Match.exhaustive,
+			)
+
+			// The session recorded the user's message before the run started, so the transcript's tail is
+			// this run's input rather than part of its history.
+			// Read once: it is a SQL scan plus a decode, and it is a read-only snapshot.
+			const spoken = history.filter((message) => message.text.trim() !== "")
+			const latest = spoken.at(-1)
+			// Unbound (a stage without Dynamic Workers), the agents run without `run_code`. Imported only
+			// when bound: the adapter needs `cloudflare:workers`, which nothing outside workerd resolves.
+			// A failed import is logged and the turn runs without the tool, never fails over it.
+			const codeLoader = yield* CodeLoader
+			const codeExecutor =
+				agent.codeMode !== true || Option.isNone(codeLoader)
+					? undefined
+					: yield* Effect.tryPromise(
+							() => import("@yielded/agent-platform-cloudflare/cloudflare-code-mode"),
+						).pipe(
+							Effect.map(({ dynamicWorkerCodeExecutorLayer }) =>
+								dynamicWorkerCodeExecutorLayer({ loader: codeLoader.value }),
+							),
+							Effect.catch((error) =>
+								Effect.logWarning(
+									"run_code unavailable: the code executor failed to load",
+								).pipe(Effect.annotateLogs({ cause: String(error) }), Effect.as(undefined)),
+							),
+						)
+			// A restarted turn reads from its kickoff: what came after it is the attempt that died.
+			const kickoff =
+				input.resume === undefined
+					? -1
+					: spoken.findIndex(
+							(message) =>
+								message.role === "user" && message.id === input.resume?.userMessageId,
+						)
+			const text = input.resume?.text ?? (latest?.role === "user" ? latest.text : "")
+			const prior =
+				input.resume !== undefined
+					? spoken.slice(0, kickoff === -1 ? spoken.length : kickoff)
+					: latest?.role === "user"
+						? spoken.slice(0, -1)
+						: spoken
+			const autonomous = isAutonomousTurn(input.sessionId, origin)
+			// One per review turn: the close-out sees what the pass read and keeps what it saved.
+			const review =
+				prReviewId !== undefined && autonomous
+					? { coverage: makeReviewCoverage(text), ledger: makeReviewLedger() }
+					: undefined
+			// The autonomous pass's tool calls show on the investigation row until its report is on its way. A failed write is logged and dropped: it is only a feed.
+			const investigationFeed =
+				investigationId !== undefined && autonomous
+					? yield* makeProgressFeed({
+							label: stepLabel,
+							heartbeat: INVESTIGATION_PROGRESS_HEARTBEAT,
+							write: (record) =>
+								investigations.recordProgress(tenant.orgId, investigationId, record).pipe(
+									Effect.catch((error) =>
+										Effect.logWarning("Could not record investigation progress").pipe(
+											Effect.annotateLogs({
+												investigationId,
+												error: error.message,
+											}),
+										),
+									),
+								),
+						})
+					: undefined
+			// The tail lands while the row is still active, and the report's own write lands last. A
+			// report that does not land hands the row back to the feed, since the pass goes on.
+			const beforeReport = <A, E>(submit: Effect.Effect<A, E>) =>
+				investigationFeed === undefined
+					? submit
+					: investigationFeed.flush.pipe(
+							Effect.andThen(investigationFeed.pause),
+							Effect.andThen(submit),
+							Effect.onError(() => investigationFeed.resume),
+						)
+			const closeFeeds =
+				investigationFeed === undefined
+					? Effect.void
+					: investigationFeed.flush.pipe(Effect.andThen(investigationFeed.close))
+			// Why the pass, or else its close-out, stopped; the first reason is the one the PR is told.
+			let failure: PrReviewFailureReason | undefined
+			const holdsTurn = () => input.session.holdsTurn(input.messageId)
+			// An autonomous pass ends when the runner says so, not when a run does: a run that stopped
+			// in prose or died on a model error gets one close-out turn first, so its terminal is held
+			// back until the outcome is known.
+			let held: Extract<ChatTurnEvent, { readonly type: "turn-end" }> | undefined
+			const run = (turn: {
+				readonly text: string
+				readonly history: ReadonlyArray<ChatMessage>
+				readonly closeOut?: boolean
+			}) =>
+				runChatTurn({
+					sessionId: input.sessionId,
+					messageId: input.messageId,
+					tenant: runTenant,
+					origin,
+					toolExecutor,
+					model,
+					submitDiagnosis: (orgId, id, request) =>
+						beforeReport(investigations.submitDiagnosis(orgId, id, request)),
+					submitReview: (orgId, reviewId, request) =>
+						beforeReport(reviews.submitReview(orgId, reviewId, request)),
+					submitReply: conversations.submitReply,
+					stageEdit: conversations.stageEdit,
+					...(turn.closeOut === true ? { closeOut: true } : undefined),
+					...(review === undefined ? undefined : { review }),
+					...(codeExecutor === undefined ? undefined : { codeExecutor }),
+					text: turn.text,
+					history: turn.history,
+					usage,
+					// An abort clears the claim; the run notices at the next event rather than streaming into
+					// a conversation that has moved on.
+					holdsTurn,
+					append: (event) => {
+						// The report call is the run ending, not a step of it.
+						if (
+							event.type === "tool-call" &&
+							event.proposed !== true &&
+							event.name !== SUBMIT_DIAGNOSIS &&
+							event.name !== SUBMIT_REVIEW
+						) {
+							investigationFeed?.step(event.name, parseToolInput(event.input))
+						}
+						if (event.type === "turn-end" && event.task === undefined) {
+							observability.outcome = event.reason
+							if (autonomous && event.reason !== "aborted") {
+								held = event
+								return
+							}
+							recordedTerminal = true
+						}
+						input.session.append(event)
+					},
+					// oxlint-disable-next-line effecttsgo/strict-effect-provide
+				}).pipe(Effect.provide(openRouterClient))
+
+			// A pass that failed is a pass with no diagnosis yet, not a dead turn: the close-out below
+			// still gets its say. Interrupts stay interrupts.
+			const recoverAutonomousFailure = <R>(effect: Effect.Effect<ChatRunOutcome, unknown, R>) =>
+				effect.pipe(
+					Effect.catchCause((cause) =>
+						Cause.hasInterruptsOnly(cause)
+							? Effect.failCause(cause)
+							: Effect.sync(() => {
+									failure ??= reviewFailureReason(cause, { ownKey: Option.isSome(orgKey) })
+								}).pipe(
+									Effect.andThen(
+										Effect.logWarning("Autonomous pass failed; closing it out"),
+									),
+									Effect.annotateLogs({
+										sessionId: input.sessionId,
+										messageId: input.messageId,
+										cause: summarizeCause(cause),
+									}),
+									Effect.as<ChatRunOutcome>({
+										autonomous: true,
+										submitted: false,
+										compactions: 0,
+									}),
+								),
+					),
+				)
+
+			if (!autonomous) {
+				observability.compactions = (yield* run({ text, history: prior })).compactions
+				if (!recordedTerminal && !holdsTurn()) observability.outcome = "aborted"
+				yield* annotateTurn()
+				return
+			}
+
+			const first = yield* recoverAutonomousFailure(run({ text, history: prior }))
+			observability.compactions = first.compactions
+			let submitted = first.submitted
+			// Exhausted rather than failed: the engine's final answer ended in prose, not a report.
+			if (!submitted && held?.reason === "max-steps") failure ??= "step_limit"
+			if (!submitted && holdsTurn()) {
+				held = undefined
+				const closeOut = yield* recoverAutonomousFailure(
+					run({
+						text:
+							prReplyId !== undefined
+								? PR_REPLY_CLOSE_OUT_PROMPT
+								: prReviewId === undefined
+									? CLOSE_OUT_PROMPT
+									: PR_REVIEW_CLOSE_OUT_PROMPT,
+						history: withToolTranscript(input.session.history()),
+						closeOut: true,
+					}),
+				)
+				observability.compactions = (observability.compactions ?? 0) + closeOut.compactions
+				submitted = closeOut.submitted
+				yield* Effect.annotateCurrentSpan(
+					prReplyId !== undefined
+						? "maple.pr_reply.closed_out"
+						: prReviewId === undefined
+							? "maple.investigation.closed_out"
+							: "maple.pr_review.closed_out",
+					submitted,
+				)
+			}
+
+			yield* closeFeeds
+
+			if (holdsTurn()) {
+				if (!submitted && investigationId !== undefined) {
+					observability.failureReason = "NoDiagnosis"
+					yield* investigations
+						.failInvestigation(tenant.orgId, investigationId, NO_DIAGNOSIS_ERROR)
+						.pipe(
+							Effect.catchCause((cause) =>
+								Effect.logError("Could not record the failed pass", cause),
+							),
+						)
+				}
+				if (!submitted && prReplyId !== undefined) {
+					observability.failureReason = "NoReply"
+					yield* conversations
+						.failReply(tenant.orgId, prReplyId, NO_REPLY_ERROR)
+						.pipe(
+							Effect.catchCause((cause) =>
+								Effect.logError("Could not record the failed reply", cause),
+							),
+						)
+				}
+				// Findings the pass saved are posted as a partial rather than lost with the report.
+				const saved = review?.ledger.findings() ?? []
+				if (!submitted && prReviewId !== undefined && review !== undefined && saved.length > 0) {
+					submitted = yield* reviews
+						.submitReview(
+							tenant.orgId,
+							prReviewId,
+							savedFindingsRequest({
+								findings: saved,
+								unreviewed: review.coverage.unread(),
+								modelName: model.name,
+								usage,
+							}),
+						)
+						.pipe(
+							Effect.as(true),
+							Effect.catchCause((cause) =>
+								Effect.logError("Could not file the saved findings", cause).pipe(
+									Effect.as(false),
+								),
+							),
+						)
+					yield* Effect.annotateCurrentSpan("maple.pr_review.filed_saved_findings", submitted)
+				}
+				if (!submitted && prReviewId !== undefined) {
+					observability.failureReason = "NoReview"
+					yield* Effect.annotateCurrentSpan(
+						"maple.pr_review.failure_reason",
+						failure ?? "no_report",
+					)
+					yield* reviews
+						.failReview(tenant.orgId, prReviewId, reviewFailureError(failure ?? "no_report"))
+						.pipe(
+							Effect.catchCause((cause) =>
+								Effect.logError("Could not record the failed review", cause),
+							),
+						)
+				}
+				input.session.append(
+					submitted
+						? {
+								type: "turn-end",
+								messageId: input.messageId,
+								reason: held?.reason === "max-steps" ? "max-steps" : "stop",
+							}
+						: {
+								type: "turn-end",
+								messageId: input.messageId,
+								reason: "error",
+								error:
+									prReplyId !== undefined
+										? NO_REPLY_MESSAGE
+										: prReviewId === undefined
+											? NO_DIAGNOSIS_MESSAGE
+											: NO_REVIEW_MESSAGE,
+							},
+				)
+				recordedTerminal = true
+			} else {
+				observability.outcome = "aborted"
+			}
+			yield* annotateTurn()
+		})
+
+	const program = Effect.gen(function* () {
+		const orgKey = yield* (yield* OrgOpenRouterKeyService).resolveForRun(tenant.orgId)
+		yield* Effect.annotateCurrentSpan("maple.llm.byok", Option.isSome(orgKey))
+		return yield* turnBody(orgKey).pipe(
+			interruptOnAbort(input.signal, observability),
+			// `ensuring`, not a trailing statement: a turn that failed, was aborted, or ran out of steps
+			// still burned the tokens it burned, and the pre-`ensuring` shape billed none of them.
+			Effect.ensuring(
+				Effect.suspend(() =>
+					meterTurn(input, tenant, origin, usage, { ownKey: Option.isSome(orgKey) }),
+				),
+			),
+		)
+	}).pipe(
+		Effect.tapCause((cause) => {
+			observability.outcome = "error"
+			observability.failureReason ??= "UnhandledTurnFailure"
+			return annotateTurn().pipe(
+				Effect.andThen(
+					Effect.logError("Unhandled chat turn failure").pipe(
+						Effect.annotateLogs({
+							sessionId: input.sessionId,
+							messageId: input.messageId,
+							cause: summarizeCause(cause),
+						}),
+					),
+				),
+			)
+		}),
+		Effect.withSpan("chat.turn", {
+			attributes: {
+				orgId: tenant.orgId,
+				"maple.chat.session": input.sessionId,
+				"maple.chat.message_id": input.messageId,
+				// Two values, so it groups. Without it "how many bot turns ran, and how many failed"
+				// is answerable only by substring-matching the session id.
+				"maple.chat.surface": surface,
+			},
+		}),
+	)
+
+	const exit = await runtime.runPromiseExit(program)
+	// The detailed cause belongs in server logs and the failed Effect span, never in the durable
+	// event the browser reads back.
+	if (Exit.isFailure(exit) && input.session.holdsTurn(input.messageId)) {
+		input.session.append({
+			type: "turn-end",
+			messageId: input.messageId,
+			reason: "error",
+			error: CHAT_TURN_FAILED,
+		})
+	}
+	await Effect.runPromise(releaseQuietly(runtime, () => telemetry.flush(input.env)))
+}
+
+/**
+ * Dispose the turn's runtime, then flush its spans. Best effort: the turn's outcome is already in
+ * the log, so a failed dispose or export is dropped rather than failing the caller.
+ */
+const releaseQuietly = (
+	runtime: { readonly dispose: () => Promise<void> },
+	flush: () => Promise<void>,
+): Effect.Effect<void> =>
+	Effect.tryPromise(() => runtime.dispose()).pipe(
+		Effect.ignore,
+		Effect.andThen(Effect.tryPromise(flush).pipe(Effect.ignore)),
+	)

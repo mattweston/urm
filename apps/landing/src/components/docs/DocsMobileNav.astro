@@ -1,0 +1,32 @@
+---
+// Below `lg` the sidebar folds into a disclosure above the article. Same tree
+// as the desktop sidebar — one component, two placements.
+import { getCollection } from "astro:content";
+import DocsSidebar from "./DocsSidebar.astro";
+
+interface Props {
+    currentSlug: string;
+}
+
+const { currentSlug } = Astro.props;
+
+const allDocs = await getCollection("docs", ({ data }) => !data.draft);
+const currentDoc = allDocs.find((d) => d.id === currentSlug);
+---
+
+<details class="rounded-lg border border-border lg:hidden">
+    <summary class="flex items-center justify-between px-4 py-2.5 cursor-pointer text-[13px] text-fg-muted hover:text-fg transition-colors list-none [&::-webkit-details-marker]:hidden">
+        <span class="flex min-w-0 items-baseline gap-2">
+            <span class="shrink-0">Browse the docs</span>
+            {currentDoc && (
+                <span class="truncate text-fg-muted/60" aria-hidden="true">· {currentDoc.data.navLabel ?? currentDoc.data.title}</span>
+            )}
+        </span>
+        <svg class="w-3 h-3 shrink-0 transition-transform details-open:rotate-180" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 5l3 3 3-3" />
+        </svg>
+    </summary>
+    <div class="max-h-[70vh] overflow-y-auto border-t border-border px-3 pt-4 pb-4">
+        <DocsSidebar currentSlug={currentSlug} idPrefix="docs-nav-mobile" />
+    </div>
+</details>

@@ -1,0 +1,8 @@
+---
+import ChangelogPage from "../../components/changelog/ChangelogPage.astro";
+import { getSortedReleases } from "../../lib/changelog";
+
+const releases = await getSortedReleases();
+---
+
+<ChangelogPage releases={releases} page={1} />

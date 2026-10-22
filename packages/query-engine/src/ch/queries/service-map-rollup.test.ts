@@ -1,0 +1,167 @@
+import { describe, expect, it } from "@effect/vitest"
+import { Effect } from "effect"
+import {
+	serviceMapEdgesExistingHoursSQL,
+	serviceMapEdgesRollupSQL,
+	serviceMapResolutionsExistingHoursSQL,
+	serviceMapResolutionsRollupSQL,
+	serviceMapHourSet,
+	serviceMapResolutionRepairHours,
+	serviceMapRollupCandidateHours,
+	serviceMapRollupHourParams,
+	serviceMapRollupMissingHours,
+	serviceMapRollupWindowParams,
+} from "./service-map-rollup"
+import { OrgId } from "@maple/domain"
+
+describe("service-map rollup hour planning", () => {
+	const hour = 3_600_000
+	const base = Date.UTC(2024, 0, 1, 0)
+	const candidates = serviceMapRollupCandidateHours(base, base + 3 * hour)
+
+	it("lists completed hour starts oldest first, excluding the current hour", () => {
+		expect(candidates).toEqual([base, base + hour, base + 2 * hour])
+	})
+
+	it("splits candidates into missing hours and sealed hours needing resolution repair", () => {
+		const sealed = serviceMapHourSet([{ hourTs: base / 1000 }, { hourTs: (base + hour) / 1000 }])
+		const resolved = serviceMapHourSet([{ hourTs: base / 1000 }])
+		expect(serviceMapRollupMissingHours(candidates, sealed)).toEqual([base + 2 * hour])
+		expect(serviceMapResolutionRepairHours(candidates, sealed, resolved)).toEqual([base + hour])
+	})
+
+	it("formats hour and window bounds as warehouse datetimes", () => {
+		expect(serviceMapRollupHourParams(OrgId.make("org_1"), base)).toEqual({
+			orgId: OrgId.make("org_1"),
+			hourStart: "2024-01-01 00:00:00",
+			hourEnd: "2024-01-01 01:00:00",
+		})
+		expect(serviceMapRollupWindowParams(OrgId.make("org_1"), base, base + 3 * hour)).toEqual({
+			orgId: OrgId.make("org_1"),
+			startTime: "2024-01-01 00:00:00",
+			endTime: "2024-01-01 03:00:00",
+		})
+	})
+})
+
+const hourParams = {
+	orgId: OrgId.make("org_1"),
+	hourStart: "2024-01-01 00:00:00",
+	hourEnd: "2024-01-01 01:00:00",
+}
+
+describe("service-map rollup compiled row schemas", () => {
+	it.effect("decodes existing-hour rows with numeric strings", () =>
+		Effect.gen(function* () {
+			const compiled = yield* serviceMapEdgesExistingHoursSQL({
+				orgId: OrgId.make("org_1"),
+				startTime: "2024-01-01 00:00:00",
+				endTime: "2024-01-02 00:00:00",
+			})
+
+			const rows = yield* compiled.decodeRows([{ hourTs: "1704067200" }])
+
+			expect(rows).toEqual([{ hourTs: 1704067200 }])
+		}),
+	)
+
+	it.effect("decodes edge rollup rows into the service_map_edges_hourly ingest shape", () =>
+		Effect.gen(function* () {
+			const compiled = yield* serviceMapEdgesRollupSQL(hourParams)
+
+			const rows = yield* compiled.decodeRows([
+				{
+					OrgId: "org_1",
+					Hour: "2024-01-01 00:00:00",
+					SourceService: "checkout-api",
+					TargetService: "payments-api",
+					DeploymentEnv: "production",
+					CallCount: "12",
+					ErrorCount: "1",
+					DurationSumMs: "150.5",
+					MaxDurationMs: "80",
+					SampledSpanCount: "9",
+					UnsampledSpanCount: "3",
+					SampleRateSum: "18",
+				},
+			])
+
+			expect(rows).toEqual([
+				{
+					OrgId: "org_1",
+					Hour: "2024-01-01 00:00:00",
+					SourceService: "checkout-api",
+					TargetService: "payments-api",
+					DeploymentEnv: "production",
+					CallCount: 12,
+					ErrorCount: 1,
+					DurationSumMs: 150.5,
+					MaxDurationMs: 80,
+					SampledSpanCount: 9,
+					UnsampledSpanCount: 3,
+					SampleRateSum: 18,
+				},
+			])
+		}),
+	)
+
+	it.effect(
+		"decodes address resolution rows into the service_address_resolutions_hourly ingest shape",
+		() =>
+			Effect.gen(function* () {
+				const compiled = yield* serviceMapResolutionsRollupSQL(hourParams)
+
+				const rows = yield* compiled.decodeRows([
+					{
+						OrgId: "org_1",
+						Hour: "2024-01-01 00:00:00",
+						SourceService: "checkout-api",
+						ParentServerAddress: "payments.internal",
+						ResolvedTargetService: "payments-api",
+						DeploymentEnv: "production",
+					},
+				])
+
+				expect(rows).toEqual([
+					{
+						OrgId: "org_1",
+						Hour: "2024-01-01 00:00:00",
+						SourceService: "checkout-api",
+						ParentServerAddress: "payments.internal",
+						ResolvedTargetService: "payments-api",
+						DeploymentEnv: "production",
+					},
+				])
+			}),
+	)
+})
+
+describe("service-map rollup routing", () => {
+	const windowParams = {
+		orgId: OrgId.make("org_1"),
+		startTime: "2024-01-01 00:00:00",
+		endTime: "2024-01-02 00:00:00",
+	}
+
+	it.effect("pins both seal probes to the ingest backend the rollup writes", () =>
+		Effect.gen(function* () {
+			// The rollup ingests into Tinybird unconditionally. A probe resolved as
+			// an ordinary read hits a BYO org's own (never-written) ClickHouse table,
+			// judges every hour missing, and re-ingests the same additive edge rows
+			// into Tinybird every tick — permanent double counting.
+			const edges = yield* serviceMapEdgesExistingHoursSQL(windowParams)
+			const resolutions = yield* serviceMapResolutionsExistingHoursSQL(windowParams)
+			expect(edges.route).toBe("ingest")
+			expect(resolutions.route).toBe("ingest")
+		}),
+	)
+
+	it.effect("leaves the compute rollups on the org backend where raw spans live", () =>
+		Effect.gen(function* () {
+			const edges = yield* serviceMapEdgesRollupSQL(hourParams)
+			const resolutions = yield* serviceMapResolutionsRollupSQL(hourParams)
+			expect(edges.route).toBeUndefined()
+			expect(resolutions.route).toBeUndefined()
+		}),
+	)
+})

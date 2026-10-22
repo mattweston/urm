@@ -1,0 +1,90 @@
+name: Deploy one production instance
+
+# One production instance's deploy, called per region by `deploy-prd.yml`.
+# Instances differ only in stage, GitHub/Infisical environment and AWS region.
+# The caller passes the commit: here `github.sha` is the branch head, not CI's commit.
+
+on:
+    workflow_call:
+        inputs:
+            region:
+                description: Which instance to deploy, `us` or `eu`.
+                required: true
+                type: string
+            commit-sha:
+                description: The commit being deployed, stamped onto telemetry as `vcs.ref.head.revision`.
+                required: true
+                type: string
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        # `production` / `production-eu`; Infisical uses `prod` / `prod-eu`.
+        environment: ${{ inputs.region == 'us' && 'production' || format('production-{0}', inputs.region) }}
+        env:
+            MAPLE_REGION: ${{ inputs.region }}
+            # alchemy keys state by stage, so `prd` and `prd-eu` never share a plan.
+            MAPLE_STAGE: ${{ inputs.region == 'us' && 'prd' || format('prd-{0}', inputs.region) }}
+            INFISICAL_ENV_SLUG: ${{ inputs.region == 'us' && 'prod' || format('prod-{0}', inputs.region) }}
+            # Must match `resolveAwsRegion` for the instance; the stack refuses a mismatch.
+            AWS_REGION: ${{ inputs.region == 'us' && 'us-east-1' || 'eu-central-1' }}
+            API_HOST: ${{ inputs.region == 'us' && 'api.maple.dev' || format('api.{0}.maple.dev', inputs.region) }}
+            # Stamped onto telemetry as `vcs.ref.head.revision` (server and web build).
+            COMMIT_SHA: ${{ inputs.commit-sha }}
+            VITE_COMMIT_SHA: ${{ inputs.commit-sha }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+              with:
+                  ref: ${{ inputs.commit-sha }}
+
+            # Toolchain, Infisical, AWS OIDC (after Infisical so it wins), deps, ingest binary.
+            - name: Deploy setup
+              id: setup
+              uses: ./.github/actions/deploy-setup
+              with:
+                  infisical-env-slug: ${{ env.INFISICAL_ENV_SLUG }}
+                  infisical-identity-id: ${{ secrets.INFISICAL_MACHINE_IDENTITY_ID }}
+                  infisical-project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+                  aws-role-arn: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+                  aws-region: ${{ env.AWS_REGION }}
+
+            # Schema migrations run in this deploy (`Planetscale.PostgresBranch`), using the
+            # PLANETSCALE_* credentials from Infisical.
+
+            # AWS_ACCOUNT_ID skips alchemy's STS account lookup, which self-deadlocks under CI=true (#378).
+            # One pass, no retry: the stack validates its own ACM certificates.
+            - name: Deploy the ${{ inputs.region }} instance with Alchemy
+              id: deploy
+              run: bun run alchemy:deploy:prd
+              env:
+                  AWS_ACCOUNT_ID: ${{ steps.setup.outputs.aws-account-id }}
+
+            # alchemy isolates per-Worker failures, so a deploy can leave prod on two commits.
+            # Runs on failure too, to name the stale Worker. Other Workers are covered by the
+            # "Prod revision skew" alert (`PRD_LOCKSTEP_REVISION_SERVICES` in packages/infra/src/env.ts).
+            - name: Verify the deployed api serves this commit
+              if: ${{ always() && steps.deploy.outcome != 'skipped' }}
+              env:
+                  EXPECTED: ${{ env.COMMIT_SHA }}
+              run: |
+                  set -uo pipefail
+                  # Retry: a new script takes a few seconds to propagate.
+                  for attempt in 1 2 3 4 5 6; do
+                      served=$(curl -fsS --max-time 10 -D - -o /dev/null "https://$API_HOST/health" 2>/dev/null \
+                          | tr -d '\r' | awk 'tolower($1) == "x-maple-revision:" { print $2 }')
+                      [ "$served" = "$EXPECTED" ] && break
+                      echo "attempt $attempt: api serves '${served:-<none>}', expected '$EXPECTED'"
+                      sleep 10
+                  done
+                  if [ "$served" = "$EXPECTED" ]; then
+                      echo "api ($API_HOST) is serving $EXPECTED"
+                      exit 0
+                  fi
+                  if [ -z "$served" ]; then
+                      echo "::error::api /health on $API_HOST returned no x-maple-revision header. Either the Worker predates this check or it is not answering — check the deploy log for a resource that reported 'fail'."
+                  else
+                      echo "::error::PARTIAL DEPLOY — api on $API_HOST is serving $served but this run deployed $EXPECTED. The api Worker did not update; other Workers likely did. Find the resource that reported 'fail' in the deploy log above."
+                  fi
+                  exit 1

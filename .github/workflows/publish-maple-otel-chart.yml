@@ -1,0 +1,28 @@
+name: Publish Maple OTel Chart
+
+on:
+    workflow_dispatch:
+    push:
+        tags:
+            - "maple-otel-v*"
+
+permissions:
+    contents: read
+    packages: write
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        environment: publish-charts
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+            - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+            - name: Publish chart to GHCR
+              env:
+                  HELM_REGISTRY_USERNAME: ${{ github.actor }}
+                  HELM_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+                  HELM_REGISTRY_OWNER: ${{ github.repository_owner }}
+              run: ./scripts/publish-maple-otel-chart.sh

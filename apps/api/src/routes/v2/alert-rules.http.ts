@@ -1,0 +1,647 @@
+import { HttpApiBuilder } from "effect/http-api"
+import type {
+	AlertCheckDocument,
+	AlertRuleDocument,
+	AlertRulePreviewResponse,
+	AlertThreshold,
+	AlertThresholds,
+} from "@maple/domain/http"
+import {
+	AlertRulePreviewRequest,
+	AlertRuleUpsertRequest,
+	AlertRuleNotFoundError,
+	CurrentTenant,
+	IsoDateTimeString,
+	isRangeComparator,
+	QueryBuilderQueryDraftSchema,
+} from "@maple/domain/http"
+import type {
+	V2AlertCheck,
+	V2AlertRule,
+	V2AlertRuleCreateParams,
+	V2AlertRuleMutationResponse,
+	V2AlertRulePreviewResult,
+	V2AlertRuleUpdateParams,
+} from "@maple/domain/http/v2"
+import {
+	fromV2Threshold,
+	MapleApiV2,
+	paginateArray,
+	scopeAllows,
+	timestamp,
+	toV2Threshold,
+	V2ParameterInvalid,
+} from "@maple/domain/http/v2"
+import { AlertForbiddenError } from "@maple/domain/http"
+import { Array as Arr, DateTime, Effect, Option, Result, Schema } from "effect"
+import { Base64Url } from "effect/encoding"
+import { auditDiff } from "@/routes/v2/audit-changes"
+import { recordHttpAudit } from "@maple/backend/services/audit/AuditLogService"
+import { AlertsService } from "@maple/backend/services/alerts/AlertsService"
+import { AlertReadModelsService } from "@maple/backend/services/alerts/AlertReadModelsService"
+import { AlertRulesService } from "@maple/backend/services/alerts/AlertRulesService"
+import { timestampMs } from "@maple/backend/platform/time"
+
+const decodeIsoDateTime = Schema.decodeUnknownSync(IsoDateTimeString)
+const decodeChecksCursorParts = Schema.decodeUnknownOption(
+	Schema.fromJsonString(Schema.Tuple([Schema.String, Schema.String])),
+)
+
+const encodeChecksCursor = (check: AlertCheckDocument): string =>
+	`chk_${Base64Url.encode(JSON.stringify([check.timestamp, check.groupKey]))}`
+
+const decodeChecksCursor = (value: string | undefined) => {
+	if (value === undefined) return Effect.succeed<readonly [string, string] | undefined>(undefined)
+	if (!value.startsWith("chk_")) {
+		return Effect.fail(V2ParameterInvalid.make("Invalid pagination cursor.", { param: "cursor" }))
+	}
+	const decoded = Base64Url.decodeString(value.slice(4))
+	if (Result.isFailure(decoded)) {
+		return Effect.fail(V2ParameterInvalid.make("Invalid pagination cursor.", { param: "cursor" }))
+	}
+	return Option.match(
+		decodeChecksCursorParts(decoded.success).pipe(
+			Option.filter(([ts]) => Number.isFinite(timestampMs(ts))),
+		),
+		{
+			onNone: () =>
+				Effect.fail(V2ParameterInvalid.make("Invalid pagination cursor.", { param: "cursor" })),
+			onSome: (parts) => Effect.succeed(parts),
+		},
+	)
+}
+
+const toV2Rule = (doc: AlertRuleDocument): V2AlertRule => ({
+	id: doc.id,
+	object: "alert_rule",
+	name: doc.name,
+	notes: doc.notes,
+	notification_template: doc.notificationTemplate,
+	enabled: doc.enabled,
+	severity: doc.severity,
+	thresholds: Arr.map(doc.thresholds, toV2Threshold),
+	service_names: doc.serviceNames,
+	exclude_service_names: doc.excludeServiceNames,
+	environments: doc.environments,
+	tags: doc.tags,
+	group_by: doc.groupBy,
+	signal_type: doc.signalType,
+	comparator: doc.comparator,
+	threshold: doc.threshold,
+	threshold_upper: doc.thresholdUpper,
+	window_minutes: doc.windowMinutes,
+	evaluation_interval_minutes: doc.evaluationIntervalMinutes,
+	slowed_interval_minutes: doc.slowedIntervalMinutes,
+	slowed_at: doc.slowedAt,
+	minimum_sample_count: doc.minimumSampleCount,
+	consecutive_breaches_required: doc.consecutiveBreachesRequired,
+	breaches_out_of: doc.breachesOutOf,
+	consecutive_healthy_required: doc.consecutiveHealthyRequired,
+	renotify_interval_minutes: doc.renotifyIntervalMinutes,
+	apdex_threshold_ms: doc.apdexThresholdMs,
+	query_builder_draft: doc.queryBuilderDraft,
+	raw_query_sql: doc.rawQuerySql,
+	raw_query_reducer: doc.rawQueryReducer,
+	destination_ids: doc.destinationIds,
+	no_data_behavior: doc.noDataBehavior,
+	alert_on_no_data: doc.noDataBehavior === "alert",
+	last_evaluation_error: doc.lastEvaluationError,
+	last_evaluation_error_kind: doc.lastEvaluationErrorKind,
+	last_evaluated_at: doc.lastEvaluatedAt,
+	last_scheduled_at: doc.lastScheduledAt,
+	created_at: doc.createdAt,
+	updated_at: doc.updatedAt,
+	created_by: doc.createdBy,
+	updated_by: doc.updatedBy,
+})
+
+/** Update-payload fields diffable through the wire shape (drafts get summarized). */
+const ruleAuditDiff = auditDiff<keyof V2AlertRuleUpdateParams & keyof V2AlertRule>({
+	fields: [
+		"name",
+		"notes",
+		"notification_template",
+		"enabled",
+		"thresholds",
+		"severity",
+		"service_names",
+		"exclude_service_names",
+		"environments",
+		"tags",
+		"group_by",
+		"signal_type",
+		"comparator",
+		"threshold",
+		"threshold_upper",
+		"window_minutes",
+		"evaluation_interval_minutes",
+		"minimum_sample_count",
+		"consecutive_breaches_required",
+		"breaches_out_of",
+		"consecutive_healthy_required",
+		"renotify_interval_minutes",
+		"apdex_threshold_ms",
+		"query_builder_draft",
+		"raw_query_sql",
+		"raw_query_reducer",
+		"alert_on_no_data",
+		"destination_ids",
+	],
+	// Query drafts and raw SQL are config blobs — audit that they changed, not their bodies.
+	summarize: { query_builder_draft: "<updated>", raw_query_sql: "<updated>" },
+})
+
+const toV2RuleMutationResponse = (doc: AlertRuleDocument): V2AlertRuleMutationResponse => ({
+	...toV2Rule(doc),
+	...(doc.txid !== undefined ? { txid: doc.txid } : undefined),
+})
+
+const toV2Check = (check: AlertCheckDocument): V2AlertCheck => ({
+	object: "alert_check",
+	timestamp: check.timestamp,
+	group_key: check.groupKey,
+	status: check.status,
+	skip_reason: check.skipReason,
+	signal_type: check.signalType,
+	comparator: check.comparator,
+	threshold: check.threshold,
+	threshold_upper: check.thresholdUpper,
+	observed_value: check.observedValue,
+	sample_count: check.sampleCount,
+	window_minutes: check.windowMinutes,
+	window_start: check.windowStart,
+	window_end: check.windowEnd,
+	consecutive_breaches: check.consecutiveBreaches,
+	consecutive_healthy: check.consecutiveHealthy,
+	incident_id: check.incidentId,
+	incident_transition: check.incidentTransition,
+	level: check.level,
+	evaluation_duration_ms: check.evaluationDurationMs,
+	error_message: check.errorMessage,
+	error_category: check.errorCategory,
+})
+
+/**
+ * The wire draft is an opaque JSON document (keys pass through verbatim);
+ * validate it against the real draft schema before it reaches the service.
+ */
+const decodeDraft = (draft: Record<string, unknown>) =>
+	Schema.decodeUnknownEffect(QueryBuilderQueryDraftSchema)(draft).pipe(
+		Effect.mapError(() =>
+			V2ParameterInvalid.make("query_builder_draft is not a valid query-builder draft document.", {
+				param: "query_builder_draft",
+			}),
+		),
+	)
+
+const toUpsertRequest = (
+	params: V2AlertRuleCreateParams,
+): Effect.Effect<AlertRuleUpsertRequest, ReturnType<typeof V2ParameterInvalid.make>> =>
+	Effect.gen(function* () {
+		const draftField =
+			params.query_builder_draft === undefined
+				? {}
+				: params.query_builder_draft === null
+					? { queryBuilderDraft: null }
+					: { queryBuilderDraft: yield* decodeDraft(params.query_builder_draft) }
+		return new AlertRuleUpsertRequest({
+			name: params.name,
+			signalType: params.signal_type,
+			comparator: params.comparator,
+			windowMinutes: params.window_minutes,
+			...(params.thresholds !== undefined
+				? { thresholds: Arr.map(params.thresholds, fromV2Threshold) }
+				: undefined),
+			...(params.severity !== undefined ? { severity: params.severity } : undefined),
+			...(params.threshold !== undefined ? { threshold: params.threshold } : undefined),
+			...(params.destination_ids !== undefined
+				? { destinationIds: params.destination_ids }
+				: undefined),
+			...(params.breaches_out_of !== undefined ? { breachesOutOf: params.breaches_out_of } : undefined),
+			...(params.evaluation_interval_minutes !== undefined
+				? { evaluationIntervalMinutes: params.evaluation_interval_minutes }
+				: undefined),
+			...(params.notes !== undefined ? { notes: params.notes } : undefined),
+			...(params.notification_template !== undefined
+				? {
+						notificationTemplate: params.notification_template,
+					}
+				: undefined),
+			...(params.enabled !== undefined ? { enabled: params.enabled } : undefined),
+			...(params.service_names !== undefined ? { serviceNames: params.service_names } : undefined),
+			...(params.exclude_service_names !== undefined
+				? {
+						excludeServiceNames: params.exclude_service_names,
+					}
+				: undefined),
+			...(params.environments !== undefined ? { environments: params.environments } : undefined),
+			...(params.tags !== undefined ? { tags: params.tags } : undefined),
+			...(params.group_by !== undefined ? { groupBy: params.group_by } : undefined),
+			...(params.threshold_upper !== undefined
+				? { thresholdUpper: params.threshold_upper }
+				: undefined),
+			...(params.minimum_sample_count !== undefined
+				? {
+						minimumSampleCount: params.minimum_sample_count,
+					}
+				: undefined),
+			...(params.alert_on_no_data !== undefined
+				? { alertOnNoData: params.alert_on_no_data }
+				: undefined),
+			...(params.consecutive_breaches_required !== undefined
+				? {
+						consecutiveBreachesRequired: params.consecutive_breaches_required,
+					}
+				: undefined),
+			...(params.consecutive_healthy_required !== undefined
+				? {
+						consecutiveHealthyRequired: params.consecutive_healthy_required,
+					}
+				: undefined),
+			...(params.renotify_interval_minutes !== undefined
+				? {
+						renotifyIntervalMinutes: params.renotify_interval_minutes,
+					}
+				: undefined),
+			...(params.apdex_threshold_ms !== undefined
+				? { apdexThresholdMs: params.apdex_threshold_ms }
+				: undefined),
+			...(params.raw_query_sql !== undefined ? { rawQuerySql: params.raw_query_sql } : undefined),
+			...(params.raw_query_reducer !== undefined
+				? { rawQueryReducer: params.raw_query_reducer }
+				: undefined),
+			...draftField,
+		})
+	})
+
+/**
+ * `thresholds` replaces the tiers; single-threshold fields edit a one-tier rule in place and
+ * are rejected on two tiers. A stored range bound is dropped when the comparator stops being a range.
+ */
+const mergeThresholds = (
+	doc: AlertRuleDocument,
+	patch: V2AlertRuleUpdateParams,
+	comparator: AlertRuleDocument["comparator"],
+): Effect.Effect<AlertThresholds, ReturnType<typeof V2ParameterInvalid.make>> => {
+	const fitBound = (tier: AlertThreshold): AlertThreshold =>
+		isRangeComparator(comparator) ? tier : { ...tier, upper: null }
+	if (patch.thresholds !== undefined) {
+		return Effect.succeed(Arr.map(patch.thresholds, fromV2Threshold))
+	}
+	// Legacy fields echoed back as read (a client PATCHing the document it fetched) are not edits.
+	const echoed = {
+		severity: patch.severity === doc.severity,
+		threshold: patch.threshold === doc.threshold,
+		threshold_upper: patch.threshold_upper === doc.thresholdUpper,
+		destination_ids:
+			patch.destination_ids !== undefined &&
+			patch.destination_ids.length === doc.destinationIds.length &&
+			patch.destination_ids.every((id) => doc.destinationIds.includes(id)),
+	}
+	const legacyKeys = (["severity", "threshold", "threshold_upper", "destination_ids"] as const).filter(
+		(key) => patch[key] !== undefined && !echoed[key],
+	)
+	if (legacyKeys.length === 0) return Effect.succeed(Arr.map(doc.thresholds, fitBound))
+	const [only, ...rest] = doc.thresholds
+	if (rest.length > 0) {
+		return Effect.fail(
+			V2ParameterInvalid.make(
+				`This rule has severity tiers; update \`thresholds\` instead of \`${legacyKeys[0]}\`.`,
+				{ param: legacyKeys[0] },
+			),
+		)
+	}
+	return Effect.succeed(
+		Arr.of({
+			...fitBound(only),
+			severity: patch.severity ?? only.severity,
+			value: patch.threshold ?? only.value,
+			...(patch.threshold_upper !== undefined ? { upper: patch.threshold_upper } : undefined),
+			destinationIds: patch.destination_ids ?? only.destinationIds,
+		}),
+	)
+}
+
+/**
+ * PATCH semantics over the domain full-upsert `updateRule`: overlay the fields
+ * present in the patch onto the rule's current state. Read-merge-write — no
+ * version check, mirroring the dashboard's behavior.
+ */
+const mergeUpsertRequest = (
+	doc: AlertRuleDocument,
+	patch: V2AlertRuleUpdateParams,
+): Effect.Effect<AlertRuleUpsertRequest, ReturnType<typeof V2ParameterInvalid.make>> =>
+	Effect.gen(function* () {
+		const signalType = patch.signal_type ?? doc.signalType
+		const comparator = patch.comparator ?? doc.comparator
+		const thresholds = yield* mergeThresholds(doc, patch, comparator)
+		const queryBuilderDraft =
+			signalType !== "builder_query"
+				? null
+				: patch.query_builder_draft === undefined
+					? doc.signalType === "builder_query"
+						? doc.queryBuilderDraft
+						: null
+					: patch.query_builder_draft === null
+						? null
+						: yield* decodeDraft(patch.query_builder_draft)
+		const rawQuerySql =
+			signalType !== "raw_query"
+				? null
+				: patch.raw_query_sql !== undefined
+					? patch.raw_query_sql
+					: doc.signalType === "raw_query"
+						? doc.rawQuerySql
+						: null
+		const rawQueryReducer =
+			signalType !== "raw_query"
+				? null
+				: patch.raw_query_reducer !== undefined
+					? patch.raw_query_reducer
+					: doc.signalType === "raw_query"
+						? doc.rawQueryReducer
+						: null
+		return new AlertRuleUpsertRequest({
+			name: patch.name ?? doc.name,
+			notes: patch.notes !== undefined ? patch.notes : doc.notes,
+			notificationTemplate:
+				patch.notification_template !== undefined
+					? patch.notification_template
+					: doc.notificationTemplate,
+			enabled: patch.enabled ?? doc.enabled,
+			thresholds,
+			serviceNames: patch.service_names ?? doc.serviceNames,
+			excludeServiceNames: patch.exclude_service_names ?? doc.excludeServiceNames,
+			environments: patch.environments ?? doc.environments,
+			tags: patch.tags ?? doc.tags,
+			groupBy: patch.group_by !== undefined ? patch.group_by : doc.groupBy,
+			signalType,
+			comparator,
+			windowMinutes: patch.window_minutes ?? doc.windowMinutes,
+			evaluationIntervalMinutes:
+				patch.evaluation_interval_minutes !== undefined
+					? patch.evaluation_interval_minutes
+					: doc.evaluationIntervalMinutes,
+			minimumSampleCount: patch.minimum_sample_count ?? doc.minimumSampleCount,
+			consecutiveBreachesRequired:
+				patch.consecutive_breaches_required ?? doc.consecutiveBreachesRequired,
+			breachesOutOf: patch.breaches_out_of !== undefined ? patch.breaches_out_of : doc.breachesOutOf,
+			consecutiveHealthyRequired: patch.consecutive_healthy_required ?? doc.consecutiveHealthyRequired,
+			renotifyIntervalMinutes: patch.renotify_interval_minutes ?? doc.renotifyIntervalMinutes,
+			apdexThresholdMs:
+				patch.apdex_threshold_ms !== undefined ? patch.apdex_threshold_ms : doc.apdexThresholdMs,
+			queryBuilderDraft,
+			rawQuerySql,
+			rawQueryReducer,
+			alertOnNoData: patch.alert_on_no_data ?? doc.noDataBehavior === "alert",
+		})
+	})
+
+const toV2PreviewResult = (preview: AlertRulePreviewResponse): V2AlertRulePreviewResult => ({
+	object: "alert_rule.preview",
+	bucket_seconds: preview.bucketSeconds,
+	window_minutes: preview.windowMinutes,
+	threshold: preview.threshold,
+	threshold_upper: preview.thresholdUpper,
+	thresholds: Arr.map(preview.thresholds, toV2Threshold),
+	comparator: preview.comparator,
+	truncated_to_start: preview.truncatedToStart,
+	series: preview.series.map((series) => ({
+		group_key: series.groupKey,
+		points: series.points.map((point) => ({
+			bucket: point.bucket,
+			value: point.value,
+			sample_count: point.sampleCount,
+			status: point.status,
+			...(point.skipReason !== undefined ? { skip_reason: point.skipReason } : undefined),
+			...(point.provisional !== undefined ? { provisional: point.provisional } : undefined),
+			...(point.level !== undefined ? { level: point.level } : undefined),
+		})),
+	})),
+	would_fire: preview.wouldFire.map((span) => ({
+		group_key: span.groupKey,
+		start: span.start,
+		end: span.end,
+		severity: span.severity,
+	})),
+	...(preview.seriesFailure === undefined ? undefined : { series_failure: preview.seriesFailure }),
+	...(preview.queryTiming === undefined
+		? undefined
+		: {
+				query_timing: {
+					elapsed_ms: preview.queryTiming.elapsedMs,
+					failure: preview.queryTiming.failure,
+					probe_limit_ms: preview.queryTiming.probeLimitMs,
+					interval_minutes: preview.queryTiming.intervalMinutes,
+					limit_ms: preview.queryTiming.limitMs,
+					fits_interval_minutes: preview.queryTiming.fitsIntervalMinutes,
+				},
+			}),
+})
+
+export const HttpV2AlertRulesLive = HttpApiBuilder.group(MapleApiV2, "alertRules", (handlers) =>
+	Effect.gen(function* () {
+		const alerts = yield* AlertsService
+		const readModels = yield* AlertReadModelsService
+		const rules = yield* AlertRulesService
+
+		const findRule = (orgId: Parameters<typeof rules.listRules>[0], ruleId: AlertRuleDocument["id"]) =>
+			Effect.gen(function* () {
+				const response = yield* rules.listRules(orgId)
+				const rule = response.rules.find((doc) => doc.id === ruleId)
+				if (rule === undefined)
+					return yield* Effect.fail(
+						new AlertRuleNotFoundError({
+							message: "No such alert rule.",
+							ruleId,
+						}),
+					)
+				return rule
+			})
+
+		return handlers
+			.handle("list", ({ query }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const response = yield* rules.listRules(tenant.orgId)
+					const page = yield* paginateArray(response.rules.map(toV2Rule), query)
+					return { object: "list" as const, ...page }
+				}),
+			)
+			.handle("retrieve", ({ params }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const rule = yield* findRule(tenant.orgId, params.id)
+					return toV2Rule(rule)
+				}),
+			)
+			.handle("create", ({ payload }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const request = yield* toUpsertRequest(payload)
+					const created = yield* rules.createRule(
+						tenant.orgId,
+						tenant.userId,
+						tenant.roles,
+						request,
+					)
+
+					yield* recordHttpAudit("alert_rule.created", {
+						resourceId: created.id,
+						metadata: { name: created.name },
+					})
+
+					return toV2RuleMutationResponse(created)
+				}),
+			)
+			.handle("update", ({ params, payload }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const current = yield* findRule(tenant.orgId, params.id)
+					const request = yield* mergeUpsertRequest(current, payload)
+					const updated = yield* alerts.updateRule(
+						tenant.orgId,
+						tenant.userId,
+						tenant.roles,
+						params.id,
+						request,
+					)
+
+					yield* recordHttpAudit("alert_rule.updated", {
+						resourceId: updated.id,
+						changes: ruleAuditDiff(payload, toV2Rule(current), toV2Rule(updated)),
+						metadata: { name: updated.name },
+					})
+
+					return toV2RuleMutationResponse(updated)
+				}),
+			)
+			.handle("delete", ({ params }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const deleted = yield* rules.deleteRule(tenant.orgId, tenant.roles, params.id)
+					yield* recordHttpAudit("alert_rule.deleted", { resourceId: deleted.id })
+
+					return {
+						id: deleted.id,
+						object: "alert_rule" as const,
+						deleted: true as const,
+						...(deleted.txid !== undefined ? { txid: deleted.txid } : undefined),
+					}
+				}),
+			)
+			.handle("test", ({ payload }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const rule = yield* toUpsertRequest(payload.rule)
+					const result = yield* alerts.testRule(
+						tenant.orgId,
+						tenant.userId,
+						tenant.roles,
+						rule,
+						payload.send_notification,
+					)
+
+					return {
+						object: "alert_rule.test_result" as const,
+						status: result.status,
+						value: result.value,
+						sample_count: result.sampleCount,
+						threshold: result.threshold,
+						threshold_upper: result.thresholdUpper,
+						comparator: result.comparator,
+						reason: result.reason,
+					}
+				}),
+			)
+			.handle("preview", ({ payload }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const rule = yield* toUpsertRequest(payload.rule)
+					// Preview is otherwise an `alerts:read` endpoint, but replaying a
+					// raw_query rule executes user-authored ClickHouse against the org's
+					// warehouse — the capability creating one requires. API keys carry
+					// root roles, so scope (not role) is what separates a read-only key
+					// here; the role check inside previewRule covers the session path.
+					if (
+						payload.rule.signal_type === "raw_query" &&
+						!scopeAllows(tenant.scopes, { family: "alerts", access: "write" })
+					) {
+						return yield* new AlertForbiddenError({
+							message:
+								'Previewing a raw SQL alert requires the "alerts:write" scope, because it executes your query against the warehouse.',
+						})
+					}
+					const preview = yield* alerts.previewRule(
+						tenant.orgId,
+						tenant.roles,
+						new AlertRulePreviewRequest({
+							rule,
+							startTime: decodeIsoDateTime(payload.start_time),
+							endTime: decodeIsoDateTime(payload.end_time),
+						}),
+					)
+
+					return toV2PreviewResult(preview)
+				}),
+			)
+			.handle("checks", ({ params, query }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const cursor = yield* decodeChecksCursor(query.cursor)
+					const limit = query.limit ?? 20
+					const response = yield* readModels.listRuleChecks(tenant.orgId, params.id, {
+						...(query.group_key !== undefined ? { groupKey: query.group_key } : undefined),
+						...(query.status !== undefined ? { status: query.status } : undefined),
+						...(query.since !== undefined ? { since: query.since } : undefined),
+						...(query.until !== undefined ? { until: query.until } : undefined),
+						...(cursor !== undefined
+							? {
+									beforeTimestamp: cursor[0],
+									beforeGroupKey: cursor[1],
+								}
+							: undefined),
+						limit: limit + 1,
+					})
+
+					const hasMore = response.checks.length > limit
+					const checks = hasMore ? response.checks.slice(0, limit) : response.checks
+					const last = checks.at(-1)
+					return {
+						object: "list" as const,
+						data: checks.map(toV2Check),
+						has_more: hasMore,
+						next_cursor: hasMore && last !== undefined ? encodeChecksCursor(last) : null,
+					}
+				}),
+			)
+			.handle("checksSummary", ({ params, query }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const summary = yield* readModels.summarizeRuleChecks(tenant.orgId, params.id, {
+						since: query.since,
+						until: query.until,
+					})
+
+					return {
+						object: "alert_check.summary" as const,
+						bucket_seconds: summary.bucketSeconds,
+						top_group_keys: summary.topGroupKeys,
+						totals: summary.totals,
+						points: summary.points.map((point) => ({
+							bucket: timestamp(DateTime.formatIso(point.bucket)),
+							group_key: point.groupKey,
+							total_count: point.totalCount,
+							breached_count: point.breachedCount,
+							healthy_count: point.healthyCount,
+							skipped_count: point.skippedCount,
+							error_count: point.errorCount,
+							transition_count: point.transitionCount,
+							observed_value: point.observedValue,
+							threshold: point.threshold,
+						})),
+					}
+				}),
+			)
+	}),
+)

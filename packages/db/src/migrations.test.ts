@@ -1,0 +1,634 @@
+import { readFileSync } from "node:fs"
+import * as PgliteClient from "@effect/sql-pglite/PgliteClient"
+import { PGlite } from "@electric-sql/pglite"
+import * as Migrate from "@maple-dev/effect-orm/migrate"
+import { Effect, Layer } from "effect"
+import { describe, expect, it } from "vitest"
+import { bundledMigrations, listBundledMigrations, migrateBundled, readBundledMigrationsSql } from "./migrate"
+
+/** The folder for a migration by its name (the part after the kit's timestamp prefix). */
+const migrationNamed = (name: string) => {
+	const matches = listBundledMigrations().filter((migration) => migration.name.endsWith(`_${name}`))
+	if (matches.length !== 1)
+		throw new Error(`expected exactly one migration named ${name}, found ${matches.length}`)
+	return matches[0]!
+}
+
+const readMigrationSql = (name: string): string => readFileSync(migrationNamed(name).sqlPath, "utf8")
+
+const readMigrationSqlBefore = (name: string): string => {
+	const stop = migrationNamed(name).name
+	return listBundledMigrations()
+		.filter((migration) => migration.name < stop)
+		.map((migration) => readFileSync(migration.sqlPath, "utf8"))
+		.join("\n")
+}
+
+describe("migrations", () => {
+	it("keeps migration folders in a strictly increasing timestamp order", () => {
+		const migrations = listBundledMigrations()
+		expect(migrations.length).toBeGreaterThan(0)
+
+		for (let i = 1; i < migrations.length; i++) {
+			// The deploy orders folders by name, and both kits derive the
+			// 14-digit prefix from the migration timestamp. A folder that sorts
+			// before an already-deployed one still applies (every missing migration
+			// applies), but the replay order in fresh databases would differ from
+			// production's, which is how a dependency between two migrations hides.
+			expect(
+				migrations[i]!.name.slice(0, 14) >= migrations[i - 1]!.name.slice(0, 14),
+				`${migrations[i]!.name} must not predate ${migrations[i - 1]!.name}`,
+			).toBe(true)
+		}
+	})
+
+	const migrateWith = <A, E>(pg: PGlite, effect: Effect.Effect<A, E, Migrate.MigrationDriver>) =>
+		Effect.runPromise(
+			effect.pipe(
+				Effect.provide(
+					Migrate.layerSqlClient().pipe(Layer.provide(PgliteClient.layer({ liveClient: pg }))),
+				),
+			),
+		)
+
+	const ledgerCount = async (pg: PGlite) =>
+		(
+			await pg.query<{ count: number }>(
+				`SELECT count(*)::int AS count FROM "${Migrate.LEDGER_TABLES.migrations}"`,
+			)
+		).rows[0]?.count
+
+	it("upgrades a database at the incident-hold head to receipts and safely re-runs", async () => {
+		// A database migrated up to `alert_incident_hold`, then with the full folder: the
+		// receipts table and its predecessors land, a row written between the two runs
+		// survives a third run, and the ledger ends up with one row per folder.
+		const pg = new PGlite()
+		try {
+			const head = migrationNamed("alert_incident_hold").name
+			const migrations = await Effect.runPromise(bundledMigrations)
+			const upTo = migrations.filter((migration) => migration.name <= head)
+			await migrateWith(pg, Migrate.run({ migrations: upTo, strict: true }))
+			expect(await ledgerCount(pg)).toBe(upTo.length)
+
+			await migrateWith(pg, migrateBundled)
+			await pg.exec(
+				"INSERT INTO planetscale_issue_receipts (org_id, event_id, processed_at) VALUES ('org-upgrade', 'event-upgrade', now())",
+			)
+			expect(await migrateWith(pg, migrateBundled)).toEqual([])
+			const receipts = await pg.query<{ event_id: string }>(
+				"SELECT event_id FROM planetscale_issue_receipts",
+			)
+			expect(receipts.rows).toEqual([{ event_id: "event-upgrade" }])
+			expect(await ledgerCount(pg)).toBe(migrations.length)
+			const holdColumns = await pg.query<{ column_name: string }>(
+				"SELECT column_name FROM information_schema.columns WHERE table_name = 'alert_incidents' AND column_name IN ('hold_reason', 'held_since') ORDER BY column_name",
+			)
+			expect(holdColumns.rows.map((row) => row.column_name)).toEqual(["held_since", "hold_reason"])
+		} finally {
+			await pg.close()
+		}
+	}, 30_000)
+
+	it("adopts a database another tool migrated: baseline records, then only what is newer runs", async () => {
+		// A local database drizzle-kit migrated up to `cancellation_reviews` and that
+		// has no effect-orm ledger: replaying anything would fail on existing tables.
+		const pg = new PGlite()
+		try {
+			await pg.exec(readMigrationSqlBefore("effect_orm_baseline"))
+			const migrations = await Effect.runPromise(bundledMigrations)
+			const recorded = await migrateWith(
+				pg,
+				Migrate.baseline({ migrations, upTo: migrationNamed("cancellation_reviews").name }),
+			)
+			const baseline = migrationNamed("effect_orm_baseline").name
+			expect(recorded).toHaveLength(migrations.findIndex((migration) => migration.name === baseline))
+			const ran = await migrateWith(pg, migrateBundled)
+			expect(ran.map((migration) => migration.name)).toEqual(
+				migrations
+					.filter((migration) => migration.name >= baseline)
+					.map((migration) => migration.name),
+			)
+			expect(await ledgerCount(pg)).toBe(migrations.length)
+		} finally {
+			await pg.close()
+		}
+	}, 30_000)
+
+	/**
+	 * A migration is only recorded in the deploy's ledger after the whole file
+	 * succeeds, so one that dies halfway leaves the branch with some of
+	 * its DDL applied and no record of it — and every retry replays from the top
+	 * and fails on what it already created. `planned_investigations` (0035) hit exactly that on `main`
+	 * (`42701 duplicate_column` on `lens_name`), and the only fixes that do not
+	 * involve hand-writing production state are idempotent DDL.
+	 *
+	 * Asserted by re-applying, not by grepping for `IF NOT EXISTS`: what matters
+	 * is that a half-applied branch converges on a re-run, and a string match
+	 * would pass for a file that says the words and still is not re-runnable.
+	 */
+	it("re-applies the idempotent migrations without error", async () => {
+		const idempotent = ["planned_investigations"]
+
+		// Replayed at its own point in history: a later migration may legitimately
+		// drop what an earlier one added (drop_investigation_lanes drops the lane
+		// table planned_investigations extends), and what has to hold is that a
+		// half-applied branch converged at the time.
+		for (const name of idempotent) {
+			const pg = new PGlite()
+			await pg.exec(readMigrationSqlBefore(name))
+			const sql = readMigrationSql(name)
+			await pg.exec(sql)
+			await expect(pg.exec(sql), `${name} must be re-runnable`).resolves.toBeDefined()
+			await pg.close()
+		}
+	}, 30_000)
+})
+
+// The bundled migrations are applied to a fresh PGlite instance via a single
+// `exec()` (see readBundledMigrationsSql). This guards two things at once:
+//   1. Every migration — including the Electric publication (0009) — parses and
+//      applies in PGlite, so the test harness never breaks on new DDL.
+//   2. The ElectricSQL publication + REPLICA IDENTITY FULL actually land, which
+//      is what Electric needs to serve these tables as shapes.
+//
+// One PGlite boot for both assertions, with a generous timeout: booting the
+// WASM engine + replaying every migration is ~5s on CI runners (well over
+// vitest's 5s default), so the whole `it` is bounded at 30s.
+describe("bundled migrations", () => {
+	const SYNCED_TABLES = [
+		"dashboards",
+		"alert_rules",
+		"alert_rule_states",
+		"alert_incidents",
+		// Wave 1 (0011_electric_publication_wave1)
+		"alert_destinations",
+		// API-key live reads (0014_electric_publication_api_keys)
+		"api_keys",
+		// Investigation detail page (0037_electric_publication_investigations);
+		// its lane table was dropped again by 0058.
+		"investigations",
+	]
+
+	// Published by 0009/0011, then pruned by 0022 once their client collections were
+	// removed. Asserted explicitly so re-adding a table to the publication without a
+	// consumer (or a prune migration that silently no-ops) fails here.
+	const UNSYNCED_TABLES = ["error_issues", "actors", "error_incidents", "scrape_target_checks"]
+
+	it("apply cleanly and create the Electric publication with REPLICA IDENTITY FULL", async () => {
+		const pg = new PGlite()
+		await expect(pg.exec(readBundledMigrationsSql())).resolves.toBeDefined()
+
+		const pubs = await pg.query<{ pubname: string }>("select pubname from pg_publication")
+		expect(pubs.rows.map((r) => r.pubname)).toContain("electric_publication_default")
+
+		const members = await pg.query<{ tablename: string }>(
+			"select tablename from pg_publication_tables where pubname = 'electric_publication_default'",
+		)
+		expect(members.rows.map((r) => r.tablename).sort()).toEqual([...SYNCED_TABLES].sort())
+
+		// relreplident 'f' = FULL. Electric refuses to serve a shape over a table that
+		// is not FULL — verified empirically against electricsql/electric:latest, which
+		// answers any shape request for such a table with
+		//   {"message":"Database table \"public.<t>\" does not have its replica identity
+		//    set to FULL"}
+		// and that is unconditional: it holds with and without a `where`, with and
+		// without a `columns` projection, and with (org_id, id) present in a USING INDEX
+		// identity. So the reasoning in 0009's header is wrong in its details — DEFAULT
+		// keys deletes on the primary key perfectly well, composite or not — but its
+		// conclusion is binding: a published table MUST be FULL.
+		//
+		// This costs real money. FULL makes every UPDATE write the entire old row into
+		// the WAL on top of the new one, and those bytes are billed PlanetScale egress
+		// on their way to Electric Cloud. Since the per-write cost is not negotiable,
+		// the only lever on these tables is the *write rate* — which is why the
+		// scheduler claim lock moved to the unpublished `alert_rule_claims` (0027) and
+		// why `api_keys.last_used_at` is heartbeat-gated in ApiKeysService. Do not try
+		// to reclaim this by relaxing the replica identity; Electric will 400 the shape
+		// and the synced lists will fail to load outright.
+		const identities = await pg.query<{ relname: string; relreplident: string }>(
+			`select relname, relreplident from pg_class where relname = any($1)`,
+			[SYNCED_TABLES],
+		)
+		for (const row of identities.rows) {
+			expect(row.relreplident, `${row.relname} replica identity`).toBe("f")
+		}
+
+		// The scheduler claim lock (0027) must stay out of the publication: it is
+		// written once per enabled rule per minute, which is precisely the churn that
+		// splitting it off `alert_rules` was meant to keep off the replication stream.
+		expect(members.rows.map((r) => r.tablename)).not.toContain("alert_rule_claims")
+
+		// 'd' = DEFAULT (primary key only). An unpublished table must not keep paying
+		// FULL's WAL cost — writing the whole old row on every UPDATE/DELETE.
+		const pruned = await pg.query<{ relname: string; relreplident: string }>(
+			`select relname, relreplident from pg_class where relname = any($1)`,
+			[UNSYNCED_TABLES],
+		)
+		expect(pruned.rows.map((r) => r.relname).sort()).toEqual([...UNSYNCED_TABLES].sort())
+		for (const row of pruned.rows) {
+			expect(row.relreplident, `${row.relname} replica identity`).toBe("d")
+		}
+	}, 30_000)
+
+	const publishedTables = async (pg: PGlite) =>
+		(
+			await pg.query<{ tablename: string }>(
+				"select tablename from pg_publication_tables where pubname = 'electric_publication_default'",
+			)
+		).rows
+			.map((r) => r.tablename)
+			.sort()
+
+	const fullTables = async (pg: PGlite) =>
+		(
+			await pg.query<{ relname: string }>(
+				"select relname from pg_class where relkind = 'r' and relreplident = 'f' and relnamespace = 'public'::regnamespace",
+			)
+		).rows
+			.map((r) => r.relname)
+			.sort()
+
+	// The fresh EU database had an empty publication before the first migration ran,
+	// so 0009's CREATE PUBLICATION hit duplicate_object and its handler rolled back the
+	// whole block, REPLICA IDENTITY FULL included.
+	it("converges on the synced tables when the publication exists before any migration", async () => {
+		const pg = new PGlite()
+		try {
+			await pg.exec("CREATE PUBLICATION electric_publication_default")
+			await pg.exec(readBundledMigrationsSql())
+
+			expect(await publishedTables(pg)).toEqual([...SYNCED_TABLES].sort())
+			expect(await fullTables(pg)).toEqual([...SYNCED_TABLES].sort())
+		} finally {
+			await pg.close()
+		}
+	}, 30_000)
+
+	it("reconciles a drifted publication and re-runs as a no-op", async () => {
+		const pg = new PGlite()
+		try {
+			await pg.exec(readMigrationSqlBefore("electric_publication_reconcile"))
+			await pg.exec(`
+				ALTER PUBLICATION electric_publication_default DROP TABLE "dashboards";
+				ALTER TABLE "dashboards" REPLICA IDENTITY DEFAULT;
+				ALTER TABLE "error_issues" REPLICA IDENTITY FULL;
+				ALTER PUBLICATION electric_publication_default ADD TABLE "error_issues";
+			`)
+
+			const sql = readMigrationSql("electric_publication_reconcile")
+			await pg.exec(sql)
+			expect(await publishedTables(pg)).toEqual([...SYNCED_TABLES].sort())
+			expect(await fullTables(pg)).toEqual([...SYNCED_TABLES].sort())
+
+			await pg.exec(sql)
+			expect(await publishedTables(pg)).toEqual([...SYNCED_TABLES].sort())
+			expect(await fullTables(pg)).toEqual([...SYNCED_TABLES].sort())
+		} finally {
+			await pg.close()
+		}
+	}, 30_000)
+
+	it("deletes metric rules and removes retired destinations", async () => {
+		const pg = new PGlite()
+		await pg.exec(readMigrationSqlBefore("windy_bromley"))
+
+		const now = "2026-07-31T00:00:00.000Z"
+		await pg.query(
+			`INSERT INTO alert_destinations (
+				id, org_id, name, type, config_json, secret_ciphertext, secret_iv, secret_tag,
+				created_at, updated_at, created_by, updated_by
+			) VALUES
+				('dest_slack', 'org_1', 'Old Slack', 'slack', '{}', 'x', 'x', 'x', $1, $1, 'user_1', 'user_1'),
+				('dest_webhook', 'org_1', 'Webhook', 'webhook', '{}', 'x', 'x', 'x', $1, $1, 'user_1', 'user_1')`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO alert_rules (
+				id, org_id, name, severity, service_names_json, environments_json, signal_type,
+				comparator, threshold, window_minutes, metric_name, metric_type, metric_aggregation,
+				destination_ids_json, query_spec_json, reducer, no_data_behavior,
+				created_at, updated_at, created_by, updated_by
+			) VALUES
+				(
+					'rule_metric', 'org_1', 'Legacy metric', 'warning',
+					'["api"]', '["prod"]', 'metric',
+					'gt', 10, 5, 'http.requests', 'sum', 'rate',
+					'["dest_slack", "dest_webhook"]', '{"preserved": true}', 'max', 'skip',
+					$1, $1, 'user_1', 'user_1'
+				),
+				(
+					'rule_orphaned', 'org_1', 'Only retired destination', 'warning',
+					NULL, NULL, 'error_rate', 'gt', 0.1, 5, NULL, NULL, NULL,
+					'["dest_slack"]', '{}', 'max', 'skip',
+					$1, $1, 'user_1', 'user_1'
+				)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO alert_rule_states (org_id, rule_id, group_key, updated_at)
+			 VALUES ('org_1', 'rule_metric', '__total__', $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO alert_incidents (
+				id, org_id, rule_id, incident_key, rule_name, signal_type, severity, status,
+				comparator, threshold, first_triggered_at, last_triggered_at, dedupe_key,
+				created_at, updated_at
+			) VALUES (
+				'inc_metric', 'org_1', 'rule_metric', 'metric-incident', 'Legacy metric',
+				'metric', 'warning', 'open', 'gt', 10, $1, $1, 'metric-dedupe', $1, $1
+			)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO alert_delivery_events (
+				id, org_id, incident_id, rule_id, destination_id, delivery_key, event_type,
+				attempt_number, status, scheduled_at, payload_json, created_at, updated_at
+			) VALUES (
+				'delivery_metric', 'org_1', 'inc_metric', 'rule_metric', 'dest_webhook',
+				'metric-delivery', 'trigger', 1, 'queued', $1, '{}', $1, $1
+			)`,
+			[now],
+		)
+
+		await pg.exec(readMigrationSql("windy_bromley"))
+
+		for (const table of [
+			"alert_delivery_events",
+			"alert_incidents",
+			"alert_rule_states",
+			"alert_rules",
+		]) {
+			const deleted = await pg.query<{ count: number }>(
+				`SELECT count(*)::int AS count FROM ${table} WHERE ${table === "alert_rules" ? "id" : "rule_id"} = 'rule_metric'`,
+			)
+			expect(deleted.rows[0]?.count, `${table} metric rows`).toBe(0)
+		}
+
+		const orphaned = await pg.query<{ enabled: boolean; destination_ids_json: string[] }>(
+			"SELECT enabled, destination_ids_json FROM alert_rules WHERE id = 'rule_orphaned'",
+		)
+		expect(orphaned.rows[0]).toEqual({ enabled: false, destination_ids_json: [] })
+
+		const retired = await pg.query("SELECT id FROM alert_destinations WHERE type IN ('slack', 'hazel')")
+		expect(retired.rows).toEqual([])
+
+		const columns = await pg.query<{ column_name: string }>(
+			`SELECT column_name
+			 FROM information_schema.columns
+			 WHERE table_name = 'alert_rules'
+				AND column_name IN ('metric_name', 'metric_type', 'metric_aggregation')`,
+		)
+		expect(columns.rows).toEqual([])
+	}, 30_000)
+
+	it("retires slack-bot destinations and drops slack_workspaces", async () => {
+		const pg = new PGlite()
+		await pg.exec(readMigrationSqlBefore("drop_legacy_slack"))
+
+		const now = "2026-09-24T00:00:00.000Z"
+		await pg.query(
+			`INSERT INTO alert_destinations (
+				id, org_id, name, type, config_json, secret_ciphertext, secret_iv, secret_tag,
+				created_at, updated_at, created_by, updated_by
+			) VALUES
+				('dest_slack', 'org_1', 'Slack', 'slack-bot', '{}', 'x', 'x', 'x', $1, $1, 'user_1', 'user_1'),
+				('dest_webhook', 'org_1', 'Webhook', 'webhook', '{}', 'x', 'x', 'x', $1, $1, 'user_1', 'user_1')`,
+			[now],
+		)
+		const rule = (id: string, enabled: boolean, destinationIds: ReadonlyArray<string>) =>
+			pg.query(
+				`INSERT INTO alert_rules (
+					id, org_id, name, enabled, severity, signal_type, comparator, threshold, window_minutes,
+					destination_ids_json, query_spec_json, reducer, no_data_behavior,
+					created_at, updated_at, created_by, updated_by
+				) VALUES ($1, 'org_1', $1, $2, 'warning', 'error_rate', 'gt', 0.1, 5, $3, '{}', 'max', 'skip',
+					$4, $4, 'user_1', 'user_1')`,
+				[id, enabled, JSON.stringify(destinationIds), now],
+			)
+		await rule("rule_mixed", true, ["dest_slack", "dest_webhook"])
+		await rule("rule_slack_only", true, ["dest_slack"])
+		await rule("rule_untouched", true, [])
+		await pg.query(
+			`INSERT INTO alert_delivery_events (
+				id, org_id, incident_id, rule_id, destination_id, delivery_key, event_type,
+				attempt_number, status, scheduled_at, payload_json, created_at, updated_at
+			) VALUES (
+				'delivery_slack', 'org_1', 'inc_1', 'rule_mixed', 'dest_slack',
+				'slack-delivery', 'trigger', 1, 'queued', $1, '{}', $1, $1
+			)`,
+			[now],
+		)
+
+		await pg.exec(readMigrationSql("drop_legacy_slack"))
+
+		const rules = await pg.query<{ id: string; enabled: boolean; destination_ids_json: string[] }>(
+			"SELECT id, enabled, destination_ids_json FROM alert_rules ORDER BY id",
+		)
+		expect(rules.rows).toEqual([
+			{ id: "rule_mixed", enabled: true, destination_ids_json: ["dest_webhook"] },
+			{ id: "rule_slack_only", enabled: false, destination_ids_json: [] },
+			// A rule the migration did not empty is left as it was.
+			{ id: "rule_untouched", enabled: true, destination_ids_json: [] },
+		])
+		const destinations = await pg.query<{ id: string }>("SELECT id FROM alert_destinations")
+		expect(destinations.rows).toEqual([{ id: "dest_webhook" }])
+		const deliveries = await pg.query("SELECT id FROM alert_delivery_events")
+		expect(deliveries.rows).toEqual([])
+		const table = await pg.query("SELECT to_regclass('public.slack_workspaces') AS name")
+		expect(table.rows).toEqual([{ name: null }])
+	}, 30_000)
+
+	it("links every integration row to the source it sends as", async () => {
+		const pg = new PGlite()
+		await pg.exec(readMigrationSqlBefore("source_ownership"))
+
+		const now = "2026-10-20T00:00:00.000Z"
+		await pg.query(
+			`INSERT INTO sources (id, org_id, name, platform, is_default, key_hash, integration_id, paused_at, created_at, updated_at) VALUES
+				('src_default', 'org_1', 'Default', 'opentelemetry', true, NULL, NULL, NULL, $1, $1),
+				('src_token', 'org_1', 'API', 'nodejs', false, 'hash', NULL, NULL, $1, $1),
+				('src_t1', 'org_1', 'Target one', 'prometheus', false, NULL, 't1', $1, $1, $1),
+				('src_gone', 'org_1', 'Deleted target', 'prometheus', false, NULL, 'gone', NULL, $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO scrape_targets (id, org_id, name, url, managed_by, created_at, updated_at) VALUES
+				('t1', 'org_1', 'Target one', 'http://one', NULL, $1, $1),
+				('t2', 'org_1', 'Target two', 'http://two', NULL, $1, $1),
+				('t3', 'org_1', 'PlanetScale main', 'http://ps', 'planetscale:ps1', $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO planetscale_connections (id, org_id, ps_organization, connected_by_user_id, created_at, updated_at)
+			VALUES ('ps1', 'org_1', 'acme', 'user_1', $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO gcp_connectors (id, org_id, scope_type, scope_id, project_id, secret_ciphertext, secret_iv,
+				secret_tag, secret_hash, created_by, created_at, updated_at)
+			VALUES ('g1', 'org_1', 'project', 'acme-prod', 'acme-prod', 'x', 'x', 'x', 'h1', 'user_1', $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO railway_connections (id, org_id, token_ciphertext, token_iv, token_tag, connected_by_user_id,
+				workspace_names, created_at, updated_at)
+			VALUES ('r1', 'org_1', 'x', 'x', 'x', 'user_1', NULL, $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO oauth_connections (id, org_id, provider, external_user_id, connected_by_user_id,
+				access_token_ciphertext, access_token_iv, access_token_tag, external_account_name, created_at, updated_at)
+			VALUES
+				('cf1', 'org_1', 'cloudflare', 'u', 'user_1', 'x', 'x', 'x', 'Acme', $1, $1),
+				('psoauth', 'org_1', 'planetscale', 'u', 'user_1', 'x', 'x', 'x', NULL, $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO vcs_installations (id, org_id, provider, external_installation_id, account_login, account_type,
+				external_account_id, installed_by_user_id, created_at, updated_at)
+			VALUES ('v1', 'org_1', 'github', '42', 'acme', 'Organization', '7', 'user_1', $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO cloudflare_logpush_connectors (id, org_id, name, zone_name, service_name, secret_ciphertext,
+				secret_iv, secret_tag, secret_hash, secret_rotated_at, created_at, updated_at, created_by, updated_by)
+			VALUES
+				('l1', 'org_1', 'Zone', 'acme.com', 'edge', 'x', 'x', 'x', 'lh1', $1, $1, $1, 'user_1', 'user_1'),
+				('l2', 'org_2', 'Zone', 'other.com', 'edge', 'x', 'x', 'x', 'lh2', $1, $1, $1, 'user_1', 'user_1')`,
+			[now],
+		)
+
+		await pg.exec(readMigrationSql("source_ownership"))
+
+		const sources = await pg.query<{ id: string; kind: string; platform: string; name: string }>(
+			"SELECT id, kind, platform, name FROM sources",
+		)
+		const byId = new Map(sources.rows.map((row) => [row.id, row]))
+		expect(byId.get("src_default")?.kind).toBe("default")
+		expect(byId.get("src_token")?.kind).toBe("token")
+		expect(byId.has("src_gone")).toBe(false)
+
+		const owner = async (table: string, id: string) =>
+			(
+				await pg.query<{ source_id: string | null }>(`SELECT source_id FROM ${table} WHERE id = $1`, [
+					id,
+				])
+			).rows[0]?.source_id ?? null
+		const sourceOf = async (table: string, id: string) => {
+			const sourceId = await owner(table, id)
+			return sourceId === null ? undefined : byId.get(sourceId)
+		}
+
+		// An existing source keeps its id, so its pause and rules survive.
+		expect(await owner("scrape_targets", "t1")).toBe("src_t1")
+		expect(await sourceOf("scrape_targets", "t2")).toMatchObject({
+			kind: "integration",
+			platform: "prometheus",
+			name: "Target two",
+		})
+		expect(await sourceOf("gcp_connectors", "g1")).toMatchObject({
+			platform: "gcp",
+			name: "Google Cloud acme-prod",
+		})
+		expect(await sourceOf("railway_connections", "r1")).toMatchObject({
+			platform: "railway",
+			name: "Railway",
+		})
+		expect(await sourceOf("planetscale_connections", "ps1")).toMatchObject({
+			platform: "planetscale",
+			name: "PlanetScale acme",
+		})
+		expect(await sourceOf("oauth_connections", "cf1")).toMatchObject({
+			platform: "cloudflare",
+			name: "Acme",
+		})
+		expect(await sourceOf("vcs_installations", "v1")).toMatchObject({
+			platform: "github",
+			name: "GitHub acme",
+		})
+
+		// A PlanetScale-managed target sends as its connection; other OAuth providers own no source.
+		expect(await owner("scrape_targets", "t3")).toBe(await owner("planetscale_connections", "ps1"))
+		expect(await owner("oauth_connections", "psoauth")).toBeNull()
+		expect(await owner("cloudflare_logpush_connectors", "l1")).toBe(
+			await owner("oauth_connections", "cf1"),
+		)
+		expect(await owner("cloudflare_logpush_connectors", "l2")).toBeNull()
+
+		// A source inserted the old way, without `kind`, still gets one.
+		await pg.query(
+			`INSERT INTO sources (id, org_id, name, platform, is_default, key_hash, created_at, updated_at)
+			VALUES ('src_old', 'org_2', 'Old', 'nodejs', false, 'old-hash', $1, $1)`,
+			[now],
+		)
+		expect((await pg.query("SELECT kind FROM sources WHERE id = 'src_old'")).rows).toEqual([{ kind: "token" }])
+
+		// Deleting a source deletes the integration row that owns it.
+		await pg.query("DELETE FROM sources WHERE id = $1", [await owner("railway_connections", "r1")])
+		expect((await pg.query("SELECT id FROM railway_connections")).rows).toEqual([])
+		// A Logpush job outlives its Cloudflare source, unlinked.
+		await pg.query("DELETE FROM sources WHERE id = $1", [await owner("oauth_connections", "cf1")])
+		expect(await owner("cloudflare_logpush_connectors", "l1")).toBeNull()
+		await pg.close()
+	}, 30_000)
+
+	it("links what old code left unlinked before source_id becomes required", async () => {
+		const pg = new PGlite()
+		await pg.exec(readMigrationSqlBefore("source_ownership_contract"))
+
+		const now = "2026-10-21T00:00:00.000Z"
+		// Written the old way after the expand: no `kind`, no link.
+		await pg.query(
+			`INSERT INTO sources (id, org_id, name, platform, is_default, integration_id, created_at, updated_at) VALUES
+				('src_gone', 'org_1', 'Deleted target', 'prometheus', false, 'gone', $1, $1),
+				('src_t1', 'org_1', 'Target one', 'prometheus', false, 't1', $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO scrape_targets (id, org_id, name, url, managed_by, created_at, updated_at) VALUES
+				('t1', 'org_1', 'Target one', 'http://one', NULL, $1, $1),
+				('t2', 'org_1', 'Target two', 'http://two', NULL, $1, $1),
+				('t3', 'org_1', 'Old PlanetScale', 'http://ps', 'planetscale:ps_gone', $1, $1),
+				('t4', 'org_1', 'PlanetScale', 'http://ps2', 'planetscale:ps_live', $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO planetscale_connections (id, org_id, ps_organization, connected_by_user_id, created_at, updated_at)
+			VALUES ('ps_live', 'org_1', 'acme', 'user_1', $1, $1)`,
+			[now],
+		)
+		await pg.query(
+			`INSERT INTO railway_connections (id, org_id, token_ciphertext, token_iv, token_tag, connected_by_user_id,
+				created_at, updated_at)
+			VALUES ('r1', 'org_1', 'x', 'x', 'x', 'user_1', $1, $1)`,
+			[now],
+		)
+
+		await pg.exec(readMigrationSql("source_ownership_contract"))
+
+		const owners = await pg.query<{ id: string; managed_by: string | null; platform: string; kind: string }>(
+			`SELECT t.id, t.managed_by, s.platform, s.kind FROM scrape_targets t JOIN sources s ON s.id = t.source_id
+			UNION ALL SELECT r.id, NULL, s.platform, s.kind FROM railway_connections r JOIN sources s ON s.id = r.source_id
+			ORDER BY 1`,
+		)
+		expect(owners.rows).toEqual([
+			{ id: "r1", managed_by: null, platform: "railway", kind: "integration" },
+			// An existing source is kept; a target whose PlanetScale connection is gone becomes the user's.
+			{ id: "t1", managed_by: null, platform: "prometheus", kind: "integration" },
+			{ id: "t2", managed_by: null, platform: "prometheus", kind: "integration" },
+			{ id: "t3", managed_by: null, platform: "prometheus", kind: "integration" },
+			// A live connection linked in the same migration still takes its managed target along.
+			{ id: "t4", managed_by: "planetscale:ps_live", platform: "planetscale", kind: "integration" },
+		])
+		expect((await pg.query("SELECT source_id FROM scrape_targets WHERE id = 't1'")).rows).toEqual([
+			{ source_id: "src_t1" },
+		])
+		expect((await pg.query("SELECT id FROM sources WHERE id = 'src_gone'")).rows).toEqual([])
+		const columns = await pg.query(
+			"SELECT column_name FROM information_schema.columns WHERE table_name = 'sources' AND column_name IN ('is_default', 'integration_id')",
+		)
+		expect(columns.rows).toEqual([])
+		await pg.close()
+	}, 30_000)
+})

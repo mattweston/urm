@@ -1,0 +1,704 @@
+import { afterEach, describe, expect, it } from "@effect/vitest"
+import { ConfigProvider, Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect"
+import { HttpRouter } from "effect/http"
+import { HttpApiBuilder } from "effect/http-api"
+import { OrgId, UserId } from "@maple/domain/http"
+import { MapleApiV2 } from "@maple/domain/http/v2"
+import { API_CORS_OPTIONS } from "@maple/backend/http/api-cors"
+import { Env } from "@maple/backend/platform/Env"
+import { cleanupTestDbs, createTestDb, type TestDb } from "@maple/backend/platform/test-pglite"
+import { ApiKeysService } from "@maple/backend/services/org/ApiKeysService"
+import { AuthService } from "@maple/backend/services/auth/AuthService"
+import { DashboardPersistenceService } from "@maple/backend/services/dashboards/DashboardPersistenceService"
+import { SharedDashboardService } from "@maple/backend/services/dashboards/SharedDashboardService"
+import { ApiAuthorizationV2Live } from "@maple/backend/services/auth/ApiAuthorizationV2Live"
+import { AuditLogService, makeMemoryAuditLog } from "@maple/backend/services/audit/AuditLogService"
+import { ApiV2RateLimiter, type RateLimiterApi } from "@maple/backend/services/auth/ApiV2RateLimiter"
+import { V2TransportErrorBoundaryLive } from "./error-envelope"
+import {
+	AlertsServiceStubLayer,
+	allV2GroupLayersWithAudit,
+	ConfigResourceServiceStubsLayer,
+	PlanetScaleServiceStubsLayer,
+	TelemetryServiceStubsLayer,
+} from "./v2-test-support"
+
+/**
+ * End-to-end HTTP tests for the v2 pilot: a real router (auth middleware, v2
+ * error envelopes, public-ID codecs, list envelope) over an embedded PGlite,
+ * exercised with fetch Requests exactly as a client would.
+ */
+
+const createdDbs: TestDb[] = []
+afterEach(() => cleanupTestDbs(createdDbs))
+
+const testConfig = () =>
+	ConfigProvider.layer(
+		ConfigProvider.fromUnknown({
+			PORT: "3478",
+			MCP_PORT: "3479",
+			TINYBIRD_HOST: "https://api.tinybird.co",
+			TINYBIRD_TOKEN: "test-token",
+			MAPLE_AUTH_MODE: "self_hosted",
+			MAPLE_ROOT_PASSWORD: "test-root-password",
+			MAPLE_DEFAULT_ORG_ID: "default",
+			MAPLE_INGEST_KEY_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+			MAPLE_INGEST_KEY_LOOKUP_HMAC_KEY: "maple-test-lookup-secret",
+			INTERNAL_SERVICE_TOKEN: "test-internal-token",
+		}),
+	)
+
+const makeHarness = (checkRateLimit: RateLimiterApi["check"] = () => Effect.succeed("allowed" as const)) => {
+	const testDb = createTestDb(createdDbs)
+	// One instance shared by the router and the test, so a test can read what a request recorded.
+	const audit = makeMemoryAuditLog()
+	const auditLive = Layer.succeed(AuditLogService, audit)
+	const envLive = Env.layer.pipe(Layer.provide(testConfig()))
+	const servicesLive = Layer.mergeAll(
+		ApiKeysService.layer,
+		AuthService.layer,
+		DashboardPersistenceService.layer,
+		SharedDashboardService.layer,
+	).pipe(Layer.provideMerge(Layer.mergeAll(envLive, testDb.layer)))
+
+	const routes = HttpApiBuilder.layer(MapleApiV2).pipe(
+		Layer.provide(allV2GroupLayersWithAudit(auditLive)),
+		Layer.provide(V2TransportErrorBoundaryLive),
+		Layer.provide(PlanetScaleServiceStubsLayer),
+		Layer.provide(AlertsServiceStubLayer),
+		Layer.provide(ConfigResourceServiceStubsLayer),
+		Layer.provide(TelemetryServiceStubsLayer),
+		Layer.provideMerge(ApiAuthorizationV2Live),
+		Layer.provideMerge(auditLive),
+		Layer.provideMerge(Layer.succeed(ApiV2RateLimiter, { check: checkRateLimit })),
+		Layer.provideMerge(servicesLive),
+		Layer.provideMerge(HttpRouter.cors(API_CORS_OPTIONS)),
+	)
+
+	const { handler, dispose: disposeHandler } = HttpRouter.toWebHandler(routes, {
+		disableLogger: true,
+	})
+	// Seed runtime for direct service access (bootstrap keys without HTTP).
+	const runtime = ManagedRuntime.make(servicesLive)
+
+	const request = async (
+		method: string,
+		path: string,
+		options: {
+			token?: string
+			body?: unknown
+			origin?: string
+			headers?: Record<string, string>
+		} = {},
+	) => {
+		const response = await handler(
+			new Request(`http://maple.test${path}`, {
+				method,
+				headers: {
+					...(options.token !== undefined
+						? { authorization: `Bearer ${options.token}` }
+						: undefined),
+					...(options.body !== undefined ? { "content-type": "application/json" } : undefined),
+					...(options.origin !== undefined ? { origin: options.origin } : undefined),
+					...options.headers,
+				},
+				body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+			}),
+			Context.empty() as never,
+		)
+		const text = await response.text()
+		return {
+			status: response.status,
+			headers: response.headers,
+			body: text.length > 0 ? JSON.parse(text) : null,
+		}
+	}
+
+	const ORG = Schema.decodeUnknownSync(OrgId)("org_e2e")
+	const USER = Schema.decodeUnknownSync(UserId)("user_e2e")
+
+	const bootstrapKey = (
+		scopes?: ReadonlyArray<string>,
+		kind: "standard" | "mcp" = "standard",
+		options: { metadataJson?: unknown; userId?: UserId } = {},
+	) =>
+		runtime.runPromise(
+			Effect.gen(function* () {
+				const service = yield* ApiKeysService
+				return yield* service.create(ORG, options.userId ?? USER, {
+					name: scopes === undefined ? "root-key" : `scoped:${scopes.join(",")}`,
+					scopes,
+					kind,
+					...(options.metadataJson !== undefined
+						? { metadataJson: options.metadataJson }
+						: undefined),
+				})
+			}),
+		)
+
+	/**
+	 * A caller with a real, non-admin role. Keys resolve with `roles: null`
+	 * (= `root`) unless their metadata pins roles, which is how the CLI login
+	 * flow issues member-scoped credentials.
+	 */
+	const bootstrapMemberKey = (userId: UserId = USER) =>
+		bootstrapKey(undefined, "standard", {
+			userId,
+			metadataJson: { source: "maple_cli", roles: ["org:member"], deviceName: "laptop" },
+		})
+
+	const resolveKey = (secret: string) =>
+		runtime.runPromise(
+			Effect.gen(function* () {
+				const service = yield* ApiKeysService
+				return yield* service.resolveByKey(secret)
+			}),
+		)
+
+	const bootstrapSession = () =>
+		runtime.runPromise(
+			Effect.gen(function* () {
+				const service = yield* AuthService
+				return (yield* service.loginSelfHosted("test-root-password")).token
+			}),
+		)
+
+	const auditEntries = (action: string) =>
+		Effect.runPromise(audit.list(ORG, { action, limit: 100, offset: 0 }))
+
+	return {
+		request,
+		auditEntries,
+		bootstrapKey,
+		bootstrapMemberKey,
+		bootstrapSession,
+		resolveKey,
+		ORG,
+		USER,
+		closeDatabase: () => testDb.close(),
+		dispose: async () => {
+			await disposeHandler()
+			await runtime.dispose()
+		},
+	}
+}
+
+describe("v2 api_keys over HTTP", () => {
+	it("returns the list envelope for an authorized key", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey()
+
+		const { status, body } = await harness.request("GET", "/v2/api_keys", { token: key.secret })
+		expect(status).toBe(200)
+		expect(body.object).toBe("list")
+		expect(body.has_more).toBe(false)
+		expect(body.next_cursor).toBeNull()
+		expect(body.data).toHaveLength(1)
+		expect(body.data[0].object).toBe("api_key")
+		expect(body.data[0].id.startsWith("key_")).toBe(true)
+		expect(body.data[0].key_prefix.startsWith("maple_ak_")).toBe(true)
+		expect(typeof body.data[0].created_at).toBe("string")
+		expect("txid" in body.data[0]).toBe(false)
+		await harness.dispose()
+	})
+
+	it("rejects missing credentials with a 401 envelope", async () => {
+		let rateLimitChecks = 0
+		const harness = makeHarness(() => {
+			rateLimitChecks += 1
+			return Effect.succeed("allowed")
+		})
+		const { status, body } = await harness.request("GET", "/v2/api_keys")
+		expect(status).toBe(401)
+		expect(body.error.type).toBe("authentication_error")
+		expect(rateLimitChecks).toBe(0)
+		await harness.dispose()
+	})
+
+	it("rejects MCP-only keys on the HTTP API", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(undefined, "mcp")
+		const { status, body } = await harness.request("GET", "/v2/api_keys", { token: key.secret })
+		expect(status).toBe(401)
+		expect(body.error).toMatchObject({
+			type: "authentication_error",
+			code: "invalid_credentials",
+		})
+		await harness.dispose()
+	})
+
+	it("returns the rate-limit envelope and Retry-After before executing the handler", async () => {
+		const harness = makeHarness(() => Effect.succeed("limited"))
+		const key = await harness.bootstrapKey()
+
+		// OrganizationService is deliberately an inert stub in this harness. A 429
+		// proves authorization stopped before the route handler could execute it.
+		const response = await harness.request("GET", "/v2/organization", {
+			token: key.secret,
+			origin: "https://app.maple.dev",
+		})
+		expect(response.status).toBe(429)
+		expect(response.body).toEqual({
+			error: {
+				_tag: "@maple/http/v2/RateLimitError",
+				type: "rate_limit_error",
+				code: "rate_limited",
+				title: "Too many requests",
+				message: "Too many requests. Retry after the interval in the Retry-After header.",
+				retryable: true,
+				recovery: "retry",
+				retry_after_seconds: 60,
+			},
+		})
+		expect(response.headers.get("retry-after")).toBe("60")
+		expect(response.headers.get("access-control-expose-headers")).toContain("Retry-After")
+		await harness.dispose()
+	})
+
+	// Without Access-Control-Max-Age, Chrome caches a preflight for only 5s, so
+	// nearly every browser call pays a second round trip to a worker pinned in
+	// us-east-1 before the real request is even sent. Those OPTIONS never reach
+	// our traces (the tracer is disabled for them), so only a test guards this.
+	it("caches CORS preflights so every request doesn't pay a second round trip", async () => {
+		const harness = makeHarness()
+		const response = await harness.request("OPTIONS", "/v2/api_keys", {
+			origin: "https://app.maple.dev",
+			headers: {
+				"access-control-request-method": "GET",
+				"access-control-request-headers": "authorization,content-type",
+			},
+		})
+
+		expect(response.headers.get("access-control-max-age")).toBe(String(API_CORS_OPTIONS.maxAge))
+		// `Authorization` must appear EXPLICITLY, not just via the `*` wildcard —
+		// the Fetch spec excludes it from the wildcard, and with only `*` browsers
+		// still allow the request but refuse to cache its preflight. Since every
+		// browser call to this API is authenticated, that silently reduced maxAge
+		// to a no-op. Verified in Chrome: 3 authenticated requests cost 3
+		// preflights with `*` alone and 1 with `Authorization` listed.
+		expect(response.headers.get("access-control-allow-headers")).toContain("Authorization")
+		await harness.dispose()
+	})
+
+	it("bypasses API-key rate limiting for session tokens", async () => {
+		let rateLimitChecks = 0
+		const harness = makeHarness(() => {
+			rateLimitChecks += 1
+			return Effect.succeed("limited")
+		})
+		const sessionToken = await harness.bootstrapSession()
+		const response = await harness.request("GET", "/v2/api_keys", { token: sessionToken })
+		expect(response.status).toBe(200)
+		expect(rateLimitChecks).toBe(0)
+		await harness.dispose()
+	})
+
+	// `x-maple-org-id` names an organization explicitly instead of relying on the
+	// credential's own. This deployment is self-hosted, which has no membership
+	// directory to check a selection against — so the header is REJECTED rather
+	// than ignored. Silently ignoring it is the failure that would render one
+	// organization's data under another's name.
+	it("rejects an organization selection it cannot verify, in the v2 envelope", async () => {
+		const harness = makeHarness()
+		const sessionToken = await harness.bootstrapSession()
+
+		const { status, body } = await harness.request("GET", "/v2/api_keys", {
+			token: sessionToken,
+			headers: { "x-maple-org-id": "org_other" },
+		})
+
+		// 403, not the 401 a missing organization produces: the credential is fine.
+		expect(status).toBe(403)
+		expect((body as { error?: { code?: string } }).error?.code).toBe("organization_access_denied")
+		await harness.dispose()
+	})
+
+	it("serves the credential's own organization when the header names it", async () => {
+		const harness = makeHarness()
+		const sessionToken = await harness.bootstrapSession()
+
+		const { status } = await harness.request("GET", "/v2/api_keys", {
+			token: sessionToken,
+			// The free no-op, which is what lets a client send the header always.
+			headers: { "x-maple-org-id": "default" },
+		})
+
+		expect(status).toBe(200)
+		await harness.dispose()
+	})
+
+	it("rejects an organization selection made with an API key", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey()
+
+		const { status, body } = await harness.request("GET", "/v2/api_keys", {
+			token: key.secret,
+			headers: { "x-maple-org-id": "org_other" },
+		})
+
+		expect(status).toBe(403)
+		expect((body as { error?: { code?: string } }).error?.code).toBe("organization_access_denied")
+		await harness.dispose()
+	})
+
+	it("allows requests when the limiter fails open", async () => {
+		const harness = makeHarness(() => Effect.succeed("failed_open"))
+		const key = await harness.bootstrapKey()
+		const response = await harness.request("GET", "/v2/api_keys", { token: key.secret })
+		expect(response.status).toBe(200)
+		await harness.dispose()
+	})
+
+	it("counts valid-key requests that are later rejected for insufficient scope", async () => {
+		let rateLimitChecks = 0
+		const harness = makeHarness(() => {
+			rateLimitChecks += 1
+			return Effect.succeed("allowed")
+		})
+		const readOnly = await harness.bootstrapKey(["api_keys:read"])
+		const response = await harness.request("POST", "/v2/api_keys", {
+			token: readOnly.secret,
+			body: { name: "nope" },
+		})
+		expect(response.status).toBe(403)
+		expect(rateLimitChecks).toBe(1)
+		await harness.dispose()
+	})
+
+	it("returns a sanitized 503 when API-key lookup storage is unavailable", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey()
+		await harness.closeDatabase()
+		const { status, body } = await harness.request("GET", "/v2/api_keys", { token: key.secret })
+		expect(status).toBe(503)
+		expect(body.error).toEqual({
+			_tag: "@maple/http/errors/ApiKeyLookupPersistenceError",
+			type: "api_error",
+			code: "api_key_lookup_unavailable",
+			title: "Service temporarily unavailable",
+			message: "A service required for this operation is temporarily unavailable; retry with backoff.",
+			retryable: true,
+			recovery: "retry",
+		})
+		await harness.dispose()
+	})
+
+	it("enforces scopes: read-only key cannot create, and write implies read", async () => {
+		const harness = makeHarness()
+		const readOnly = await harness.bootstrapKey(["api_keys:read"])
+
+		const list = await harness.request("GET", "/v2/api_keys", { token: readOnly.secret })
+		expect(list.status).toBe(200)
+
+		const create = await harness.request("POST", "/v2/api_keys", {
+			token: readOnly.secret,
+			body: { name: "nope" },
+		})
+		expect(create.status).toBe(403)
+		expect(create.body.error).toEqual({
+			_tag: "@maple/http/v2/InsufficientScopeError",
+			type: "permission_error",
+			code: "insufficient_scope",
+			title: "Permission required",
+			message: 'This API key does not have the "api_keys:write" scope required for this request.',
+			retryable: false,
+			recovery: "request_access",
+		})
+
+		const writeKey = await harness.bootstrapKey(["api_keys:write"])
+		const listViaWrite = await harness.request("GET", "/v2/api_keys", { token: writeKey.secret })
+		expect(listViaWrite.status).toBe(200)
+		await harness.dispose()
+	})
+
+	// The scope check reads the router's matched route template, so a path the
+	// router normalizes (case, percent-encoding, duplicate slashes, path
+	// parameters) can no longer route to a handler while dodging the check.
+	it.each([
+		["/V2/api_keys", "uppercase segment"],
+		["/v2/%61pi_keys", "percent-encoded segment"],
+		["/v2//api_keys", "duplicate slash"],
+		["/v2/api_keys;x", "path parameter suffix"],
+		["/v2/api_keys/", "trailing slash"],
+	])("rejects %s (%s) for a read-only key", async (path) => {
+		const harness = makeHarness()
+		const readOnly = await harness.bootstrapKey(["api_keys:read"])
+
+		const created = await harness.request("POST", path, {
+			token: readOnly.secret,
+			body: { name: "nope" },
+		})
+		expect(created.status).toBe(403)
+		expect(created.body.error.code).toBe("insufficient_scope")
+		await harness.dispose()
+	})
+
+	// The mirror of the case above: a key that *does* hold the scope still
+	// reaches the handler through a normalized path, so the fix denies on scope
+	// rather than on the path shape.
+	it("still serves a normalized path to a key that holds the scope", async () => {
+		const harness = makeHarness()
+		const writeKey = await harness.bootstrapKey(["api_keys:write"])
+
+		const created = await harness.request("POST", "/V2//api_keys", {
+			token: writeKey.secret,
+			body: { name: "normalized", scopes: ["api_keys:read"] },
+		})
+		expect(created.status).toBe(200)
+		await harness.dispose()
+	})
+
+	it("keeps a scoped key from handing out or taking over broader access", async () => {
+		const harness = makeHarness()
+		const scoped = await harness.bootstrapKey(["api_keys:write"])
+		const unscoped = await harness.bootstrapKey()
+		const listed = await harness.request("GET", "/v2/api_keys", { token: unscoped.secret })
+		const unscopedId: string = listed.body.data.find(
+			(key: { readonly name: string }) => key.name === "root-key",
+		).id
+		const request = (method: string, path: string, body?: unknown) =>
+			harness.request(method, path, { token: scoped.secret, body })
+
+		const statuses = [
+			(await request("POST", "/v2/api_keys", { name: "full" })).status,
+			(await request("POST", "/v2/api_keys", { name: "star", scopes: ["*"] })).status,
+			(await request("POST", "/v2/api_keys", { name: "wider", scopes: ["traces:read"] })).status,
+			(await request("POST", "/v2/api_keys", { name: "mcp", kind: "mcp", scopes: ["api_keys:read"] }))
+				.status,
+			(await request("POST", `/v2/api_keys/${unscopedId}/roll`)).status,
+			(await request("DELETE", `/v2/api_keys/${unscopedId}`)).status,
+		]
+		expect(statuses).toEqual([403, 403, 403, 403, 403, 403])
+
+		const narrower = await request("POST", "/v2/api_keys", { name: "narrow", scopes: ["api_keys:read"] })
+		expect(narrower.status).toBe(200)
+		expect(narrower.body.scopes).toEqual(["api_keys:read"])
+		await harness.dispose()
+	})
+
+	it("full CRUD round-trip: create with scopes, retrieve, roll, revoke", async () => {
+		const harness = makeHarness()
+		const root = await harness.bootstrapKey()
+
+		const created = await harness.request("POST", "/v2/api_keys", {
+			token: root.secret,
+			body: { name: "ci", scopes: ["telemetry:read"], expires_in_seconds: 3600 },
+		})
+		expect(created.status).toBe(200)
+		expect(created.body.object).toBe("api_key")
+		expect(created.body.scopes).toEqual(["telemetry:read"])
+		expect(created.body.secret.startsWith("maple_ak_")).toBe(true)
+		expect(created.body.expires_at).not.toBeNull()
+		expect(created.body.txid).toMatch(/^\d+$/)
+
+		const id: string = created.body.id
+		const retrieved = await harness.request("GET", `/v2/api_keys/${id}`, { token: root.secret })
+		expect(retrieved.status).toBe(200)
+		expect(retrieved.body.id).toBe(id)
+		expect("secret" in retrieved.body).toBe(false)
+		expect("txid" in retrieved.body).toBe(false)
+
+		const rolled = await harness.request("POST", `/v2/api_keys/${id}/roll`, { token: root.secret })
+		expect(rolled.status).toBe(200)
+		expect(rolled.body.scopes).toEqual(["telemetry:read"])
+		expect(rolled.body.id).not.toBe(id)
+		expect(rolled.body.txid).toMatch(/^\d+$/)
+
+		const revoked = await harness.request("DELETE", `/v2/api_keys/${rolled.body.id}`, {
+			token: root.secret,
+		})
+		expect(revoked.status).toBe(200)
+		expect(revoked.body.revoked).toBe(true)
+		expect(revoked.body.txid).toMatch(/^\d+$/)
+		await harness.dispose()
+	})
+
+	it("lets a non-admin member create an MCP key that carries their own roles", async () => {
+		const harness = makeHarness()
+		const member = await harness.bootstrapMemberKey()
+
+		const created = await harness.request("POST", "/v2/api_keys", {
+			token: member.secret,
+			body: { name: "my editor", kind: "mcp" },
+		})
+		expect(created.status).toBe(200)
+		expect(created.body.kind).toBe("mcp")
+
+		// The minted key must not resolve as `root` — it inherits the member's roles.
+		const resolved = await harness.resolveKey(created.body.secret)
+		expect(Option.isSome(resolved)).toBe(true)
+		if (Option.isSome(resolved)) {
+			expect(resolved.value.roles).toEqual(["org:member"])
+		}
+		await harness.dispose()
+	})
+
+	it("still refuses standard API keys for a non-admin member", async () => {
+		const harness = makeHarness()
+		const member = await harness.bootstrapMemberKey()
+
+		const { status, body } = await harness.request("POST", "/v2/api_keys", {
+			token: member.secret,
+			body: { name: "ci" },
+		})
+		expect(status).toBe(403)
+		expect(body.error).toEqual({
+			_tag: "@maple/http/v2/InsufficientPermissionsError",
+			type: "permission_error",
+			code: "insufficient_permissions",
+			title: "Permission required",
+			message: "Only org admins can create API keys",
+			retryable: false,
+			recovery: "request_access",
+		})
+		await harness.dispose()
+	})
+
+	it("lets a member revoke their own MCP key but not anyone else's key", async () => {
+		const harness = makeHarness()
+		const member = await harness.bootstrapMemberKey()
+
+		const own = await harness.request("POST", "/v2/api_keys", {
+			token: member.secret,
+			body: { name: "my editor", kind: "mcp" },
+		})
+		expect(own.status).toBe(200)
+
+		const revoked = await harness.request("DELETE", `/v2/api_keys/${own.body.id}`, {
+			token: member.secret,
+		})
+		expect(revoked.status).toBe(200)
+		expect(revoked.body.revoked).toBe(true)
+
+		const other = Schema.decodeUnknownSync(UserId)("user_other")
+		const foreign = await harness.bootstrapKey(undefined, "mcp", { userId: other })
+		const { encodePublicId } = await import("@maple/domain/http/v2")
+		const denied = await harness.request("DELETE", `/v2/api_keys/${encodePublicId("key", foreign.id)}`, {
+			token: member.secret,
+		})
+		expect(denied.status).toBe(403)
+		expect(denied.body.error.code).toBe("insufficient_permissions")
+		await harness.dispose()
+	})
+
+	it("refuses a roll by a non-admin member and leaves the key live", async () => {
+		const harness = makeHarness()
+		const member = await harness.bootstrapMemberKey()
+		const target = await harness.bootstrapKey(["telemetry:read"])
+		const { encodePublicId } = await import("@maple/domain/http/v2")
+
+		const denied = await harness.request(
+			"POST",
+			`/v2/api_keys/${encodePublicId("key", target.id)}/roll`,
+			{
+				token: member.secret,
+			},
+		)
+		expect(denied.status).toBe(403)
+		expect(denied.body.error.code).toBe("insufficient_permissions")
+		expect(Option.isSome(await harness.resolveKey(target.secret))).toBe(true)
+		expect(await harness.auditEntries("api_key.rolled")).toEqual([])
+		await harness.dispose()
+	})
+
+	it("records exactly one audit entry for an admin roll", async () => {
+		const harness = makeHarness()
+		const root = await harness.bootstrapKey()
+		const target = await harness.bootstrapKey(["telemetry:read"])
+		const { encodePublicId } = await import("@maple/domain/http/v2")
+
+		const rolled = await harness.request(
+			"POST",
+			`/v2/api_keys/${encodePublicId("key", target.id)}/roll`,
+			{
+				token: root.secret,
+			},
+		)
+		expect(rolled.status).toBe(200)
+
+		const entries = await harness.auditEntries("api_key.rolled")
+		expect(entries.map((entry) => [entry.resourceId, entry.apiKeyId, entry.outcome])).toEqual([
+			[rolled.body.id, root.id, "allowed"],
+		])
+		await harness.dispose()
+	})
+
+	it("records who revoked which key in the audit log", async () => {
+		const harness = makeHarness()
+		const root = await harness.bootstrapKey()
+		const created = await harness.request("POST", "/v2/api_keys", {
+			token: root.secret,
+			body: { name: "to-revoke" },
+		})
+		expect(created.status).toBe(200)
+
+		const revoked = await harness.request("DELETE", `/v2/api_keys/${created.body.id}`, {
+			token: root.secret,
+		})
+		expect(revoked.status).toBe(200)
+
+		const entries = await harness.auditEntries("api_key.revoked")
+		expect(entries.map((entry) => [entry.resourceId, entry.apiKeyId, entry.outcome])).toEqual([
+			[created.body.id, root.id, "allowed"],
+		])
+		await harness.dispose()
+	})
+
+	it("returns envelope errors for malformed and unknown IDs", async () => {
+		const harness = makeHarness()
+		const root = await harness.bootstrapKey()
+
+		const malformed = await harness.request("GET", "/v2/api_keys/not-a-public-id", {
+			token: root.secret,
+		})
+		expect(malformed.status).toBe(400)
+		expect(malformed.body.error.type).toBe("invalid_request_error")
+		expect(malformed.body.error.param).toBe("id")
+		expect(malformed.body.error.code).toBe("parameter_invalid")
+		expect(malformed.body.error._tag).toBe("@maple/http/v2/InvalidRequestError")
+
+		// valid key_ encoding of a UUID that doesn't exist
+		const { encodePublicId } = await import("@maple/domain/http/v2")
+		const ghost = encodePublicId("key", "0f8fad5b-d9cb-469f-a165-70867728950e")
+		const missing = await harness.request("GET", `/v2/api_keys/${ghost}`, { token: root.secret })
+		expect(missing.status).toBe(404)
+		expect(missing.body.error.type).toBe("not_found_error")
+		expect(missing.body.error.code).toBe("api_key_not_found")
+		await harness.dispose()
+	})
+
+	it("rejects invalid scope strings on create with a 400 envelope", async () => {
+		const harness = makeHarness()
+		const root = await harness.bootstrapKey()
+
+		const { status, body } = await harness.request("POST", "/v2/api_keys", {
+			token: root.secret,
+			body: { name: "bad", scopes: ["dashboards:admin"] },
+		})
+		expect(status).toBe(400)
+		expect(body.error.type).toBe("invalid_request_error")
+		await harness.dispose()
+	})
+
+	it("paginates with limit + cursor", async () => {
+		const harness = makeHarness()
+		const root = await harness.bootstrapKey()
+		await harness.bootstrapKey(["api_keys:read"])
+		await harness.bootstrapKey(["api_keys:read"])
+
+		const first = await harness.request("GET", "/v2/api_keys?limit=2", { token: root.secret })
+		expect(first.status).toBe(200)
+		expect(first.body.data).toHaveLength(2)
+		expect(first.body.has_more).toBe(true)
+
+		const second = await harness.request(
+			"GET",
+			`/v2/api_keys?limit=2&cursor=${encodeURIComponent(first.body.next_cursor)}`,
+			{ token: root.secret },
+		)
+		expect(second.status).toBe(200)
+		expect(second.body.data).toHaveLength(1)
+		expect(second.body.has_more).toBe(false)
+		await harness.dispose()
+	})
+})

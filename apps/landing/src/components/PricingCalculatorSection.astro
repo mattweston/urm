@@ -1,0 +1,96 @@
+---
+/**
+ * The calculator chapter: your volume, priced by Maple and by one other
+ * vendor, side by side. Each vendor gets its own sliders because none of them
+ * meter the same thing; the Maple column is always the Startup formula.
+ *
+ * `/compare/*` pages pass a fixed `competitor` and get the comparison headed
+ * by the vendor's name; `/pricing` passes nothing and gets the switcher.
+ */
+import { PricingCalculator } from "./PricingCalculator";
+import { PricingComparisonCalculator } from "./PricingComparisonCalculator";
+import * as m from "../paraglide/messages.js";
+
+interface Props {
+    // When provided, the section compares against a single fixed competitor
+    // (used by /compare/* pages). When omitted, it renders the competitor
+    // switcher so the visitor can compare against any vendor (used by /pricing).
+    competitor?: "datadog" | "grafana" | "new-relic" | "dash0";
+    competitorName?: string;
+    /**
+     * Hydrate on load instead of on scroll. Set where the section sits near the
+     * top of the page: `client:visible` is a scroll race the visitor can win,
+     * and an estimator that is still inert when it is already on screen reads
+     * as broken. Sections further down keep the default.
+     */
+    eager?: boolean;
+}
+
+const { competitor, competitorName, eager = false } = Astro.props;
+
+const compareEyebrow = competitor ? "Pricing" : m.pricing_calc_label();
+const compareHeading = competitor
+    ? `Estimated monthly cost: Maple vs ${competitorName}`
+    : m.pricing_calc_heading();
+const compareSub = competitor
+    ? "Drag the sliders to match your usage and see how the costs compare."
+    : m.pricing_calc_sub();
+---
+
+<section id="calculator" class="scroll-mt-20 border-t border-border py-16 md:py-32">
+    <div class="mx-auto max-w-5xl px-6">
+        <div>
+            <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-fg-muted">
+                {compareEyebrow}
+            </p>
+            <h2 class="mt-4 max-w-[22ch] font-display text-3xl font-medium leading-[1.05] tracking-[-0.02em] text-fg md:text-4xl">
+                {compareHeading}
+            </h2>
+            <p class="mt-5 max-w-[62ch] text-sm leading-relaxed text-fg-muted md:text-[15px]">
+                {compareSub}
+            </p>
+        </div>
+
+        <div class="mt-10">
+            {competitor ? (
+                eager ? <PricingCalculator competitor={competitor} client:load /> : <PricingCalculator competitor={competitor} client:visible />
+            ) : (
+                eager ? <PricingComparisonCalculator client:load /> : <PricingComparisonCalculator client:visible />
+            )}
+        </div>
+    </div>
+</section>
+
+<style is:global>
+    .slider-input::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 9999px;
+        background: var(--primary);
+        cursor: pointer;
+        position: relative;
+        z-index: 2;
+    }
+    .slider-input::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border-radius: 9999px;
+        border: none;
+        background: var(--primary);
+        cursor: pointer;
+        position: relative;
+        z-index: 2;
+    }
+    .slider-input::-webkit-slider-thumb:hover,
+    .slider-input::-moz-range-thumb:hover {
+        filter: brightness(1.1);
+    }
+    .slider-input:focus {
+        outline: none;
+    }
+    .slider-input:focus-visible::-webkit-slider-thumb {
+        box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 35%, transparent);
+    }
+</style>

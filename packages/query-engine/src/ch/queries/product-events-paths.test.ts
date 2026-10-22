@@ -1,0 +1,118 @@
+import { describe, expect, it } from "vitest"
+import { Result } from "effect"
+import { compileUnsafe } from "@maple-dev/effect-orm/clickhouse"
+import { productEventsPathsQuery, type ProductEventsPathsOpts } from "./product-events-paths"
+import { OrgId } from "@maple/domain"
+
+const params = {
+	orgId: OrgId.make("org_1"),
+	startTime: "2026-06-24 04:00:00",
+	endTime: "2026-06-25 06:00:00",
+}
+
+const base: ProductEventsPathsOpts = {
+	anchor: { kind: "event", eventName: "signup_completed" },
+	direction: "after",
+	depth: 3,
+	branches: 4,
+	keyBy: "person",
+	windowSeconds: 86_400,
+}
+
+// productEventsPathsQuery
+//
+// Per person: the sorted events, cut at the anchor, bounded by the window,
+// compacted and truncated to `depth` hops; then one row per hop with the top
+// `branches` nodes per column named and the rest folded into `$other`.
+
+describe("productEventsPathsQuery", () => {
+	it("scopes every table it reads to the org and derives an org-scoped result", () => {
+		const compiled = compileUnsafe(Result.getOrThrow(productEventsPathsQuery(base)), params)
+		expect(compiled.tenantScope).toBe("single-tenant")
+		expect(compiled.sql).toContain("FROM identity_links")
+		expect(compiled.sql.match(/OrgId = 'org_1'/g)?.length).toBeGreaterThanOrEqual(2)
+	})
+
+	it("walks forward from the first anchor, over the rows inside its window, `depth + 1` names per person", () => {
+		const { sql } = compileUnsafe(Result.getOrThrow(productEventsPathsQuery(base)), params)
+		expect(sql).toContain("toUInt8(e.EventName = 'signup_completed') AS isAnchor")
+		// The anchor instant per person, then only the rows inside its window.
+		expect(sql).toContain("min(toUInt64(toUnixTimestamp64Milli(e.Timestamp))) AS anchorTs")
+		expect(sql).toContain("WHERE r.ts >= a.anchorTs")
+		expect(sql).toContain("AND r.ts <= a.anchorTs + 86400000")
+		// Ordered by (ts, seq) so a same-millisecond pair keeps its row order.
+		expect(sql).toContain("arraySort(x -> (x.1, x.2), groupArray(tuple(ts, seq, name, isAnchor))) AS evs")
+		expect(sql).toContain("arrayFirstIndex(x -> x.4 = 1, evs) AS anchorIdx")
+		// Compacted before truncation, no raw-row tail.
+		expect(sql).toContain(
+			"arraySlice(arrayCompact(arrayMap(x -> x.3, arraySlice(evs, anchorIdx))), 1, 4) AS seq",
+		)
+		expect(sql).toContain("WHERE anchorIdx > 0")
+		expect(sql).toContain("WHERE tupleElement(edge, 1) <= 3")
+		expect(sql).toContain("groupArray(tuple(name, n))), 1, 4) AS head")
+		expect(sql).toContain("'$other'")
+	})
+
+	it("reads the array backwards for `before`, bounding the window behind the anchor", () => {
+		const { sql } = compileUnsafe(
+			Result.getOrThrow(
+				productEventsPathsQuery({ ...base, direction: "before", windowSeconds: 3_600 }),
+			),
+			params,
+		)
+		expect(sql).toContain("max(toUInt64(toUnixTimestamp64Milli(e.Timestamp))) AS anchorTs")
+		expect(sql).toContain("WHERE r.ts <= a.anchorTs")
+		expect(sql).toContain("AND r.ts >= a.anchorTs - 3600000")
+		expect(sql).toContain("arrayFirstIndex(x -> x.4 = 1, arrayReverse(evs))")
+	})
+
+	it("reads product_events twice: once for the anchor, once for the hops", () => {
+		const { sql } = compileUnsafe(Result.getOrThrow(productEventsPathsQuery(base)), params)
+		expect(sql.match(/FROM product_events AS e/g)?.length).toBe(2)
+	})
+
+	it("names page views by path and applies include / exclude before sequencing", () => {
+		const { sql } = compileUnsafe(
+			Result.getOrThrow(
+				productEventsPathsQuery({
+					...base,
+					anchor: { kind: "page", pagePath: "/pricing", host: "maple.dev" },
+					include: "pages",
+					exclude: ["heartbeat", "/"],
+					keyBy: "session",
+				}),
+			),
+			params,
+		)
+		// No identity join on a session key, so the columns go unprefixed.
+		expect(sql).toContain("if(e.Kind = 'navigation', e.PagePath, e.EventName) AS name")
+		// The anchor row is exempt from its own kind and name filters.
+		expect(sql).toContain(
+			"(r.isAnchor = 1 OR (r.kind = 'navigation' AND r.name NOT IN ('heartbeat', '/')))",
+		)
+		expect(sql).toContain("(e.Kind = 'navigation' AND e.PagePath = '/pricing') AND e.Host = 'maple.dev'")
+		expect(sql).not.toContain("identity_links")
+	})
+
+	it("narrows the population by person when a filter is set", () => {
+		const { sql } = compileUnsafe(
+			Result.getOrThrow(productEventsPathsQuery({ ...base, filters: { country: "DE" } })),
+			params,
+		)
+		expect(sql).toContain("FROM session_replays")
+		expect(sql).toContain("Country = 'DE'")
+	})
+
+	it("rejects a definition the reader could not draw", () => {
+		const reasons = (opts: ProductEventsPathsOpts) => {
+			const built = productEventsPathsQuery(opts)
+			return Result.isFailure(built) ? built.failure.reason : null
+		}
+		expect(reasons({ ...base, depth: 0 })).toBe("InvalidLimit")
+		expect(reasons({ ...base, depth: 6 })).toBe("InvalidLimit")
+		expect(reasons({ ...base, branches: 11 })).toBe("InvalidLimit")
+		expect(reasons({ ...base, windowSeconds: 0 })).toBe("InvalidWindow")
+		expect(reasons({ ...base, anchor: { kind: "event", eventName: " " } })).toBe("NoSteps")
+		expect(reasons(base)).toBeNull()
+	})
+})

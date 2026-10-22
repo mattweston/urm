@@ -1,0 +1,294 @@
+import { HttpApiBuilder } from "effect/http-api"
+import type { InvestigationDocument, InvestigationSubject } from "@maple/domain/http"
+import {
+	AlertIncidentId,
+	AnomalyIncidentId,
+	CurrentTenant,
+	ErrorIncidentId,
+	InvestigationCreateRequest,
+	InvestigationDataCorruptionError,
+	InvestigationFreeformSubject,
+	InvestigationId,
+	InvestigationIncidentSubject,
+	InvestigationSubjectSnapshot,
+	TraceId,
+} from "@maple/domain/http"
+import {
+	INVESTIGATION_READ_FAMILIES,
+	MapleApiV2,
+	missingReadScopes,
+	paginateOffsetQuery,
+	V2InsufficientScope,
+} from "@maple/domain/http/v2"
+import type {
+	V2Investigation,
+	V2InvestigationCreateParams,
+	V2InvestigationCreateSubject,
+	V2InvestigationSubject,
+} from "@maple/domain/http/v2"
+import { Effect, Match, Schema } from "effect"
+import { recordHttpAudit } from "@maple/backend/services/audit/AuditLogService"
+import { InvestigationService } from "@maple/backend/services/errors/InvestigationService"
+
+const toWireSubject = Effect.fn("HttpV2Investigations.toWireSubject")(function* (
+	investigationId: InvestigationId,
+	subject: InvestigationSubject,
+): Effect.fn.Return<V2InvestigationSubject, InvestigationDataCorruptionError> {
+	yield* Effect.annotateCurrentSpan(
+		subject.type === "incident"
+			? {
+					investigationId,
+					incidentKind: subject.incidentKind,
+					incidentId: subject.incidentId,
+				}
+			: { investigationId },
+	)
+	if (subject.type === "freeform") {
+		return {
+			type: "freeform",
+			title: subject.title,
+			prompt: subject.prompt,
+			context_refs: subject.contextRefs,
+		}
+	}
+	if (subject.type === "fix_verification") {
+		return {
+			type: "fix_verification",
+			issue_id: subject.issueId,
+			pull_request_url: subject.pullRequestUrl,
+			baseline_versions: subject.baselineVersions,
+			merged_at: subject.mergedAt,
+		}
+	}
+	const shared = {
+		type: "incident" as const,
+		issue_id: subject.issueId ?? null,
+	}
+	const decodeFailure = () =>
+		new InvestigationDataCorruptionError({
+			investigationId,
+			field: "subject.incident_id",
+			value: subject.incidentId,
+			incidentKind: subject.incidentKind,
+			incidentId: subject.incidentId,
+			message: "Stored investigation subject contains an invalid incident identifier",
+		})
+	return yield* Match.value(subject.incidentKind).pipe(
+		Match.when("error", () =>
+			Schema.decodeEffect(ErrorIncidentId)(subject.incidentId).pipe(
+				Effect.mapError(decodeFailure),
+				Effect.map((incidentId) => ({
+					...shared,
+					incident_kind: "error" as const,
+					incident_id: incidentId,
+				})),
+			),
+		),
+		Match.when("anomaly", () =>
+			Schema.decodeEffect(AnomalyIncidentId)(subject.incidentId).pipe(
+				Effect.mapError(decodeFailure),
+				Effect.map((incidentId) => ({
+					...shared,
+					incident_kind: "anomaly" as const,
+					incident_id: incidentId,
+				})),
+			),
+		),
+		Match.when("alert", () =>
+			Schema.decodeEffect(AlertIncidentId)(subject.incidentId).pipe(
+				Effect.mapError(decodeFailure),
+				Effect.map((incidentId) => ({
+					...shared,
+					incident_kind: "alert" as const,
+					incident_id: incidentId,
+				})),
+			),
+		),
+		Match.exhaustive,
+	)
+})
+
+const toInternalSubject = (subject: V2InvestigationCreateSubject): InvestigationSubject =>
+	subject.type === "incident"
+		? new InvestigationIncidentSubject({
+				type: "incident",
+				incidentKind: subject.incident_kind,
+				incidentId: subject.incident_id,
+				...(subject.issue_id !== undefined ? { issueId: subject.issue_id } : undefined),
+			})
+		: new InvestigationFreeformSubject({
+				type: "freeform",
+				title: subject.title,
+				prompt: subject.prompt,
+				contextRefs: subject.context_refs,
+			})
+
+const toInternalSnapshot = (snapshot: V2InvestigationCreateParams["snapshot"] | undefined) =>
+	snapshot === undefined ? undefined : Schema.decodeSync(InvestigationSubjectSnapshot)(snapshot)
+
+const toV2Investigation = Effect.fn("HttpV2Investigations.toV2Investigation")(function* (
+	doc: InvestigationDocument,
+): Effect.fn.Return<V2Investigation, InvestigationDataCorruptionError> {
+	yield* Effect.annotateCurrentSpan("maple.investigation.id", doc.id)
+	const decodeReportTraceId = (traceId: string) =>
+		Schema.decodeEffect(TraceId)(traceId).pipe(
+			Effect.mapError(
+				() =>
+					new InvestigationDataCorruptionError({
+						investigationId: doc.id,
+						field: "report.evidence.trace_ids",
+						value: traceId,
+						message: "Stored investigation report contains an invalid trace identifier",
+					}),
+			),
+		)
+	const report =
+		doc.report === null
+			? null
+			: {
+					...doc.report,
+					evidence: yield* Effect.forEach(doc.report.evidence, (entry) =>
+						Effect.map(Effect.forEach(entry.traceIds, decodeReportTraceId), (traceIds) => ({
+							...entry,
+							traceIds,
+						})),
+					),
+				}
+	return {
+		id: doc.id,
+		object: "investigation",
+		status: doc.status,
+		subject: yield* toWireSubject(doc.id, doc.subject),
+		snapshot: doc.snapshot,
+		report,
+		progress: doc.progress,
+		model: doc.model,
+		severity: doc.severity,
+		confidence: doc.confidence,
+		seeded_by: doc.seededBy,
+		created_by: doc.createdBy,
+		input_tokens: doc.inputTokens,
+		output_tokens: doc.outputTokens,
+		error: doc.error,
+		created_at: doc.createdAt,
+		started_at: doc.startedAt,
+		diagnosed_at: doc.diagnosedAt,
+		updated_at: doc.updatedAt,
+	}
+})
+
+const logSubjectDecodeError = (error: InvestigationDataCorruptionError) =>
+	Effect.logError(error.message).pipe(
+		Effect.annotateLogs({
+			investigationId: error.investigationId,
+			field: error.field,
+			value: error.value,
+			...(error.incidentKind !== undefined ? { incidentKind: error.incidentKind } : undefined),
+			...(error.incidentId !== undefined ? { incidentId: error.incidentId } : undefined),
+		}),
+	)
+
+const serializeInvestigation = (doc: InvestigationDocument) =>
+	toV2Investigation(doc).pipe(Effect.tapError(logSubjectDecodeError))
+
+/** A run reads the whole org as an internal service, so a scoped key must already read it all. */
+const requireInvestigationScopes = (scopes: ReadonlyArray<string> | undefined) => {
+	const missing = missingReadScopes(scopes, INVESTIGATION_READ_FAMILIES)
+	return missing.length === 0
+		? Effect.void
+		: Effect.fail(
+				V2InsufficientScope.make(
+					`Running an investigation requires read access to everything its agent reads. Missing scopes: ${missing.map((family) => `"${family}:read"`).join(", ")}.`,
+				),
+			)
+}
+
+export const HttpV2InvestigationsLive = HttpApiBuilder.group(MapleApiV2, "investigations", (handlers) =>
+	Effect.gen(function* () {
+		const service = yield* InvestigationService
+
+		return handlers
+			.handle("list", ({ query }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const page = yield* paginateOffsetQuery(query, ({ limit, offset }) =>
+						service
+							.listInvestigations(tenant.orgId, {
+								...(query.status !== undefined ? { status: query.status } : undefined),
+								...(query.issue_id !== undefined ? { issueId: query.issue_id } : undefined),
+								...(query.incident_kind !== undefined
+									? {
+											incidentKind: query.incident_kind,
+										}
+									: undefined),
+								...(query.incident_id !== undefined
+									? { incidentId: query.incident_id }
+									: undefined),
+								limit,
+								offset,
+							})
+							.pipe(
+								Effect.flatMap((response) =>
+									Effect.forEach(response.investigations, serializeInvestigation),
+								),
+							),
+					)
+					return { object: "list" as const, ...page }
+				}),
+			)
+			.handle("retrieve", ({ params }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const doc = yield* service.getInvestigation(tenant.orgId, params.id)
+
+					return yield* serializeInvestigation(doc)
+				}),
+			)
+			.handle("create", ({ payload }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					yield* requireInvestigationScopes(tenant.scopes)
+					const doc = yield* service.createAndStartInvestigation(
+						tenant.orgId,
+						tenant.userId,
+						new InvestigationCreateRequest({
+							subject: toInternalSubject(payload.subject),
+							...(payload.snapshot !== undefined
+								? {
+										snapshot: toInternalSnapshot(payload.snapshot),
+									}
+								: undefined),
+						}),
+					)
+					yield* recordHttpAudit("investigation.created", {
+						resourceId: doc.id,
+						metadata: { subject_type: payload.subject.type },
+					})
+
+					return yield* serializeInvestigation(doc)
+				}),
+			)
+			.handle("restart", ({ params }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					yield* requireInvestigationScopes(tenant.scopes)
+					const doc = yield* service.restartInvestigation(tenant.orgId, params.id)
+					yield* recordHttpAudit("investigation.restarted", { resourceId: doc.id })
+
+					return yield* serializeInvestigation(doc)
+				}),
+			)
+			.handle("updateStatus", ({ params, payload }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const doc = yield* service.updateStatus(tenant.orgId, params.id, payload.status)
+					yield* recordHttpAudit("investigation.status_changed", {
+						resourceId: doc.id,
+						metadata: { to_status: payload.status },
+					})
+
+					return yield* serializeInvestigation(doc)
+				}),
+			)
+	}),
+)

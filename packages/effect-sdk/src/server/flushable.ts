@@ -1,0 +1,187 @@
+// Server flushable preset — manual `flush()` for Node/Bun/Deno
+//
+// `Maple.layer` (the `Otlp.layerJson`-based server preset) batches in the
+// background and flushes only on a timer, on batch overflow, or on scope close
+// — it exposes no way to force an export. This preset trades that background
+// fiber for the buffer-backed tracer/logger used by the Cloudflare SDK and adds
+// an explicit `flush()`, so a short-lived process can force its spans out at a
+// checkpoint (or before exiting) instead of losing them.
+//
+//   import { MapleFlush } from "@maple-dev/effect-sdk/server"
+//   const telemetry = MapleFlush.make({ serviceName: "my-app" })
+//   // ...provide telemetry.layer to your runtime...
+//   await telemetry.flush()        // force an export now
+//   await telemetry.dispose()      // stop the auto-flush timer + final flush
+//
+// Traces, logs, and Effect metric snapshots are flushed together.
+
+import { Effect, Layer } from "effect"
+import {
+	buildResolved,
+	fetchTransport,
+	guardFlush,
+	makeSerializedFlush,
+	type Resolved,
+	runFlush,
+	type SignalState,
+} from "../shared/flush-core.js"
+import { type LogBuffer, makeLogBuffer } from "../shared/flushable-logger.js"
+import { makeMetricBuffer } from "../shared/flushable-metrics.js"
+import { makeSpanBuffer, type SpanBuffer } from "../shared/flushable-tracer.js"
+import type { MapleSpanOptions } from "../shared/span-options.js"
+import { makeNoOpNotice } from "../shared/no-op-notice.js"
+import { SDK_VERSION } from "../version.js"
+import { resolveResource } from "./resource.js"
+import type { MapleRegion } from "@maple/browser-session/region"
+
+/** Default auto-flush cadence (ms), matching `Otlp.layerJson`'s 5s export interval. */
+const DEFAULT_AUTO_FLUSH_MS = 5_000
+
+export interface MapleFlushableConfig extends MapleSpanOptions {
+	/**
+	 * Service name reported in traces, logs, and metrics. Falls back to `OTEL_SERVICE_NAME`,
+	 * then `"unknown"`.
+	 */
+	readonly serviceName?: string | undefined
+	/** Override auto-detected service version (commit SHA). */
+	readonly serviceVersion?: string | undefined
+	/**
+	 * Logical group this service belongs to, emitted as the OTel
+	 * `service.namespace` resource attribute. Optional — only stamped when set.
+	 */
+	readonly serviceNamespace?: string | undefined
+	/** Override auto-detected deployment environment. */
+	readonly environment?: string | undefined
+	/**
+	 * Ingest endpoint URL. Falls back to `MAPLE_ENDPOINT`, then
+	 * `OTEL_EXPORTER_OTLP_ENDPOINT`, then the public Maple ingest.
+	 */
+	readonly endpoint?: string | undefined
+	/**
+	 * Region your Maple organization lives in: `"us"` (default) or `"eu"`.
+	 * Falls back to `MAPLE_REGION`. Any endpoint, set here or in env, wins.
+	 */
+	readonly region?: MapleRegion | undefined
+	/** Maple ingest key. Falls back to `MAPLE_INGEST_KEY`. When unset, runs in no-op mode. */
+	readonly ingestKey?: string | undefined
+	/** Additional resource attributes (highest precedence). */
+	readonly attributes?: Record<string, unknown> | undefined
+	/** Skip Effect log spans in OTLP log attributes. Default `false`. */
+	readonly excludeLogSpans?: boolean | undefined
+	/** OTLP traces path appended to `endpoint`. Default `/v1/traces`. */
+	readonly tracesPath?: string | undefined
+	/** OTLP logs path appended to `endpoint`. Default `/v1/logs`. */
+	readonly logsPath?: string | undefined
+	/** OTLP metrics path appended to `endpoint`. Default `/v1/metrics`. */
+	readonly metricsPath?: string | undefined
+	/**
+	 * Background auto-flush cadence in milliseconds. Default `5000`. Set to `0`
+	 * or `false` to disable and flush purely on demand (note: the in-memory
+	 * buffer caps at 10k items and drops new spans past that, so a long-running
+	 * process that never flushes will lose data).
+	 */
+	readonly autoFlushInterval?: number | false | undefined
+}
+
+export interface FlushableTelemetry {
+	/**
+	 * Effect Layer installing the buffer-backed OTLP tracer + Effect logger.
+	 * Must live in the same runtime as your instrumented code (same caveat as
+	 * the Cloudflare preset's `layer`).
+	 */
+	readonly layer: Layer.Layer<never>
+	/** Drain the buffers and POST them now. Never rejects (errors are logged + cooled down). */
+	readonly flush: () => Promise<void>
+	/** Stop the auto-flush timer, then do one final flush. */
+	readonly dispose: () => Promise<void>
+}
+
+export const make = (config: MapleFlushableConfig = {}): FlushableTelemetry => {
+	const spans: SpanBuffer = makeSpanBuffer(config)
+	const logs: LogBuffer = makeLogBuffer({ excludeLogSpans: config.excludeLogSpans })
+	const metrics = makeMetricBuffer()
+	const layer = Layer.mergeAll(spans.tracerLayer, logs.loggerLayer, metrics.layer)
+
+	const tracesState: SignalState = { disabledUntil: 0 }
+	const logsState: SignalState = { disabledUntil: 0 }
+	const metricsState: SignalState = { disabledUntil: 0 }
+	const noOpNotice = makeNoOpNotice("[MapleServerSDK]", "set MAPLE_INGEST_KEY to enable")
+
+	// Resolve the resource once, lazily, on first flush. Memoize the PROMISE (not
+	// the result) so a manual flush racing the auto-flush timer can't kick off two
+	// `resolveResource` runs. `resolveResource` reads env via the default
+	// ConfigProvider, so this keeps commit-SHA/environment auto-detection without
+	// making `make()` async or reading env at module scope.
+	//
+	// The memo is cleared on rejection. `resolveResource` is `Effect.orDie`, so a
+	// defect (e.g. a runtime without `crypto.randomUUID`) surfaces as a rejected
+	// promise — caching that would disable telemetry for the process lifetime and
+	// turn the auto-flush timer into a recurring unhandled rejection. Dropping it
+	// lets the next flush retry.
+	let resolvedPromise: Promise<Resolved> | undefined
+	const ensureResolved = (): Promise<Resolved> => {
+		if (resolvedPromise === undefined) {
+			const pending = Effect.runPromise(resolveResource({ ...config, sdkType: "server" })).then((r) =>
+				buildResolved(r, {
+					tracesPath: config.tracesPath,
+					logsPath: config.logsPath,
+					metricsPath: config.metricsPath,
+					userAgent: `maple-effect-sdk-server/${SDK_VERSION}`,
+					keyless: "disable",
+				}),
+			)
+			resolvedPromise = pending
+			pending.catch(() => {
+				if (resolvedPromise === pending) resolvedPromise = undefined
+			})
+		}
+		return resolvedPromise
+	}
+
+	// `guardFlush` is what makes `flush` documented-never-rejects hold: callers
+	// `await` it at shutdown and the auto-flush timer fires it as `void flush()`.
+	// It covers resource resolution, which runs before `runFlush` absorbs the
+	// per-signal transport errors.
+	const flush = makeSerializedFlush(
+		guardFlush("[MapleServerSDK]", async (): Promise<void> => {
+			const resolved = await ensureResolved()
+			await runFlush({
+				resolved,
+				spans,
+				logs,
+				metrics,
+				tracesState,
+				logsState,
+				metricsState,
+				transport: fetchTransport,
+				logPrefix: "[MapleServerSDK]",
+				onNoOp: noOpNotice,
+			})
+		}),
+	)
+
+	const intervalMs =
+		config.autoFlushInterval === undefined
+			? DEFAULT_AUTO_FLUSH_MS
+			: config.autoFlushInterval === false
+				? 0
+				: config.autoFlushInterval
+	let timer: ReturnType<typeof setInterval> | undefined
+	if (intervalMs > 0) {
+		timer = setInterval(() => {
+			void flush()
+		}, intervalMs)
+		// Node only: a flush timer must never keep the process alive on its own.
+		;(timer as { unref?: () => void }).unref?.()
+	}
+
+	const dispose = async (): Promise<void> => {
+		if (timer !== undefined) {
+			clearInterval(timer)
+			timer = undefined
+		}
+		await flush()
+	}
+
+	return { layer, flush, dispose }
+}

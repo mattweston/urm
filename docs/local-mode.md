@@ -1,0 +1,765 @@
+# Local mode
+
+Local mode runs Maple as a single self-contained binary: OTLP ingest, an
+embedded ClickHouse (chDB) store, a query API, and a UI. No cloud, no Tinybird,
+no auth. It is for poking at telemetry on your own machine and for the
+distributable "try Maple locally" bundle.
+
+Everything is single-tenant: every row is written under `org_id = "local"`, and
+every compiled query filters on it.
+
+## Install
+
+Recommended:
+
+```bash
+brew install Makisuo/tap/maple
+```
+
+Homebrew downloads the matching release bundle, verifies its checksum, installs
+`maple` and `libchdb.so` together in the Homebrew Cellar, and links `maple` onto
+your PATH. If Homebrew asks you to trust the third-party tap, run
+`brew trust Makisuo/tap` once and retry the install. The tap lives in
+`Makisuo/homebrew-tap`, not this repo, so its platform coverage is set there.
+Intel macOS currently installs via the manual installer below.
+
+Manual installer:
+
+```bash
+curl -fsSL https://maple.dev/cli/install | sh
+```
+
+`maple.dev/cli/install` is [scripts/install.sh](../scripts/install.sh) served by
+`apps/landing`. Its `sync:cli` script copies it to `public/cli/install`. The raw GitHub URL
+`https://raw.githubusercontent.com/MapleTechLabs/maple/main/scripts/install.sh` works too.
+
+The manual installer detects your OS/arch, downloads the matching bundle from
+the latest GitHub release, verifies its checksum, installs the two files into
+`~/.maple/bin`, clears the macOS Gatekeeper quarantine, and symlinks `maple`
+onto your PATH.
+
+Released targets: macOS (Apple Silicon & Intel) and Linux (x86_64 & arm64).
+Intel macOS builds on GitHub's `macos-15-intel` runner, the scarcest capacity
+in the pool, so its tarball can land minutes after the others. Each build job
+publishes independently, so the rest of the release is never held up. GitHub
+retires Intel macOS in Fall 2027, and the target goes away with it.
+
+Then:
+
+```bash
+maple start            # OTLP ingest + embedded ClickHouse on :4318; UI from local.maple.dev
+maple start --offline  # …use the UI bundled in this binary (served from 127.0.0.1) instead
+maple start -d         # …or detached; logs to ~/.maple/maple.log (rotated at 10 MiB), stop with `maple stop`
+maple services         # query the running server
+maple traces
+```
+
+Local mode binds to `127.0.0.1` by default. To make the bundled dashboard and
+APIs reachable from another machine, set a bind host explicitly and use the
+same-origin offline UI:
+
+```bash
+MAPLE_LOCAL_BIND_HOST=0.0.0.0 \
+MAPLE_LOCAL_ADVERTISE_HOST=maple.home.arpa \
+  maple start --offline
+# Equivalent: maple start --host 0.0.0.0 --advertise-host maple.home.arpa --offline
+```
+
+Binding outside loopback exposes the complete, unauthenticated local-mode
+listener: OTLP ingest, `/local/query` read-only SQL, `/local/status`, `/health`, and the bundled UI.
+Maple restricts browser requests to the advertised same-origin UI and the exact
+configured hosted UI origin, but non-browser clients on the network still need
+no credentials. Use it only on a trusted network or behind a TLS proxy with
+browser-compatible authentication (for example, a session cookie or HTTP
+authentication). The bundled UI does not inject a Bearer API key or propagate
+an entry-page query parameter to its API requests. Open the advertised URL from
+another machine. The default UI hosted at `local.maple.dev` always talks to the
+browser machine's loopback address, so it cannot reach a remote local-mode server.
+
+By default `maple start` points you at the auto-updating dashboard hosted at
+`local.maple.dev`, which talks back to this binary on loopback (see
+[Where the UI comes from](#where-the-ui-comes-from)). `--offline` serves the copy
+bundled into the binary instead, which also avoids the browser's local-network
+permission prompt. The startup banner prints the right URL for the mode you chose.
+
+Query commands accept `--format table` for an aligned table instead of JSON, and
+`--debug` to print the compiled SQL and per-query timing to stderr (stdout stays
+clean JSON). Pin the backend with `maple use local|remote` (or `auto` to clear).
+
+Manual installer env overrides: `MAPLE_VERSION` (pin a release tag),
+`MAPLE_INSTALL_DIR` (bundle location, default `~/.maple/bin`), `MAPLE_BIN_DIR`
+(PATH symlink location), `MAPLE_SKIP_CHECKSUM=1` (skip SHA-256 verification;
+only for air-gapped mirrors without the `.sha256`, not recommended).
+
+### Updating
+
+Update with the same tool you installed with:
+
+```bash
+brew upgrade maple
+```
+
+Homebrew installs are managed by Homebrew: the wrapper disables Maple's startup
+update check and `maple update` exits with a reminder to use `brew upgrade
+maple`.
+
+Manual-installer builds keep themselves current:
+
+- **Startup notice.** On any command, `maple` checks GitHub Releases for a newer
+  version at most **once per 24h**. The result is cached in
+  `~/.maple/config.json` as `lastUpdateCheck` / `latestKnownVersion`, so other
+  runs stay instant and offline. When a newer release exists it prints a
+  one-line `update available` notice to stderr. It never changes behavior
+  mid-run. The check is skipped for dev builds, non-interactive shells
+  (CI/pipes), and the `--version`/`--help`/`update` paths. Opt out entirely with
+  `MAPLE_NO_UPDATE_CHECK=1`.
+- **`maple update`** downloads the latest release bundle, verifies its SHA-256,
+  and installs it **in place** with an atomic rename over both files. This is
+  safe while the binary is running: a `cp`-based install can't overwrite a
+  running executable, but the rename swaps the directory entry while the live
+  process keeps its old inode. It then clears the macOS quarantine flag.
+  Restart any running `maple start` afterward.
+    - `maple update --check`: report current vs. latest without installing.
+    - `maple update --tag <tag>`: install a specific release (e.g. `v0.6.0`).
+      This is also how to downgrade. The flag is `--tag` because the CLI
+      reserves `--version` for printing the binary version.
+
+This is the same artifact the installer fetches, so `maple update` and re-running
+`curl … | sh` are interchangeable.
+
+### Uninstall
+
+Homebrew:
+
+```bash
+brew uninstall maple
+```
+
+Manual installer:
+
+```bash
+curl -fsSL https://maple.dev/cli/uninstall | sh
+```
+
+The manual uninstaller removes the `maple` symlink and the `~/.maple/bin`
+bundle. Your data dir (`~/.maple/data`) is kept unless you confirm its removal
+when prompted (or set `MAPLE_REMOVE_DATA=1`). It honors the same
+`MAPLE_INSTALL_DIR` / `MAPLE_BIN_DIR` overrides as the installer.
+
+If you migrate from the manual installer to Homebrew, run the manual uninstaller
+or remove the old PATH symlink so your shell resolves Homebrew's `maple`.
+
+## Architecture: one Bun binary + libchdb
+
+There is a single binary, `maple`, compiled from **`apps/cli`** (package
+`@maple/cli`, Effect + Bun) with `bun build --compile`. It is both the CLI and
+the server. It talks to the embedded ClickHouse engine **directly via
+`bun:ffi`**, with no subprocess and no second language in front:
+
+| Concern              | Where                            | How                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI commands         | `apps/cli/src/commands`          | `maple services`, `traces`, `errors`, … run against **either** the local server **or** a remote workspace. `apps/cli/src/core/operations.ts` picks the path per [mode](#local-vs-remote-mode).                                                                                                                                                                       |
+| `maple start` server | `apps/cli/src/server/serve.ts`   | A `Bun.serve` hosting OTLP/HTTP ingest (`POST /v1/{traces,logs,metrics}`), the query API (`POST /local/query`), and the bundled SPA, all on one port.                                                                                                                                                                                                                |
+| Embedded ClickHouse  | `apps/cli/src/server/chdb.ts`    | `dlopen`s `libchdb` via `bun:ffi` (the `chdb_*` accessor C API) and holds a single connection for the process.                                                                                                                                                                                                                                                       |
+| OTLP → rows          | `apps/cli/src/server/otlp/`      | Decodes OTLP protobuf/JSON (protobufjs) and encodes each signal to per-table NDJSON, matching the generated `local-inserts.json` schema exactly. Ported from the production Rust encoders so row shapes can't diverge.                                                                                                                                               |
+| UI (SPA)             | `apps/local-ui` (Vite + Foldkit) | Pages compile queries with `CH.compile(...)` and POST to `/local/query`. The same build is deployed to `local.maple.dev` (the default) **and** inlined into the binary as the `--offline` fallback (see [release bundle](#release-bundle)); it picks its query base URL from `window.location` at runtime (see [Where the UI comes from](#where-the-ui-comes-from)). |
+
+chDB allows exactly one connection per process and isn't safe to call
+concurrently. The long-lived `maple start` process owns the connection, and
+short-lived query commands (`maple traces`, …) reach it over HTTP via
+[`executeLocalQuery`](../packages/query-engine/src/local.ts). `bun:ffi` calls are
+synchronous and serialize naturally on the single JS thread, which preserves
+chDB's single-writer requirement.
+
+### Store lifecycle & recovery
+
+The on-disk store at `~/.maple/data` is guarded by two sentinels beside it
+(`apps/cli/src/server/store-version.ts`). Every per-store file lives beside the
+data directory and is named by `dataDirSidecarPath`: a data directory named
+`data` keeps the plain names (`~/.maple/maple.pid`, `maple-store-open`, ...), and
+any other name gets a `<basename>.` prefix (`/var/lib/maple` uses
+`/var/lib/maple.maple.pid`), so two stores under one parent never share state.
+Stores created with a non-`data` name before this rule adopt their old files once.
+
+- **`maple-store-version.json`**: the chDB version and versioned Maple schema
+  identity that bootstrapped the store. A different chDB build can't be trusted
+  to reload another's persisted materialized views (it may crash the C++ runtime
+  natively, which JS can't catch), so `maple start` **refuses up front** when the
+  version differs. Current markers also carry a stable store id, immutable
+  creation provenance, a full schema digest, and an `active`/`staging` state.
+  Recover a store with an unsupported schema using `maple start --reset` only
+  when losing its live telemetry is acceptable.
+- **`maple-store-open`**: a clean-shutdown sentinel (not a concurrency lock; the
+  PID file already guards that). It is written right after chDB opens and removed
+  as the last step of a clean close. If `maple start` finds it over a populated
+  store, the previous server died without closing cleanly and the store may be
+  inconsistent. Reopening it could crash chDB natively, so `maple start` never
+  reopens it. `--on-dirty-store` picks the recovery:
+    - `fail` (default): refuse to start and name the next command. That is
+      `maple restore --yes` when a checkpoint exists, otherwise
+      `maple start --reset`.
+    - `restore-checkpoint`: restore the last checkpoint and move the dirty
+      store aside as `<data>.quarantine-*`.
+    - `wipe`: discard the live telemetry, keep and pin the checkpoints, and
+      bootstrap fresh.
+
+    Live telemetry since the last checkpoint is **not recoverable** after an
+    unclean kill of chDB. `maple start` refreshes a checkpoint every 30 minutes by
+    default (`--checkpoint-interval`, `off` to disable), skips a tick when nothing
+    was ingested since its last checkpoint, and backs off after repeated failures.
+    `maple checkpoint` creates one on demand.
+
+The PID file is claimed before any destructive recovery step, so two concurrent
+`maple start` runs can never wipe or restore each other's store. `maple stop`
+signals a PID only after confirming it is this store's server (`/local/status`
+or the process start time), and waits for an in-flight checkpoint rather than
+killing it. While a server runs it writes `maple-server.json` (pid, URL, data
+dir) beside the store; the query CLI reads it to find a server on a non-default
+port. `maple start -d` checks the port before spawning and reports ready only
+when `/local/status` answers with the child's pid (120s budget).
+
+**Under a supervisor.** A start refusal that retrying cannot fix (an unloadable
+libchdb, a dirty or incompatible store; the list is `DETERMINISTIC_START_TAGS` in
+`apps/cli/src/commands/start-failures.ts`) exits with status **78**, and so does
+a `maple start -d` whose child exited 78. Tell the supervisor not to restart on
+it: systemd `RestartPreventExitStatus=78`, launchd `KeepAlive` =
+`{ SuccessfulExit = false; }` plus a `ThrottleInterval`, Docker
+`restart: on-failure:5`. A taken port keeps the ordinary exit code, since it can
+clear by itself. Either way `maple start` protects itself: it records the
+failure in `start-failures.json` beside the store (a `-d` child uses
+`start-failures-child.json`), reports the same failure to Maple's telemetry at
+most once an hour, and from the third consecutive non-interactive repeat waits
+before exiting (1s, doubling, capped at 60s). A successful start clears both.
+
+### Service map rollup
+
+`service_map_edges_hourly` has no materialized view: an edge needs a
+Client/Producer span joined to its child Server/Consumer span. In cloud a
+scheduled job fills it; locally `maple start` runs the same rollup in-process
+(`apps/cli/src/server/service-map-rollup.ts`), sharing its hour planning and
+queries with the cloud job. The first tick runs 60 seconds after start, then
+every 5 minutes. Each tick seals every completed hour of the trailing 6 hours
+not yet in the table, once the hour has been over for 2 minutes. On the first
+tick it also catches up older hours back to the first traced hour or 7 days,
+whichever is shorter, newest first, at most 12 hours per tick, repeating every
+30 seconds until done. chDB runs on the server's JS thread, so each hour runs
+inside the request admission gate and ingest and queries run between hours.
+Checkpoints and `maple stop` wait for at most one hour's join. Sealed hours and
+retired UTC days are skipped. A span that arrives after its hour is sealed is
+not counted in the map's complete hours.
+
+### Deleting a service's or namespace's data
+
+`maple delete` removes one service's or one `service.namespace`'s telemetry from
+the live store without a full `maple reset`, for example when one shared local
+Maple serves many throwaway dev environments:
+
+```bash
+maple delete --service checkout-pr-42                 # preview: per-table counts, exits 1
+maple delete --service checkout-pr-42 --yes           # delete everything for the service
+maple delete --namespace pr-42 --yes                  # every service in one service.namespace
+maple delete --service api --namespace pr-42 --yes    # one service within one namespace
+maple delete --service api --env preview-17 --yes     # one deployment.environment only
+maple delete --service api --before 7d --yes          # rows older than an age or UTC timestamp
+```
+
+Pass `--service`, `--namespace`, or both (a row must match all given). `--env`
+matches `deployment.environment.name`, falling back to `deployment.environment`,
+the same expression the rollups store as `DeploymentEnv`. `--before` is floored
+to the UTC hour, because hourly rollups cannot split an hour; the report echoes
+the effective cutoff. A namespace delete keeps a same-named service in another
+namespace: `api` in `pr-41` survives `--namespace pr-42`.
+
+The command is local-only: `--remote`, or a mode that resolves to remote, is
+refused before anything is sent. It needs a running `maple start`, reads the
+maintenance token beside the server's data directory (so only the machine and
+user owning the store can delete), and posts to `POST /local/maintenance/delete`.
+The read-only `/local/query` path is not involved. The server runs the delete
+inside the admission gate's exclusive section, so ingest, queries, the service
+map rollup and checkpoint backups wait for it.
+
+**Which tables.** Every table in the local schema is classified in
+`TABLE_DELETE_PLAN` (`apps/cli/src/server/scoped-delete.ts`). A table either is
+`excluded` or declares which of the three dimensions (service, namespace, env)
+it can filter exactly, plus how to recompute it when a request names one it
+lacks. `validateDeletePlan` checks the map against the bundled schema manifest
+for every request shape. The server refuses to delete when they disagree, and
+`apps/cli/test/scoped-delete.test.ts` fails when a table is added without a
+classification. Per request, each table is handled one of three ways:
+
+- **filter**: the table declares every requested dimension, so
+  `ALTER TABLE ... DELETE` removes exactly the matching rows. The six raw tables
+  read namespace and env from `ResourceAttributes` and can always filter.
+  `trace_list_mv`, `service_overview_*`, `trace_facets_hourly` and
+  `logs_aggregates_hourly` also carry the namespace;
+  most other rollups carry `ServiceName` and `DeploymentEnv` only. On a merging
+  engine (Aggregating, Summing, Replacing) every filter column must be in the
+  sorting key, so a row never mixes scopes. `service_map_edges_hourly` and
+  `service_address_resolutions_hourly` match the service on either end of the
+  edge, because an edge is derived from both services' spans.
+- **rebuild**: the table lacks a requested dimension. The hours the deleted
+  source rows covered are cleared, limited to the requested dimensions the table
+  does key on, and recomputed from the surviving source rows. Most tables are
+  recomputed by re-running their own materialized-view bodies, one UTC day per
+  insert, in dependency order: a recomputed source fires its downstream views
+  (`service_operations_minutely` into `_hourly`, `error_events` into
+  `error_fingerprints_minutely`), and the downstream recompute that follows
+  wipes and redoes those hours. The two service map tables are recomputed by
+  re-running the hourly rollup from raw spans, only for hours it had already
+  sealed. `attribute_keys_hourly`, `attribute_values_hourly` and
+  `error_fingerprints_minutely` have no usable service key, so they are always
+  recomputed. An hour is recomputed only while every source still holds all of
+  it (bundled TTL plus a day of margin). Older hours are left as they are and
+  reported as skipped; their TTL removes them.
+- **excluded**: tables no local telemetry reaches. `session_events`,
+  `session_replay_events`, `session_replays` and `identity_links` hold browser
+  session data that local OTLP ingest never writes. `alert_checks` and
+  `audit_log` are control-plane history, and `service_map_edges_hourly_ingest` is
+  a `Null` table that stores nothing. The validator also refuses any
+  materialized view that writes an excluded table from a deletable one.
+
+**Crash safety.** Before the first mutation the server durably writes
+`maple-pending-delete.json` beside the data directory, holding the request and
+the hours each rebuild will recompute. It is removed after the last step.
+Filter deletes are idempotent, so a delete that fails midway is finished at the
+next start (before the listener binds) or by the next `maple delete`.
+
+**Checkpoints and archives.** A delete changes only the live store.
+`/local/status` reports `lastDeleteAtMs`, and the checkpoint refresh treats a
+delete like ingest, so the next tick replaces `current`. Until two refreshes
+have rotated `previous` as well, and for pinned or reset-preserved checkpoints,
+`maple restore` brings the deleted rows back. Run `maple checkpoint` right after
+a delete to refresh `current` at once. Parquet archives are immutable exports
+of earlier checkpoints and are not touched; remove an archived day with
+`maple archive expire`. Re-archiving a day after a delete exports fewer rows,
+which `archive create` refuses without `--allow-shrink`. Retired days hold no
+live raw rows, so a delete never recomputes them.
+
+### Versioned local-store migrations
+
+`maple start` never mutates a populated store in place when its schema identity
+is stale. Inspect a supported path before choosing it:
+
+```bash
+maple schema status
+maple schema plan
+maple schema migrate --dry-run
+maple schema migrate --yes
+# If a pre-promotion target is dirty or incomplete:
+maple schema abandon --yes
+```
+
+The supported legacy path is a stopped, side-by-side rebuild. It records a
+cutoff, copies the six authoritative raw telemetry tables with explicit column
+lists and bounded resumable batches, and replays the v1 materialized views from
+rows inside each table's retention horizon. Source/target inventories
+(row count, time bounds, and order-independent hashes) are compared before
+promotion. The source is retained under `.maple-migrations/<id>/source/data` as
+a pre-cutover rollback and inspection point; it is never deleted automatically,
+and `maple schema gc --apply` removes it on request.
+Promotion is a durable multi-step rename within one filesystem. A source
+directory mounted on another filesystem is rejected before cutover with an
+`EXDEV`-safe retry message; the staged target and source remain available.
+
+The migration journal beside the data directory is durable and fail-closed.
+Each journal records the complete selected chain, current module step, frozen
+source/target identities, typed module state, and resumable progress. A
+migration connection writes `maple-store-open` before native connect/bootstrap
+and clears it only after a clean close; a dirty source is never silently
+reopened. Startup refuses to open an unfinished transaction until `maple
+schema migrate --yes` resumes it. If the failure is before promotion, `maple
+schema abandon --yes` validates the journal and source marker, then moves only
+the journal-owned target and journal into a recoverable `.abandoned-*`
+quarantine. The active source, its marker, checkpoints, and any retained
+rollback source are left in place. A `promotion-started` journal is never
+abandoned by this command because it may already contain a cutover; resume it
+or use the explicit reset path after inspection. Promotion recovery runs from
+the journal before ordinary active-marker compatibility checks, including the
+crash window where the active marker is still `staging`.
+
+After successful promotion, the canonical journal is archived under the
+migration root as `journal.json`, so a completed v0 → v1 transaction cannot
+short-circuit a later v1 → v2 migration. `maple start --reset` or `maple reset
+--yes` can explicitly abandon an incomplete transaction, but preserves the
+journal under an `maple-store-migration-abandoned-*` name for inspection.
+Existing checkpoints remain attached to the retained source and are not
+advertised as restorable by the new schema; create a fresh checkpoint after
+promotion. Every persisted module state and progress value is decoded by its
+own migration module before resume, and malformed journal topology fails
+closed. A step marked `verified` is commit-pending: recovery may rewrite its
+staging marker, but no module lifecycle handler runs again, including
+`recover()`. Verified and completed steps must retain both decoded state and
+progress. Target-only abandonment validates the coordinator-owned journal
+structure and filesystem proofs without requiring the historical executable
+module or its state decoder to remain available.
+
+Migration edges are statically registered. v0 -> v1 is a typed module
+(`local-store-migrations/legacy-to-current.ts`); every later edge is one row of
+the append-only table in `local-store-migrations/steps.ts`, run by the single
+executor in `step-executor.ts`. A row names its id and versions, the typed
+operations to run on the cloned target before and after the target snapshot is
+bootstrapped (add columns or an index, drop views, tables or columns, backfill
+statements), any extra row counts to record and re-check, and its plan lines
+and dispositions. The one bespoke backfill (v1 -> v2) plugs in through a typed
+`customStep`. The coordinator owns locking, journaling, chain progression,
+staging, and promotion, and must not gain transition-specific table names or
+branches. Later steps receive the previous staged target as their
+`sourceDataDir` and the same staged store as `targetDataDir`, so their
+operations must be safe for this shared in-place topology. The coordinator test
+seam exercises a two-edge chain, a resumed verified edge, and one final
+promotion.
+
+Structural identities live in the append-only history at
+`apps/cli/src/server/local-schema-history.ts`. The schema gate checks the
+current identity against the history tip, preserves the base branch's prior
+entries in CI, and requires every historical identity to reach the current one
+through registered migration edges. Changing a schema digest or manifest
+therefore requires a new versioned entry and an executable edge together.
+
+Everything that pairing demands except the DDL is derived from the new version
+number, so `bun run local-schema:bump <slug>` writes it: the retained snapshot,
+the version constant, the `schema-identity.ts` edit sites, the history entry's
+hashes, a new row in `steps.ts`, and the ids and identities pinned in
+`apps/cli/test/local-store-migrations.test.ts` and the native probe. It leaves
+the row's operations, plan line and dispositions to be written.
+When the gate fails because the schema moved without a bump, it names that
+command; when a hand-bump left the history behind, it prints the entry to
+append.
+
+The Linux native probe `apps/cli/test/native-local-store-migration.sh` uses a
+native chDB setup helper to create a stopped historical raw-table fixture,
+applies the legacy marker, runs the public migration command, checks rebuilt
+service-namespace and database aggregates, and reopens the promoted store in
+a fresh process. It reports `SKIP` when no native `libchdb` is available (for
+example, on a development machine without the platform bundle); the Linux CI
+bundle runs it alongside the checkpoint smoke test. The fixture covers the
+authoritative v0 raw tables; retained derived objects remain rollback-only
+rather than being treated as migrated history.
+
+Every start also checks the opened physical schema against the generated local
+schema manifest, including objects, columns/types/defaults/codecs, engines,
+keys, TTLs, skipping indexes (with a DDL fallback on older chDB builds), and
+materialized-view definitions.
+This catches out-of-band or partially applied DDL even when a marker's bundle
+digest looks current.
+If a future migration needs a different chDB reader, its module must provide a
+version-matched reader, a prior Maple binary/export path, or an explicit
+unsupported boundary; the current binary never guesses by opening an
+incompatible source.
+
+## The `/local/query` contract
+
+Clients POST `{ "sql": "..." }` and get back a bare JSON array of rows.
+
+The endpoint is **read-only** (`apps/cli/src/server/query-guard.ts`). The
+engine's own parser canonicalizes the text and the canonical statement is what
+runs. A body must be exactly one `SELECT`, `WITH`, `SHOW`, `DESCRIBE` (of a plain
+table), `EXISTS` or `EXPLAIN` statement; `INTO OUTFILE`, the `file()` function
+and every table function that reaches the filesystem or network are refused, and
+the statement runs with `readonly = 1` plus caps (30s, 4 GB memory, 1M rows,
+256 MiB result). A refusal is HTTP 400 with a body starting
+`read-only query endpoint: `. Internal writes (ingest, checkpoints, archives)
+and scoped deletes use chDB directly; the native test probes write through `/local/query` with the
+`x-maple-maintenance-token` header, a single-statement path reserved for them.
+
+The **server owns the output FORMAT**. `CH.compile(...)` appends
+`FORMAT JSON`; the guard peels any trailing `FORMAT`/`SETTINGS` clause, runs
+the statement as JSON rows, and keeps a client's own SETTINGS only where they
+lower the caps. Clients therefore POST `compiled.sql` verbatim.
+
+`GET /local/status` returns `{service: "maple-local", pid, version, url,
+dataDir, lastIngestAtMs, lastDeleteAtMs}`, where `lastIngestAtMs` is when the
+server last accepted a non-empty OTLP batch of any signal and `lastDeleteAtMs`
+is when a `maple delete` last ran (absent on older binaries). The CLI probe and the UI's
+connection pill use it; `/health` still answers `OK` for shell probes.
+
+Browser requests to `/local/*` are accepted only from the same origin, the
+hosted UI origin (none with `--offline`), the local-ui Vite dev origin
+(`127.0.0.1`/`localhost`/`[::1]` on port 4319), and any origin listed in
+`MAPLE_LOCAL_ALLOWED_ORIGINS` (comma separated). `/v1/*` also accepts loopback
+pages so browser SDKs can export. The Host check against DNS rebinding applies
+to every route.
+
+## Where the UI comes from
+
+The dashboard SPA is a single build served two ways, and it decides which
+`/local/query` base URL to use from `window.location` (`localApiBase()` in
+[apps/local-ui/src/lib/constants.ts](../apps/local-ui/src/lib/constants.ts)):
+
+- **Default: `local.maple.dev`.** `maple start` points you at the SPA deployed to
+  `local.maple.dev` (a Cloudflare Worker, `apps/local-ui/src/worker.ts`, declared
+  in the root `alchemy.run.ts`). This decouples UI updates from binary releases:
+  a UI fix ships with a deploy, not a new binary. Because that page is a _public_ origin, its queries to
+  `http://127.0.0.1:<port>/local/query` are a **public → loopback** request, which
+  trips the browser's **Private Network Access** gate. The server answers the
+  preflight with `Access-Control-Allow-Private-Network: true` only when the
+  request origin exactly matches `MAPLE_LOCAL_UI_URL`; other cross-origin and
+  unadvertised same-origin browser requests are rejected (see the origin list
+  under [the `/local/query` contract](#the-localquery-contract)). Recent Chrome may
+  still show a one-time "wants to access devices on your local network" prompt;
+  Safari/Firefox differ. The banner encodes the bound port as `?port=` and adds
+  `maple-local-api=loopback`, so custom hosted UI origins use the same routing.
+- **`--offline` (and dev): same origin.** The binary serves the bundled SPA from
+  its selected bind address, so queries are same-origin even through a LAN
+  hostname or reverse proxy: no CORS, no Private Network Access, no
+  permission prompt, and it works with no internet. In dev the Vite server proxies
+  `/local/*` and `/v1/*` to the binary, which keeps the same same-origin path.
+  Use `--offline` whenever the default path hits a browser prompt.
+
+Because the remote UI auto-updates independently of the binary, keep the
+`/local/query` contract and the local chDB schema
+([apps/cli/src/server/schema/local-schema.sql](../apps/cli/src/server/schema/local-schema.sql))
+backward compatible. A newer UI may run against an older binary.
+
+`MAPLE_LOCAL_UI_URL` overrides the default UI origin (e.g. point a binary at a
+locally served build for testing). The startup link marks that custom origin as
+a hosted loopback client.
+
+`MAPLE_LOCAL_BIND_HOST` sets the `maple start` listening address and defaults to
+`127.0.0.1`; the `--host` flag overrides it for one invocation.
+`MAPLE_LOCAL_ADVERTISE_HOST` (or `--advertise-host`) controls the client-facing
+URL printed for wildcard binds. If omitted, wildcard IPv4/IPv6 binds advertise
+their matching loopback address instead of the unusable `0.0.0.0` or `::`.
+
+## Dev workflow
+
+No Rust toolchain needed. Run the server and the SPA dev server in two terminals:
+
+```bash
+# Terminal 1: the server (OTLP ingest + query API + chDB) on :4318.
+# Needs libchdb: set MAPLE_LIBCHDB, or keep libchdb.so in ~/.maple/bin.
+bun run apps/cli/src/bin.ts start
+
+# Terminal 2: the Vite SPA dev server on :4319, proxying /local and /v1 → :4318
+bun --filter @maple/local-ui dev
+```
+
+Open <http://127.0.0.1:4319>. Vite proxies `/local/*` and `/v1/*` to the server
+(override the target with `MAPLE_LOCAL_URL`).
+
+Query from the CLI against the same server:
+
+```bash
+bun run apps/cli/src/bin.ts services
+bun run apps/cli/src/bin.ts traces --service api --since 1h
+bun run apps/cli/src/bin.ts query "SELECT count() FROM traces"
+```
+
+In local mode the CLI derives its default target from `MAPLE_LOCAL_BIND_HOST`,
+mapping wildcard binds to matching loopback. `MAPLE_LOCAL_URL` remains the
+explicit override and is required when the server was started with a one-off
+`--host` or non-default `--port` that later CLI processes cannot infer.
+
+> **libchdb in dev.** `chdb.ts` resolves `libchdb` from, in order: `MAPLE_LIBCHDB`,
+> a sibling of the executable, then `~/.maple/bin/libchdb.{so,dylib}`. Running from
+> source uses the Bun executable's directory (no sibling libchdb), so either set
+> `MAPLE_LIBCHDB` or drop a `libchdb.so` in `~/.maple/bin`.
+
+## Local vs remote mode
+
+The same CLI talks to a local server or a remote Maple workspace. The mode is
+resolved per invocation:
+
+1. `--remote` / `--local` flags (highest priority; usable as `maple <command> --local`).
+2. `defaultMode` in `~/.maple/config.json`.
+3. **Auto-detect**: an explicitly set `MAPLE_LOCAL_URL` ⇒ local; else a
+   configured token ⇒ remote (with a stderr note when a local `maple start` is
+   also running, since that is the easy way to query prod by mistake); otherwise a quick probe of
+   `GET <local-url>/local/status` (which must identify itself as
+   `maple-local`; older binaries fall back to `/health`) ⇒ local. `<local-url>`
+   is `MAPLE_LOCAL_URL`, else the URL in a live `maple-server.json`, else
+   `http://127.0.0.1:4318`. A refused connection, a busy server and a non-Maple
+   listener each get their own actionable error.
+
+Remote credentials use the macOS Keychain or Linux Secret Service when available,
+with `~/.maple/config.json` (mode `0600`) as a fallback. Authentication is managed by:
+
+```bash
+maple auth login                               # browser + one-time device code
+maple auth login --api-url https://api.example.com
+maple auth login --with-token < token.txt      # non-interactive/manual fallback
+maple auth status                              # validate the active login
+maple auth logout                              # revoke browser-issued credentials and remove local state
+```
+
+`maple login`, `maple whoami`, and `maple logout` remain compatibility aliases.
+
+Env overrides: `MAPLE_API_URL`, `MAPLE_API_TOKEN`, `MAPLE_LOCAL_URL`,
+`MAPLE_LOCAL_BIND_HOST`, and `MAPLE_LOCAL_ADVERTISE_HOST`.
+
+**How queries route.** Local mode compiles the pipe to SQL client-side and POSTs
+it to `/local/query`. Remote mode does **not** compile pipes at all. It calls
+Maple's public v2 API (`/v2/traces/*`, `/v2/logs/*`, `/v2/services`,
+`/v2/service_map`, `/v2/metrics`) with the API key `maple auth login` stored,
+and maps each response into the same output type the local path produces.
+
+Where v2 has no resource for a command, remote mode calls the workspace's MCP
+tools instead (`POST /mcp`, one stateless `tools/call`, same API key). Those
+tools run the same `@maple/query-engine/observability` functions local mode runs,
+and the CLI decodes each answer with the tool's published output schema
+(`@maple/domain/mcp-outputs`). The branch lives in
+`apps/cli/src/core/operations.ts`; the v2 implementations are in
+`core/remote-ops.ts`, the MCP ones in `core/remote-mcp-ops.ts`.
+
+| Command                             | Remote surface                                                        |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| `maple errors`                      | `find_errors`                                                         |
+| `maple error <fp>`                  | `error_detail` (raw error events, as local mode reads them)           |
+| `maple diagnose`                    | `diagnose_service`                                                    |
+| `maple slow-traces`                 | `find_slow_traces`                                                    |
+| `maple top-ops`                     | `get_service_top_operations`                                          |
+| `maple compare`                     | `compare_periods`                                                     |
+| `maple attributes keys` / `values`  | `explore_attributes`                                                  |
+| `maple traces --span-name/--offset` | `search_traces`                                                       |
+| `maple logs --offset`               | `search_logs`                                                         |
+| `maple log-patterns`                | `mine_log_patterns` (10k-log sample); with `--env`, a v2 100-log page |
+| `maple query "<sql>"`               | `run_sql`                                                             |
+
+This replaced a generic `POST /api/tinybird/query` endpoint that let the client
+name a pipe and have the server compile it. That endpoint is retired. A pipe
+name is an internal compiler detail, and treating it as a public contract meant
+every CLI binary pinned the server's query catalog. The MCP tools are a typed,
+versioned contract instead.
+
+**`maple query` and macros.** Remote SQL must be scoped with `$__orgFilter` and
+returns at most 100 rows (the CLI says when it was cut). Locally, plain SQL runs
+as written; SQL that uses the workspace macros (`$__orgFilter`,
+`$__timeFilter(Column)`, `$__startTime`, `$__endTime`, `$__interval_s`) is
+expanded with the local tenant and the `--since/--start/--end` window, and
+validated the same way, so one query string runs in both modes. Single-quote
+it, or the shell expands `$__orgFilter` to nothing:
+
+```bash
+maple query 'SELECT ServiceName, count() FROM traces WHERE $__orgFilter AND $__timeFilter(Timestamp) GROUP BY ServiceName' --since 1h
+```
+
+**What still differs remotely.**
+
+- The MCP tools filter no deployment environment for span search, log search
+  and log patterns, so `--env` with `--span-name` is refused in both modes, and
+  remote `--env` with `--offset` is refused (v2 pages by cursor).
+- `maple metrics show --env` is local-only: neither v2 nor the MCP tools filter
+  metrics by environment.
+- `maple errors` names a service only when `--service` is given; the tool reports
+  how many services an error spans, not which.
+- `maple compare` reports no p99 and does not split services by environment.
+- `maple slow-traces` and span search report error-or-not rather than the status
+  code, and no span id.
+- v2 lists cap at 100 rows per page; `maple error` caps sample traces at 20.
+- `maple delete` is local-only: it deletes from the local store (see
+  [Deleting a service's or namespace's data](#deleting-a-services-or-namespaces-data)) and refuses remote mode.
+
+### Seeding data
+
+Send OpenTelemetry to the server's OTLP/HTTP endpoints
+(`POST /v1/{traces,logs,metrics}`, protobuf or JSON, optionally gzip-encoded).
+Most OTLP exporters default to protobuf and work out of the box.
+
+For OTLP/JSON, `traceId`/`spanId`/`parentSpanId` follow the OTLP/JSON convention:
+**hex strings** (32 chars for a trace id, 16 for a span id). This is the spec's
+deliberate deviation from proto3 JSON, and what every OTel language SDK emits.
+Base64 of the raw bytes (24 and 12 chars, the proto3 JSON encoding) is also
+accepted. The two are told apart by length, so hand-written payloads work either
+way. Ids that decode to any other length are rejected with a `400` naming the
+field instead of being stored mangled. A hex trace id read as base64 yields a
+_deterministic_ 24-byte value, so the trace still self-joins and looks correct
+until you compare it against the emitting service's logs.
+
+## Release workflow opt-in
+
+Set the repository Actions variable `MAPLE_RELEASE_ENABLED=true` to enable **Release**
+and **Local Binary Release**, including manual runs. Forks can leave it unset to skip
+these jobs. Use a repository variable or an organization variable scoped to this
+repository, not an environment variable.
+Upstream maintainers must set it before merging the gate to keep releases running.
+
+## Release bundle
+
+`scripts/build-local-binary.sh` produces a relocatable **2-file bundle** (also built
+per-platform by `.github/workflows/local-binary-release.yml`):
+
+```
+maple        # single Bun-compiled binary: CLI + ingest/query server + embedded SPA
+libchdb.so   # the chDB engine (~320 MB), downloaded from chdb-io/chdb-core releases
+```
+
+The build:
+
+1. builds the workspace packages consumed through gitignored `dist/` paths;
+2. builds the SPA;
+3. inlines `apps/local-ui/dist` into `apps/cli/src/server/ui-embed.gen.ts`, so
+   `bun build --compile` bakes it into the binary as the `--offline` fallback
+   (the default UI is served from `local.maple.dev`);
+4. compiles `apps/cli`;
+5. downloads the pinned `libchdb` (`LIBCHDB_VERSION`, checksum-verified) beside
+   the binary;
+6. restores the committed `ui-embed.gen.ts` stub.
+
+At runtime `maple` `dlopen`s the sibling `libchdb`, resolved relative to its own
+path. Keep both files in the same directory. No `LD_LIBRARY_PATH` or rpath
+tricks are needed.
+
+```bash
+scripts/build-local-binary.sh               # full 2-file bundle into ./dist
+```
+
+## Release signing
+
+A `.sha256` published next to a bundle only proves the download is intact: the
+same workflow uploads both to the same GitHub release, so anyone who can publish
+a release or replace its assets can ship a matching checksum. Each release
+therefore also carries `<bundle>.tar.gz.sha256.sig`, an Ed25519 signature over
+the exact `.sha256` bytes made with a key that exists only as the
+`MAPLE_RELEASE_SIGNING_KEY` Actions secret, while every binary embeds the public
+half. The signed line names its bundle (`<hash>  maple-<tag>-<target>.tar.gz`),
+so a signature from another version or platform cannot vouch for a different
+download. Signing does not help if the build itself is compromised or the key
+leaks, so each tarball also gets a GitHub build-provenance attestation as an
+independent check.
+
+How it is checked (`scripts/sign-local-release.ts` signs,
+`apps/cli/src/core/release-signature.ts` verifies):
+
+- **`maple update`** fetches the `.sha256` and `.sig` before the bundle,
+  verifies the signature against `MAPLE_RELEASE_PUBLIC_KEY`, and only then
+  trusts the checksum. A missing or invalid signature stops the update.
+- **The installer** verifies when it finds an OpenSSL that passes an Ed25519
+  self-test (OpenSSL 3 on PATH, or Homebrew's keg-only `openssl@3`), and
+  refuses to install without one. macOS ships LibreSSL, which cannot, so there
+  it needs `brew install openssl@3` or `MAPLE_SKIP_SIGNATURE=1`.
+- **Before the key is provisioned** (`MAPLE_RELEASE_PUBLIC_KEY` is empty),
+  nothing is checked: `maple update` prints a one-line notice and the workflow
+  publishes unsigned with a warning.
+
+Escape hatches, for a release you trust that predates signing or lost its
+`.sig`: `maple update --insecure-skip-signature` (the SHA-256 checksum is still
+checked) and `MAPLE_SKIP_SIGNATURE=1` for the installer. Pinning a pre-signing
+release with `maple update --tag` needs the flag.
+
+To verify a bundle by hand:
+
+```bash
+gh attestation verify maple-<tag>-<target>.tar.gz --repo MapleTechLabs/maple
+# or, with OpenSSL 3 and the key from release-signature.ts:
+printf '%s\n' '-----BEGIN PUBLIC KEY-----' '<MAPLE_RELEASE_PUBLIC_KEY>' '-----END PUBLIC KEY-----' > maple-release.pem
+openssl base64 -d -A -in maple-<tag>-<target>.tar.gz.sha256.sig -out maple.sig
+openssl pkeyutl -verify -pubin -inkey maple-release.pem -rawin \
+  -in maple-<tag>-<target>.tar.gz.sha256 -sigfile maple.sig
+shasum -a 256 -c maple-<tag>-<target>.tar.gz.sha256
+```
+
+Provisioning the key (once, on a trusted machine):
+
+1. `bun scripts/generate-release-signing-key.ts ~/maple-release-signing.pem`
+   writes the private key (mode `0600`) and prints the public key.
+2. `gh secret set MAPLE_RELEASE_SIGNING_KEY < ~/maple-release-signing.pem`.
+3. Paste the public key into `MAPLE_RELEASE_PUBLIC_KEY` in
+   `apps/cli/src/core/release-signature.ts` and `release_public_key` in
+   `scripts/install.sh` (a test keeps them equal), and merge.
+4. Store the private key in a password manager and delete the file.
+
+From the first tag whose checkout embeds the key, a publishing run fails unless
+the secret is set and matches it. Binaries released before that only check
+checksums, so the update onto the first key-embedding release is itself
+unverified. Losing or leaking the key means shipping a new one; binaries that
+embed the old key then need `--insecure-skip-signature` or a fresh install once.

@@ -1,0 +1,904 @@
+/**
+ * `ChatSession` — the durable transcript, one Durable Object per `"<orgId>:<tabId>"`.
+ *
+ * Replaces Flue's `FlueMapleChatAgent` + `FlueRegistry` SQLite Durable Objects. The DO owns four
+ * things:
+ *
+ *   1. **Ordering.** It assigns every event a monotonic `seq`. That is what makes the client
+ *      transport resumable by construction: reconnect is `?cursor=<last seq you saw>`, not a
+ *      heuristic about whether you missed something.
+ *   2. **The event log**, in SQLite, replayed on reconnect and folded into a transcript on cold
+ *      load. Both roles replay, so a conversation opened on another device is complete.
+ *   3. **Turn lifecycle** — at most one turn in flight, abortable, and self-healing.
+ *   4. **Running the turn.** The turn executes *here*, under `ctx.waitUntil` on the DO's own
+ *      request context, not in whichever request asked for it.
+ *
+ * That last point is the load-bearing one. A turn is a multi-second model stream plus N tool
+ * calls; the `POST /messages` request that starts it answers in milliseconds. Forking the turn off
+ * that request and returning meant Cloudflare was free to cancel it the moment the response was
+ * written — and the autonomous path was worse, since cron ticks run under `runScheduledEffect`,
+ * which disposes the Effect runtime as soon as the tick's program settles. A Durable Object owns
+ * its own lifetime, so hosting the turn here is what actually makes it survive. It also removes
+ * every cross-process hop: appending an event is a method call, not a stub RPC.
+ *
+ * A plain class over the object's state and env rather than a `DurableObject` subclass: the Durable
+ * Object itself is `ChatSessionObject` at the bottom of this file, alchemy's Effect-native form, which
+ * the api Worker's init yields (binding, namespace and the entry's class export all derive from it)
+ * and which builds one of these per activation and drives its methods over RPC.
+ *
+ * Startup-CPU note (Cloudflare error 10021): this class is reachable from `worker.ts`, whose
+ * module scope Cloudflare evaluates during upload validation. It must therefore import nothing
+ * from the app service graph at module scope — hence `@maple/domain` (the wire contract and its
+ * transcript fold) being the only import, and `./turn-runner` (which pulls in the whole graph)
+ * arriving through a dynamic import inside the method that needs it, exactly as `worker.ts` does
+ * for the route graph.
+ */
+import * as Cloudflare from "alchemy/Cloudflare"
+import { Effect, FileSystem, Option, Path, Schema } from "effect"
+import {
+	ChatTurnOrigin as ChatTurnOriginSchema,
+	ChatTurnTenant,
+	decidedBy,
+	decodeChatEventPayload,
+	encodeChatEventPayload,
+	type ChatEvent,
+	type ChatEventInput,
+	type ChatMessage,
+	type ChatProposalOutcome,
+	type ChatProposalSettlement,
+	type ChatTurnOrigin,
+	type ChatTurnTenantEncoded,
+	prReviewIdFromChatSessionId,
+} from "@maple/domain/chat-session"
+import { type ChatAbortReason, type ChatSessionRpc, isChatAbortReason } from "@maple/domain/chat-session-stub"
+import { type ChatSessionNamespace, ChatSessionObject } from "@maple/backend/platform/chat-sessions"
+import { makeChatTranscript } from "@maple/domain/chat-transcript"
+import type { AppliedProposal, ApplyChatProposalInput } from "./apply-proposal"
+import { WorkersAiGateway } from "../platform/WorkersAiHttpClient"
+import type { RunChatSessionTurnInput } from "./turn-runner"
+
+/** What the class reads off its Durable Object state: SQLite, the alarm, and the object's own `waitUntil`. */
+interface ChatSessionState {
+	readonly storage: {
+		readonly sql: SqlStorage
+		setAlarm(scheduledTime: number): Promise<void>
+	}
+	waitUntil(promise: Promise<unknown>): void
+}
+
+/** SQLite row shapes. `SqlStorage.exec` requires an index signature on its row type. */
+interface EventRow extends Record<string, SqlStorageValue> {
+	readonly seq: number
+	readonly created_at: number
+	readonly payload: string
+}
+interface CursorRow extends Record<string, SqlStorageValue> {
+	readonly seq: number | null
+}
+interface SessionRow extends Record<string, SqlStorageValue> {
+	readonly running: number
+	readonly running_since: number | null
+	readonly running_message_id: string | null
+	readonly running_input: string | null
+	readonly running_resumes: number | null
+}
+
+/**
+ * The schema's migration files, relative to the repo root where alchemy runs. Alchemy embeds them
+ * in the bundle at deploy; each activation applies the pending ones before the first call.
+ */
+export const CHAT_SESSION_MIGRATIONS = "apps/ai/migrations/chat-session"
+
+/** Columns added after the first live objects were created, with their declared types. */
+const LATE_SESSION_COLUMNS = {
+	running_since: "INTEGER",
+	running_message_id: "TEXT",
+	running_input: "TEXT",
+	running_resumes: "INTEGER",
+} as const
+
+interface ColumnRow extends Record<string, SqlStorageValue> {
+	readonly name: string
+}
+
+/**
+ * Bring a `session` table that predates the migration files up to the baseline's shape, which
+ * `CREATE TABLE IF NOT EXISTS` alone cannot do. A fresh object has no table, so nothing runs.
+ */
+export const addMissingSessionColumns = (sql: SqlStorage): void => {
+	const present = new Set(
+		sql
+			.exec<ColumnRow>("SELECT name FROM pragma_table_info('session')")
+			.toArray()
+			.map((row) => row.name),
+	)
+	if (present.size === 0) return
+	for (const [column, type] of Object.entries(LATE_SESSION_COLUMNS)) {
+		if (!present.has(column)) sql.exec(`ALTER TABLE session ADD COLUMN ${column} ${type}`)
+	}
+}
+
+/**
+ * How long a subscription sits silent before the connection is recycled. Cloudflare caps a request
+ * at a few minutes; 25s keeps it well inside that and inside typical proxy idle timeouts.
+ *
+ * This is a *silence* budget, not a connection lifetime: every batch that goes out resets it, so a
+ * turn that streams for two minutes streams over one connection.
+ */
+const SUBSCRIBE_IDLE_MS = 25_000
+
+/**
+ * One SSE frame per event.
+ *
+ * Framed inside the Durable Object rather than at the route: the DO writes bytes straight into the
+ * stream the route hands back, so the route does no per-event work at all.
+ *
+ * `id:` carries the seq so a client that drops mid-stream resumes from exactly where it stopped
+ * rather than re-reading the whole log.
+ */
+const frameChatEvent = (event: ChatEvent): string => `id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`
+
+/** Sent once per connection so a browser falling back to its own reconnect logic paces itself. */
+const RETRY_HINT = "retry: 1000\n\n"
+
+/**
+ * How long a claimed turn may go without finishing before the claim is treated as abandoned.
+ *
+ * Without this, any way of losing the turn — isolate eviction, an unhandled defect, a deploy
+ * mid-stream — leaves `running = 1` forever: `beginTurn` returns `undefined`, the route 409s every
+ * message, and the conversation is wedged with no recovery but a manual abort. It must outlast the
+ * longest legitimate turn — an autonomous pass plus its close-out, each up to its budget's
+ * `maxDuration` — or it abandons a turn that is still running (`budgets.test.ts` checks this).
+ */
+export const TURN_STALE_MS = 25 * 60 * 1000
+const CHAT_TURN_FAILED = "Maple couldn't complete this response."
+
+/**
+ * How often a running turn re-arms the object's alarm.
+ *
+ * An autonomous investigation nobody is watching was evicted about two minutes in, mid-run (seen
+ * 2026-09-15). Since compat date 2026-10-01 the turn's `waitUntil` keeps the object alive, but only
+ * for 15 minutes per operation, shorter than {@link TURN_STALE_MS}; the alarm covers the rest.
+ */
+const TURN_HEARTBEAT_MS = 30 * 1000
+
+/**
+ * How many times an evicted turn is started again before it is given up.
+ *
+ * A deploy resets every Durable Object, and the turn's fiber goes with it; the alarm survives and
+ * is how the new activation finds out. Two covers a turn that straddles back-to-back deploys; a
+ * turn that keeps dying is failing for its own reasons and should say so.
+ */
+export const MAX_TURN_RESUMES = 2
+
+/** What the dead attempt's assistant message is closed with when the turn is started again. */
+const TURN_RESTARTED = "Maple was restarted mid-review and is starting this review again."
+
+/**
+ * What an evicted turn needs to run again: everything `beginTurn` was given. Plain JSON in the
+ * session row, decoded back through the same schemas that describe it on the wire.
+ */
+const TurnInput = Schema.Struct({
+	sessionId: Schema.String,
+	userMessageId: Schema.String,
+	text: Schema.String,
+	tenant: Schema.toEncoded(ChatTurnTenant),
+	origin: Schema.toEncoded(ChatTurnOriginSchema),
+})
+type TurnInput = typeof TurnInput.Type
+const decodeTurnInput = Schema.decodeUnknownOption(Schema.fromJsonString(TurnInput))
+
+/**
+ * Only an autonomous review is started again. Its kickoff is self-contained and its row guards
+ * against a second report; a person's chat turn is theirs to retry, and an investigation already
+ * has its own abandoned-run sweep.
+ */
+const resumable = (input: TurnInput): boolean =>
+	input.origin.kind === "autonomous" && prReviewIdFromChatSessionId(input.sessionId) !== undefined
+
+/** How the session runs a turn: a port for the same reason as {@link ProposalApplier}. */
+export type TurnRunner = (input: RunChatSessionTurnInput) => Promise<void>
+
+const runThroughWorker: TurnRunner = async (input) => {
+	const { runChatSessionTurn } = await import("./turn-runner")
+	return runChatSessionTurn(input)
+}
+
+/** What the copy says when applying an approved mutation fell over rather than failing in-band. */
+const PROPOSAL_FAILED = "Maple couldn't apply this change. Check whether it went through in Maple."
+
+/** A promise the session awaits (a stream write, the turn runner, the applier) rejected. */
+class ChatSessionError extends Schema.TaggedError<ChatSessionError>()("@maple/ai/chat/ChatSessionError", {
+	message: Schema.String,
+	cause: Schema.Defect(),
+}) {}
+
+/** `thunk`'s rejection, or its synchronous throw, as a {@link ChatSessionError}. */
+const attempt = <A>(message: string, thunk: () => Promise<A>): Effect.Effect<A, ChatSessionError> =>
+	Effect.tryPromise({ try: thunk, catch: (cause) => new ChatSessionError({ message, cause }) })
+
+/**
+ * How a session runs a mutation somebody approved.
+ *
+ * A port rather than a call, for the reason the whole module has: what actually runs the tool is
+ * the MCP service graph, which must not be reachable from a class the worker entry exports
+ * (Cloudflare error 10021). The Worker's own applier reaches it behind a dynamic import and is the
+ * default; a test of the settling supplies its own rather than building that graph.
+ *
+ * The signature is the applier's own, through a type-only import — erased at compile time, so it
+ * costs nothing at module scope; the ban is on the VALUE import below.
+ */
+export type ProposalApplier = (input: ApplyChatProposalInput) => Promise<AppliedProposal>
+
+const applyThroughWorker: ProposalApplier = async (input) => {
+	const { applyChatProposal } = await import("./apply-proposal")
+	return applyChatProposal(input)
+}
+
+/** A proposed tool call, as the log holds it. */
+interface Proposal {
+	/** The assistant message that issued it — the id a `tool-result` has to be appended under. */
+	readonly messageId: string
+	readonly name: string
+	readonly input: unknown
+	/** Whether somebody has already decided it. */
+	readonly settled: boolean
+}
+
+export class ChatSession {
+	private readonly sql: SqlStorage
+
+	/**
+	 * Subscribers parked on the next append — the Workers-native stand-in for an in-memory event bus.
+	 *
+	 * Durable Object storage has no change feed, so this used to be a 40ms poll. A poll puts a floor
+	 * under how fast a token can reach the browser that has nothing to do with how fast the model
+	 * produced it, and every wake-up cost two SELECTs against the same isolate the turn was writing
+	 * into. Reader and writer are different requests but the *same object*, so the writer can simply
+	 * tap the reader on the shoulder.
+	 */
+	private waiters = new Set<() => void>()
+
+	/** Bumped on every append. A reader snapshots it before reading so it can never park past one. */
+	private appends = 0
+
+	/**
+	 * The turn this activation is actually running. SQL says which turn holds the slot; only this
+	 * says its fiber still exists — an evicted object comes back with the claim and without the turn.
+	 * Its controller is how an abort interrupts the fiber instead of waiting for its next event.
+	 */
+	private liveTurn: { readonly messageId: string; readonly controller: AbortController } | undefined
+
+	/**
+	 * Proposals this activation is part-way through settling.
+	 *
+	 * The durable check — does the call already have a result — answers every click after the first
+	 * one has finished. This answers the one that arrives while the tool is still running, which is
+	 * the window a double click actually lands in. An eviction between the two clicks loses the set
+	 * and costs at most a tool run the reader asked for twice.
+	 */
+	private readonly settling = new Set<string>()
+
+	constructor(
+		private readonly ctx: ChatSessionState,
+		private readonly env: Record<string, unknown>,
+		private readonly applier: ProposalApplier = applyThroughWorker,
+		private readonly runner: TurnRunner = runThroughWorker,
+	) {
+		// The schema is the activation's to apply (`makeChatSessionActivation`), before this runs.
+		this.sql = ctx.storage.sql
+	}
+
+	/** Highest assigned seq, i.e. the cursor a client that has read everything holds. */
+	cursor(): number {
+		const row = this.sql.exec<CursorRow>("SELECT MAX(seq) AS seq FROM events").one()
+		return row.seq ?? 0
+	}
+
+	private sessionRow(): SessionRow {
+		return this.sql
+			.exec<SessionRow>(
+				"SELECT running, running_since, running_message_id, running_input, running_resumes FROM session WHERE id = 1",
+			)
+			.one()
+	}
+
+	/**
+	 * The message id of the turn that holds the slot *right now*, or `undefined` if none does.
+	 *
+	 * Expiring a stale claim here rather than in a separate sweep means every caller — `beginTurn`,
+	 * the turn's own between-step check — agrees on the answer without needing an alarm to have
+	 * fired first.
+	 *
+	 * One read serves both questions callers ask ("is anything running?" and "is *this* running?").
+	 * They used to be separate methods issuing the same SELECT, and `holdsTurn` — called once per
+	 * streamed event — paid for both.
+	 */
+	private runningTurn(): string | undefined | null {
+		const row = this.sessionRow()
+		if (row.running !== 1) return undefined
+		if (row.running_since !== null && Date.now() - row.running_since > TURN_STALE_MS) {
+			const messageId = row.running_message_id
+			this.clearRunning()
+			if (messageId !== null) {
+				this.append({
+					type: "turn-end",
+					messageId,
+					reason: "error",
+					error: "The turn stopped responding and was abandoned.",
+				})
+				this.interruptTurn(messageId, "stale")
+			}
+			return undefined
+		}
+		// `null` means running but with no recorded id — pre-watchdog rows only.
+		return row.running_message_id
+	}
+
+	private isRunning(): boolean {
+		return this.runningTurn() !== undefined
+	}
+
+	private clearRunning(): void {
+		this.sql.exec(
+			"UPDATE session SET running = 0, running_since = NULL, running_message_id = NULL, running_input = NULL, running_resumes = NULL WHERE id = 1",
+		)
+	}
+
+	/** The message id of the turn currently holding the slot, if any. */
+	private runningMessageId(): string | undefined {
+		return this.runningTurn() ?? undefined
+	}
+
+	/**
+	 * Append one event and return the seq it was assigned.
+	 *
+	 * `RETURNING seq` rather than a following `SELECT MAX(seq)`: this runs once per token delta, and
+	 * the second statement was pure overhead in an isolate that is also serving every subscriber.
+	 */
+	append(event: ChatEventInput): number {
+		const row = this.sql
+			.exec<CursorRow>(
+				"INSERT INTO events (created_at, payload) VALUES (?, ?) RETURNING seq",
+				Date.now(),
+				encodeChatEventPayload(event),
+			)
+			.one()
+		this.notify()
+		return row.seq ?? 0
+	}
+
+	/** Wake every parked subscriber. Cheap and unconditional — the list is empty when nobody reads. */
+	private notify(): void {
+		this.appends++
+		if (this.waiters.size === 0) return
+		const parked = this.waiters
+		this.waiters = new Set()
+		for (const wake of parked) wake()
+	}
+
+	/**
+	 * `true` once an append lands after the `seen` snapshot, `false` if `timeoutMs` elapses first.
+	 * Re-checking the version before parking closes the window where an append slips in mid-write.
+	 */
+	private waitForAppend(seen: number, timeoutMs: number): Effect.Effect<boolean> {
+		return Effect.callback<boolean>((resume) => {
+			const wake = () => resume(Effect.succeed(true))
+			if (this.appends !== seen) return wake()
+			this.waiters.add(wake)
+			return Effect.sync(() => {
+				this.waiters.delete(wake)
+			})
+		}).pipe(Effect.timeoutOrElse({ duration: timeoutMs, orElse: () => Effect.succeed(false) }))
+	}
+
+	/** Every event after `cursor`, oldest first. */
+	since(cursor: number): ReadonlyArray<ChatEvent> {
+		const rows = this.sql
+			.exec<EventRow>(
+				"SELECT seq, created_at, payload FROM events WHERE seq > ? ORDER BY seq ASC",
+				cursor,
+			)
+			.toArray()
+		return rows.map((row) => decodeChatEventPayload(row.payload, row.seq))
+	}
+
+	/**
+	 * Replay from `cursor`, then stay open and push every subsequent event as an SSE frame.
+	 *
+	 * Returning a `ReadableStream` over RPC is the point: the route used to re-enter a `tail` call
+	 * per batch, so every *visible* update in the browser cost a Worker→Durable Object round trip.
+	 * The DO is pinned at its first-access colo while the SSE Worker runs at the viewer's edge, so
+	 * that round trip — not the model — set the pace tokens appeared at. Now the RTT is paid once,
+	 * at connect, and bytes flow.
+	 *
+	 * The stream ends on `turn-end` or after `SUBSCRIBE_IDLE_MS` of silence, both of which the
+	 * client already treats as a reconnect point rather than the end of the conversation. Ending on
+	 * silence rather than on "nothing pending" is what keeps an idle tab from reconnecting in a
+	 * tight loop, and keeps a client that opened the stream just before posting from missing the
+	 * turn it was about to start.
+	 */
+	subscribe(cursor: number): ReadableStream<Uint8Array> {
+		const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
+		this.ctx.waitUntil(this.pump(writable, cursor))
+		return readable
+	}
+
+	private pump(writable: WritableStream<Uint8Array>, cursor: number): Promise<void> {
+		const encoder = new TextEncoder()
+		const writer = writable.getWriter()
+		const write = (frame: string) =>
+			attempt("Could not write to the subscription", () => writer.write(encoder.encode(frame)))
+		const since = (position: number) => this.since(position)
+		const appends = () => this.appends
+		const waitForAppend = (seen: number, timeoutMs: number) => this.waitForAppend(seen, timeoutMs)
+		type PumpError =
+			| Effect.Error<ReturnType<typeof write>>
+			| Effect.Error<ReturnType<typeof waitForAppend>>
+		const pumpFrom = (position: number): Effect.Effect<void, PumpError> =>
+			Effect.gen(function* () {
+				const seen = appends()
+				const events = since(position)
+				yield* Effect.forEach(events, (event) => write(frameChatEvent(event)), { discard: true })
+				// Only the *conversation's* turn ending closes the stream. A sub-agent's `turn-end`
+				// is tagged with `task` and merely closes its card — treating it as terminal would
+				// cut the connection the moment the first delegated search finished, and the rest of
+				// the parent's answer would only arrive on the client's next reconnect.
+				if (events.some((event) => event.type === "turn-end" && event.task === undefined)) return
+				// The idle budget is spent on silence only: a batch that went out resets it, so a
+				// long turn streams over one connection instead of being recycled mid-answer.
+				if (!(yield* waitForAppend(seen, SUBSCRIBE_IDLE_MS))) return
+				return yield* pumpFrom(events.at(-1)?.seq ?? position)
+			})
+		const stream = write(RETRY_HINT).pipe(Effect.andThen(pumpFrom(cursor)))
+		return Effect.runPromise(
+			stream.pipe(
+				Effect.ensuring(
+					Effect.ignore(attempt("Could not close the subscription", () => writer.close())),
+				),
+				// The reader went away, or the stream was already closed. Either way the client resumes
+				// from its own cursor, so a dropped subscription costs a reconnect, not the conversation.
+				Effect.ignoreCause,
+			),
+		)
+	}
+
+	/**
+	 * Claim the turn slot, record the user's message, and start the turn.
+	 *
+	 * Returns `undefined` when a turn is already running — the client's composer is disabled during
+	 * a turn, but two tabs on the same conversation are one session, so the DO is where that has to
+	 * be enforced.
+	 *
+	 * `tenant` is the caller's *resolved* identity, passed in rather than re-derived here: the DO
+	 * has no auth context of its own, and the route has already matched the session's org against
+	 * the caller's before it gets this far.
+	 */
+	beginTurn(input: {
+		/** `"<orgId>:<tabId>"`. A DO cannot recover its own name, and the turn needs it for mode. */
+		readonly sessionId: string
+		readonly messageId: string
+		readonly text: string
+		readonly tenant: ChatTurnTenantEncoded
+		/** Who is driving the turn, stated by whoever raised it. */
+		readonly origin: ChatTurnOrigin
+	}): { cursor: number; messageId: string; turnMessageId: string } | undefined {
+		if (this.isRunning()) return undefined
+		const cursor = this.cursor()
+		// The assistant's message needs an id of its OWN. Reusing the user's meant `history()` found
+		// the user message when opening the assistant one, so every text delta was appended to the
+		// user's own bubble — "Say PONG" came back as "Say PONGPING" — and the client folded it the
+		// same way, since it keys the optimistic user message on exactly this id.
+		const turnId = crypto.randomUUID()
+		const turn: TurnInput = {
+			sessionId: input.sessionId,
+			userMessageId: input.messageId,
+			text: input.text,
+			tenant: input.tenant,
+			origin: input.origin,
+		}
+		this.sql.exec(
+			"UPDATE session SET running = 1, running_since = ?, running_message_id = ?, running_input = ?, running_resumes = 0 WHERE id = 1",
+			Date.now(),
+			turnId,
+			JSON.stringify(turn),
+		)
+		this.append({ type: "user-message", id: input.messageId, text: input.text })
+		this.startTurn(turnId, turn)
+		return { cursor, messageId: input.messageId, turnMessageId: turnId }
+	}
+
+	/**
+	 * Apply or decline a mutation the agent proposed, and record the outcome as that call's
+	 * `tool-result`.
+	 *
+	 * By reference: the caller names the call, and the tool's name and arguments come out of this
+	 * object's own log. Accepting them from the caller would make this a second way to run a
+	 * mutating tool. It is the only way: the web app's apply route and the chat-platform relay both
+	 * land here.
+	 *
+	 * The caller is also who authorized the click and decided whose authority the change runs
+	 * under — the signed-in user's own tenant from the web route, or, from a connector, the linked
+	 * `actingUserId` or the org-level connector identity. Reaching this object at all requires the
+	 * Durable Object binding, which only Maple's own Workers hold, and that is the same trust
+	 * `beginTurn` already runs on.
+	 */
+	async settleProposal(input: ChatProposalSettlement): Promise<ChatProposalOutcome> {
+		const proposal = this.findProposal(input.toolCallId)
+		if (proposal === undefined) return "unknown"
+		// Two clicks on one control: the durable half catches the second once the first has written
+		// its result, and the in-memory half catches it while the first is still running the tool.
+		if (proposal.settled || this.settling.has(input.toolCallId)) return "settled"
+		this.settling.add(input.toolCallId)
+		// Only an explicit approve runs the tool. This arrives undecoded over RPC from other
+		// Workers, so a skewed or malformed decision declines rather than approving.
+		const decided: Effect.Effect<AppliedProposal> =
+			input.decision === "approve"
+				? this.applyProposal(input, proposal)
+				: Effect.succeed({
+						output: `Declined ${decidedBy(input.approver)}. The tool did not run.`,
+						isError: true,
+					})
+		return Effect.runPromise(
+			decided.pipe(
+				Effect.map((result): ChatProposalOutcome => {
+					this.append({
+						type: "tool-result",
+						// The assistant message that issued the proposal: the transcript fold opens a message
+						// by id and only then finds the call in it, so anything else leaves the proposal open.
+						messageId: proposal.messageId,
+						callId: input.toolCallId,
+						output: result.output,
+						...(result.isError ? { isError: true } : undefined),
+					})
+					return "decided"
+				}),
+				Effect.ensuring(Effect.sync(() => this.settling.delete(input.toolCallId))),
+			),
+		)
+	}
+
+	/** The open proposal with this call id, whether it is still open, and what it asked for. */
+	private findProposal(toolCallId: string): Proposal | undefined {
+		for (const message of this.history()) {
+			for (const call of message.toolCalls) {
+				if (call.id !== toolCallId || call.proposed !== true) continue
+				return {
+					messageId: message.id,
+					name: call.name,
+					input: call.input,
+					settled: "output" in call,
+				}
+			}
+		}
+		return undefined
+	}
+
+	/**
+	 * Run the proposed tool.
+	 *
+	 * A failure becomes an error result rather than being re-raised: the proposal is settled either
+	 * way, because leaving live controls on a mutation that may or may not have run is the worse of
+	 * the two — the reader is told it failed and can act in Maple.
+	 */
+	private applyProposal(
+		settlement: ChatProposalSettlement,
+		proposal: Proposal,
+	): Effect.Effect<AppliedProposal> {
+		return attempt("Failed to apply a proposal", () =>
+			this.applier({
+				...settlement,
+				env: this.env,
+				tool: proposal.name,
+				input: proposal.input,
+			}),
+		).pipe(
+			Effect.catchTag("@maple/ai/chat/ChatSessionError", (error) =>
+				Effect.logError("[chat.approval] Failed to apply a proposal", error.cause).pipe(
+					Effect.as({ output: PROPOSAL_FAILED, isError: true }),
+				),
+			),
+		)
+	}
+
+	/**
+	 * Whether `messageId` still holds the slot. The turn calls this between steps so an abort takes
+	 * effect promptly, and so a turn that has already been superseded stops writing.
+	 */
+	holdsTurn(messageId: string): boolean {
+		return this.runningTurn() === messageId
+	}
+
+	/**
+	 * Release the slot, but only if `messageId` still owns it.
+	 *
+	 * The compare-and-clear matters: an aborted turn keeps draining its in-flight model call for a
+	 * while, and a plain `running = 0` from that straggler would release a *newer* turn's claim.
+	 */
+	endTurn(messageId: string): void {
+		if (this.runningMessageId() !== messageId) return
+		this.clearRunning()
+	}
+
+	/**
+	 * Abort the running turn.
+	 *
+	 * Clears the claim, records the terminal event against the message that actually holds it, and
+	 * interrupts that turn's fiber, sub-agents included, rather than letting it run to its next event.
+	 * Taking the message id from the session rather than the caller is what makes the emitted
+	 * `turn-end` land on the assistant message the client is rendering; a caller-supplied id named a
+	 * message that never existed, so no client ever cleared its streaming state.
+	 */
+	abort(reason?: ChatAbortReason): void {
+		const messageId = this.runningTurn()
+		if (messageId === undefined) return
+		this.clearRunning()
+		if (messageId !== null) {
+			this.append({ type: "turn-end", messageId, reason: "aborted" })
+			// Over RPC from another Worker, so not trusted to be one of ours.
+			this.interruptTurn(messageId, isChatAbortReason(reason) ? reason : "user")
+		}
+	}
+
+	/** Interrupt `messageId`'s fiber if this activation runs it; a straggler's id matches nothing. */
+	private interruptTurn(messageId: string, reason: ChatAbortReason): void {
+		if (this.liveTurn?.messageId === messageId) this.liveTurn.controller.abort(reason)
+	}
+
+	running(): boolean {
+		return this.isRunning()
+	}
+
+	/**
+	 * The heartbeat. Re-arms while this activation runs the turn that holds the slot.
+	 *
+	 * A slot held by a turn this activation is not running means the object was evicted mid-turn (a
+	 * deploy, or eviction before the heartbeat existed): the fiber is gone, so the slot is released
+	 * with a terminal event now rather than when the 15-minute watchdog expires it.
+	 */
+	alarm(): void {
+		const messageId = this.runningTurn()
+		if (messageId === undefined) return
+		if (messageId !== null && this.liveTurn?.messageId !== messageId) {
+			this.recoverEvictedTurn(messageId)
+			return
+		}
+		this.armHeartbeat()
+	}
+
+	/**
+	 * The object came back holding a claim whose fiber is gone — almost always a deploy.
+	 *
+	 * An autonomous review is started again under a new turn id, from the kickoff `beginTurn`
+	 * stored, up to {@link MAX_TURN_RESUMES} times. Past that, or for any other turn, the slot is
+	 * released; a review is also told it failed, since nothing else would move its row off
+	 * `running` and its check run off in-progress.
+	 */
+	private recoverEvictedTurn(messageId: string): void {
+		const row = this.sessionRow()
+		const turn = row.running_input === null ? Option.none() : decodeTurnInput(row.running_input)
+		const resumes = row.running_resumes ?? 0
+		if (Option.isSome(turn) && resumable(turn.value) && resumes < MAX_TURN_RESUMES) {
+			this.append({ type: "turn-end", messageId, reason: "error", error: TURN_RESTARTED })
+			const turnId = crypto.randomUUID()
+			this.sql.exec(
+				"UPDATE session SET running_since = ?, running_message_id = ?, running_resumes = ? WHERE id = 1",
+				Date.now(),
+				turnId,
+				resumes + 1,
+			)
+			this.startTurn(turnId, turn.value, { resume: resumes + 1 })
+			return
+		}
+		this.clearRunning()
+		this.append({ type: "turn-end", messageId, reason: "error", error: CHAT_TURN_FAILED })
+		if (Option.isSome(turn) && resumable(turn.value)) {
+			const input = { ...this.turnRunInput(messageId, turn.value), abandoned: true as const }
+			this.ctx.waitUntil(
+				Effect.runPromise(
+					attempt("Failed to record an abandoned turn", () => this.runner(input)).pipe(
+						Effect.catchTag("@maple/ai/chat/ChatSessionError", (error) =>
+							Effect.logError("[chat.turn] Failed to record an abandoned turn", error.cause),
+						),
+					),
+				),
+			)
+		}
+	}
+
+	private turnRunInput(messageId: string, turn: TurnInput): RunChatSessionTurnInput {
+		return {
+			session: this,
+			sessionId: turn.sessionId,
+			env: this.env,
+			messageId,
+			tenant: turn.tenant,
+			origin: turn.origin,
+		}
+	}
+
+	/**
+	 * Run `turnId` on this activation. `waitUntil` on the DO's own context: the turn is this
+	 * object's work and outlives whatever request asked for it. `waitUntil` keeps the object in
+	 * memory for up to 15 minutes; the heartbeat alarm covers longer turns.
+	 */
+	private startTurn(turnId: string, turn: TurnInput, restart?: { readonly resume: number }): void {
+		const controller = new AbortController()
+		this.liveTurn = { messageId: turnId, controller }
+		this.armHeartbeat()
+		this.ctx.waitUntil(
+			this.runTurn({
+				...this.turnRunInput(turnId, turn),
+				signal: controller.signal,
+				...(restart === undefined
+					? undefined
+					: {
+							resume: {
+								userMessageId: turn.userMessageId,
+								text: turn.text,
+								attempt: restart.resume,
+							},
+						}),
+			}),
+		)
+	}
+
+	private armHeartbeat(): void {
+		const scheduledTime = Date.now() + TURN_HEARTBEAT_MS
+		this.ctx.waitUntil(
+			Effect.runPromise(
+				Effect.ignore(
+					attempt("Could not arm the heartbeat", () => this.ctx.storage.setAlarm(scheduledTime)),
+				),
+			),
+		)
+	}
+
+	/**
+	 * Drive one turn to completion, appending events as they are produced.
+	 *
+	 * Everything heavy — the Effect runtime, the service graph, the agent engine — is behind this
+	 * dynamic import so none of it is evaluated at module scope. Failures are recorded as a
+	 * terminal event rather than thrown: the log is what the client reads, so a turn that dies
+	 * silently is indistinguishable from one that hung.
+	 */
+	private runTurn(input: RunChatSessionTurnInput): Promise<void> {
+		const messageId = input.messageId
+		return Effect.runPromise(
+			attempt("Failed to start turn runner", () => this.runner(input)).pipe(
+				Effect.catchTag("@maple/ai/chat/ChatSessionError", (error) =>
+					Effect.logError("[chat.turn] Failed to start turn runner", error.cause).pipe(
+						Effect.andThen(
+							Effect.sync(() => {
+								if (!this.holdsTurn(messageId)) return
+								this.append({
+									type: "turn-end",
+									messageId,
+									reason: "error",
+									error: CHAT_TURN_FAILED,
+								})
+							}),
+						),
+					),
+				),
+				Effect.ensuring(
+					Effect.sync(() => {
+						if (this.liveTurn?.messageId === messageId) this.liveTurn = undefined
+						this.endTurn(messageId)
+					}),
+				),
+			),
+		)
+	}
+
+	/**
+	 * Replay the whole log into a transcript.
+	 *
+	 * The fold itself is `@maple/domain/chat-transcript`, so a consumer tailing `subscribe` builds
+	 * the same messages out of the same events. Only `createdAt` differs: the row's stored time
+	 * here, receive time for a tail, because a `ChatEvent` carries no timestamp of its own.
+	 */
+	history(): ReadonlyArray<ChatMessage> {
+		const transcript = makeChatTranscript()
+		const rows = this.sql
+			.exec<EventRow>("SELECT seq, created_at, payload FROM events ORDER BY seq ASC")
+			.toArray()
+
+		for (const row of rows) {
+			transcript.add(decodeChatEventPayload(row.payload, row.seq), row.created_at)
+		}
+
+		return transcript.messages
+	}
+}
+
+/**
+ * The session's methods, one Effect each. alchemy runs the Effect per RPC call and hands its value
+ * back as-is — a `ReadableStream` included, which Workers RPC carries by reference — so
+ * `ChatSessionStub` stays what a caller sees.
+ */
+export const chatSessionRpc = (session: ChatSession) =>
+	({
+		cursor: () => Effect.sync(() => session.cursor()),
+		running: () => Effect.sync(() => session.running()),
+		history: () => Effect.sync(() => session.history()),
+		since: (cursor) => Effect.sync(() => session.since(cursor)),
+		subscribe: (cursor) => Effect.sync(() => session.subscribe(cursor)),
+		append: (event) => Effect.sync(() => session.append(event)),
+		beginTurn: (input) => Effect.sync(() => session.beginTurn(input)),
+		settleProposal: (input) => Effect.promise(() => session.settleProposal(input)),
+		holdsTurn: (messageId) => Effect.sync(() => session.holdsTurn(messageId)),
+		endTurn: (messageId) => Effect.sync(() => session.endTurn(messageId)),
+		abort: (reason) => Effect.sync(() => session.abort(reason)),
+		alarm: () => Effect.sync(() => session.alarm()),
+	}) satisfies ChatSessionRpc
+
+/**
+ * The activation's own namespace. Alchemy hands it over as `DurableObjectScope`, typed without the
+ * class's shape because a class cannot yield its own tag inside its activation; the name says which
+ * class it is.
+ */
+const isChatSessionNamespace = (
+	scope: Cloudflare.DurableObject,
+): scope is Cloudflare.DurableObject<ChatSessionObject> => scope.name === "ChatSession"
+
+/** The part of alchemy's `SqlMigrations` the activation uses; a test applies the files itself. */
+export interface ChatSessionSchema<E, R> {
+	readonly apply: () => Effect.Effect<void, E, R>
+}
+
+/**
+ * One activation, in alchemy's two phases: the outer Effect resolves the state, env, namespace and
+ * migration files (it also runs at plan time, against a mock state, so it must not touch storage),
+ * the inner one migrates and builds the session inside the object's `blockConcurrencyWhile`, so the
+ * schema is current before the first call reaches it, hibernation wakes included. The turn and
+ * apply graphs reach other sessions through the namespace (`ChatSessions`).
+ */
+export const makeChatSessionActivation = <SE, SR, R>(
+	migrations: Effect.Effect<ChatSessionSchema<SE, SR>, never, R>,
+) =>
+	Effect.map(
+		Effect.all([
+			Cloudflare.DurableObjectState,
+			Cloudflare.WorkerEnvironment,
+			WorkersAiGateway,
+			Effect.serviceOption(Cloudflare.DurableObjectScope),
+			migrations,
+		]),
+		([state, env, workersAi, scope, schema]) => {
+			// Always there in the isolate; absent only where a test builds the activation by hand.
+			const chatSessions: ChatSessionNamespace | undefined = Option.getOrUndefined(
+				Option.filter(scope, isChatSessionNamespace),
+			)
+			return Effect.gen(function* () {
+				yield* Effect.sync(() => addMissingSessionColumns(state.raw.storage.sql))
+				// An object whose schema cannot be brought current cannot serve a single call.
+				yield* schema.apply().pipe(Effect.orDie)
+				return chatSessionRpc(
+					new ChatSession(
+						state.raw,
+						env,
+						(input) => applyThroughWorker({ ...input, chatSessions }),
+						(input) => runThroughWorker({ ...input, workersAi, chatSessions }),
+					),
+				)
+			})
+		},
+	)
+
+export const activateChatSession = makeChatSessionActivation(
+	Cloudflare.SqlMigrations(CHAT_SESSION_MIGRATIONS),
+)
+
+/** The activation, as the layer the host Worker provides. */
+// The activation's requirements are named rather than inferred: `.make` discharges
+// `DurableObjectServices` (all but the gateway) through its own `Exclude`, while inference would widen
+// them into the layer's requirements and surface them all the way up in `alchemy.run.ts`.
+export const ChatSessionLive = ChatSessionObject.make<
+	| Cloudflare.DurableObjectState
+	| Cloudflare.WorkerEnvironment
+	| Cloudflare.Worker
+	| WorkersAiGateway
+	| FileSystem.FileSystem
+	| Path.Path
+>(activateChatSession)

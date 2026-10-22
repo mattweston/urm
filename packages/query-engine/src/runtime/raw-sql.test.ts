@@ -1,0 +1,333 @@
+// BOUNDARY: Test doubles preserve opaque values so the consuming boundary can be exercised.
+import { assert, describe, it } from "@effect/vitest"
+import { Cause, Effect, Exit, Option } from "effect"
+import {
+	MAX_RAW_SQL_CELL_LENGTH,
+	MAX_RAW_SQL_LENGTH,
+	MAX_RAW_SQL_RESULT_BYTES,
+	MAX_RAW_SQL_RESULT_ROWS,
+	RawSqlValidationError,
+} from "@maple/domain/http"
+import { makeExecuteRawSql, prepareRawSql } from "./raw-sql"
+import { OrgId } from "@maple/domain"
+
+const baseInput = {
+	orgId: OrgId.make("org_abc"),
+	startTime: "2026-05-14 00:00:00",
+	endTime: "2026-05-14 06:00:00",
+	granularitySeconds: 60,
+	workload: "interactive" as const,
+}
+
+const getError = <A, E>(exit: Exit.Exit<A, E>): unknown => {
+	if (!Exit.isFailure(exit)) return undefined
+	return Option.getOrElse(Exit.findErrorOption(exit), () => Cause.squash(exit.cause))
+}
+
+const prepareOk = (sql: string) => prepareRawSql({ ...baseInput, sql })
+
+const prepareFail = (sql: string, workload: "interactive" | "alert" = "interactive") =>
+	Effect.gen(function* () {
+		const exit = yield* Effect.exit(prepareRawSql({ ...baseInput, sql, workload }))
+		const error = getError(exit)
+		if (!(error instanceof RawSqlValidationError)) {
+			throw new Error(`expected RawSqlValidationError, got: ${String(error)}`)
+		}
+		return error
+	})
+
+describe("prepareRawSql", () => {
+	it.effect("rejects SQL missing $__orgFilter", () =>
+		Effect.gen(function* () {
+			const error = yield* prepareFail("SELECT 1 FROM Logs")
+			assert.strictEqual(error.code, "MissingOrgFilter")
+		}),
+	)
+
+	it.effect("expands every $__timeFilter across UNION branches with both comparisons", () =>
+		Effect.gen(function* () {
+			const branch = (t: string) =>
+				`SELECT ServiceName, count() n FROM ${t} WHERE $__orgFilter AND $__timeFilter(TimeUnix) GROUP BY 1`
+			const prepared = yield* prepareOk(
+				`${branch("metrics_histogram")} UNION ALL ${branch("metrics_sum")} UNION ALL ${branch("metrics_gauge")} ORDER BY n DESC LIMIT 15`,
+			)
+			assert.strictEqual(
+				prepared.sql.match(/TimeUnix >= toDateTime\('2026-05-14 00:00:00'\)/g)?.length,
+				3,
+			)
+			assert.strictEqual(
+				prepared.sql.match(/TimeUnix <= toDateTime\('2026-05-14 06:00:00'\)/g)?.length,
+				3,
+			)
+			assert.include(prepared.sql, "FROM metrics_gauge")
+		}),
+	)
+
+	it.effect("requires a time filter for alerts only", () =>
+		Effect.gen(function* () {
+			yield* prepareOk("SELECT 1 FROM Logs WHERE $__orgFilter")
+			const error = yield* prepareFail("SELECT 1 FROM Logs WHERE $__orgFilter", "alert")
+			assert.strictEqual(error.code, "InvalidMacro")
+		}),
+	)
+
+	it.effect("validates length and granularity", () =>
+		Effect.gen(function* () {
+			assert.strictEqual((yield* prepareFail("")).code, "ResourceLimit")
+			assert.strictEqual(
+				(yield* prepareFail(`SELECT '${"x".repeat(MAX_RAW_SQL_LENGTH)}' WHERE $__orgFilter`)).code,
+				"ResourceLimit",
+			)
+			const exit = yield* Effect.exit(
+				prepareRawSql({
+					...baseInput,
+					granularitySeconds: Number.NaN,
+					sql: "SELECT 1 WHERE $__orgFilter",
+				}),
+			)
+			assert.instanceOf(getError(exit), RawSqlValidationError)
+		}),
+	)
+
+	it.effect("rejects multiple statements but ignores semicolons inside strings", () =>
+		Effect.gen(function* () {
+			assert.strictEqual(
+				(yield* prepareFail("SELECT 1 WHERE $__orgFilter; SELECT 2")).code,
+				"MultipleStatements",
+			)
+			const result = yield* prepareOk("SELECT 'a;b' AS value WHERE $__orgFilter")
+			assert.include(result.sql, "'a;b'")
+		}),
+	)
+
+	for (const keyword of [
+		"INSERT",
+		"UPDATE",
+		"DELETE",
+		"DROP",
+		"ALTER",
+		"TRUNCATE",
+		"RENAME",
+		"ATTACH",
+		"DETACH",
+		"CREATE",
+		"GRANT",
+		"REVOKE",
+		"OPTIMIZE",
+		"SYSTEM",
+		"KILL",
+	]) {
+		it.effect(`rejects deny-listed keyword ${keyword}`, () =>
+			Effect.gen(function* () {
+				const error = yield* prepareFail(`${keyword} TABLE Logs WHERE $__orgFilter`)
+				assert.strictEqual(error.code, "DisallowedStatement")
+			}),
+		)
+	}
+
+	it.effect("accepts SELECT/WITH and rejects other query forms", () =>
+		Effect.gen(function* () {
+			yield* prepareOk("SELECT 1 WHERE $__orgFilter")
+			yield* prepareOk("WITH 1 AS value SELECT value WHERE $__orgFilter")
+			assert.strictEqual(
+				(yield* prepareFail("EXPLAIN SELECT 1 WHERE $__orgFilter")).code,
+				"DisallowedStatement",
+			)
+		}),
+	)
+
+	it.effect("validates and expands macros", () =>
+		Effect.gen(function* () {
+			assert.strictEqual(
+				(yield* prepareFail(
+					"SELECT $__bogus FROM Logs WHERE $__orgFilter AND $__timeFilter(Timestamp)",
+				)).code,
+				"UnresolvedMacro",
+			)
+			assert.strictEqual(
+				(yield* prepareFail("SELECT 1 FROM Logs WHERE $__orgFilter AND $__timeFilter(1 OR 1=1)"))
+					.code,
+				"InvalidMacro",
+			)
+
+			const result = yield* prepareOk(
+				"SELECT toStartOfInterval(Timestamp, INTERVAL $__interval_s SECOND) AS bucket FROM Logs WHERE $__orgFilter AND $__timeFilter(Timestamp)",
+			)
+			assert.include(result.sql, "OrgId = 'org_abc'")
+			assert.include(result.sql, "toDateTime('2026-05-14 00:00:00')")
+			assert.include(result.sql, "toDateTime('2026-05-14 06:00:00')")
+			assert.include(result.sql, "INTERVAL 60 SECOND")
+			assert.match(result.sql, /^SELECT \* FROM \(/)
+			assert.match(result.sql, /LIMIT 1001\s*$/)
+		}),
+	)
+
+	it.effect("expands $__timeGroup into a bucketing expression", () =>
+		Effect.gen(function* () {
+			const result = yield* prepareOk(
+				"SELECT $__timeGroup(Timestamp) AS bucket, count() AS value FROM Logs WHERE $__orgFilter AND $__timeFilter(Timestamp) GROUP BY bucket",
+			)
+			assert.include(result.sql, "toStartOfInterval(Timestamp, INTERVAL 60 SECOND) AS bucket")
+			assert.notInclude(result.sql, "$__timeGroup")
+		}),
+	)
+
+	it.effect("rejects a non-identifier $__timeGroup argument", () =>
+		Effect.gen(function* () {
+			const error = yield* prepareFail(
+				"SELECT $__timeGroup(1 OR 1=1) AS bucket FROM Logs WHERE $__orgFilter",
+			)
+			assert.strictEqual(error.code, "InvalidMacro")
+		}),
+	)
+
+	it.effect("escapes the org literal before validation", () =>
+		Effect.gen(function* () {
+			const result = yield* prepareRawSql({
+				...baseInput,
+				orgId: OrgId.make("org'); DROP TABLE Logs --"),
+				sql: "SELECT 1 FROM Logs WHERE $__orgFilter",
+			})
+			assert.include(result.sql, "OrgId = 'org\\')\\x3B DROP TABLE Logs --'")
+		}),
+	)
+})
+
+const executeRows = (rows: ReadonlyArray<Record<string, unknown>>) =>
+	makeExecuteRawSql({
+		rawSqlQuery: () => Effect.succeed(rows),
+	})(
+		{},
+		{
+			...baseInput,
+			sql: "SELECT 1 AS value WHERE $__orgFilter",
+			context: "test",
+		},
+	)
+
+// Regression: the row cap nests the query, so a terminal clause left in place
+// lands mid-statement and ClickHouse fails with "Syntax error at 'FORMAT'".
+it.effect("strips a trailing FORMAT clause instead of nesting it", () =>
+	Effect.gen(function* () {
+		for (const suffix of ["FORMAT JSONEachRow", "FORMAT JSON", "format CSV", "FORMAT JSONEachRow;"]) {
+			const prepared = yield* prepareOk(`SELECT count() FROM Logs WHERE $__orgFilter\n${suffix}`)
+			assert.notMatch(prepared.sql, /FORMAT/i, suffix)
+			assert.match(prepared.sql, /LIMIT 1001$/)
+		}
+	}),
+)
+
+it.effect("keeps a FORMAT that is only a column reference", () =>
+	Effect.gen(function* () {
+		const prepared = yield* prepareOk("SELECT format FROM Logs WHERE $__orgFilter")
+		assert.include(prepared.sql, "SELECT format FROM Logs")
+	}),
+)
+
+it.effect("rejects an author-supplied SETTINGS clause", () =>
+	Effect.gen(function* () {
+		const error = yield* prepareFail(
+			"SELECT count() FROM Logs WHERE $__orgFilter SETTINGS max_execution_time=3000",
+		)
+		assert.strictEqual(error.code, "DisallowedStatement")
+		assert.include(error.message, "SETTINGS is managed by Maple")
+	}),
+)
+
+it.effect("rejects INTO OUTFILE", () =>
+	Effect.gen(function* () {
+		const error = yield* prepareFail("SELECT count() FROM Logs WHERE $__orgFilter INTO OUTFILE '/tmp/x'")
+		assert.strictEqual(error.code, "DisallowedStatement")
+		assert.include(error.message, "INTO OUTFILE")
+	}),
+)
+
+it.effect("accepts a single trailing terminator", () =>
+	Effect.gen(function* () {
+		const prepared = yield* prepareOk("SELECT count() FROM Logs WHERE $__orgFilter;")
+		assert.notInclude(prepared.sql, ";")
+	}),
+)
+
+// `escapeClickHouseString` escapes quotes and backslashes, not `$` — with a
+// string replacement `$'` would splice the rest of the statement into the
+// literal, quotes and all.
+it.effect("does not expand replacement patterns in interpolated values", () =>
+	Effect.gen(function* () {
+		const prepared = yield* prepareRawSql({
+			...baseInput,
+			orgId: OrgId.make("org_$'_$&"),
+			sql: "SELECT count() FROM Logs WHERE $__orgFilter AND Body = 'tail'",
+		})
+		assert.include(prepared.sql, "OrgId = 'org_$\\'_$&'")
+	}),
+)
+
+it.effect("expands $__orgFilter to a parenthesised predicate, alias-qualified when given one", () =>
+	Effect.gen(function* () {
+		const prepared = yield* prepareOk(
+			"SELECT 1 FROM traces t JOIN logs l ON t.TraceId = l.TraceId AND $__orgFilter(l) WHERE $__orgFilter(t) AND $__orgFilter",
+		)
+		assert.include(
+			prepared.sql,
+			"AND (l.OrgId = 'org_abc') WHERE (t.OrgId = 'org_abc') AND (OrgId = 'org_abc')",
+		)
+	}),
+)
+
+it.effect("rejects an org filter a sibling OR escapes", () =>
+	Effect.gen(function* () {
+		const error = yield* prepareFail(
+			"SELECT 1 FROM traces WHERE $__orgFilter AND SpanName = 'Database.execute' OR (ServiceName = 'maple-api')",
+		)
+		assert.strictEqual(error.code, "InvalidMacro")
+	}),
+)
+
+describe("makeExecuteRawSql", () => {
+	it.effect("accepts exactly 1,000 rows and returns metadata", () =>
+		Effect.gen(function* () {
+			const rows = Array.from({ length: MAX_RAW_SQL_RESULT_ROWS }, (_, value) => ({ value }))
+			const result = yield* executeRows(rows)
+			assert.strictEqual(result.rowCount, MAX_RAW_SQL_RESULT_ROWS)
+			assert.deepStrictEqual(result.columns, ["value"])
+		}),
+	)
+
+	it.effect("rejects the 1,001-row sentinel", () =>
+		Effect.gen(function* () {
+			const rows = Array.from({ length: MAX_RAW_SQL_RESULT_ROWS + 1 }, (_, value) => ({ value }))
+			const error = yield* Effect.flip(executeRows(rows))
+			assert.strictEqual(error.code, "ResourceLimit")
+			assert.include(error.message, "rows")
+		}),
+	)
+
+	it.effect("rejects oversized cells, encoded output, and unserializable values", () =>
+		Effect.gen(function* () {
+			const cellError = yield* Effect.flip(
+				executeRows([{ value: "x".repeat(MAX_RAW_SQL_CELL_LENGTH + 1) }]),
+			)
+			assert.strictEqual(cellError._tag, "@maple/http/errors/RawSqlValidationError")
+			assert.strictEqual(cellError.code, "ResourceLimit")
+			assert.include(cellError.message, "cells")
+
+			const bytesError = yield* Effect.flip(
+				executeRows(
+					Array.from({ length: 100 }, (_, value) => ({
+						value,
+						payload: "x".repeat(Math.ceil(MAX_RAW_SQL_RESULT_BYTES / 100)),
+					})),
+				),
+			)
+			assert.strictEqual(bytesError._tag, "@maple/http/errors/RawSqlValidationError")
+			assert.strictEqual(bytesError.code, "ResourceLimit")
+			assert.include(bytesError.message, "bytes")
+
+			const jsonError = yield* Effect.flip(executeRows([{ value: 1n }]))
+			assert.strictEqual(jsonError._tag, "@maple/http/errors/RawSqlValidationError")
+			assert.strictEqual(jsonError.code, "ResourceLimit")
+			assert.include(jsonError.message, "JSON serializable")
+		}),
+	)
+})

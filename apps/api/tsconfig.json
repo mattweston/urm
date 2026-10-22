@@ -1,0 +1,35 @@
+{
+	"include": ["src/**/*.ts", "src/**/*.tsx"],
+	// TODO(test-typecheck): tests stay out until `bun run typecheck:test` is clean (217 errors
+	// on 2026-10-21), then drop this exclude and the separate tsconfig.test.json.
+	"exclude": ["src/**/*.test.ts"],
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"jsx": "react-jsx",
+		// ES2023 for `findLast`/`findLastIndex`/`toSorted`, used across the dependency graph.
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
+		"types": ["node", "@cloudflare/workers-types"],
+		"moduleResolution": "bundler",
+		// No `baseUrl`: TS7 removed it (TS5102). `paths` below already resolves
+		// relative to this file, so `@/*` is unaffected.
+		"ignoreDeprecations": "6.0",
+		"customConditions": ["bun"],
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedSideEffectImports": true,
+		"paths": {
+			"@/*": ["./src/*"]
+		},
+		"plugins": [
+			{
+				"name": "@effect/language-service",
+				"reportSuggestionsAsWarningsInTsc": true
+			}
+		]
+	}
+}

@@ -1,0 +1,93 @@
+// Formatters whose output is baked into derived data — finding labels, turn
+// subtitles, cost text — so the page and the MCP print the same strings. They
+// live here, below both `@maple/ui` and `@maple/agent-sessions`, because the
+// latter renders on a Worker and cannot pull React in through `@maple/ui`.
+
+/**
+ * Format a duration in milliseconds to a human-readable string.
+ * ns, μs, ms, s, min, h, then d. Each tier is picked after rounding, so 999.96ms
+ * reads "1.00s" rather than "1000.0ms". Negatives (clock skew, deltas) keep their
+ * sign; NaN and Infinity read "—".
+ */
+export function formatDuration(ms: number): string {
+	if (!Number.isFinite(ms)) return "—"
+	if (ms < 0) return `-${formatDuration(-ms)}`
+	if (ms > 0 && ms < 0.0005) return `${Math.max(1, Math.round(ms * 1_000_000))}ns`
+	if (Math.round(ms * 1000) < 1000) return `${(ms * 1000).toFixed(0)}μs`
+	if (Number(ms.toFixed(1)) < 1000) return `${ms.toFixed(1)}ms`
+	if (Number((ms / 1000).toFixed(2)) < 60) return `${(ms / 1000).toFixed(2)}s`
+	if (Number((ms / 60_000).toFixed(1)) < 60) return `${(ms / 60_000).toFixed(1)}min`
+	if (Number((ms / 3_600_000).toFixed(1)) < 24) return `${(ms / 3_600_000).toFixed(1)}h`
+	return `${(ms / 86_400_000).toFixed(1)}d`
+}
+
+/**
+ * Format a number with compact notation.
+ * - |n| >= 1T: displays as e.g. "1.2T"
+ * - |n| >= 1B: displays as e.g. "2.5B"
+ * - |n| >= 1M: displays as e.g. "1.2M"
+ * - |n| >= 1K: displays as e.g. "3.4K"
+ * - 0 < |n| < 1: 3 significant digits (e.g. "0.08", "0.0267") — axis ticks for
+ *   rates/ratios must not collapse to "0" or trail "0.026666…"
+ * - otherwise: locale formatting
+ *
+ * Compacts negatives too (`-1500` → `"-1.5K"`), which matters for the delta
+ * columns on comparison tables.
+ */
+export function formatNumber(num: number): string {
+	if (!Number.isFinite(num)) return "—"
+	const abs = Math.abs(num)
+	if (abs >= 1_000_000_000_000) {
+		return `${(num / 1_000_000_000_000).toFixed(1)}T`
+	}
+	if (abs >= 1_000_000_000) {
+		return `${(num / 1_000_000_000).toFixed(1)}B`
+	}
+	if (abs >= 1_000_000) {
+		return `${(num / 1_000_000).toFixed(1)}M`
+	}
+	if (abs >= 1_000) {
+		return `${(num / 1_000).toFixed(1)}K`
+	}
+	if (abs > 0 && abs < 1) {
+		return num.toLocaleString(undefined, { maximumSignificantDigits: 3 })
+	}
+	return num.toLocaleString()
+}
+
+/**
+ * `6h 12m` / `1m 23s` / `45s`, or `—` for missing/zero durations — a replay
+ * with no measurable duration is unmeasured, not instantaneous.
+ *
+ * Named for the session it measures rather than `formatDuration`: this renders a
+ * wall-clock span in clock units, which is a different job from the μs→h ladder
+ * above. Sharing the name meant the two got imported interchangeably.
+ *
+ * Minutes roll over at an hour: agent sessions that wait on a human run for
+ * hours, and "360m 0s" is not a duration anyone reads as six.
+ */
+export function formatSessionDuration(ms: number | null): string {
+	if (ms == null || ms <= 0) return "—"
+	const totalSeconds = Math.round(ms / 1000)
+	const minutes = Math.floor(totalSeconds / 60)
+	if (minutes >= 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+	const seconds = totalSeconds % 60
+	return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
+}
+
+const currencyFormatters = new Map<string, Intl.NumberFormat>()
+
+/** Format an amount in dollars (Autumn totals are dollars, not cents). */
+export function formatCurrency(amount: number, currency: string): string {
+	const key = currency.toUpperCase()
+	let formatter = currencyFormatters.get(key)
+	if (!formatter) {
+		formatter = new Intl.NumberFormat("en-US", {
+			style: "currency",
+			currency: key,
+			minimumFractionDigits: 2,
+		})
+		currencyFormatters.set(key, formatter)
+	}
+	return formatter.format(amount)
+}

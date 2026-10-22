@@ -1,0 +1,104 @@
+/**
+ * Sanitizers for sinks that hold user-controlled strings — CSS values, HTML
+ * hrefs, inline-script JSON, and post-login redirect targets. Each helper
+ * fails closed: the caller decides what to do with a `null` (drop the entry,
+ * fall back, etc.) rather than ever rendering an unvetted string.
+ */
+
+import { Option, Schema } from "effect"
+
+const decodeUrl = Schema.decodeUnknownOption(Schema.URLFromString)
+
+const CSS_COLOR_RE =
+	/^(?:#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})|(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^()]*\)|var\(--[a-z0-9_-]+(?:,[^()]*)?\)|currentColor|transparent|inherit|initial|unset|[a-z]+)$/i
+
+const ALLOWED_HREF_SCHEMES = new Set(["http:", "https:", "mailto:"])
+
+const LINE_SEPARATOR = " "
+const PARAGRAPH_SEPARATOR = " "
+
+/**
+ * CSS.escape an identifier the way browsers do, so a value like
+ * `</style><script>alert(1)</script>` cannot break out of the surrounding
+ * `--color-…` declaration.
+ */
+export const sanitizeCssIdentifier = (key: string): string => {
+	if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+		return CSS.escape(key)
+	}
+	// Fallback for environments without CSS.escape: hex-encode anything
+	// that isn't [a-zA-Z0-9_-].
+	return key.replace(/[^a-zA-Z0-9_-]/g, (ch) => `\\${ch.charCodeAt(0).toString(16)} `)
+}
+
+/**
+ * Returns `value` only if it parses as a known-safe CSS color expression.
+ * Drops anything containing CSS structural tokens like `;`, `}`, `<` etc.
+ */
+export const validateCssColor = (value: string | undefined | null): string | null => {
+	if (typeof value !== "string") return null
+	const trimmed = value.trim()
+	if (trimmed.length === 0) return null
+	if (/[<>;{}]/.test(trimmed)) return null
+	return CSS_COLOR_RE.test(trimmed) ? trimmed : null
+}
+
+/**
+ * Allow http(s) and mailto absolute URLs, plus same-origin relative paths
+ * (single leading `/`). Reject `javascript:`, `data:`, `vbscript:`,
+ * protocol-relative (`//`), and anything malformed.
+ */
+export const validateUrlScheme = (raw: string | undefined | null): string | null => {
+	if (typeof raw !== "string") return null
+	const trimmed = raw.trim()
+	if (trimmed.length === 0) return null
+	if (trimmed.startsWith("//")) return null
+	if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed
+	return Option.getOrNull(
+		Option.filter(decodeUrl(trimmed), (parsed) => ALLOWED_HREF_SCHEMES.has(parsed.protocol)).pipe(
+			Option.map(() => trimmed),
+		),
+	)
+}
+
+/**
+ * Escape a JSON-stringified value before embedding it inside an inline
+ * `<script>...</script>` block. JSON.stringify alone does not escape `<`
+ * or `>`, so a string like `</script><script>alert(1)</script>` would
+ * close the script tag verbatim. U+2028/U+2029 are valid line terminators
+ * in JS but unescaped in JSON, so they must also be encoded.
+ */
+export const escapeJsonInHtml = (json: string): string =>
+	json
+		.replace(/</g, "\\u003c")
+		.replace(/>/g, "\\u003e")
+		.replace(/&/g, "\\u0026")
+		.split(LINE_SEPARATOR)
+		.join("\\u2028")
+		.split(PARAGRAPH_SEPARATOR)
+		.join("\\u2029")
+
+const REDIRECT_PROBE_ORIGIN = "https://x.invalid"
+
+// Browsers strip tabs and newlines from URLs and read `\\` as `/`, so either can turn a path into a host.
+const UNSAFE_REDIRECT_CHARS = /[\u0000-\u001f\u007f\\]/
+// The same characters percent-encoded, plus an encoded slash right after the leading one.
+const UNSAFE_REDIRECT_ESCAPES = /%(?:[01][0-9a-f]|7f|5c)|^\/%2f/i
+
+/**
+ * Validate a post-login `redirect_url` query value. Allows same-origin
+ * relative paths (single leading `/`, no `//`). Returns null for absolute
+ * URLs, scheme tricks, control characters or backslashes (raw or
+ * percent-encoded), or empty input. Caller should fall back to `/`.
+ */
+export const validateInternalRedirect = (raw: string | undefined | null): string | null => {
+	if (typeof raw !== "string") return null
+	const trimmed = raw.trim()
+	if (trimmed.length === 0) return null
+	if (!trimmed.startsWith("/")) return null
+	if (trimmed.startsWith("//")) return null
+	if (UNSAFE_REDIRECT_CHARS.test(trimmed) || UNSAFE_REDIRECT_ESCAPES.test(trimmed)) return null
+	if (!URL.canParse(trimmed, REDIRECT_PROBE_ORIGIN)) return null
+	if (new URL(trimmed, REDIRECT_PROBE_ORIGIN).origin !== REDIRECT_PROBE_ORIGIN) return null
+	return trimmed
+}

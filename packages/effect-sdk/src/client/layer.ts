@@ -1,0 +1,206 @@
+import type { Duration } from "effect"
+import { type MapleRegion, resolveIngestEndpoint, warnIfKeylessMapleIngest } from "@maple/browser-session"
+import { Effect, Layer } from "effect"
+import { makeOtlpLayer } from "../shared/otlp-layer.js"
+import type { MapleSpanOptions } from "../shared/span-options.js"
+import { browserResourceAttributes } from "./browser-globals.js"
+import { consentHttpClientLayer } from "./consent-http-client.js"
+import { type ClientReplayConfig, startClientSession } from "./replay-loader.js"
+import { withSessionLink } from "./session-link.js"
+import { type IdentifyInput, type PrivacyOptions, type TrackProps, track as trackEvent } from "./track.js"
+import { clearIdentity as clearIdentityUser, identify as identifyUser } from "./user.js"
+
+export interface MapleClientConfig extends MapleSpanOptions {
+	/** The service name reported in traces, logs, and metrics. */
+	readonly serviceName: string
+	/**
+	 * Region your Maple organization lives in: `"us"` (default,
+	 * `https://ingest.maple.dev`) or `"eu"` (`https://ingest.eu.maple.dev`).
+	 * Ignored when `endpoint` is set.
+	 */
+	readonly region?: MapleRegion | undefined
+	/** Maple ingest endpoint URL. Overrides `region`; use it for a proxy or self-hosted ingest. */
+	readonly endpoint?: string | undefined
+	/** Sent as `Authorization: Bearer …`, and nothing else; unset behind a proxy that adds it. */
+	readonly ingestKey?: string | undefined
+	/** Service version or commit SHA. */
+	readonly serviceVersion?: string | undefined
+	/**
+	 * Logical group this service belongs to, emitted as the OTel
+	 * `service.namespace` resource attribute. Optional — only stamped when set.
+	 */
+	readonly serviceNamespace?: string | undefined
+	/** Deployment environment (e.g. "production", "staging"). */
+	readonly environment?: string | undefined
+	/** Additional resource attributes merged into the telemetry resource. */
+	readonly attributes?: Record<string, unknown> | undefined
+	/**
+	 * Post session metadata rows for the standalone session so it appears in
+	 * Maple's Sessions UI (list entry + linked traces, no replay recording).
+	 * Default `true`; no-ops when `@maple-dev/browser` is on the page (it owns
+	 * the session rows) or without a browser DOM.
+	 */
+	readonly emitSessionMeta?: boolean | undefined
+	/**
+	 * rrweb session replay for this app, recorded by the shared Maple replay
+	 * engine (loaded lazily in a code-split chunk). Default enabled with
+	 * sampleRate 1 and inputs masked — set `{ enabled: false }` to opt out.
+	 */
+	readonly replay?: ClientReplayConfig | undefined
+	/**
+	 * Consent gating, persistent-visitor-id storage, and whether `identify()`'s
+	 * email reaches the warehouse. Defaults capture everything except where a
+	 * browser signals otherwise: Global Privacy Control suppresses the
+	 * persistent visitor id (capture itself continues, anonymously).
+	 * With `requireConsent`, this built-in OTLP layer suppresses cumulative
+	 * metrics because it cannot separate pre-grant values; use `MapleFlush.make`
+	 * when post-grant browser metrics are required.
+	 */
+	readonly privacy?: PrivacyOptions | undefined
+	/** Skip Effect log spans in OTLP log attributes. Default `false`. */
+	readonly excludeLogSpans?: boolean | undefined
+	readonly maxBatchSize?: number | undefined
+	readonly loggerExportInterval?: Duration.Input | undefined
+	readonly metricsExportInterval?: Duration.Input | undefined
+	readonly tracerExportInterval?: Duration.Input | undefined
+	readonly shutdownTimeout?: Duration.Input | undefined
+}
+
+/**
+ * Create an Effect Layer that provides OpenTelemetry traces, logs, and metrics
+ * configured for Maple in browser environments.
+ *
+ * Unlike the server layer, all configuration must be provided programmatically
+ * since browsers don't have access to environment variables.
+ *
+ * @example
+ * ```typescript
+ * import { Maple } from "@maple-dev/effect-sdk/client"
+ * import { Effect } from "effect"
+ *
+ * const TracerLive = Maple.layer({
+ *   serviceName: "my-frontend",
+ *   ingestKey: "maple_pk_...",
+ *   region: "eu", // omit for the US region
+ * })
+ *
+ * const program = Effect.log("Hello!").pipe(Effect.withSpan("hello"))
+ * Effect.runPromise(program.pipe(Effect.provide(TracerLive)))
+ * ```
+ */
+export const layer = (config: MapleClientConfig) => {
+	const attributes: Record<string, unknown> = {
+		...browserResourceAttributes(),
+		"maple.sdk.type": "client",
+	} satisfies Record<string, unknown>
+	if (config.environment) {
+		// Dual-emit: legacy key (pre-extracted by Tinybird MVs) + the canonical
+		// resource attribute. Keep both until the MVs coalesce them.
+		attributes["deployment.environment"] = config.environment
+		attributes["deployment.environment.name"] = config.environment
+	}
+	// `serviceVersion` may be a semver release string, which belongs in
+	// `service.version` but not in `vcs.*` — only a SHA-shaped value is stamped.
+	if (config.serviceVersion && /^[0-9a-f]{7,40}$/i.test(config.serviceVersion)) {
+		attributes["vcs.ref.head.revision"] = config.serviceVersion
+	}
+	if (config.serviceNamespace) attributes["service.namespace"] = config.serviceNamespace
+	if (config.attributes) Object.assign(attributes, config.attributes)
+
+	const endpoint = resolveIngestEndpoint({ endpoints: [config.endpoint], regions: [config.region] })
+	warnIfKeylessMapleIngest({
+		logPrefix: "[MapleClientSDK]",
+		endpoint,
+		hasIngestKey: Boolean(config.ingestKey),
+		hint: "Pass `ingestKey`, or point `endpoint` at a proxy that adds it.",
+	})
+	const clientSessionConfig = {
+		endpoint,
+		ingestKey: config.ingestKey,
+		serviceName: config.serviceName,
+		environment: config.environment,
+		serviceVersion: config.serviceVersion,
+		replay: config.replay,
+		emitSessionMeta: config.emitSessionMeta,
+		privacy: config.privacy,
+	} as const
+
+	const base = makeOtlpLayer({
+		baseUrl: endpoint,
+		resource: {
+			serviceName: config.serviceName,
+			serviceVersion: config.serviceVersion,
+			attributes,
+		},
+		headers: config.ingestKey ? { Authorization: `Bearer ${config.ingestKey}` } : undefined,
+		maxBatchSize: config.maxBatchSize,
+		loggerExportInterval: config.loggerExportInterval,
+		metricsExportInterval: config.metricsExportInterval,
+		tracerExportInterval: config.tracerExportInterval,
+		shutdownTimeout: config.shutdownTimeout,
+		loggerExcludeLogSpans: config.excludeLogSpans,
+		// Matches the stock `OtlpTracer` this layer used before (fingerprint parity).
+		spans: { ...config, includeCauseInStack: true },
+	}).pipe(Layer.provide(consentHttpClientLayer(config.privacy?.requireConsent ?? false)))
+
+	const lifecycle = Layer.effectDiscard(
+		Effect.acquireRelease(
+			Effect.sync(() => startClientSession(clientSessionConfig)),
+			// `Effect.promise` turns a rejection into a defect, and this runs during
+			// `ManagedRuntime.dispose()` — a transport that starts throwing would
+			// crash teardown rather than lose a beacon. Shutdown is best-effort.
+			(clientSession) => Effect.promise(() => clientSession.stop().catch(() => undefined)),
+		),
+	)
+	return withSessionLink(Layer.merge(base, lifecycle))
+}
+
+/**
+ * Effect-idiomatic form of `identify` — attach (or replace) the end-user
+ * identity on the active Maple browser session. From this point on it is
+ * written to the session's next-posted metadata row and the id is stamped as
+ * `user.id` on every span the client tracer creates. Idempotent; safe to run
+ * repeatedly (e.g. once a login flow resolves the user).
+ *
+ * Pass a bare id, or the full identity to get grouping by company/team in the
+ * Sessions UI.
+ *
+ * @example
+ * ```typescript
+ * import { Maple } from "@maple-dev/effect-sdk/client"
+ * yield* Maple.identify(user.id)
+ * yield* Maple.identify({ id: user.id, email: user.email, groupId: org.id, groupName: org.name })
+ * ```
+ */
+export const identify = (input?: IdentifyInput): Effect.Effect<void> => Effect.sync(() => identifyUser(input))
+
+/**
+ * Effect-idiomatic form of `track` — record a custom product event against the
+ * active session. It lands as a `session_events` row, so it shows up inline in
+ * the session transcript next to the clicks and requests around it.
+ *
+ * Safe to run before the SDK finishes initializing: events are queued (capped)
+ * and drained once the session starts.
+ *
+ * @example
+ * ```typescript
+ * import { Maple } from "@maple-dev/effect-sdk/client"
+ * yield* Maple.track("checkout_completed", { plan: "pro", seats: 5 })
+ * ```
+ */
+export const track = (name: string, props?: TrackProps): Effect.Effect<void> =>
+	Effect.sync(() => trackEvent(name, props))
+
+/**
+ * Effect-idiomatic form of `clearIdentity` — drop the end-user id from the
+ * active Maple browser session (the inverse of `identify`). From this point on
+ * metadata rows and spans go back to anonymous (no `user.id` stamp). Call this
+ * when a login flow signs the user out; the session itself continues.
+ *
+ * @example
+ * ```typescript
+ * import { Maple } from "@maple-dev/effect-sdk/client"
+ * yield* Maple.clearIdentity
+ * ```
+ */
+export const clearIdentity: Effect.Effect<void> = Effect.sync(() => clearIdentityUser())

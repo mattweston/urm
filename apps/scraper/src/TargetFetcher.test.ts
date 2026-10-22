@@ -1,0 +1,395 @@
+import { assert, describe, it } from "@effect/vitest"
+import { Duration, Effect, Exit, Fiber, Layer, Schema } from "effect"
+import { TestClock } from "effect/testing"
+import { FetchHttpClient } from "effect/http"
+import { InternalScrapeTarget } from "@maple/domain/http"
+import { HostResolutionError } from "@maple/safe-fetch"
+import { HostResolver } from "@maple/safe-fetch/dns"
+import { endedSpansNamed, makeCapturingTracer } from "./testing/capturing-tracer"
+import {
+	MAX_SCRAPE_RESPONSE_BYTES,
+	parseRetryAfterSeconds,
+	scrapeTimeoutMs,
+	TargetFetcher,
+} from "./TargetFetcher"
+
+/** A fixed DNS: no test reaches a real resolver. */
+const DNS = new Map([
+	["node.example.com", ["93.184.216.34"]],
+	["elsewhere.example.org", ["93.184.216.35"]],
+	["branch.metrics.psdb.cloud", ["93.184.216.37"]],
+	["rebind.example.com", ["93.184.216.36", "169.254.170.2"]],
+])
+
+/** The runtime provides the HTTP client; each test swaps its `fetch`. */
+const FetcherLive = TargetFetcher.layer.pipe(
+	Layer.provide(FetchHttpClient.layer),
+	Layer.provide(
+		Layer.succeed(HostResolver, (hostname: string) => {
+			const addresses = DNS.get(hostname)
+			return addresses === undefined
+				? Effect.fail(new HostResolutionError({ message: `NXDOMAIN ${hostname}`, hostname }))
+				: Effect.succeed(addresses)
+		}),
+	),
+)
+
+const decodeTarget = Schema.decodeUnknownSync(InternalScrapeTarget)
+
+const mkTarget = (
+	overrides: Partial<{
+		targetType: "prometheus" | "planetscale" | "supabase"
+		scrapeUrl: string
+		authHeaders: Record<string, string>
+		scrapeIntervalSeconds: number
+	}> = {},
+): InternalScrapeTarget =>
+	decodeTarget({
+		id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		orgId: "org_test",
+		name: "node",
+		serviceName: null,
+		targetType: overrides.targetType ?? "prometheus",
+		url: "https://node.example.com/metrics",
+		scrapeUrl: overrides.scrapeUrl ?? "https://node.example.com/metrics",
+		authHeaders: overrides.authHeaders ?? {},
+		subTargetKey: null,
+		scrapeIntervalSeconds: overrides.scrapeIntervalSeconds ?? 15,
+		labels: {},
+		ingestKey: "maple_pk_test",
+	})
+
+interface RecordedRequest {
+	url: string
+	headers: Record<string, string>
+}
+
+const stubFetch = (
+	recorded: Array<RecordedRequest>,
+	respond: (init?: RequestInit) => Response | Promise<Response>,
+): typeof globalThis.fetch =>
+	(async (input: string | URL | Request, init?: RequestInit) => {
+		const headers: Record<string, string> = {}
+		new Headers(init?.headers).forEach((value, key) => {
+			headers[key] = value
+		})
+		recorded.push({ url: input instanceof Request ? input.url : String(input), headers })
+		return respond(init)
+	}) as typeof globalThis.fetch
+
+describe("TargetFetcher", () => {
+	it.effect("GETs the scrape url with the target's auth headers and returns the body", () =>
+		Effect.gen(function* () {
+			const recorded: Array<RecordedRequest> = []
+			const fetcher = yield* TargetFetcher
+			const body = yield* fetcher
+				.fetch(mkTarget({ authHeaders: { Authorization: "Bearer stored-token" } }))
+				.pipe(
+					Effect.provideService(
+						FetchHttpClient.Fetch,
+						stubFetch(recorded, () => new Response("# TYPE up gauge\nup 1\n", { status: 200 })),
+					),
+				)
+
+			// Dialled at the address checked, under the configured name.
+			assert.strictEqual(recorded[0]?.url, "https://93.184.216.34/metrics")
+			assert.strictEqual(recorded[0]?.headers.host, "node.example.com")
+			assert.strictEqual(recorded[0]?.headers.authorization, "Bearer stored-token")
+			assert.include(body, "up 1")
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("classifies a non-2xx answer by status and carries Retry-After", () =>
+		Effect.gen(function* () {
+			const fetcher = yield* TargetFetcher
+			const fetchStatus = (status: number, headers: Record<string, string> = {}) =>
+				fetcher.fetch(mkTarget()).pipe(
+					Effect.provideService(
+						FetchHttpClient.Fetch,
+						stubFetch([], () => new Response("nope", { status, headers })),
+					),
+					Effect.flip,
+				)
+
+			const limited = yield* fetchStatus(503, { "retry-after": "120" })
+			assert.strictEqual(limited.reason, "rate_limited")
+			assert.strictEqual(limited.statusCode, 503)
+			assert.strictEqual(limited.retryAfterMs, 120_000)
+			assert.strictEqual(limited.message, "returned HTTP 503")
+			assert.strictEqual((yield* fetchStatus(403)).reason, "auth_failed")
+			assert.strictEqual((yield* fetchStatus(500)).reason, "target_error")
+			assert.strictEqual((yield* fetchStatus(404)).reason, "scrape_failed")
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("leaves the client span Ok when the target answers with an error status", () =>
+		Effect.gen(function* () {
+			const tracer = makeCapturingTracer()
+			const fetcher = yield* TargetFetcher
+			yield* fetcher.fetch(mkTarget()).pipe(
+				Effect.provideService(
+					FetchHttpClient.Fetch,
+					stubFetch([], () => new Response("", { status: 429 })),
+				),
+				Effect.provide(tracer.layer),
+				Effect.flip,
+			)
+			const [span] = endedSpansNamed(tracer.ended, "TargetFetcher.fetchTarget")
+			assert.isTrue(Exit.isSuccess(span!.exit))
+			assert.strictEqual(span!.attributes.get("http.response.status_code"), 429)
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("rejects a private-range scrape url before any request is made", () =>
+		Effect.gen(function* () {
+			const recorded: Array<RecordedRequest> = []
+			const fetcher = yield* TargetFetcher
+			const error = yield* fetcher
+				.fetch(mkTarget({ scrapeUrl: "http://169.254.169.254/latest/meta-data/" }))
+				.pipe(
+					Effect.provideService(
+						FetchHttpClient.Fetch,
+						stubFetch(recorded, () => new Response("secret", { status: 200 })),
+					),
+					Effect.flip,
+				)
+
+			// A config fault no cadence clears: holds the interval rather than backing off.
+			assert.strictEqual(error.reason, "scrape_failed")
+			assert.include(error.message, "url rejected")
+			assert.lengthOf(recorded, 0)
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("rejects a hostname that resolves to a private address before any request", () =>
+		Effect.gen(function* () {
+			const recorded: Array<RecordedRequest> = []
+			const fetcher = yield* TargetFetcher
+			const error = yield* fetcher
+				.fetch(mkTarget({ scrapeUrl: "https://rebind.example.com/metrics" }))
+				.pipe(
+					Effect.provideService(
+						FetchHttpClient.Fetch,
+						stubFetch(recorded, () => new Response("secret", { status: 200 })),
+					),
+					Effect.flip,
+				)
+			assert.strictEqual(error.reason, "scrape_failed")
+			assert.include(error.message, "url rejected")
+			assert.lengthOf(recorded, 0)
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("backs off when the target's hostname does not resolve", () =>
+		Effect.gen(function* () {
+			const fetcher = yield* TargetFetcher
+			const error = yield* fetcher
+				.fetch(mkTarget({ scrapeUrl: "https://gone.example.com/metrics" }))
+				.pipe(Effect.flip)
+			assert.strictEqual(error.reason, "target_error")
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("fails a response whose declared Content-Length is over the cap", () =>
+		Effect.gen(function* () {
+			const fetcher = yield* TargetFetcher
+			// The body itself is tiny: only the declared length can fail this scrape.
+			const body = "up 1\n"
+			const error = yield* fetcher.fetch(mkTarget()).pipe(
+				Effect.provideService(
+					FetchHttpClient.Fetch,
+					stubFetch(
+						[],
+						() =>
+							new Response(body, {
+								status: 200,
+								headers: { "content-length": String(MAX_SCRAPE_RESPONSE_BYTES + 1) },
+							}),
+					),
+				),
+				Effect.flip,
+			)
+			assert.strictEqual(error.reason, "scrape_failed")
+			assert.include(error.message, "response exceeded 32 MiB")
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("stops reading a body that grows past the cap mid-stream", () =>
+		Effect.gen(function* () {
+			const fetcher = yield* TargetFetcher
+			const chunk = new Uint8Array(1024 * 1024).fill(0x23)
+			const sent = { chunks: 0 }
+			// No Content-Length: the target streams far more than the cap.
+			const body = new ReadableStream<Uint8Array>({
+				pull: (controller) => {
+					sent.chunks += 1
+					controller.enqueue(chunk)
+					if (sent.chunks === 64) controller.close()
+				},
+			})
+			const error = yield* fetcher.fetch(mkTarget()).pipe(
+				Effect.provideService(
+					FetchHttpClient.Fetch,
+					stubFetch([], () => new Response(body, { status: 200 })),
+				),
+				Effect.flip,
+			)
+			assert.strictEqual(error.reason, "scrape_failed")
+			assert.include(error.message, "response exceeded")
+			assert.isBelow(sent.chunks, 64)
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("drops the Authorization header when a redirect leaves the origin", () =>
+		Effect.gen(function* () {
+			const recorded: Array<RecordedRequest> = []
+			const fetcher = yield* TargetFetcher
+			const body = yield* fetcher
+				.fetch(mkTarget({ authHeaders: { Authorization: "Bearer stored-token" } }))
+				.pipe(
+					Effect.provideService(
+						FetchHttpClient.Fetch,
+						stubFetch(recorded, () =>
+							recorded.length === 1
+								? new Response(null, {
+										status: 302,
+										headers: { location: "https://elsewhere.example.org/metrics" },
+									})
+								: new Response("up 1\n", { status: 200 }),
+						),
+					),
+				)
+
+			assert.strictEqual(body, "up 1\n")
+			assert.strictEqual(recorded[0]?.headers.authorization, "Bearer stored-token")
+			assert.strictEqual(recorded[1]?.url, "https://93.184.216.35/metrics")
+			assert.strictEqual(recorded[1]?.headers.host, "elsewhere.example.org")
+			assert.isUndefined(recorded[1]?.headers.authorization)
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("classifies a transport failure as a target error", () =>
+		Effect.gen(function* () {
+			const fetcher = yield* TargetFetcher
+			const error = yield* fetcher.fetch(mkTarget()).pipe(
+				Effect.provideService(
+					FetchHttpClient.Fetch,
+					stubFetch([], () => Promise.reject(new TypeError("connection refused"))),
+				),
+				Effect.flip,
+			)
+
+			assert.strictEqual(error.reason, "target_error")
+			assert.strictEqual(error.message, "request failed: connection refused")
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("times out at the interval-derived ceiling and aborts the request", () =>
+		Effect.gen(function* () {
+			let aborted = false
+			const fetcher = yield* TargetFetcher
+			const fiber = yield* fetcher.fetch(mkTarget({ scrapeIntervalSeconds: 30 })).pipe(
+				Effect.provideService(
+					FetchHttpClient.Fetch,
+					stubFetch(
+						[],
+						(init) =>
+							new Promise<Response>((_resolve, reject) => {
+								init?.signal?.addEventListener("abort", () => {
+									aborted = true
+									reject(new Error("aborted"))
+								})
+							}),
+					),
+				),
+				Effect.exit,
+				Effect.forkChild,
+			)
+
+			// 30s interval → 29s ceiling: nothing at 28s, failure at 29s.
+			yield* TestClock.adjust(Duration.seconds(28))
+			assert.isFalse(aborted)
+			yield* TestClock.adjust(Duration.seconds(1))
+			const exit = yield* Fiber.join(fiber)
+
+			assert.isTrue(Exit.isFailure(exit))
+			if (!Exit.isFailure(exit)) return
+			assert.isTrue(aborted)
+			assert.include(String(exit.cause), "request timed out")
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("each managed provider and user-configured targets get their own peer.service", () =>
+		Effect.gen(function* () {
+			const fetcher = yield* TargetFetcher
+			const peerOf = (targetType: "prometheus" | "planetscale" | "supabase") =>
+				Effect.gen(function* () {
+					const tracer = makeCapturingTracer()
+					yield* fetcher.fetch(mkTarget({ targetType })).pipe(
+						Effect.provideService(
+							FetchHttpClient.Fetch,
+							stubFetch([], () => new Response("up 1\n", { status: 200 })),
+						),
+						Effect.provide(tracer.layer),
+					)
+					const [span] = endedSpansNamed(tracer.ended, "TargetFetcher.fetchTarget")
+					return span?.attributes.get("peer.service")
+				})
+			assert.deepStrictEqual(
+				[yield* peerOf("supabase"), yield* peerOf("planetscale"), yield* peerOf("prometheus")],
+				["supabase-metrics", "planetscale-metrics", "scrape-target"],
+			)
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+
+	it.effect("annotates the client span with host and path but never the signed query", () =>
+		Effect.gen(function* () {
+			const tracer = makeCapturingTracer()
+			const fetcher = yield* TargetFetcher
+			yield* fetcher
+				.fetch(
+					mkTarget({
+						targetType: "planetscale",
+						scrapeUrl: "https://branch.metrics.psdb.cloud/metrics?sig=SECRET&exp=123",
+					}),
+				)
+				.pipe(
+					Effect.provideService(
+						FetchHttpClient.Fetch,
+						stubFetch([], () => new Response("up 1\n", { status: 200 })),
+					),
+					Effect.provide(tracer.layer),
+				)
+
+			const [span] = endedSpansNamed(tracer.ended, "TargetFetcher.fetchTarget")
+			assert.isDefined(span)
+			if (!span) return
+			assert.strictEqual(span.attributes.get("peer.service"), "planetscale-metrics")
+			assert.strictEqual(span.attributes.get("maple.scrape.target_type"), "planetscale")
+			assert.strictEqual(span.attributes.get("server.address"), "branch.metrics.psdb.cloud")
+			assert.strictEqual(span.attributes.get("url.path"), "/metrics")
+			assert.strictEqual(span.attributes.get("http.response.status_code"), 200)
+			for (const value of span.attributes.values()) {
+				assert.notInclude(String(value), "SECRET")
+			}
+		}).pipe(Effect.provide(FetcherLive)),
+	)
+})
+
+describe("scrapeTimeoutMs", () => {
+	it("stays one second under the interval, floored at 1s and capped at 60s", () => {
+		assert.strictEqual(scrapeTimeoutMs(5), 4_000)
+		assert.strictEqual(scrapeTimeoutMs(1), 1_000)
+		assert.strictEqual(scrapeTimeoutMs(300), 60_000)
+	})
+})
+
+describe("parseRetryAfterSeconds", () => {
+	it("honors delta-seconds and ignores HTTP dates and garbage", () => {
+		assert.strictEqual(parseRetryAfterSeconds("120"), 120)
+		assert.strictEqual(parseRetryAfterSeconds(" 0 "), 0)
+		assert.isNull(parseRetryAfterSeconds("Wed, 21 Oct 2015 07:28:00 GMT"))
+		assert.isNull(parseRetryAfterSeconds("-5"))
+		assert.isNull(parseRetryAfterSeconds(null))
+	})
+})

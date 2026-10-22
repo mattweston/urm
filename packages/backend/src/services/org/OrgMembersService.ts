@@ -1,0 +1,185 @@
+import { createClerkClient } from "@clerk/backend"
+import {
+	AlertMemberDirectoryNotConfiguredError,
+	AlertMemberDirectoryUnavailableError,
+	AlertRecipientSelectionError,
+	type OrgId,
+	type UserId,
+} from "@maple/domain/http"
+import { Context, Effect, Layer, Option, Redacted, Stream } from "effect"
+import { Env } from "@maple/backend/platform/Env"
+import { clerkRequest } from "@maple/backend/services/auth/clerk-request"
+
+export interface OrgMember {
+	readonly userId: string
+	readonly email: string
+	readonly name: string | null
+	/** Provider-hosted avatar; Clerk serves one for every user, initials included. */
+	readonly imageUrl: string | null
+}
+
+export interface UserOrganization {
+	readonly orgId: string
+	readonly name: string
+	readonly createdAtMs: number
+	readonly membersCount: number | null
+}
+
+export interface OrgMembersServiceApi {
+	/**
+	 * Resolve workspace-member user ids to their emails via the auth provider.
+	 * Fails when any id is not a member of the org, or when member resolution
+	 * is unavailable (self-hosted mode without Clerk).
+	 */
+	/**
+	 * Every member of the org. Unlike {@link resolveMembers} this answers for
+	 * the directory as it is now, so a caller labelling historical records gets
+	 * the members it can name and nothing for ids that have since left.
+	 */
+	readonly listMembers: (
+		orgId: OrgId,
+	) => Effect.Effect<
+		ReadonlyArray<OrgMember>,
+		AlertMemberDirectoryNotConfiguredError | AlertMemberDirectoryUnavailableError
+	>
+	/** The orgs a user belongs to; the first 100, which is every real account. */
+	readonly listOrganizationsOf: (
+		userId: string,
+	) => Effect.Effect<
+		ReadonlyArray<UserOrganization>,
+		AlertMemberDirectoryNotConfiguredError | AlertMemberDirectoryUnavailableError
+	>
+	readonly resolveMembers: (
+		orgId: OrgId,
+		userIds: ReadonlyArray<UserId>,
+	) => Effect.Effect<
+		ReadonlyArray<OrgMember>,
+		| AlertMemberDirectoryNotConfiguredError
+		| AlertMemberDirectoryUnavailableError
+		| AlertRecipientSelectionError
+	>
+}
+
+const make = Effect.gen(function* () {
+	const env = yield* Env
+
+	const clerk =
+		env.MAPLE_AUTH_MODE.toLowerCase() === "clerk" && Option.isSome(env.CLERK_SECRET_KEY)
+			? createClerkClient({ secretKey: Redacted.value(env.CLERK_SECRET_KEY.value) })
+			: null
+
+	const listMembers = Effect.fn("OrgMembersService.listMembers")(function* (orgId: OrgId) {
+		yield* Effect.annotateCurrentSpan("orgId", orgId)
+		if (clerk === null) {
+			return yield* Effect.fail(
+				new AlertMemberDirectoryNotConfiguredError({
+					message: "Workspace member lookup requires Clerk authentication",
+				}),
+			)
+		}
+		const PAGE_SIZE = 100
+		return yield* Stream.paginate(0, (offset: number) =>
+			clerkRequest("Clerk.organizations.getOrganizationMembershipList", { orgId }, () =>
+				clerk.organizations.getOrganizationMembershipList({
+					organizationId: orgId,
+					limit: PAGE_SIZE,
+					offset,
+				}),
+			).pipe(
+				Effect.mapError(
+					(cause) =>
+						new AlertMemberDirectoryUnavailableError({
+							message: `Failed to list workspace members for ${orgId}`,
+							cause,
+						}),
+				),
+				Effect.map((page) => {
+					const members = page.data.flatMap((member): Array<OrgMember> => {
+						const userId = member.publicUserData?.userId
+						const email = member.publicUserData?.identifier
+						if (!userId || !email) return []
+						const name =
+							[member.publicUserData?.firstName, member.publicUserData?.lastName]
+								.filter(Boolean)
+								.join(" ") || null
+						return [{ userId, email, name, imageUrl: member.publicUserData?.imageUrl ?? null }]
+					})
+					const next = offset + page.data.length
+					const done = next >= page.totalCount || page.data.length === 0
+					return [members, done ? Option.none<number>() : Option.some(next)] as const
+				}),
+			),
+		).pipe(Stream.runCollect)
+	})
+
+	const listOrganizationsOf = Effect.fn("OrgMembersService.listOrganizationsOf")(function* (
+		userId: string,
+	) {
+		if (clerk === null) {
+			return yield* Effect.fail(
+				new AlertMemberDirectoryNotConfiguredError({
+					message: "Organization lookup requires Clerk authentication",
+				}),
+			)
+		}
+		const page = yield* clerkRequest(
+			"Clerk.users.getOrganizationMembershipList",
+			{ "tenant.userId": userId },
+			() => clerk.users.getOrganizationMembershipList({ userId, limit: 100 }),
+		).pipe(
+			Effect.mapError(
+				(cause) =>
+					new AlertMemberDirectoryUnavailableError({
+						message: `Failed to list the organizations of ${userId}`,
+						cause,
+					}),
+			),
+		)
+		return page.data.map((membership): UserOrganization => ({
+			orgId: membership.organization.id,
+			name: membership.organization.name,
+			createdAtMs: membership.organization.createdAt,
+			membersCount: membership.organization.membersCount ?? null,
+		}))
+	})
+
+	const resolveMembers: OrgMembersServiceApi["resolveMembers"] = Effect.fn(
+		"OrgMembersService.resolveMembers",
+	)(function* (orgId: OrgId, userIds: ReadonlyArray<UserId>) {
+		yield* Effect.annotateCurrentSpan({
+			orgId,
+			"maple.organization.member.requested_count": userIds.length,
+		})
+		const members = yield* listMembers(orgId)
+		const byUserId = new Map(members.map((member) => [member.userId, member]))
+		const resolved: Array<OrgMember> = []
+		const unknown: Array<UserId> = []
+		const seen = new Set<string>()
+		for (const userId of userIds) {
+			if (seen.has(userId)) continue
+			seen.add(userId)
+			const member = byUserId.get(userId)
+			if (member === undefined) unknown.push(userId)
+			else resolved.push(member)
+		}
+		if (unknown.length > 0) {
+			return yield* Effect.fail(
+				new AlertRecipientSelectionError({
+					message: "Some selected users are not members of this workspace",
+					unknownUserIds: unknown,
+				}),
+			)
+		}
+		yield* Effect.annotateCurrentSpan("result.member_count", resolved.length)
+		return resolved
+	})
+
+	return { listMembers, listOrganizationsOf, resolveMembers } satisfies OrgMembersServiceApi
+})
+
+export class OrgMembersService extends Context.Service<OrgMembersService, OrgMembersServiceApi>()(
+	"@maple/api/services/OrgMembersService",
+	{ make },
+) {
+	static readonly layer = Layer.effect(this, this.make)
+}

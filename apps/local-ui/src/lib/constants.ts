@@ -1,0 +1,52 @@
+export { LOCAL_ORG_ID } from "@maple/query-engine/local"
+
+// Default OTLP/HTTP + query port for `maple start`.
+export const DEFAULT_LOCAL_PORT = "4318"
+const HOSTED_LOCAL_UI_HOST = "local.maple.dev"
+const HOSTED_API_MODE_PARAM = "maple-local-api"
+
+interface LocalUiLocation {
+	readonly hostname: string
+	readonly origin: string
+	readonly search: string
+}
+
+const localPort = (search: string): string => {
+	const value = new URLSearchParams(search).get("port")
+	if (!value || !/^\d+$/.test(value)) return DEFAULT_LOCAL_PORT
+	const port = Number(value)
+	return port >= 1 && port <= 65_535 ? value : DEFAULT_LOCAL_PORT
+}
+
+/**
+ * Resolve the origin of the local `maple` binary's `/local/query` endpoint for
+ * the current page.
+ *
+ * The same SPA build is served two ways:
+ *   - **Same-origin**: by the binary on its selected address (`maple start
+ *     --offline`) or behind the dev vite proxy (`localhost` / `*.localhost`).
+ *     Return `""` so fetches stay relative; no CORS or Private Network Access.
+ *   - **Remote**: deployed to `local.maple.dev` (the binary's default), or to
+ *     another `MAPLE_LOCAL_UI_URL` carrying `?maple-local-api=loopback`. The page
+ *     is a public origin, so it must reach the binary on loopback. Use the
+ *     `?port=` the startup banner encodes into the URL, defaulting to 4318.
+ */
+export const localApiBaseForLocation = (location: LocalUiLocation): string =>
+	isHostedLocation(location) ? `http://127.0.0.1:${localPort(location.search)}` : ""
+
+/** True when the page is a public origin reaching the binary on loopback. */
+export const isHostedLocation = (location: LocalUiLocation): boolean =>
+	location.hostname === HOSTED_LOCAL_UI_HOST ||
+	new URLSearchParams(location.search).get(HOSTED_API_MODE_PARAM) === "loopback"
+
+/** The port the local server listens on, as `maple start --port` would take it. */
+export const localServerPortForLocation = (location: LocalUiLocation): string => {
+	if (isHostedLocation(location)) return localPort(location.search)
+	const explicit = location.origin.match(/:(\d+)$/)?.[1]
+	if (explicit) return explicit
+	return location.origin.startsWith("https:") ? "443" : "80"
+}
+
+/** OTLP/HTTP endpoint shown in the UI's connection hints. */
+export const localOtlpEndpointForLocation = (location: LocalUiLocation): string =>
+	localApiBaseForLocation(location) || location.origin

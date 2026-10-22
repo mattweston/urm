@@ -1,0 +1,298 @@
+import { randomUUID } from "node:crypto"
+import { afterEach, assert, describe, expect, it } from "@effect/vitest"
+import { ErrorIncidentId, ErrorIssueId, OrgId } from "@maple/domain/primitives"
+import * as PG from "@maple-dev/effect-orm/postgres"
+import { ErrorIncidents, ErrorIssues } from "@maple/db/tables"
+import { baselineWarehouseCapabilities } from "@maple/query-engine"
+import { Clock, Effect, Layer, Schema } from "effect"
+import { Database } from "@maple/backend/platform/DatabaseLive"
+import { cleanupTestDbs, createTestDb, type TestDb } from "@maple/backend/platform/test-pglite"
+import { AuditLogService } from "@maple/backend/services/audit/AuditLogService"
+import {
+	WarehouseQueryService,
+	type WarehouseQueryServiceApi,
+} from "@maple/backend/services/warehouse/WarehouseQueryService"
+import { ErrorActorsService } from "./ErrorActorsService"
+import { ErrorIssueReadModelsService } from "./ErrorIssueReadModelsService"
+import { ErrorIssueWorkflowService } from "./ErrorIssueWorkflowService"
+import { compiledQueryOf } from "@maple/query-engine/execution"
+
+// Compile-time guard: cache, Env, notifications, WorkerEnvironment, and the
+// broad ErrorsService cannot enter this layer without making this fail.
+const readRequirements: Layer.Layer<
+	ErrorIssueReadModelsService,
+	never,
+	Database | WarehouseQueryService | ErrorIssueWorkflowService
+> = Layer.effect(ErrorIssueReadModelsService, ErrorIssueReadModelsService.make)
+
+const asOrgId = Schema.decodeUnknownSync(OrgId)
+const asIssueId = Schema.decodeUnknownSync(ErrorIssueId)
+const asIncidentId = Schema.decodeUnknownSync(ErrorIncidentId)
+
+const ORG = asOrgId("org_error_read_models")
+const OTHER_ORG = asOrgId("org_error_read_models_other")
+const createdDbs: TestDb[] = []
+
+afterEach(() => cleanupTestDbs(createdDbs))
+
+const makeWarehouseStub = (contexts: Array<string>): WarehouseQueryServiceApi => ({
+	query: () => Effect.die(new Error("unexpected pipe query")),
+	rawSqlQuery: () => Effect.die(new Error("unexpected raw SQL query")),
+	crossOrgQuery: () => Effect.die(new Error("unexpected cross-org query")),
+	compiledQuery: (_tenant, compile, options) => {
+		const compiled =
+			typeof compile === "function" ? Effect.runSync(compile(baselineWarehouseCapabilities())) : compile
+		return Effect.sync(() => contexts.push(options?.context ?? "")).pipe(
+			Effect.andThen(
+				compiledQueryOf(compiled)
+					.decodeRows(
+						options?.context === "errorIssueEnvFingerprints"
+							? [{ fingerprintHash: "fp-checkout" }]
+							: [],
+					)
+					.pipe(Effect.orDie),
+			),
+		)
+	},
+	compiledQueryBounded: () => Effect.die(new Error("unexpected bounded query")),
+	compiledQueryWithCapabilities: () => Effect.die(new Error("unexpected capability-aware query")),
+	compiledQueryFirst: () => Effect.die(new Error("unexpected first-row query")),
+	warmRoute: () => Effect.void,
+	ingest: () => Effect.void,
+	asExecutor: () => {
+		throw new Error("asExecutor is not supported by this test stub")
+	},
+})
+
+const makeLayer = (contexts: Array<string>) => {
+	const database = createTestDb(createdDbs).layer
+	const actors = ErrorActorsService.layer.pipe(Layer.provide(database))
+	const workflow = Layer.effect(ErrorIssueWorkflowService, ErrorIssueWorkflowService.make).pipe(
+		Layer.provide(AuditLogService.layerMemory),
+		Layer.provide(database),
+		Layer.provide(actors),
+	)
+	const warehouse = Layer.succeed(WarehouseQueryService, makeWarehouseStub(contexts))
+	const readModels = readRequirements.pipe(
+		Layer.provide(database),
+		Layer.provide(warehouse),
+		Layer.provide(workflow),
+	)
+	return Layer.mergeAll(readModels, workflow, actors).pipe(Layer.provideMerge(database))
+}
+
+const seedIssue = (
+	orgId: OrgId,
+	issueId: ErrorIssueId,
+	now: number,
+	overrides: Partial<PG.InsertRowOf<typeof ErrorIssues>> = {},
+) =>
+	Effect.gen(function* () {
+		const database = yield* Database
+		yield* database.execute((db) =>
+			db.run(
+				PG.insertInto(ErrorIssues).values({
+					id: issueId,
+					orgId,
+					fingerprintHash: `fp-${issueId}`,
+					serviceName: "checkout-api",
+					exceptionType: "TimeoutError",
+					exceptionMessage: "upstream timed out",
+					topFrame: "handler.ts:42",
+					firstSeenAt: now - 60_000,
+					lastSeenAt: now,
+					createdAt: now,
+					updatedAt: now,
+					...overrides,
+				}),
+			),
+		)
+	})
+
+describe("ErrorIssueReadModelsService", () => {
+	it.effect("serves org-scoped issue and incident projections from the narrow graph", () => {
+		const contexts: Array<string> = []
+		return Effect.gen(function* () {
+			const database = yield* Database
+			const readModels = yield* ErrorIssueReadModelsService
+			const now = yield* Clock.currentTimeMillis
+			const issueId = asIssueId(randomUUID())
+			const hiddenIssueId = asIssueId(randomUUID())
+			const incidentId = asIncidentId(randomUUID())
+
+			yield* seedIssue(ORG, issueId, now, { fingerprintHash: "fp-checkout" })
+			yield* seedIssue(OTHER_ORG, hiddenIssueId, now + 1_000, {
+				fingerprintHash: "fp-hidden",
+			})
+			yield* database.execute((db) =>
+				db.run(
+					PG.insertInto(ErrorIncidents).values({
+						id: incidentId,
+						orgId: ORG,
+						issueId,
+						status: "open",
+						reason: "first_seen",
+						firstTriggeredAt: now - 30_000,
+						lastTriggeredAt: now,
+						createdAt: now,
+						updatedAt: now,
+					}),
+				),
+			)
+
+			const listed = yield* readModels.listIssues(ORG, {
+				deploymentEnv: "production",
+			})
+			assert.deepStrictEqual(
+				listed.issues.map((issue) => issue.id),
+				[issueId],
+			)
+			const counts = yield* readModels.countOpenIssuesByService(ORG)
+			expect(counts).toEqual([{ serviceName: "checkout-api", openCount: 1 }])
+			const detail = yield* readModels.getIssue(ORG, issueId, {})
+			assert.strictEqual(detail.issue.id, issueId)
+			assert.strictEqual(detail.issue.hasOpenIncident, true)
+			assert.lengthOf(detail.incidents, 1)
+
+			const issueIncidents = yield* readModels.listIssueIncidents(ORG, issueId)
+			const openIncidents = yield* readModels.listOpenIncidents(ORG)
+			assert.deepStrictEqual(
+				issueIncidents.incidents.map((incident) => incident.id),
+				[incidentId],
+			)
+			assert.deepStrictEqual(
+				openIncidents.incidents.map((incident) => incident.id),
+				[incidentId],
+			)
+			// getIssue reads these warehouse models; dropping one leaves its detail panel empty.
+			expect(contexts).toEqual(
+				expect.arrayContaining([
+					"errorIssueEnvFingerprints",
+					"errorIssueTimeseries",
+					"errorIssueSampleTraces",
+					"errorIssueEnvironments",
+				]),
+			)
+		}).pipe(Effect.provide(makeLayer(contexts)))
+	})
+
+	it.effect("restricts the list to an explicit fingerprint set", () => {
+		const contexts: Array<string> = []
+		return Effect.gen(function* () {
+			const readModels = yield* ErrorIssueReadModelsService
+			const now = yield* Clock.currentTimeMillis
+			const wanted = asIssueId(randomUUID())
+			const other = asIssueId(randomUUID())
+
+			yield* seedIssue(ORG, wanted, now, { fingerprintHash: "fp-wanted" })
+			yield* seedIssue(ORG, other, now + 1_000, { fingerprintHash: "fp-other" })
+
+			// The volume-ranked list ranks fingerprints in the warehouse first, then
+			// asks for exactly those issues — order is re-applied client-side, but the
+			// set has to be exact or the ranking is drawn against the wrong rows.
+			const listed = yield* readModels.listIssues(ORG, {
+				fingerprintHashes: ["fp-wanted"],
+			})
+			assert.deepStrictEqual(
+				listed.issues.map((issue) => issue.id),
+				[wanted],
+			)
+
+			// An empty set is a real filter that matches nothing, not an absent one
+			// that widens back to every issue in the org.
+			const none = yield* readModels.listIssues(ORG, { fingerprintHashes: [] })
+			assert.lengthOf(none.issues, 0)
+		}).pipe(Effect.provide(makeLayer(contexts)))
+	})
+
+	it.effect("keeps only issues introduced or regressed after an instant", () => {
+		const contexts: Array<string> = []
+		return Effect.gen(function* () {
+			const readModels = yield* ErrorIssueReadModelsService
+			const now = yield* Clock.currentTimeMillis
+			const fresh = asIssueId(randomUUID())
+			const regressed = asIssueId(randomUUID())
+			const ongoing = asIssueId(randomUUID())
+
+			yield* seedIssue(ORG, fresh, now, { firstSeenAt: now - 60_000 })
+			yield* seedIssue(ORG, regressed, now, {
+				firstSeenAt: now - 86_400_000,
+				lastRegressedAt: now - 30_000,
+			})
+			yield* seedIssue(ORG, ongoing, now, { firstSeenAt: now - 86_400_000 })
+
+			const listed = yield* readModels.listIssues(ORG, {
+				introducedAfter: new Date(now - 120_000).toISOString(),
+			})
+			expect(listed.issues.map((issue) => issue.id).toSorted()).toEqual([fresh, regressed].toSorted())
+		}).pipe(Effect.provide(makeLayer(contexts)))
+	})
+
+	it.effect("pages closed issues server-side, past newer open ones and into the archive", () => {
+		const contexts: Array<string> = []
+		return Effect.gen(function* () {
+			const readModels = yield* ErrorIssueReadModelsService
+			const now = yield* Clock.currentTimeMillis
+			const open = asIssueId(randomUUID())
+			const verifying = asIssueId(randomUUID())
+			const wontfix = asIssueId(randomUUID())
+			const archivedDone = asIssueId(randomUUID())
+
+			// The open issue is the newest, so a recency page of one would hold only it.
+			yield* seedIssue(ORG, open, now + 5_000, { workflowState: "triage" })
+			yield* seedIssue(ORG, verifying, now, { workflowState: "verifying" })
+			yield* seedIssue(ORG, wontfix, now - 1_000, { workflowState: "wontfix" })
+			yield* seedIssue(ORG, archivedDone, now - 2_000, {
+				workflowState: "done",
+				archivedAt: now - 1_000,
+			})
+
+			const firstClosed = yield* readModels.listIssues(ORG, { stateGroup: "closed", limit: 1 })
+			expect(firstClosed.issues.map((issue) => issue.id)).toEqual([verifying])
+
+			const closed = yield* readModels.listIssues(ORG, { stateGroup: "closed", includeArchived: true })
+			expect(closed.issues.map((issue) => issue.id)).toEqual([verifying, wontfix, archivedDone])
+
+			const opened = yield* readModels.listIssues(ORG, { stateGroup: "open", includeArchived: true })
+			expect(opened.issues.map((issue) => issue.id)).toEqual([open])
+		}).pipe(Effect.provide(makeLayer(contexts)))
+	})
+
+	it.effect("searches type, message and service case-insensitively", () => {
+		const contexts: Array<string> = []
+		return Effect.gen(function* () {
+			const readModels = yield* ErrorIssueReadModelsService
+			const now = yield* Clock.currentTimeMillis
+			const byMessage = asIssueId(randomUUID())
+			const byService = asIssueId(randomUUID())
+			const unrelated = asIssueId(randomUUID())
+
+			yield* seedIssue(ORG, byMessage, now, { exceptionMessage: "Stripe webhook signature mismatch" })
+			yield* seedIssue(ORG, byService, now - 1_000, { serviceName: "stripe-sync" })
+			yield* seedIssue(ORG, unrelated, now - 2_000)
+
+			const found = yield* readModels.listIssues(ORG, { search: "STRIPE" })
+			expect(found.issues.map((issue) => issue.id)).toEqual([byMessage, byService])
+
+			// LIKE wildcards in the term are literal, not "match everything".
+			const literal = yield* readModels.listIssues(ORG, { search: "%" })
+			assert.lengthOf(literal.issues, 0)
+		}).pipe(Effect.provide(makeLayer(contexts)))
+	})
+
+	it.effect("preserves issue ownership and not-found semantics", () => {
+		const contexts: Array<string> = []
+		return Effect.gen(function* () {
+			const readModels = yield* ErrorIssueReadModelsService
+			const now = yield* Clock.currentTimeMillis
+			const issueId = asIssueId(randomUUID())
+			yield* seedIssue(OTHER_ORG, issueId, now)
+
+			const detailError = yield* Effect.flip(readModels.getIssue(ORG, issueId, {}))
+			const incidentsError = yield* Effect.flip(readModels.listIssueIncidents(ORG, issueId))
+			assert.strictEqual(detailError._tag, "@maple/http/errors/ErrorIssueNotFoundError")
+			assert.strictEqual(incidentsError._tag, "@maple/http/errors/ErrorIssueNotFoundError")
+			assert.deepStrictEqual(contexts, [])
+		}).pipe(Effect.provide(makeLayer(contexts)))
+	})
+})

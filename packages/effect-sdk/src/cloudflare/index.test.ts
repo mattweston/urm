@@ -1,0 +1,385 @@
+import { describe, it } from "@effect/vitest"
+import { Effect, Exit, Layer, Scope } from "effect"
+import { afterEach, expect, vi } from "vitest"
+import { make, WorkerEnvironment } from "./index.js"
+
+interface FetchCall {
+	readonly url: string
+	readonly headers: Record<string, string>
+	readonly body: unknown
+}
+
+const env = {
+	MAPLE_ENDPOINT: "https://collector.test",
+	MAPLE_INGEST_KEY: "secret",
+	MAPLE_ENVIRONMENT: "test",
+}
+
+const setupFetch = (responder: (url: string) => Response = () => new Response(null, { status: 200 })) => {
+	const calls: Array<FetchCall> = []
+	const original = globalThis.fetch
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+		const headers: Record<string, string> = {}
+		const initHeaders = init?.headers
+		if (initHeaders instanceof Headers) {
+			initHeaders.forEach((v, k) => (headers[k] = v))
+		} else if (Array.isArray(initHeaders)) {
+			for (const [k, v] of initHeaders) headers[k] = v
+		} else if (initHeaders) {
+			Object.assign(headers, initHeaders)
+		}
+		const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) : undefined
+		calls.push({ url, headers, body })
+		return responder(url)
+	}) as typeof fetch
+	return { calls, restore: () => void (globalThis.fetch = original) }
+}
+
+describe("MapleCloudflareSDK.make", () => {
+	let restore: () => void
+
+	afterEach(() => {
+		restore?.()
+	})
+
+	it("buffers spans and POSTs to /v1/traces with auth + resource attrs on flush", async () => {
+		const { calls, restore: r } = setupFetch()
+		restore = r
+		const telemetry = make({ serviceName: "unit-test" })
+
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("op-1"), Effect.provide(telemetry.layer)),
+		)
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("op-2"), Effect.provide(telemetry.layer)),
+		)
+
+		await telemetry.flush(env)
+
+		const traceCall = calls.find((c) => c.url.endsWith("/v1/traces"))
+		expect(traceCall).toBeDefined()
+		expect(traceCall!.url).toBe("https://collector.test/v1/traces")
+		expect(traceCall!.headers.authorization).toBe("Bearer secret")
+		const body = traceCall!.body as {
+			resourceSpans: Array<{
+				resource: { attributes: Array<{ key: string; value: { stringValue?: string } }> }
+				scopeSpans: Array<{ spans: Array<{ name: string }> }>
+			}>
+		}
+		const spans = body.resourceSpans[0].scopeSpans[0].spans
+		expect(spans.map((s) => s.name).sort()).toEqual(["op-1", "op-2"])
+		const attrs = body.resourceSpans[0].resource.attributes
+		const attrMap = Object.fromEntries(attrs.map((a) => [a.key, a.value.stringValue]))
+		expect(attrMap["service.name"]).toBe("unit-test")
+		expect(attrMap["maple.sdk.type"]).toBe("cloudflare")
+		// Dual-emit: legacy key for Tinybird MVs + OTel-canonical key for new
+		// dashboards. Both MUST be present until MVs migrate to coalesce().
+		expect(attrMap["deployment.environment"]).toBe("test")
+		expect(attrMap["deployment.environment.name"]).toBe("test")
+		// Per-isolate UUID stamped at module load so dashboards can attribute
+		// telemetry to a specific replica. Not asserting a specific value
+		// (changes per test process); just that it's a valid UUID string.
+		expect(attrMap["service.instance.id"]).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+		)
+	})
+
+	it("ships Effect log records to /v1/logs with severity + body", async () => {
+		const { calls, restore: r } = setupFetch()
+		restore = r
+		const telemetry = make({ serviceName: "unit-test" })
+
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				yield* Effect.logInfo("hello world")
+				yield* Effect.logError("kaboom")
+			}).pipe(Effect.provide(telemetry.layer)),
+		)
+
+		await telemetry.flush(env)
+
+		const logCall = calls.find((c) => c.url.endsWith("/v1/logs"))
+		expect(logCall).toBeDefined()
+		const body = logCall!.body as {
+			resourceLogs: Array<{
+				scopeLogs: Array<{
+					logRecords: Array<{ severityText: string; body: { stringValue?: string } }>
+				}>
+			}>
+		}
+		const records = body.resourceLogs[0].scopeLogs[0].logRecords
+		expect(records).toHaveLength(2)
+		expect(records[0].severityText).toBe("Info")
+		expect(records[0].body.stringValue).toBe("hello world")
+		expect(records[1].severityText).toBe("Error")
+	})
+
+	it("defaults to https://ingest.maple.dev when no endpoint is configured", async () => {
+		const { calls, restore: r } = setupFetch()
+		restore = r
+		const telemetry = make({ serviceName: "unit-test" })
+
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("op"), Effect.provide(telemetry.layer)),
+		)
+		// No MAPLE_ENDPOINT — falls through to public default. Ingest key is
+		// required to avoid the no-op short-circuit; we're testing endpoint
+		// defaulting here, not the no-op behavior.
+		await telemetry.flush({ MAPLE_INGEST_KEY: "secret" })
+
+		const tracesCall = calls.find((c) => c.url.endsWith("/v1/traces"))
+		expect(tracesCall?.url).toBe("https://ingest.maple.dev/v1/traces")
+	})
+
+	it("runs in no-op mode when no ingest key is configured", async () => {
+		const consoleInfoSpy = vi.spyOn(console, "info").mockImplementation(() => {})
+		const { calls, restore: r } = setupFetch()
+		restore = () => {
+			r()
+			consoleInfoSpy.mockRestore()
+		}
+		const telemetry = make({ serviceName: "unit-test" })
+
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("op"), Effect.provide(telemetry.layer)),
+		)
+		await telemetry.flush({}) // no MAPLE_INGEST_KEY — should no-op
+
+		expect(calls.length).toBe(0)
+		expect(consoleInfoSpy).toHaveBeenCalledTimes(1)
+		expect(consoleInfoSpy.mock.calls[0][0]).toContain("no ingest key configured")
+		expect(consoleInfoSpy.mock.calls[0][0]).toContain("set MAPLE_INGEST_KEY to enable")
+
+		// A second flush within the same isolate should stay silent —
+		// the info log is one-shot.
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("op-2"), Effect.provide(telemetry.layer)),
+		)
+		await telemetry.flush({})
+		expect(calls.length).toBe(0)
+		expect(consoleInfoSpy).toHaveBeenCalledTimes(1)
+	})
+
+	it("no-op flush still drains buffers (resolution is one-shot per isolate)", async () => {
+		const consoleInfoSpy = vi.spyOn(console, "info").mockImplementation(() => {})
+		const { calls, restore: r } = setupFetch()
+		restore = () => {
+			r()
+			consoleInfoSpy.mockRestore()
+		}
+		const telemetry = make({ serviceName: "unit-test" })
+
+		// First two flushes happen with no key — buffers should be drained.
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("dropped-1"), Effect.provide(telemetry.layer)),
+		)
+		await telemetry.flush({})
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("dropped-2"), Effect.provide(telemetry.layer)),
+		)
+		await telemetry.flush({})
+
+		// Even if a key shows up later, env was resolved on first flush — the
+		// SDK is locked into no-op for this isolate. Confirms (a) no POST,
+		// (b) earlier spans were drained rather than retained.
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("also-dropped"), Effect.provide(telemetry.layer)),
+		)
+		await telemetry.flush({ MAPLE_INGEST_KEY: "secret" })
+		expect(calls.length).toBe(0)
+	})
+
+	it("explicit config overrides env", async () => {
+		const { calls, restore: r } = setupFetch()
+		restore = r
+		const telemetry = make({
+			serviceName: "unit-test",
+			endpoint: "https://override.test",
+			ingestKey: "override-key",
+		})
+
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("op"), Effect.provide(telemetry.layer)),
+		)
+		await telemetry.flush(env)
+
+		const call = calls.find((c) => c.url.endsWith("/v1/traces"))
+		expect(call?.url).toBe("https://override.test/v1/traces")
+		expect(call?.headers.authorization).toBe("Bearer override-key")
+	})
+
+	it("survives a failing collector — flush rejects internally and disables for cooldown", async () => {
+		const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+		const { calls, restore: r } = setupFetch(() => new Response(null, { status: 500 }))
+		restore = () => {
+			r()
+			consoleErrorSpy.mockRestore()
+		}
+		const telemetry = make({ serviceName: "unit-test" })
+
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("op"), Effect.provide(telemetry.layer)),
+		)
+		await telemetry.flush(env) // first flush — fails, sets cooldown
+		const failedCount = calls.length
+
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("op-2"), Effect.provide(telemetry.layer)),
+		)
+		await telemetry.flush(env) // second flush — within cooldown, should be a no-op
+		expect(calls.length).toBe(failedCount)
+		expect(consoleErrorSpy).toHaveBeenCalled()
+	})
+
+	// Effect defers `span.end` and `withSpan` finalizers onto the scheduler's
+	// next macrotask (`scheduleTask(task, 0)`); the buffer drain is synchronous.
+	// A flush that resolves within the same task misses exactly the spans the
+	// request just produced. The flush must own that yield itself.
+	it("captures a span whose end is deferred to the next macrotask", async () => {
+		const { calls, restore: r } = setupFetch()
+		restore = r
+		const telemetry = make({ serviceName: "unit-test" })
+
+		// Stand-in for `HttpMiddleware.tracer`'s deferred `span.end`: the span is
+		// produced on the next macrotask, after `flush` has already been called.
+		setTimeout(() => {
+			void Effect.runPromise(
+				Effect.succeed(undefined).pipe(
+					Effect.withSpan("deferred-op"),
+					Effect.provide(telemetry.layer),
+				),
+			)
+		}, 0)
+
+		await telemetry.flush(env)
+
+		const traceCall = calls.find((c) => c.url.endsWith("/v1/traces"))
+		expect(traceCall, "expected the deferred span to be POSTed by the awaited flush").toBeDefined()
+		const body = traceCall!.body as {
+			resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string }> }> }>
+		}
+		expect(body.resourceSpans[0].scopeSpans[0].spans.map((s) => s.name)).toEqual(["deferred-op"])
+	})
+
+	it("overlapping flushes export every span exactly once", async () => {
+		const calls: Array<{ url: string; body: unknown }> = []
+		const original = globalThis.fetch
+		restore = () => void (globalThis.fetch = original)
+		globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+			calls.push({
+				url,
+				body: init?.body && typeof init.body === "string" ? JSON.parse(init.body) : undefined,
+			})
+			await new Promise<void>((resolve) => setTimeout(resolve, 5))
+			return new Response(null, { status: 200 })
+		}) as typeof fetch
+
+		const telemetry = make({ serviceName: "unit-test" })
+
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("overlap-a"), Effect.provide(telemetry.layer)),
+		)
+		const first = telemetry.flush(env)
+		// Let the first flush drain and start its POST before the second span ends.
+		await new Promise<void>((resolve) => setTimeout(resolve, 1))
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("overlap-b"), Effect.provide(telemetry.layer)),
+		)
+		const second = telemetry.flush(env)
+		await Promise.all([first, second])
+
+		const exported = calls
+			.filter((c) => c.url.endsWith("/v1/traces"))
+			.map((c) => {
+				const body = c.body as {
+					resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string }> }> }>
+				}
+				return body.resourceSpans.flatMap((rs) =>
+					rs.scopeSpans.flatMap((ss) => ss.spans.map((s) => s.name)),
+				)
+			})
+		expect(exported).toEqual([["overlap-a"], ["overlap-b"]])
+	})
+
+	// workerd cancels the outstanding I/O of an invocation that has ended, so a
+	// flush it started can stay pending forever. A later invocation's flush must
+	// still export its own spans.
+	it("exports a later invocation's spans while an earlier flush never settles", async () => {
+		const calls: Array<{ url: string; body: unknown }> = []
+		const original = globalThis.fetch
+		restore = () => void (globalThis.fetch = original)
+		globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+			const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+			const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) : undefined
+			calls.push({ url, body })
+			// The first POST belongs to the cancelled invocation and never settles.
+			return calls.length === 1 ? new Promise<Response>(() => {}) : Promise.resolve(new Response(null))
+		}) as typeof fetch
+		const telemetry = make({ serviceName: "unit-test" })
+
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("stuck-op"), Effect.provide(telemetry.layer)),
+		)
+		void telemetry.flush(env)
+		await new Promise<void>((resolve) => setTimeout(resolve, 5))
+		await Effect.runPromise(
+			Effect.succeed(undefined).pipe(Effect.withSpan("later-op"), Effect.provide(telemetry.layer)),
+		)
+		const settled = await Promise.race([
+			telemetry.flush(env).then(() => true),
+			new Promise<false>((resolve) => setTimeout(() => resolve(false), 500)),
+		])
+
+		expect(settled, "the later flush must not wait on the stuck one").toBe(true)
+		const names = calls
+			.filter((c) => c.url.endsWith("/v1/traces"))
+			.map((c) => {
+				const body = c.body as {
+					resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string }> }> }>
+				}
+				return body.resourceSpans[0]?.scopeSpans[0]?.spans.map((s) => s.name)
+			})
+		expect(names).toEqual([["stuck-op"], ["later-op"]])
+	})
+
+	it("layer is stable across calls (same Tracer instance)", () => {
+		const telemetry = make({ serviceName: "unit-test" })
+		const a = telemetry.layer
+		const b = telemetry.layer
+		expect(a).toBe(b)
+		expect(Layer.isLayer(a)).toBe(true)
+	})
+})
+
+describe("MapleCloudflareSDK.make requestLayer", () => {
+	it("flushes with the Worker env once the scope it was built into closes", async () => {
+		const { calls, restore } = setupFetch()
+		try {
+			const telemetry = make({ serviceName: "unit-test" })
+			await Effect.runPromise(
+				Effect.gen(function* () {
+					const scope = yield* Scope.make()
+					const services = yield* Layer.buildWithScope(
+						telemetry.requestLayer.pipe(Layer.provide(Layer.succeed(WorkerEnvironment, env))),
+						scope,
+					)
+					yield* Effect.succeed(undefined).pipe(Effect.withSpan("op-1"), Effect.provide(services))
+					// Nothing leaves the isolate while the event is still running.
+					expect(calls).toHaveLength(0)
+					yield* Scope.close(scope, Exit.void)
+				}),
+			)
+			const traces = calls.filter((call) => call.url === "https://collector.test/v1/traces")
+			expect(traces).toHaveLength(1)
+			expect(traces[0]?.headers.authorization).toBe("Bearer secret")
+			const body = traces[0]?.body as {
+				resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string }> }> }>
+			}
+			expect(body.resourceSpans[0]?.scopeSpans[0]?.spans.map((span) => span.name)).toEqual(["op-1"])
+		} finally {
+			restore()
+		}
+	})
+})

@@ -1,0 +1,879 @@
+import { describe, expect, it } from "@effect/vitest"
+import { Effect, Predicate, Result, Schema } from "effect"
+import { MapleApiV2 } from "./api"
+import { V2AlertDestinationCreateParams } from "./alert-destinations"
+import { V2AlertIncident } from "./alert-incidents"
+import { V2AlertRule, V2AlertRuleMutationResponse } from "./alert-rules"
+import { V2ApiKey, V2ApiKeyMutationResponse, V2ApiKeyWithSecret } from "./api-keys"
+import { V2DashboardMutation } from "./dashboards"
+import { V2ErrorIssue } from "./error-issues"
+import { AuthorizationV2, isScopeExemptRoute, requiredScopeForRoute, scopeAllows, V2Scope } from "./auth"
+import {
+	V2PlanetScaleIntegration,
+	V2PlanetScaleMetricsTokenRequest,
+	V2PlanetScaleScrapeTarget,
+} from "./integrations-planetscale"
+import {
+	decodeOffsetCursor,
+	encodeOffsetCursor,
+	ListQuery,
+	paginateArray,
+	paginateOffsetQuery,
+	Timestamp,
+} from "./envelopes"
+import { defineV2Error } from "./errors"
+import { encodePublicId } from "./public-id"
+import {
+	LogPublicId,
+	V2AttributeFilter,
+	V2MetricsTimeseriesParams,
+	V2TraceTimeseriesParams,
+} from "./telemetry"
+
+const UUID = "0f8fad5b-d9cb-469f-a165-70867728950e"
+
+describe("V2PlanetScaleIntegration wire format", () => {
+	it("decodes snake_case fields, ISO timestamps, and a scrp_ public ID", () => {
+		const status = Schema.decodeUnknownSync(V2PlanetScaleIntegration)({
+			object: "planetscale_integration",
+			connected: true,
+			pending_org_selection: false,
+			organization: "acme",
+			connected_by_user_id: "user_123",
+			detected_permissions: { readMetricsEndpoints: true },
+			metrics_auth: "service_token",
+			scrape_target: {
+				id: encodePublicId("scrp", UUID),
+				object: "planetscale_integration.scrape_target",
+				enabled: true,
+				scrape_interval_seconds: 60,
+				include_branches: ["main"],
+				exclude_branches: ["pr-*"],
+				last_scrape_at: "2026-08-05T12:00:00.000Z",
+				last_scrape_error: null,
+			},
+			last_inventory_at: "2026-08-05T12:00:00.000Z",
+			last_inventory_error: null,
+			revoked_at: null,
+			expires_at: null,
+		})
+		expect(status.scrape_target?.id).toBe(UUID) // decoded to the internal ID
+		expect(status.metrics_auth).toBe("service_token")
+	})
+
+	it("rejects a scrape target ID carrying the wrong prefix", () => {
+		expect(() =>
+			Schema.decodeUnknownSync(V2PlanetScaleScrapeTarget)({
+				id: encodePublicId("key", UUID),
+				object: "planetscale_integration.scrape_target",
+				enabled: true,
+				scrape_interval_seconds: 60,
+				include_branches: [],
+				exclude_branches: [],
+				last_scrape_at: null,
+				last_scrape_error: null,
+			}),
+		).toThrow()
+	})
+
+	it("requires a non-empty token id and secret", () => {
+		expect(() =>
+			Schema.decodeUnknownSync(V2PlanetScaleMetricsTokenRequest)({
+				token_id: "",
+				token_secret: "pscale_tkn_x",
+			}),
+		).toThrow()
+		expect(
+			Schema.decodeUnknownSync(V2PlanetScaleMetricsTokenRequest)({
+				token_id: "tok_1",
+				token_secret: "pscale_tkn_x",
+			}).token_id,
+		).toBe("tok_1")
+	})
+})
+
+describe("V2ApiKey wire format", () => {
+	it("encodes snake_case fields, an object type, and a key_ public ID", () => {
+		const key = Schema.decodeUnknownSync(V2ApiKey)({
+			id: encodePublicId("key", UUID),
+			object: "api_key",
+			name: "ci",
+			description: null,
+			key_prefix: "maple_ak_abc...",
+			kind: "standard",
+			scopes: ["dashboards:read"],
+			revoked: false,
+			revoked_at: null,
+			last_used_at: null,
+			expires_at: null,
+			created_at: "2026-07-15T00:00:00.000Z",
+			created_by: "user_123",
+			created_by_email: null,
+		})
+		expect(key.id).toBe(UUID) // decoded to the internal ID
+
+		const wire = Schema.encodeSync(V2ApiKey)(key)
+		expect(wire.id).toBe(encodePublicId("key", UUID))
+		expect(wire.object).toBe("api_key")
+		expect(wire.key_prefix).toBe("maple_ak_abc...")
+		expect(wire.created_at).toBe("2026-07-15T00:00:00.000Z")
+		expect("keyPrefix" in wire).toBe(false)
+	})
+
+	it("encodes MCP OAuth tokens, whose stored scope is outside the request grammar", () => {
+		const key = Schema.decodeUnknownSync(V2ApiKey)({
+			id: encodePublicId("key", UUID),
+			object: "api_key",
+			name: "Claude",
+			description: "OAuth access token for the Maple MCP server",
+			key_prefix: "maple_ak_abc...",
+			kind: "mcp",
+			scopes: ["mcp:tools"],
+			revoked: false,
+			revoked_at: null,
+			last_used_at: null,
+			expires_at: "2026-07-15T01:00:00.000Z",
+			created_at: "2026-07-15T00:00:00.000Z",
+			created_by: "user_123",
+			created_by_email: null,
+		})
+		expect(Schema.encodeSync(V2ApiKey)(key).scopes).toEqual(["mcp:tools"])
+	})
+
+	it("keeps txid on mutation responses but out of the base resource", () => {
+		const base = {
+			id: encodePublicId("key", UUID),
+			object: "api_key" as const,
+			name: "ci",
+			description: null,
+			key_prefix: "maple_ak_abc...",
+			kind: "standard" as const,
+			scopes: null,
+			revoked: false,
+			revoked_at: null,
+			last_used_at: null,
+			expires_at: null,
+			created_at: "2026-07-15T00:00:00.000Z",
+			created_by: "user_123",
+			created_by_email: null,
+		}
+		const withSecret = Schema.decodeUnknownSync(V2ApiKeyWithSecret)({
+			...base,
+			secret: "maple_ak_secret",
+			txid: "81234",
+		})
+		const revoked = Schema.decodeUnknownSync(V2ApiKeyMutationResponse)({ ...base, txid: "81235" })
+
+		expect(Schema.encodeSync(V2ApiKeyWithSecret)(withSecret).txid).toBe("81234")
+		expect(Schema.encodeSync(V2ApiKeyMutationResponse)(revoked).txid).toBe("81235")
+		expect("txid" in Schema.encodeSync(V2ApiKey)(Schema.decodeUnknownSync(V2ApiKey)(base))).toBe(false)
+	})
+
+	it("rejects non-Postgres transaction IDs", () => {
+		expect(() =>
+			Schema.decodeUnknownSync(V2ApiKeyMutationResponse)({
+				id: encodePublicId("key", UUID),
+				object: "api_key",
+				name: "ci",
+				description: null,
+				key_prefix: "maple_ak_abc...",
+				kind: "standard",
+				scopes: null,
+				revoked: true,
+				revoked_at: "2026-07-15T00:00:00.000Z",
+				last_used_at: null,
+				expires_at: null,
+				created_at: "2026-07-15T00:00:00.000Z",
+				created_by: "user_123",
+				created_by_email: null,
+				txid: "not-a-txid",
+			}),
+		).toThrow()
+	})
+})
+
+describe("V2ErrorIssue wire format", () => {
+	const issueWire = {
+		id: encodePublicId("iss", UUID),
+		object: "error_issue" as const,
+		kind: "error" as const,
+		fingerprint_hash: "1234",
+		service_name: "checkout-api",
+		exception_type: "TimeoutError",
+		exception_message: "upstream timed out",
+		error_label: "TimeoutError: upstream timed out",
+		top_frame: "handler.ts:42",
+		workflow_state: "triage" as const,
+		priority: 0,
+		severity: "critical" as const,
+		severity_source: "detector" as const,
+		source_ref: null,
+		assigned_actor: null,
+		lease_holder: null,
+		lease_expires_at: null,
+		claimed_at: null,
+		notes: null,
+		first_seen_at: "2026-07-15T00:00:00.000Z",
+		last_seen_at: "2026-07-15T01:00:00.000Z",
+		occurrence_count: 12,
+		resolved_at: null,
+		last_resolved_at: null,
+		last_regressed_at: null,
+		regression_count: 0,
+		resolved_versions: [],
+		snooze_until: null,
+		archived_at: null,
+		has_open_incident: true,
+		comment_count: 3,
+		open_pull_request_count: 1,
+		merged_pull_request_count: 0,
+	}
+
+	it("encodes the resource with snake_case fields and an iss_ public ID", () => {
+		const decoded = Schema.decodeUnknownSync(V2ErrorIssue)(issueWire)
+		expect(decoded.id).toBe(UUID)
+		const wire = Schema.encodeSync(V2ErrorIssue)(decoded)
+		expect(wire.id).toBe(encodePublicId("iss", UUID))
+		expect(wire.service_name).toBe("checkout-api")
+		expect("serviceName" in wire).toBe(false)
+	})
+})
+
+describe("V2Dashboard wire format", () => {
+	it("encodes public IDs and recursively snake_cases the dashboard document", () => {
+		const decoded = Schema.decodeUnknownSync(V2DashboardMutation)({
+			id: encodePublicId("dash", UUID),
+			object: "dashboard",
+			name: "Operations",
+			description: null,
+			tags: ["production"],
+			time_range: {
+				type: "absolute",
+				start_time: "2026-07-15T00:00:00.000Z",
+				end_time: "2026-07-16T00:00:00.000Z",
+			},
+			widgets: [
+				{
+					id: "widget-1",
+					visualization: "chart",
+					// A `route` arm: the only kind that still carries an opaque params
+					// bag in v3, and therefore the only one that exercises the recursive
+					// snake_case wire convention asserted below.
+					data_source: {
+						kind: "route",
+						endpoint: "service_overview",
+						params: { start_time: "now-1h", nested_filter: { attribute_key: "service.name" } },
+						transform: { field_map: { value: "requests" } },
+					},
+					display: {
+						chart_id: "requests",
+						x_axis: { visible: true },
+						list_root_only: true,
+					},
+					layout: { x: 0, y: 0, w: 6, h: 4, min_w: 2 },
+					section_id: "section-1",
+					tab_id: "tab-1",
+				},
+			],
+			// Required with a possibly-empty value, like `tags` and `variables`: the
+			// server always emits it, `[]` meaning the dashboard is one flat canvas.
+			sections: [
+				{
+					id: "section-1",
+					title: "Overview",
+					collapsed: true,
+					tabs: [{ id: "tab-1", title: "Latency" }],
+				},
+			],
+			variables: [
+				{
+					type: "query",
+					name: "service",
+					include_all: true,
+					source: { kind: "attribute", scope: "resource", attribute_key: "service.name" },
+				},
+			],
+			// Required with a nullable value, like `description` on this resource:
+			// `null` means auto-refresh is off, not that the field was omitted.
+			refresh_interval_seconds: null,
+			created_at: "2026-07-15T00:00:00.000Z",
+			updated_at: "2026-07-16T00:00:00.000Z",
+			txid: "81234",
+		})
+
+		expect(decoded.id).toBe(UUID)
+		expect(decoded.timeRange.type).toBe("absolute")
+		expect(decoded.refreshIntervalSeconds).toBeNull()
+		expect(decoded.widgets[0]?.dataSource.transform?.fieldMap).toEqual({ value: "requests" })
+		const decodedSource = decoded.widgets[0]?.dataSource
+		if (decodedSource?.kind !== "route") throw new Error("expected a route data source")
+		expect(decodedSource.params).toEqual({
+			startTime: "now-1h",
+			nestedFilter: { attributeKey: "service.name" },
+		})
+
+		const wire = Schema.encodeSync(V2DashboardMutation)(decoded)
+		expect(wire.id).toMatch(/^dash_/)
+		expect(wire.time_range).toHaveProperty("start_time")
+		expect(wire.widgets[0]?.data_source.transform).toHaveProperty("field_map")
+		const wireSource = wire.widgets[0]?.data_source
+		if (wireSource === undefined || !("params" in wireSource)) {
+			throw new Error("expected a route data source on the wire")
+		}
+		expect(wireSource.params).toHaveProperty("nested_filter.attribute_key")
+		expect(wire.widgets[0]?.layout).toHaveProperty("min_w")
+		// Section membership snake_cases; `tabs` is already single-word throughout.
+		expect(wire.widgets[0]).toHaveProperty("section_id", "section-1")
+		expect(wire.widgets[0]).toHaveProperty("tab_id", "tab-1")
+		expect(wire.sections[0]).toEqual({
+			id: "section-1",
+			title: "Overview",
+			collapsed: true,
+			tabs: [{ id: "tab-1", title: "Latency" }],
+		})
+		expect(wire.variables[0]).toHaveProperty("include_all")
+		const variable = wire.variables[0]
+		if (variable?.type !== "query") throw new Error("Expected a query dashboard variable")
+		expect(variable.source).toHaveProperty("attribute_key")
+		expect(wire.txid).toBe("81234")
+	})
+})
+
+describe("V2 alerts wire format", () => {
+	const DEST_UUID = "7c6b5a49-3821-4e0f-9d8c-7b6a59483726"
+	const INCIDENT_UUID = "9e8d7c6b-5a49-4382-a1e0-f9d8c7b6a594"
+
+	const ruleWire = {
+		id: encodePublicId("alrt", UUID),
+		object: "alert_rule",
+		name: "Checkout error rate",
+		notes: null,
+		notification_template: null,
+		enabled: true,
+		severity: "critical",
+		service_names: ["checkout"],
+		exclude_service_names: [],
+		environments: ["production"],
+		tags: ["payments"],
+		group_by: null,
+		signal_type: "error_rate",
+		comparator: "gt",
+		threshold: 0.05,
+		threshold_upper: null,
+		thresholds: [
+			{
+				severity: "critical",
+				value: 0.05,
+				upper: null,
+				recovery_value: null,
+				destination_ids: [encodePublicId("dest", DEST_UUID)],
+			},
+		],
+		window_minutes: 5,
+		evaluation_interval_minutes: null,
+		slowed_interval_minutes: null,
+		slowed_at: null,
+		minimum_sample_count: 50,
+		consecutive_breaches_required: 2,
+		breaches_out_of: null,
+		consecutive_healthy_required: 3,
+		renotify_interval_minutes: 60,
+		apdex_threshold_ms: null,
+		query_builder_draft: { queries: [{ signalType: "traces", attributeKey: "service.name" }] },
+		raw_query_sql: null,
+		raw_query_reducer: null,
+		destination_ids: [encodePublicId("dest", DEST_UUID)],
+		no_data_behavior: "skip",
+		alert_on_no_data: false,
+		last_evaluation_error: null,
+		last_evaluation_error_kind: null,
+		last_evaluated_at: null,
+		last_scheduled_at: null,
+		created_at: "2026-07-15T00:00:00.000Z",
+		updated_at: "2026-07-15T00:00:00.000Z",
+		created_by: "user_123",
+		updated_by: "user_123",
+	}
+
+	it("encodes snake_case fields with alrt_/dest_ public IDs and passes the draft through verbatim", () => {
+		const rule = Schema.decodeUnknownSync(V2AlertRule)(ruleWire)
+		expect(rule.id).toBe(UUID)
+		expect(rule.destination_ids).toEqual([DEST_UUID])
+
+		const wire = Schema.encodeSync(V2AlertRule)(rule)
+		expect(wire.id).toBe(encodePublicId("alrt", UUID))
+		expect(wire.destination_ids[0]).toMatch(/^dest_/)
+		expect(wire.thresholds[0]?.destination_ids[0]).toMatch(/^dest_/)
+		expect("signalType" in wire).toBe(false)
+		// The query-builder draft is opaque: its camelCase keys survive untouched.
+		expect(wire.query_builder_draft).toEqual({
+			queries: [{ signalType: "traces", attributeKey: "service.name" }],
+		})
+	})
+
+	it("keeps txid on rule mutation responses but out of the base resource", () => {
+		const mutation = Schema.decodeUnknownSync(V2AlertRuleMutationResponse)({ ...ruleWire, txid: "81234" })
+		expect(Schema.encodeSync(V2AlertRuleMutationResponse)(mutation).txid).toBe("81234")
+		const base = Schema.decodeUnknownSync(V2AlertRule)(ruleWire)
+		expect("txid" in Schema.encodeSync(V2AlertRule)(base)).toBe(false)
+	})
+
+	it("rejects wrong-prefix rule IDs", () => {
+		expect(() =>
+			Schema.decodeUnknownSync(V2AlertRule)({ ...ruleWire, id: encodePublicId("dash", UUID) }),
+		).toThrow()
+	})
+
+	it("decodes destination create params per union arm and rejects mismatched configs", () => {
+		const pagerduty = Schema.decodeUnknownSync(V2AlertDestinationCreateParams)({
+			type: "pagerduty",
+			name: "On-call",
+			integration_key: "routing-key",
+		})
+		expect(pagerduty.type).toBe("pagerduty")
+
+		const email = Schema.decodeUnknownSync(V2AlertDestinationCreateParams)({
+			type: "email",
+			name: "Leads",
+			member_user_ids: ["user_1", "user_2"],
+		})
+		expect(email.type).toBe("email")
+
+		// A pagerduty destination has no webhook_url — the discriminant must match its arm.
+		expect(() =>
+			Schema.decodeUnknownSync(V2AlertDestinationCreateParams)({
+				type: "pagerduty",
+				name: "PD",
+				webhook_url: "https://discord.com/api/webhooks/1/x",
+			}),
+		).toThrow()
+	})
+
+	it("encodes incidents with inc_/alrt_ public IDs", () => {
+		const incident = Schema.decodeUnknownSync(V2AlertIncident)({
+			id: encodePublicId("inc", INCIDENT_UUID),
+			object: "alert_incident",
+			rule_id: encodePublicId("alrt", UUID),
+			rule_name: "Checkout error rate",
+			group_key: null,
+			signal_type: "error_rate",
+			severity: "critical",
+			peak_severity: "critical",
+			status: "open",
+			comparator: "gt",
+			threshold: 0.05,
+			threshold_upper: null,
+			first_triggered_at: "2026-07-15T09:10:00.000Z",
+			last_triggered_at: "2026-07-15T09:40:00.000Z",
+			resolved_at: null,
+			last_resolved_at: null,
+			last_regressed_at: null,
+			regression_count: 0,
+			resolved_versions: [],
+			last_observed_value: 0.09,
+			last_sample_count: 132,
+			dedupe_key: "rule:__total__",
+			last_delivered_event_type: "trigger",
+			last_notified_at: null,
+			hold_reason: null,
+			held_since: null,
+			error_issue_id: null,
+		})
+		expect(incident.id).toBe(INCIDENT_UUID)
+		expect(incident.rule_id).toBe(UUID)
+
+		const wire = Schema.encodeSync(V2AlertIncident)(incident)
+		expect(wire.id).toMatch(/^inc_/)
+		expect(wire.rule_id).toMatch(/^alrt_/)
+		expect("ruleId" in wire).toBe(false)
+	})
+})
+
+describe("v2 error envelope", () => {
+	const TestNotFound = defineV2Error({
+		tag: "@maple/http/v2/TestNotFoundError",
+		status: 404,
+		code: "resource_missing",
+		title: "Not found",
+		message: "The resource does not exist.",
+		retry: "never",
+		recovery: "none",
+		identifier: "TestNotFoundError",
+	})
+
+	it("exposes the public message to Effect and telemetry without changing the wire shape", () => {
+		const error = TestNotFound.make("No such api_key", { param: "id" })
+		expect(error._tag).toBe("@maple/http/v2/TestNotFoundError")
+		expect(error.message).toBe("No such api_key")
+		expect(String(error)).toContain("No such api_key")
+	})
+
+	it("encodes the semantic tag and recovery contract inside the public envelope", () => {
+		const error = TestNotFound.make("No such api_key", { param: "id" })
+		const wire = Schema.encodeSync(TestNotFound.schema)(error) as Record<string, unknown>
+		expect(wire).toEqual({
+			error: {
+				_tag: "@maple/http/v2/TestNotFoundError",
+				type: "not_found_error",
+				code: "resource_missing",
+				title: "Not found",
+				message: "No such api_key",
+				retryable: false,
+				recovery: "none",
+				param: "id",
+			},
+		})
+		// `_tag` is part of the nested public contract, not an Effect class tag
+		// injected at the outer envelope level.
+		expect("_tag" in wire).toBe(false)
+	})
+
+	it("requires a semantic tag on every public error", () => {
+		expect(() =>
+			Schema.decodeUnknownSync(TestNotFound.schema)({
+				error: {
+					type: "not_found_error",
+					code: "resource_missing",
+					message: "gone",
+				},
+			}),
+		).toThrow()
+	})
+
+	it("omits param when not provided", () => {
+		const wire = Schema.encodeSync(TestNotFound.schema)(TestNotFound.make("gone"))
+		expect("param" in wire.error).toBe(false)
+	})
+})
+
+describe("scopes", () => {
+	const check = Schema.decodeUnknownSync(V2Scope)
+
+	it("accepts valid scope strings and rejects invalid ones", () => {
+		expect(check("dashboards:read")).toBe("dashboards:read")
+		expect(check("alerts:write")).toBe("alerts:write")
+		expect(check("*")).toBe("*")
+		expect(() => check("dashboards")).toThrow()
+		expect(() => check("dashboards:admin")).toThrow()
+		expect(() => check("Dashboards:read")).toThrow()
+	})
+
+	it("derives the required scope from method + path", () => {
+		expect(requiredScopeForRoute("GET", "/v2/api_keys")).toEqual({
+			family: "api_keys",
+			access: "read",
+		})
+		expect(requiredScopeForRoute("GET", "/v2/api_keys/key_abc")).toEqual({
+			family: "api_keys",
+			access: "read",
+		})
+		expect(requiredScopeForRoute("POST", "/v2/api_keys/key_abc/roll")).toEqual({
+			family: "api_keys",
+			access: "write",
+		})
+		expect(requiredScopeForRoute("DELETE", "/v2/api_keys/key_abc")).toEqual({
+			family: "api_keys",
+			access: "write",
+		})
+		// Namespaced groups share one family: the first path segment under /v2.
+		expect(requiredScopeForRoute("GET", "/v2/alerts/rules")).toEqual({
+			family: "alerts",
+			access: "read",
+		})
+		expect(requiredScopeForRoute("POST", "/v2/alerts/destinations/dest_abc/test")).toEqual({
+			family: "alerts",
+			access: "write",
+		})
+		expect(requiredScopeForRoute("POST", "/v2/session_replays/search")).toEqual({
+			family: "session_replays",
+			access: "read",
+		})
+		expect(requiredScopeForRoute("POST", "/v2/session_replays/for_trace")).toEqual({
+			family: "session_replays",
+			access: "read",
+		})
+		for (const [path, family] of [
+			["/v2/traces/search", "traces"],
+			["/v2/traces/timeseries", "traces"],
+			["/v2/traces/breakdown", "traces"],
+			["/v2/logs/search", "logs"],
+			["/v2/logs/timeseries", "logs"],
+			["/v2/logs/breakdown", "logs"],
+			["/v2/metrics/timeseries", "metrics"],
+			["/v2/metrics/breakdown", "metrics"],
+		] as const) {
+			expect(requiredScopeForRoute("POST", path)).toEqual({ family, access: "read" })
+		}
+		// Every /v2/integrations/<provider> group shares one family, and the two
+		// PlanetScale proxies are POSTs only because their filters need a body.
+		expect(requiredScopeForRoute("GET", "/v2/integrations/planetscale")).toEqual({
+			family: "integrations",
+			access: "read",
+		})
+		expect(requiredScopeForRoute("POST", "/v2/integrations/planetscale/metrics_token")).toEqual({
+			family: "integrations",
+			access: "write",
+		})
+		expect(requiredScopeForRoute("DELETE", "/v2/integrations/planetscale")).toEqual({
+			family: "integrations",
+			access: "write",
+		})
+		for (const path of [
+			"/v2/integrations/planetscale/query_insights",
+			"/v2/integrations/planetscale/events",
+		]) {
+			expect(requiredScopeForRoute("POST", path)).toEqual({
+				family: "integrations",
+				access: "read",
+			})
+		}
+		expect(requiredScopeForRoute("GET", "/api/api-keys")).toBeNull()
+	})
+
+	// The derivation only ever sees the router's matched route template, and it
+	// classifies path parameters exactly like a concrete id.
+	it("derives the scope from a route template with path parameters", () => {
+		expect(requiredScopeForRoute("GET", "/v2/api_keys/:keyId")).toEqual({
+			family: "api_keys",
+			access: "read",
+		})
+		expect(requiredScopeForRoute("POST", "/v2/api_keys/:keyId/roll")).toEqual({
+			family: "api_keys",
+			access: "write",
+		})
+		expect(requiredScopeForRoute("POST", "/v2/dashboards/templates/:templateId/preview")).toEqual({
+			family: "dashboards",
+			access: "read",
+		})
+	})
+
+	// The fail-closed half of the contract: a scope-protected route the
+	// derivation cannot classify is a 500, so every declared one must classify.
+	it("classifies every scope-protected v2 route template", () => {
+		let checked = 0
+		for (const group of Object.values(MapleApiV2.groups)) {
+			for (const endpoint of Object.values(group.endpoints)) {
+				const scoped = Array.from(endpoint.middlewares).some(
+					(middleware) =>
+						Predicate.hasProperty(middleware, "key") &&
+						Predicate.isString(middleware.key) &&
+						middleware.key === AuthorizationV2.key,
+				)
+				if (!scoped) continue
+				checked += 1
+				expect(
+					requiredScopeForRoute(endpoint.method, endpoint.path),
+					`${endpoint.method} ${endpoint.path}`,
+				).not.toBeNull()
+			}
+		}
+		expect(checked).toBeGreaterThan(50)
+	})
+
+	// These are the shapes the router normalizes away before matching. They must
+	// stay unclassifiable so the caller fails closed instead of skipping the
+	// check — see the enforcement test in apps/api/src/routes/v2.
+	it("refuses to classify non-canonical paths", () => {
+		for (const path of [
+			"/V2/api_keys",
+			"/v2/API_KEYS",
+			"/v2/%61pi_keys",
+			"/v2//api_keys",
+			"/v2/api_keys;x",
+			"/v2/",
+			"/v2",
+		]) {
+			expect(requiredScopeForRoute("POST", path)).toBeNull()
+		}
+	})
+
+	it("enforces the scope matrix", () => {
+		const required = { family: "api_keys", access: "read" } as const
+		const write = { family: "api_keys", access: "write" } as const
+
+		expect(scopeAllows(null, write)).toBe(true) // legacy full-access key
+		expect(scopeAllows(undefined, write)).toBe(true) // session token
+		expect(scopeAllows(["*"], write)).toBe(true)
+		expect(scopeAllows(["api_keys:read"], required)).toBe(true)
+		expect(scopeAllows(["api_keys:read"], write)).toBe(false)
+		expect(scopeAllows(["api_keys:write"], write)).toBe(true)
+		expect(scopeAllows(["api_keys:write"], required)).toBe(true) // write implies read
+		expect(scopeAllows(["dashboards:write"], required)).toBe(false)
+		expect(scopeAllows([], required)).toBe(false)
+	})
+
+	it("treats alert preview as a read-only POST", () => {
+		expect(requiredScopeForRoute("POST", "/v2/alerts/rules/preview")).toEqual({
+			family: "alerts",
+			access: "read",
+		})
+		expect(requiredScopeForRoute("POST", "/v2/alerts/rules/test")).toEqual({
+			family: "alerts",
+			access: "write",
+		})
+	})
+
+	// Template preview builds the dashboard without saving it, so a read key
+	// must reach it; instantiate right next to it must not.
+	it("treats template preview as a read-only POST but instantiate as a write", () => {
+		expect(requiredScopeForRoute("POST", "/v2/dashboards/templates/dtpl_abc/preview")).toEqual({
+			family: "dashboards",
+			access: "read",
+		})
+		expect(requiredScopeForRoute("POST", "/v2/dashboards/templates/dtpl_abc/instantiate")).toEqual({
+			family: "dashboards",
+			access: "write",
+		})
+		// The pattern must not open up nested or lookalike paths.
+		expect(requiredScopeForRoute("POST", "/v2/dashboards/templates/dtpl_abc/preview/apply")).toEqual({
+			family: "dashboards",
+			access: "write",
+		})
+	})
+})
+
+describe("telemetry contracts", () => {
+	it("round-trips the synthetic composite log ID", () => {
+		const internal = JSON.stringify(["2026-07-15 12:00:00.123", "00112233445566778899AABBCCDDEEFF"])
+		const wire = Schema.encodeSync(LogPublicId)(internal)
+		expect(wire.startsWith("log_")).toBe(true)
+		expect(Schema.decodeSync(LogPublicId)(wire)).toBe(internal)
+	})
+
+	it("rejects invalid filters, grouping, metric compatibility, and budgets", () => {
+		const base = {
+			start_time: "2026-07-15T00:00:00.000Z",
+			end_time: "2026-07-15T01:00:00.000Z",
+		}
+		expect(() =>
+			Schema.decodeUnknownSync(V2TraceTimeseriesParams)({
+				...base,
+				aggregation: "count",
+				group_by: "attribute",
+			}),
+		).toThrow()
+		expect(() =>
+			Schema.decodeUnknownSync(V2TraceTimeseriesParams)({
+				...base,
+				aggregation: "count",
+				bucket_seconds: 0,
+			}),
+		).toThrow()
+		expect(() =>
+			Schema.decodeUnknownSync(V2MetricsTimeseriesParams)({
+				...base,
+				aggregation: "rate",
+				filters: { metric_name: "requests", metric_type: "gauge" },
+			}),
+		).toThrow()
+		expect(() =>
+			Schema.decodeUnknownSync(V2TraceTimeseriesParams)({
+				...base,
+				aggregation: "count",
+				filters: {
+					attributes: Array.from({ length: 21 }, (_, index) => ({
+						key: `key.${index}`,
+						operator: "exists",
+					})),
+				},
+			}),
+		).toThrow()
+		expect(() =>
+			Schema.decodeUnknownSync(V2AttributeFilter)({
+				key: "http.status_code",
+				operator: "exists",
+				value: "500",
+			}),
+		).toThrow()
+	})
+})
+
+describe("list pagination", () => {
+	const items = Array.from({ length: 45 }, (_, index) => index)
+
+	it.effect("paginates with default limit and opaque cursors", () =>
+		Effect.gen(function* () {
+			const first = yield* paginateArray(items, {})
+			expect(first.data).toHaveLength(20)
+			expect(first.has_more).toBe(true)
+			expect(first.next_cursor).not.toBeNull()
+
+			const second = yield* paginateArray(items, { cursor: first.next_cursor! })
+			expect(second.data[0]).toBe(20)
+
+			const third = yield* paginateArray(items, { cursor: second.next_cursor!, limit: 20 })
+			expect(third.data).toHaveLength(5)
+			expect(third.has_more).toBe(false)
+			expect(third.next_cursor).toBeNull()
+		}),
+	)
+
+	it("cursor round-trips and rejects garbage", () => {
+		expect(decodeOffsetCursor(encodeOffsetCursor(1234))).toBe(1234)
+		expect(decodeOffsetCursor("garbage")).toBeNull()
+		expect(decodeOffsetCursor("off_-1")).toBeNull()
+	})
+
+	it.effect("fails invalid cursors instead of silently restarting at page one", () =>
+		Effect.gen(function* () {
+			const result = yield* Effect.result(paginateArray(items, { cursor: "garbage" }))
+			expect(Result.isFailure(result)).toBe(true)
+			if (Result.isFailure(result)) {
+				expect(result.failure.error.code).toBe("parameter_invalid")
+				expect(result.failure.error.param).toBe("cursor")
+			}
+		}),
+	)
+
+	it.effect("uses storage lookahead and returns each row exactly once", () =>
+		Effect.gen(function* () {
+			const calls: Array<{ limit: number; offset: number }> = []
+			const fetch = ({ limit, offset }: { limit: number; offset: number }) => {
+				calls.push({ limit, offset })
+				return Effect.succeed(items.slice(offset, offset + limit))
+			}
+			const first = yield* paginateOffsetQuery({ limit: 10 }, fetch)
+			const second = yield* paginateOffsetQuery({ limit: 10, cursor: first.next_cursor! }, fetch)
+			expect(calls).toEqual([
+				{ limit: 11, offset: 0 },
+				{ limit: 11, offset: 10 },
+			])
+			expect([...first.data, ...second.data]).toEqual(items.slice(0, 20))
+		}),
+	)
+
+	it("enforces the shared limit range", () => {
+		const decode = Schema.decodeUnknownSync(ListQuery)
+		expect(decode({})).toEqual({})
+		expect(decode({ limit: "1" }).limit).toBe(1)
+		expect(decode({ limit: "100" }).limit).toBe(100)
+		for (const limit of ["0", "101", "1.5", "nope"]) {
+			expect(() => decode({ limit }), `rejects ${limit}`).toThrow()
+		}
+	})
+})
+
+describe("timestamps", () => {
+	it("accepts UTC ISO-8601 timestamps and rejects invalid values", () => {
+		expect(Schema.decodeUnknownSync(Timestamp)("2026-07-15T12:34:56.000Z")).toBe(
+			"2026-07-15T12:34:56.000Z",
+		)
+		expect(() => Schema.decodeUnknownSync(Timestamp)("not-a-date")).toThrow()
+		expect(() => Schema.decodeUnknownSync(Timestamp)("2026-07-15T12:34:56+02:00")).toThrow()
+	})
+})
+
+describe("isScopeExemptRoute", () => {
+	it("exempts only sending and listing agent feedback", () => {
+		expect(isScopeExemptRoute("POST", "/v2/agent_feedback", "standard")).toBe(true)
+		expect(isScopeExemptRoute("POST", "/v2/agent_feedback/", "standard")).toBe(true)
+		expect(isScopeExemptRoute("GET", "/v2/agent_feedback", "standard")).toBe(true)
+		expect(isScopeExemptRoute("DELETE", "/v2/agent_feedback", "standard")).toBe(false)
+		expect(isScopeExemptRoute("POST", "/v2/api_keys", "standard")).toBe(false)
+	})
+
+	it("exempts nothing for a device credential", () => {
+		expect(isScopeExemptRoute("POST", "/v2/agent_feedback", "device")).toBe(false)
+		expect(isScopeExemptRoute("GET", "/v2/agent_feedback", "device")).toBe(false)
+	})
+})

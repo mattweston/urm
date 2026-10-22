@@ -1,0 +1,1781 @@
+import { HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+import { Schema } from "effect"
+import {
+	AwsAccountId,
+	ExternalUserId,
+	GcpProjectId,
+	GcpResourceNumber,
+	GcpScopeType,
+	ScrapeTargetId,
+	SourceId,
+	SupabaseProjectRef,
+	UserId,
+} from "../primitives"
+import { SessionAuthorization } from "./current-tenant"
+import { OAuthCompleteRequest, OAuthCompleteResponse } from "./oauth-return"
+import { HttpTaggedError } from "./error-policy"
+import { PrReviewOrgSettings, PrReviewRepositoryConfig } from "./pr-review"
+import {
+	GitCommitSha,
+	PullRequestSummary,
+	VcsAccountType,
+	VcsCommitNotFoundError,
+	VcsCommitShaInvalidError,
+	VcsProviderId,
+	VcsRepoSelection,
+	VcsRepoStatus,
+	VcsRepoSyncStatus,
+	VcsRepositoryId,
+} from "./vcs"
+
+const RETURN_PATH_MAX_LENGTH = 2048
+// One leading `/`, never `//` or `/\` (protocol-relative or backslash origin
+// tricks), and no backslash, whitespace or control character anywhere — which
+// leaves no room for a scheme or embedded credentials.
+export const RETURN_PATH_PATTERN = /^\/(?![/\\])[^\\\s\u0000-\u001f\u007f]*$/u
+
+/**
+ * A path inside the Maple dashboard, e.g. `/integrations?connected=1`.
+ *
+ * The OAuth callback page renders this value as an href on the *API* origin, so
+ * anything but a single-slash relative path is a stored-XSS / open-redirect sink
+ * (`javascript:…` survives HTML escaping intact). Checking it here makes a
+ * hostile value a 400 instead of a persisted payload.
+ */
+export const IntegrationReturnPath = Schema.String.check(
+	Schema.isMaxLength(RETURN_PATH_MAX_LENGTH),
+	Schema.isPattern(RETURN_PATH_PATTERN),
+).pipe(
+	Schema.brand("@maple/IntegrationReturnPath"),
+	Schema.annotate({
+		identifier: "@maple/IntegrationReturnPath",
+		title: "Dashboard return path",
+		description:
+			"Relative path in the Maple dashboard to send the user back to, e.g. `/integrations?connected=1`. Absolute URLs and schemes are rejected.",
+	}),
+)
+export type IntegrationReturnPath = Schema.Schema.Type<typeof IntegrationReturnPath>
+
+/**
+ * Runtime guard for the same rule, for values read back out of storage — rows
+ * persisted before the schema-level check existed are not trusted either.
+ */
+export const validateIntegrationReturnPath = (raw: string | null | undefined): string | null =>
+	typeof raw === "string" && raw.length <= RETURN_PATH_MAX_LENGTH && RETURN_PATH_PATTERN.test(raw)
+		? raw
+		: null
+
+export class HazelIntegrationStatus extends Schema.Class<HazelIntegrationStatus>("HazelIntegrationStatus")({
+	connected: Schema.Boolean,
+	externalUserId: Schema.NullOr(ExternalUserId),
+	externalUserEmail: Schema.NullOr(Schema.String),
+	connectedByUserId: Schema.NullOr(UserId),
+	scope: Schema.NullOr(Schema.String),
+}) {}
+
+export class HazelOrganizationSummary extends Schema.Class<HazelOrganizationSummary>(
+	"HazelOrganizationSummary",
+)({
+	id: Schema.String,
+	name: Schema.String,
+	slug: Schema.NullOr(Schema.String),
+	logoUrl: Schema.NullOr(Schema.String),
+}) {}
+
+export class HazelOrganizationsListResponse extends Schema.Class<HazelOrganizationsListResponse>(
+	"HazelOrganizationsListResponse",
+)({
+	organizations: Schema.Array(HazelOrganizationSummary),
+}) {}
+
+export const HazelChannelType = Schema.Literals(["public", "private"]).annotate({
+	identifier: "@maple/HazelChannelType",
+	title: "Hazel Channel Type",
+})
+export type HazelChannelType = Schema.Schema.Type<typeof HazelChannelType>
+
+export class HazelChannelSummary extends Schema.Class<HazelChannelSummary>("HazelChannelSummary")({
+	id: Schema.String,
+	name: Schema.String,
+	type: HazelChannelType,
+	organizationId: Schema.String,
+}) {}
+
+export class HazelChannelsListResponse extends Schema.Class<HazelChannelsListResponse>(
+	"HazelChannelsListResponse",
+)({
+	channels: Schema.Array(HazelChannelSummary),
+}) {}
+
+export class HazelStartConnectRequest extends Schema.Class<HazelStartConnectRequest>(
+	"HazelStartConnectRequest",
+)({
+	returnTo: Schema.optionalKey(IntegrationReturnPath),
+}) {}
+
+export class HazelStartConnectResponse extends Schema.Class<HazelStartConnectResponse>(
+	"HazelStartConnectResponse",
+)({
+	redirectUrl: Schema.String,
+	state: Schema.String,
+}) {}
+
+export class HazelDisconnectResponse extends Schema.Class<HazelDisconnectResponse>("HazelDisconnectResponse")(
+	{
+		disconnected: Schema.Boolean,
+	},
+) {}
+
+/** Per-zone edge-analytics collection state (from the GraphQL Analytics poller). */
+export class CloudflareAnalyticsZoneStatus extends Schema.Class<CloudflareAnalyticsZoneStatus>(
+	"CloudflareAnalyticsZoneStatus",
+)({
+	id: Schema.String,
+	name: Schema.String,
+	enabled: Schema.Boolean,
+	lastSyncedAt: Schema.NullOr(Schema.Number),
+	lastError: Schema.NullOr(Schema.String),
+	/** Last successfully-ingested 5-min bucket (epoch ms) — how far the poller has caught up. */
+	watermarkAt: Schema.NullOr(Schema.Number),
+	/**
+	 * History frontier (epoch ms): the poller walks this DOWN toward the 24h floor after the
+	 * head is live, so it doubles as backfill progress. Null before the first head poll seeds
+	 * it, and once history is complete. optionalKey only for deploy-window compat; always sent.
+	 */
+	backfillAt: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+}) {}
+
+/** Account-level Workers invocation-metrics collection state. */
+export class CloudflareAnalyticsWorkersStatus extends Schema.Class<CloudflareAnalyticsWorkersStatus>(
+	"CloudflareAnalyticsWorkersStatus",
+)({
+	enabled: Schema.Boolean,
+	lastSyncedAt: Schema.NullOr(Schema.Number),
+	lastError: Schema.NullOr(Schema.String),
+	/** Last successfully-ingested 5-min bucket (epoch ms) — how far the poller has caught up. */
+	watermarkAt: Schema.NullOr(Schema.Number),
+	/** History frontier (epoch ms) — see {@link CloudflareAnalyticsZoneStatus.backfillAt}. */
+	backfillAt: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+}) {}
+
+/**
+ * One Cloudflare account covered by the org's OAuth grant (a single consent screen may tick
+ * several) with its collection state. `analyticsCapable` is false when the stored grant
+ * predates the analytics scopes — the UI offers an "Update access" reconnect; `revoked` means
+ * Cloudflare rejected the grant (which is grant-wide: one token covers every account) and the
+ * poller skips it until reconnect.
+ */
+export class CloudflareConnectedAccountStatus extends Schema.Class<CloudflareConnectedAccountStatus>(
+	"CloudflareConnectedAccountStatus",
+)({
+	accountId: Schema.String,
+	accountName: Schema.NullOr(Schema.String),
+	connectedByUserId: Schema.NullOr(UserId),
+	scope: Schema.String,
+	analyticsCapable: Schema.Boolean,
+	revoked: Schema.Boolean,
+	zones: Schema.Array(CloudflareAnalyticsZoneStatus),
+	workers: Schema.NullOr(CloudflareAnalyticsWorkersStatus),
+}) {}
+
+/**
+ * Connection state of the Cloudflare integration. `accounts` carries every account the org's
+ * grant covers; the top-level `accountId`/`accountName`/`scope`/`zones`/`workers` fields are
+ * the pre-multi-account single-account view (first account + all accounts' zones merged),
+ * kept so bundles from before `accounts` existed keep rendering during a deploy window.
+ */
+export class CloudflareIntegrationStatus extends Schema.Class<CloudflareIntegrationStatus>(
+	"CloudflareIntegrationStatus",
+)({
+	connected: Schema.Boolean,
+	accountId: Schema.NullOr(Schema.String),
+	accountName: Schema.NullOr(Schema.String),
+	connectedByUserId: Schema.NullOr(UserId),
+	scope: Schema.NullOr(Schema.String),
+	analyticsCapable: Schema.Boolean,
+	/**
+	 * When the grant was first established (epoch ms) — how the UI tells a normal
+	 * still-collecting first few minutes from a connection that has stopped producing data.
+	 * optionalKey only for deploy-window compat; always sent when connected.
+	 */
+	connectedAt: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	/** optionalKey only for deploy-window compat; always sent. */
+	accounts: Schema.optionalKey(Schema.Array(CloudflareConnectedAccountStatus)),
+	zones: Schema.Array(CloudflareAnalyticsZoneStatus),
+	workers: Schema.NullOr(CloudflareAnalyticsWorkersStatus),
+}) {}
+
+/**
+ * One hourly bucket of ingested Cloudflare edge data. Buckets are sparse —
+ * hours with no ingested rows are omitted; the client zero-fills the window.
+ */
+export class CloudflareUsageBucket extends Schema.Class<CloudflareUsageBucket>("CloudflareUsageBucket")({
+	/** Start of the hour, epoch ms. */
+	bucketStart: Schema.Number,
+	/** Sum of the request-count metric values in the bucket. */
+	requests: Schema.Number,
+	/** Raw metric datapoints ingested in the bucket. */
+	datapoints: Schema.Number,
+}) {}
+
+/**
+ * Ingest proof for one Cloudflare-derived service (a zone or a Worker script) over the
+ * usage window — computed from the warehouse, not the poller's bookkeeping, so it shows
+ * the data actually queryable in dashboards.
+ */
+export class CloudflareServiceUsage extends Schema.Class<CloudflareServiceUsage>("CloudflareServiceUsage")({
+	/** Warehouse ServiceName: `cloudflare/{zone}`, `cloudflare-worker/{script}`, `cloudflare-queue/{queue}`, …. */
+	serviceName: Schema.String,
+	kind: Schema.Literals(["zone", "worker", "queue"]),
+	/** Zone or Worker script name with the ServiceName prefix stripped. */
+	displayName: Schema.String,
+	totalRequests: Schema.Number,
+	totalDatapoints: Schema.Number,
+	/** Most recent metric timestamp in the warehouse (epoch ms) — end-to-end delivery proof. */
+	lastDataAt: Schema.NullOr(Schema.Number),
+	buckets: Schema.Array(CloudflareUsageBucket),
+}) {}
+
+/** Warehouse-derived Cloudflare ingest usage for the org, fixed at the last 24h hourly. */
+export class CloudflareUsageResponse extends Schema.Class<CloudflareUsageResponse>("CloudflareUsageResponse")(
+	{
+		windowStart: Schema.Number,
+		windowEnd: Schema.Number,
+		bucketSeconds: Schema.Number,
+		totalRequests: Schema.Number,
+		/**
+		 * Total requests in the previous window `[windowStart − 24h, windowStart)` — backs the
+		 * "vs previous 24h" delta. optionalKey only for deploy-window compat; always sent.
+		 */
+		previousTotalRequests: Schema.optionalKey(Schema.Number),
+		/** Org-wide mitigated firewall events (block/challenge) in the current window. Always sent. */
+		firewallBlockedEvents: Schema.optionalKey(Schema.Number),
+		services: Schema.Array(CloudflareServiceUsage),
+	},
+) {}
+
+/**
+ * Live top-hosts/top-paths lookup for one zone, proxied straight to Cloudflare's GraphQL
+ * Analytics API — path cardinality is far too high to store as metrics, so this is computed
+ * on demand (and edge-cached briefly) instead of read from the warehouse.
+ */
+export class CloudflareTopTrafficRequest extends Schema.Class<CloudflareTopTrafficRequest>(
+	"CloudflareTopTrafficRequest",
+)({
+	zoneName: Schema.String,
+	dimension: Schema.Literals(["host", "path"]),
+	/** Window bounds, epoch ms. Bounded server-side by the zone plan's retention. */
+	startTime: Schema.Number,
+	endTime: Schema.Number,
+	/** Top-N size; defaults to 15, capped at 50. */
+	limit: Schema.optionalKey(Schema.Number),
+	/**
+	 * Server-side substring match, applied by Cloudflare before ranking. This is what makes the
+	 * live lookup worth having: it reaches keys the stored per-window top-N never kept.
+	 */
+	contains: Schema.optionalKey(Schema.String),
+	hosts: Schema.optionalKey(Schema.Array(Schema.String)),
+	countries: Schema.optionalKey(Schema.Array(Schema.String)),
+	methods: Schema.optionalKey(Schema.Array(Schema.String)),
+	cacheStatuses: Schema.optionalKey(Schema.Array(Schema.String)),
+}) {}
+
+export class CloudflareTopTrafficRow extends Schema.Class<CloudflareTopTrafficRow>("CloudflareTopTrafficRow")(
+	{
+		/** Hostname or path, depending on the requested dimension. */
+		key: Schema.String,
+		/** ABR-adjusted request estimate. */
+		requests: Schema.Number,
+		bytes: Schema.Number,
+		errors5xx: Schema.Number,
+	},
+) {}
+
+export class CloudflareTopTrafficResponse extends Schema.Class<CloudflareTopTrafficResponse>(
+	"CloudflareTopTrafficResponse",
+)({
+	rows: Schema.Array(CloudflareTopTrafficRow),
+	/**
+	 * Set instead of failing when Cloudflare can't serve the query for this zone/plan
+	 * (authz, dataset unavailable) — the UI renders it as an inline empty-state.
+	 */
+	unavailableReason: Schema.NullOr(Schema.String),
+}) {}
+
+export class CloudflareStartConnectRequest extends Schema.Class<CloudflareStartConnectRequest>(
+	"CloudflareStartConnectRequest",
+)({
+	returnTo: Schema.optionalKey(IntegrationReturnPath),
+}) {}
+
+export class CloudflareStartConnectResponse extends Schema.Class<CloudflareStartConnectResponse>(
+	"CloudflareStartConnectResponse",
+)({
+	redirectUrl: Schema.String,
+	state: Schema.String,
+}) {}
+
+export class CloudflareDisconnectResponse extends Schema.Class<CloudflareDisconnectResponse>(
+	"CloudflareDisconnectResponse",
+)({
+	disconnected: Schema.Boolean,
+}) {}
+
+/**
+ * Result of the post-connect prime poll. The dashboard fires this the moment a grant lands so
+ * the integration fills in immediately instead of waiting on the alerting cron's next five-minute tick —
+ * the OAuth callback used to run it inline, which left the popup blank for the duration.
+ */
+export class CloudflarePrimeResponse extends Schema.Class<CloudflarePrimeResponse>("CloudflarePrimeResponse")(
+	{
+		/**
+		 * False when the org has no usable grant — the poll was a no-op. Lets the caller tell a
+		 * premature prime (fired before the callback committed) from one that really ran.
+		 */
+		connected: Schema.Boolean,
+		/** False when the poll hit its time budget; whatever is left resumes on the next cron tick. */
+		complete: Schema.Boolean,
+	},
+) {}
+
+// These camelCase, epoch-ms shapes are the method signatures of
+// `PlanetScaleConnectionService` / `PlanetScaleService`. The v2 handlers map
+// them to the snake_case/ISO wire format at the boundary.
+
+/**
+ * The managed scrape target this connection auto-provisioned — surfaced on the
+ * integration card so scraping health and branch filters are editable there
+ * (managed rows are hidden from the generic scrape-target UI).
+ */
+export class PlanetScaleScrapeTargetSummary extends Schema.Class<PlanetScaleScrapeTargetSummary>(
+	"PlanetScaleScrapeTargetSummary",
+)({
+	id: ScrapeTargetId,
+	enabled: Schema.Boolean,
+	scrapeIntervalSeconds: Schema.Number,
+	includeBranches: Schema.Array(Schema.String),
+	excludeBranches: Schema.Array(Schema.String),
+	/** Epoch ms of the last successful scrape; null before the first one. */
+	lastScrapeAt: Schema.NullOr(Schema.Number),
+	lastScrapeError: Schema.NullOr(Schema.String),
+}) {}
+
+export class PlanetScaleIntegrationStatus extends Schema.Class<PlanetScaleIntegrationStatus>(
+	"PlanetScaleIntegrationStatus",
+)({
+	connected: Schema.Boolean,
+	/**
+	 * OAuth grant stored but no organization bound yet — the UI shows the org
+	 * picker. Mutually exclusive with `connected`.
+	 */
+	pendingOrgSelection: Schema.Boolean,
+	/** PlanetScale organization slug the connection is bound to. */
+	organization: Schema.NullOr(Schema.String),
+	connectedByUserId: Schema.NullOr(UserId),
+	/** API permissions probed at org-binding time (e.g. readMetricsEndpoints). */
+	detectedPermissions: Schema.NullOr(Schema.Record(Schema.String, Schema.Boolean)),
+	/**
+	 * How branch-metrics scraping authenticates. PlanetScale's metrics endpoints
+	 * only document service-token auth, so "oauth" applies only when the bearer
+	 * probe succeeded; "missing" means scraping is paused until a service token
+	 * with the read_metrics_endpoints permission is added (the one manual step —
+	 * inventory, insights, and webhooks run on the OAuth grant regardless).
+	 */
+	metricsAuth: Schema.Literals(["oauth", "service_token", "missing"]),
+	scrapeTarget: Schema.NullOr(PlanetScaleScrapeTargetSummary),
+	/** Epoch ms of the last successful inventory refresh; null before the first. */
+	lastInventoryAt: Schema.NullOr(Schema.Number),
+	lastInventoryError: Schema.NullOr(Schema.String),
+	/**
+	 * Epoch ms the OAuth grant was revoked, or null while it is live. Without
+	 * this the UI can only infer a revoked grant from whichever downstream call
+	 * happened to fail first, so the same cause surfaced as three different
+	 * error strings in three unrelated places.
+	 */
+	revokedAt: Schema.NullOr(Schema.Number),
+	/** Epoch ms the access token expires; refresh happens well before this. */
+	expiresAt: Schema.NullOr(Schema.Number),
+}) {}
+
+export class PlanetScaleStartConnectRequest extends Schema.Class<PlanetScaleStartConnectRequest>(
+	"PlanetScaleStartConnectRequest",
+)({
+	returnTo: Schema.optionalKey(IntegrationReturnPath),
+}) {}
+
+export class PlanetScaleStartConnectResponse extends Schema.Class<PlanetScaleStartConnectResponse>(
+	"PlanetScaleStartConnectResponse",
+)({
+	redirectUrl: Schema.String,
+	state: Schema.String,
+}) {}
+
+/** One PlanetScale organization the OAuth grant can access — org-picker material. */
+export class PlanetScaleOrganizationSummary extends Schema.Class<PlanetScaleOrganizationSummary>(
+	"PlanetScaleOrganizationSummary",
+)({
+	id: Schema.String,
+	name: Schema.String,
+}) {}
+
+export class PlanetScaleOrganizationsResponse extends Schema.Class<PlanetScaleOrganizationsResponse>(
+	"PlanetScaleOrganizationsResponse",
+)({
+	organizations: Schema.Array(PlanetScaleOrganizationSummary),
+}) {}
+
+/**
+ * Bind the stored OAuth grant to one PlanetScale organization and provision the
+ * managed scrape target. Called automatically from the OAuth callback when the
+ * grant reaches exactly one org, or from the org picker otherwise. Re-binding
+ * (changing org / editing filters) is an upsert.
+ */
+export class PlanetScaleSelectOrganizationRequest extends Schema.Class<PlanetScaleSelectOrganizationRequest>(
+	"PlanetScaleSelectOrganizationRequest",
+)({
+	/** PlanetScale organization slug. */
+	organization: Schema.String.check(Schema.isMinLength(1), Schema.isTrimmed()),
+	/** Branch glob allowlist for the managed scrape target (omit/empty = all branches). */
+	includeBranches: Schema.optionalKey(Schema.Array(Schema.String)),
+	/** Branch glob denylist for the managed scrape target (e.g. `pr-*`). */
+	excludeBranches: Schema.optionalKey(Schema.Array(Schema.String)),
+}) {}
+
+export class PlanetScaleDisconnectResponse extends Schema.Class<PlanetScaleDisconnectResponse>(
+	"PlanetScaleDisconnectResponse",
+)({
+	disconnected: Schema.Boolean,
+}) {}
+
+/**
+ * Attach a service token (permission: read_metrics_endpoints only) to the
+ * managed scrape target. PlanetScale's Prometheus discovery + branch metrics
+ * endpoints authenticate with service tokens, not OAuth bearers — this is the
+ * one manual step the OAuth flow can't cover.
+ */
+export class PlanetScaleMetricsTokenRequest extends Schema.Class<PlanetScaleMetricsTokenRequest>(
+	"PlanetScaleMetricsTokenRequest",
+)({
+	tokenId: Schema.String.check(Schema.isMinLength(1), Schema.isTrimmed()),
+	tokenSecret: Schema.String.check(Schema.isMinLength(1)),
+}) {}
+
+export class PlanetScaleBranchSummary extends Schema.Class<PlanetScaleBranchSummary>(
+	"PlanetScaleBranchSummary",
+)({
+	id: Schema.String,
+	name: Schema.String,
+	production: Schema.Boolean,
+	ready: Schema.Boolean,
+}) {}
+
+/** One database from the org's polled PlanetScale inventory. */
+export class PlanetScaleDatabaseSummary extends Schema.Class<PlanetScaleDatabaseSummary>(
+	"PlanetScaleDatabaseSummary",
+)({
+	/** PlanetScale's database id. */
+	id: Schema.String,
+	name: Schema.String,
+	/** Product kind: "mysql" (Vitess) or "postgresql". */
+	kind: Schema.String,
+	state: Schema.NullOr(Schema.String),
+	region: Schema.NullOr(Schema.String),
+	plan: Schema.NullOr(Schema.String),
+	branches: Schema.Array(PlanetScaleBranchSummary),
+}) {}
+
+export class PlanetScaleDatabasesResponse extends Schema.Class<PlanetScaleDatabasesResponse>(
+	"PlanetScaleDatabasesResponse",
+)({
+	databases: Schema.Array(PlanetScaleDatabaseSummary),
+	/** Epoch ms of the last successful inventory refresh; null before the first. */
+	lastInventoryAt: Schema.NullOr(Schema.Number),
+}) {}
+
+/**
+ * One Hyperdrive config from the org's polled Cloudflare inventory. The origin fields
+ * identify what actually sits behind the service map's collapsed Hyperdrive node —
+ * the web client matches `originDatabase` against the PlanetScale inventory.
+ */
+export class CloudflareHyperdriveConfigSummary extends Schema.Class<CloudflareHyperdriveConfigSummary>(
+	"CloudflareHyperdriveConfigSummary",
+)({
+	/** Cloudflare's 32-hex Hyperdrive config id. */
+	id: Schema.String,
+	name: Schema.String,
+	/** Null for the VPC-service origin variant (no public host). */
+	originHost: Schema.NullOr(Schema.String),
+	/** Null for the Access-client and VPC origin variants. */
+	originPort: Schema.NullOr(Schema.Number),
+	/** "mysql" | "postgres" | "postgresql". */
+	originScheme: Schema.String,
+	originDatabase: Schema.String,
+	originUser: Schema.NullOr(Schema.String),
+}) {}
+
+export class CloudflareHyperdrivesResponse extends Schema.Class<CloudflareHyperdrivesResponse>(
+	"CloudflareHyperdrivesResponse",
+)({
+	configs: Schema.Array(CloudflareHyperdriveConfigSummary),
+}) {}
+
+/**
+ * Manual webhook setup material (admin-only): the endpoint path to register in
+ * PlanetScale's per-database webhook settings, and the HMAC secret Maple
+ * verifies deliveries with.
+ */
+export class PlanetScaleWebhookConfigResponse extends Schema.Class<PlanetScaleWebhookConfigResponse>(
+	"PlanetScaleWebhookConfigResponse",
+)({
+	configured: Schema.Boolean,
+	/** Absolute webhook URL to paste into PlanetScale (built from the API origin). */
+	url: Schema.NullOr(Schema.String),
+	secret: Schema.NullOr(Schema.String),
+}) {}
+
+/**
+ * Live top-queries lookup for one database branch, proxied to PlanetScale's
+ * Query Insights API — per-fingerprint cardinality is far too high to store as
+ * metrics, so this is computed on demand (and edge-cached briefly), mirroring
+ * the Cloudflare top-traffic pattern.
+ */
+export class PlanetScaleQueryInsightsRequest extends Schema.Class<PlanetScaleQueryInsightsRequest>(
+	"PlanetScaleQueryInsightsRequest",
+)({
+	database: Schema.String.check(Schema.isMinLength(1)),
+	/** Branch to inspect; defaults to the database's production branch. */
+	branch: Schema.optionalKey(Schema.String),
+	/** Window bounds, epoch ms. */
+	startTime: Schema.Number,
+	endTime: Schema.Number,
+	/** Top-N by total time; defaults to 10, capped at 25. */
+	limit: Schema.optionalKey(Schema.Number),
+}) {}
+
+export class PlanetScaleQueryInsightRow extends Schema.Class<PlanetScaleQueryInsightRow>(
+	"PlanetScaleQueryInsightRow",
+)({
+	fingerprint: Schema.String,
+	normalizedSql: Schema.String,
+	statementType: Schema.NullOr(Schema.String),
+	queryCount: Schema.Number,
+	errorCount: Schema.Number,
+	totalDurationMillis: Schema.Number,
+	timePerQueryMillis: Schema.Number,
+	p50LatencyMillis: Schema.Number,
+	p99LatencyMillis: Schema.Number,
+	rowsReadPerQuery: Schema.Number,
+	rowsReturnedPerQuery: Schema.Number,
+	/** Epoch ms; null when PlanetScale reported none. */
+	lastRunAt: Schema.NullOr(Schema.Number),
+}) {}
+
+export class PlanetScaleQueryInsightsResponse extends Schema.Class<PlanetScaleQueryInsightsResponse>(
+	"PlanetScaleQueryInsightsResponse",
+)({
+	/** The branch actually queried (resolved server-side when omitted). */
+	branch: Schema.String,
+	rows: Schema.Array(PlanetScaleQueryInsightRow),
+	/**
+	 * Set instead of failing when PlanetScale can't serve the lookup (token
+	 * missing read_database, unknown branch) — the UI renders it inline.
+	 */
+	unavailableReason: Schema.NullOr(Schema.String),
+}) {}
+
+/**
+ * The PlanetScale lifecycle timeline for a window: deploy-request transitions
+ * and branch state changes. Backs both the chart markers on the database
+ * drill-in and the activity feed under them.
+ */
+export const PlanetScaleEventCategory = Schema.Literals([
+	"deploy_request",
+	"branch",
+	"database",
+	"cluster",
+	"keyspace",
+])
+
+export class PlanetScaleEventsRequest extends Schema.Class<PlanetScaleEventsRequest>(
+	"PlanetScaleEventsRequest",
+)({
+	/** Omit for the org-wide feed. */
+	database: Schema.optionalKey(Schema.String),
+	/**
+	 * Narrows branch-scoped rows. Deploy requests span two branches and carry no
+	 * single one, so they are never filtered out by this.
+	 */
+	branch: Schema.optionalKey(Schema.String),
+	/** Window bounds, epoch ms. */
+	startTime: Schema.Number,
+	endTime: Schema.Number,
+	categories: Schema.optionalKey(Schema.Array(PlanetScaleEventCategory)),
+	/** Defaults to 100, capped at 500. */
+	limit: Schema.optionalKey(Schema.Number),
+	/** Keyset cursor from the previous page's `nextCursor`. */
+	cursor: Schema.optionalKey(Schema.String),
+}) {}
+
+export class PlanetScaleEventSummary extends Schema.Class<PlanetScaleEventSummary>("PlanetScaleEventSummary")(
+	{
+		id: Schema.String,
+		databaseName: Schema.String,
+		/** "" for events that belong to no single branch (deploy requests). */
+		branchName: Schema.String,
+		/**
+		 * One of `PlanetScaleEventCategory` in practice, but typed as a plain string
+		 * on the way out: the classifier is deliberately forward-compatible, so a
+		 * category added by a newer poller must render as an unknown row in the feed
+		 * rather than fail the whole response's decode.
+		 */
+		category: Schema.String,
+		/** Raw PlanetScale event string, e.g. "deploy_request.schema_applied". */
+		eventType: Schema.String,
+		state: Schema.NullOr(Schema.String),
+		/** Deploy-request number or branch id; "" when the event has none. */
+		externalId: Schema.String,
+		title: Schema.String,
+		/** "webhook" (live) or "backfill" (REST history). */
+		source: Schema.String,
+		actorLogin: Schema.NullOr(Schema.String),
+		url: Schema.NullOr(Schema.String),
+		/** Epoch ms, truncated to the second. */
+		occurredAt: Schema.Number,
+	},
+) {}
+
+export class PlanetScaleEventsResponse extends Schema.Class<PlanetScaleEventsResponse>(
+	"PlanetScaleEventsResponse",
+)({
+	/** Newest first. */
+	events: Schema.Array(PlanetScaleEventSummary),
+	/** Null when this is the last page. */
+	nextCursor: Schema.NullOr(Schema.String),
+}) {}
+
+/** One branch a repo knows about — an option in the tracked-branch picker. */
+export class GithubBranchSummary extends Schema.Class<GithubBranchSummary>("GithubBranchSummary")({
+	name: Schema.String,
+	isDefault: Schema.Boolean,
+}) {}
+
+/** One synced repository, surfaced read-only so the dashboard can watch backfill. */
+export class GithubRepoSummary extends Schema.Class<GithubRepoSummary>("GithubRepoSummary")({
+	// Maple's internal repository id — the stable handle for delete-from-Maple.
+	// The provider's `externalRepoId` is an internal sync detail, not surfaced here.
+	id: VcsRepositoryId,
+	fullName: Schema.String,
+	htmlUrl: Schema.String,
+	isPrivate: Schema.Boolean,
+	// Access lifecycle: "active" or "removed" (provider revoked access — see VcsRepoStatus).
+	status: VcsRepoStatus,
+	syncStatus: VcsRepoSyncStatus,
+	lastSyncedAt: Schema.NullOr(Schema.Number),
+	lastSyncError: Schema.NullOr(Schema.String),
+	// The single branch this repo tracks (only its commits are synced). Falls back
+	// to the default branch for a legacy row whose tracked branch was never set.
+	trackedBranch: Schema.NullOr(Schema.String),
+	// All branches the repo knows about (names only) — the picker's options.
+	branches: Schema.Array(GithubBranchSummary),
+	/** Maple reviews this repository's pull requests for observability gaps. Off by default. */
+	prReviewEnabled: Schema.Boolean,
+}) {}
+
+/**
+ * The dashboard-facing connection state of the GitHub integration:
+ * - `connected`: a live, active installation.
+ * - `disconnected`: the Maple GitHub App was uninstalled (or access fully revoked)
+ *   on GitHub's side. The installation row and its synced data are KEPT — never
+ *   auto-deleted — so the dashboard can explain what happened and offer a reconnect.
+ * - `suspended`: GitHub temporarily suspended the installation; reconnect/reactivate.
+ * - `not_connected`: this org has never connected GitHub (the first-run state).
+ * `connected` (boolean) stays as the `state === "connected"` shorthand the card keys on.
+ */
+export const GithubConnectionState = Schema.Literals([
+	"connected",
+	"disconnected",
+	"suspended",
+	"not_connected",
+]).annotate({ identifier: "@maple/GithubConnectionState", title: "GitHub Connection State" })
+export type GithubConnectionState = Schema.Schema.Type<typeof GithubConnectionState>
+
+export class GithubIntegrationStatus extends Schema.Class<GithubIntegrationStatus>("GithubIntegrationStatus")(
+	{
+		connected: Schema.Boolean,
+		// Finer-grained than `connected`: distinguishes a never-connected org from one
+		// whose installation was deactivated on GitHub (so the dashboard can say why).
+		state: GithubConnectionState,
+		accountLogin: Schema.NullOr(Schema.String),
+		accountType: Schema.NullOr(VcsAccountType),
+		repositorySelection: Schema.NullOr(VcsRepoSelection),
+		/** Whether GitHub Actions runs become traces. True before the org has connected. */
+		ciTracesEnabled: Schema.Boolean,
+		repositories: Schema.Array(GithubRepoSummary),
+	},
+) {}
+
+export class GithubStartConnectRequest extends Schema.Class<GithubStartConnectRequest>(
+	"GithubStartConnectRequest",
+)({
+	returnTo: Schema.optionalKey(IntegrationReturnPath),
+}) {}
+
+export class GithubStartConnectResponse extends Schema.Class<GithubStartConnectResponse>(
+	"GithubStartConnectResponse",
+)({
+	redirectUrl: Schema.String,
+	state: Schema.String,
+}) {}
+
+export class GithubDisconnectResponse extends Schema.Class<GithubDisconnectResponse>(
+	"GithubDisconnectResponse",
+)({
+	disconnected: Schema.Boolean,
+}) {}
+
+export class GithubDeleteRepositoryResponse extends Schema.Class<GithubDeleteRepositoryResponse>(
+	"GithubDeleteRepositoryResponse",
+)({
+	deleted: Schema.Boolean,
+}) {}
+
+export class GithubSetTrackedBranchRequest extends Schema.Class<GithubSetTrackedBranchRequest>(
+	"GithubSetTrackedBranchRequest",
+)({
+	// The single branch to track. Must be one the repo knows about. Changing it
+	// wipes the repo's stored commits and re-backfills the new branch.
+	trackedBranch: Schema.String,
+}) {}
+
+export class GithubSetTrackedBranchResponse extends Schema.Class<GithubSetTrackedBranchResponse>(
+	"GithubSetTrackedBranchResponse",
+)({
+	trackedBranch: Schema.String,
+	// True when the change enqueued a historical backfill of the new branch.
+	backfillQueued: Schema.Boolean,
+}) {}
+
+export class GithubSetCiTracesRequest extends Schema.Class<GithubSetCiTracesRequest>(
+	"GithubSetCiTracesRequest",
+)({
+	enabled: Schema.Boolean,
+}) {}
+
+export class GithubSetCiTracesResponse extends Schema.Class<GithubSetCiTracesResponse>(
+	"GithubSetCiTracesResponse",
+)({
+	enabled: Schema.Boolean,
+}) {}
+
+export class GithubSetPrReviewRequest extends Schema.Class<GithubSetPrReviewRequest>(
+	"GithubSetPrReviewRequest",
+)({
+	enabled: Schema.Boolean,
+}) {}
+
+export class GithubSetPrReviewResponse extends Schema.Class<GithubSetPrReviewResponse>(
+	"GithubSetPrReviewResponse",
+)({
+	enabled: Schema.Boolean,
+}) {}
+
+export class GithubPrReviewConfigRequest extends Schema.Class<GithubPrReviewConfigRequest>(
+	"GithubPrReviewConfigRequest",
+)({
+	config: PrReviewRepositoryConfig,
+}) {}
+
+export class GithubPrReviewConfigResponse extends Schema.Class<GithubPrReviewConfigResponse>(
+	"GithubPrReviewConfigResponse",
+)({
+	config: PrReviewRepositoryConfig,
+}) {}
+
+export class GithubPrReviewSettingsRequest extends Schema.Class<GithubPrReviewSettingsRequest>(
+	"GithubPrReviewSettingsRequest",
+)({
+	settings: PrReviewOrgSettings,
+}) {}
+
+export class GithubPrReviewSettingsResponse extends Schema.Class<GithubPrReviewSettingsResponse>(
+	"GithubPrReviewSettingsResponse",
+)({
+	settings: PrReviewOrgSettings,
+}) {}
+
+/**
+ * A single resolved commit, for the dashboard's commit-SHA hover card. Provider-
+ * neutral: any connected VCS provider resolves into this same shape. `resolved`
+ * distinguishes a DB hit ("stored") from an on-the-fly provider fetch ("fetched")
+ * — purely diagnostic.
+ */
+/** Ceiling on `vcsPullRequests`, matching one provider page. */
+export const VCS_PULL_REQUESTS_MAX_LIMIT = 100
+/** What the picker asks for when it does not say. */
+export const VCS_PULL_REQUESTS_DEFAULT_LIMIT = 50
+
+/**
+ * Recent pull requests in one connected repository — the options the attach-a-PR
+ * picker lists. Read straight from the provider, never persisted: a stale PR
+ * state in a picker is worse than a slightly slower one.
+ */
+export class VcsPullRequestsResponse extends Schema.Class<VcsPullRequestsResponse>("VcsPullRequestsResponse")(
+	{
+		repository: Schema.String,
+		pullRequests: Schema.Array(PullRequestSummary),
+	},
+) {}
+
+export class VcsCommitDetailResponse extends Schema.Class<VcsCommitDetailResponse>("VcsCommitDetailResponse")(
+	{
+		provider: VcsProviderId,
+		sha: GitCommitSha,
+		message: Schema.String,
+		authorName: Schema.NullOr(Schema.String),
+		authorEmail: Schema.NullOr(Schema.String),
+		authorLogin: Schema.NullOr(Schema.String),
+		authorAvatarUrl: Schema.NullOr(Schema.String),
+		authoredAt: Schema.NullOr(Schema.Number),
+		committedAt: Schema.Number,
+		htmlUrl: Schema.String,
+		repoFullName: Schema.String,
+		resolved: Schema.Literals(["stored", "fetched"]),
+	},
+) {}
+
+/**
+ * Bulk sibling of VcsCommitDetailResponse, for list views that show one deploy
+ * per row. Unresolvable SHAs are absent from `commits` rather than raising —
+ * the caller matches by `sha` and falls back to rendering the raw reference.
+ */
+export class VcsCommitDetailsResponse extends Schema.Class<VcsCommitDetailsResponse>(
+	"VcsCommitDetailsResponse",
+)({
+	commits: Schema.Array(VcsCommitDetailResponse),
+}) {}
+
+/** Upper bound on SHAs per bulk commit lookup — one page of a list view. */
+export const VCS_COMMIT_DETAILS_MAX_SHAS = 50
+
+/** Upper bound on `base..head` pairs per commit-range lookup, and on commits listed per range. */
+export const VCS_COMMIT_RANGES_MAX = 50
+export const VCS_COMMIT_RANGE_COMMITS_MAX = 100
+
+/**
+ * What shipped between two deploys: the stored commits after `base` up to and
+ * including `head` on one repo's tracked branch. `unavailable` when either end is
+ * not a stored commit of the same repo (a short sha, a tag, an untracked branch).
+ */
+export class VcsCommitRangeResponse extends Schema.Class<VcsCommitRangeResponse>("VcsCommitRangeResponse")({
+	base: Schema.String,
+	head: Schema.String,
+	status: Schema.Literals(["resolved", "unavailable"]),
+	repoFullName: Schema.String,
+	totalCount: Schema.Number,
+	commits: Schema.Array(VcsCommitDetailResponse),
+	/** True when `totalCount` is a lower bound. */
+	truncated: Schema.Boolean,
+}) {}
+
+export class VcsCommitRangesResponse extends Schema.Class<VcsCommitRangesResponse>("VcsCommitRangesResponse")(
+	{
+		ranges: Schema.Array(VcsCommitRangeResponse),
+	},
+) {}
+
+/** A Cloud SQL instance's settings, read off its Cloud Asset Inventory resource. */
+export const GcpCloudSqlSettings = Schema.Struct({
+	/** `POSTGRES_15`, `MYSQL_8_0`, `SQLSERVER_2022_STANDARD`, ... */
+	databaseVersion: Schema.NullOr(Schema.String),
+	/** `ENTERPRISE` or `ENTERPRISE_PLUS`. */
+	edition: Schema.NullOr(Schema.String),
+	tier: Schema.NullOr(Schema.String),
+	/** Read off the tier; null for a tier Maple does not know. */
+	cpus: Schema.NullOr(Schema.Finite),
+	memoryGb: Schema.NullOr(Schema.Finite),
+	/** `REGIONAL` is high availability, `ZONAL` is not. */
+	availabilityType: Schema.NullOr(Schema.String),
+	/** The primary of a read replica, as `<project>:<instance>`. */
+	primary: Schema.NullOr(Schema.String),
+	diskSizeGb: Schema.NullOr(Schema.Finite),
+	queryInsightsEnabled: Schema.Boolean,
+	/**
+	 * The `max_connections` flag, or PostgreSQL's default for the memory of the larger of the
+	 * instance and its primary. Null when neither is known.
+	 */
+	maxConnections: Schema.NullOr(Schema.Finite),
+	maxConnectionsSource: Schema.NullOr(Schema.Literals(["flag", "default"])),
+})
+export type GcpCloudSqlSettings = Schema.Schema.Type<typeof GcpCloudSqlSettings>
+
+/** Rows one read of the Google Cloud resource inventory returns. */
+export const GCP_RESOURCES_LIMIT = 500
+
+/** One Cloud Asset Inventory entry in the scope of a Google Cloud connector. */
+export const GcpResource = Schema.Struct({
+	/** Full resource name: `//run.googleapis.com/projects/p/locations/l/services/s`. */
+	name: Schema.String,
+	assetType: Schema.String,
+	projectId: Schema.String,
+	location: Schema.NullOr(Schema.String),
+	displayName: Schema.NullOr(Schema.String),
+	state: Schema.NullOr(Schema.String),
+	labels: Schema.Record(Schema.String, Schema.String),
+	/** A Cloud SQL instance's settings; null for every other type, and until the sync reads them. */
+	details: Schema.NullOr(GcpCloudSqlSettings),
+})
+export type GcpResource = Schema.Schema.Type<typeof GcpResource>
+
+export class GcpResourcesResponse extends Schema.Class<GcpResourcesResponse>("GcpResourcesResponse")({
+	/** The first `GCP_RESOURCES_LIMIT` resources matching the filter, by asset type and name. */
+	resources: Schema.Array(GcpResource),
+	/** How many resources match the filter. */
+	total: Schema.Number,
+	/** The whole inventory by asset type: the type filter's options, and the project count. */
+	types: Schema.Array(Schema.Struct({ assetType: Schema.String, count: Schema.Number })),
+	/** Every project with a resource: the project filter's options. */
+	projects: Schema.Array(Schema.String),
+}) {}
+
+const GcpResourceFilterValue = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))
+
+export class RailwayEnvironmentStatus extends Schema.Class<RailwayEnvironmentStatus>(
+	"RailwayEnvironmentStatus",
+)({
+	projectId: Schema.String,
+	projectName: Schema.String,
+	environmentId: Schema.String,
+	environmentName: Schema.String,
+	serviceCount: Schema.Number,
+	enabled: Schema.Boolean,
+	lastSyncedAt: Schema.NullOr(Schema.Number),
+	lastError: Schema.NullOr(Schema.String),
+}) {}
+
+/** Connection state of the Railway metrics integration (token-based, one per org). */
+export class RailwayIntegrationStatus extends Schema.Class<RailwayIntegrationStatus>(
+	"RailwayIntegrationStatus",
+)({
+	connected: Schema.Boolean,
+	workspaceNames: Schema.NullOr(Schema.String),
+	connectedByUserId: Schema.NullOr(UserId),
+	connectedAt: Schema.NullOr(Schema.Number),
+	/** True when Railway rejected the stored token; polling is paused until a new one is saved. */
+	authFailed: Schema.Boolean,
+	lastSyncedAt: Schema.NullOr(Schema.Number),
+	lastError: Schema.NullOr(Schema.String),
+	environments: Schema.Array(RailwayEnvironmentStatus),
+}) {}
+
+export class RailwayConnectRequest extends Schema.Class<RailwayConnectRequest>("RailwayConnectRequest")({
+	token: Schema.String.check(Schema.isTrimmed(), Schema.isMinLength(8), Schema.isMaxLength(512)),
+}) {}
+
+export class RailwayDisconnectResponse extends Schema.Class<RailwayDisconnectResponse>(
+	"RailwayDisconnectResponse",
+)({
+	disconnected: Schema.Boolean,
+}) {}
+
+/**
+ * A log drain configured on a Supabase project, as discovery last listed it. Only the destination
+ * host is kept: drain configs carry API keys and auth headers.
+ */
+export const SupabaseLogDrainSummary = Schema.Struct({
+	id: Schema.String,
+	name: Schema.String,
+	/** Supabase's `backend_type`: `otlp`, `datadog`, `s3`, `webhook`, ... */
+	backendType: Schema.String,
+	/** Host, bucket or region the drain sends to; null when the config names none. */
+	destination: Schema.NullOr(Schema.String),
+	/** The drain sends to this Maple deployment's ingest gateway. */
+	toMaple: Schema.Boolean,
+	/** Maple's integration created it (the project's managed drain). */
+	managedByMaple: Schema.Boolean,
+})
+export type SupabaseLogDrainSummary = typeof SupabaseLogDrainSummary.Type
+
+/** One project discovered under the connected Supabase organization. */
+export class SupabaseProjectStatus extends Schema.Class<SupabaseProjectStatus>("SupabaseProjectStatus")({
+	ref: SupabaseProjectRef,
+	name: Schema.String,
+	region: Schema.String,
+	/** Supabase's lifecycle status as reported, e.g. `ACTIVE_HEALTHY` or `INACTIVE`. */
+	status: Schema.String,
+	metricsEnabled: Schema.Boolean,
+	/** Logs arrive through a Supabase log drain Maple created (opt-in; excludes `logsEnabled`). */
+	logDrainEnabled: Schema.Boolean,
+	/** Why an enabled drain is not delivering (removed in Supabase, its source deleted). */
+	logDrainError: Schema.NullOr(Schema.String),
+	/** The token source the managed drain sends as. */
+	logDrainSourceId: Schema.NullOr(SourceId),
+	/** Every drain on the project at the last discovery, including ones set up outside Maple. */
+	logDrains: Schema.Array(SupabaseLogDrainSummary),
+	/** When `logDrains` was last listed; null when it never was (or the listing keeps failing). */
+	logDrainsCheckedAt: Schema.NullOr(Schema.Number),
+	/** Whether Maple polls this project's logs (opt-in). */
+	logsEnabled: Schema.Boolean,
+	logsLastPolledAt: Schema.NullOr(Schema.Number),
+	/** The last logs poll's error, cleared by the next good poll. */
+	logsError: Schema.NullOr(Schema.String),
+	lastSeenAt: Schema.Number,
+}) {}
+
+export class SupabaseOrganizationSummary extends Schema.Class<SupabaseOrganizationSummary>(
+	"SupabaseOrganizationSummary",
+)({
+	id: Schema.String,
+	slug: Schema.String,
+	name: Schema.String,
+}) {}
+
+/** Connection state of the Supabase integration (Management API OAuth, one organization per org). */
+export class SupabaseIntegrationStatus extends Schema.Class<SupabaseIntegrationStatus>(
+	"SupabaseIntegrationStatus",
+)({
+	/** False when this Maple deployment has no Supabase OAuth app configured. */
+	configured: Schema.Boolean,
+	connected: Schema.Boolean,
+	organization: Schema.NullOr(SupabaseOrganizationSummary),
+	connectedByUserId: Schema.NullOr(UserId),
+	connectedAt: Schema.NullOr(Schema.Number),
+	/** True when Supabase rejected the grant; discovery stops until the org reconnects. */
+	revoked: Schema.Boolean,
+	lastDiscoveryAt: Schema.NullOr(Schema.Number),
+	lastDiscoveryError: Schema.NullOr(Schema.String),
+	/** Projects currently present in the organization, by name. */
+	projects: Schema.Array(SupabaseProjectStatus),
+}) {}
+
+export class SupabaseConnectRequest extends Schema.Class<SupabaseConnectRequest>("SupabaseConnectRequest")({
+	returnTo: Schema.optionalKey(IntegrationReturnPath),
+}) {}
+
+export class SupabaseConnectResponse extends Schema.Class<SupabaseConnectResponse>("SupabaseConnectResponse")(
+	{
+		redirectUrl: Schema.String,
+		state: Schema.String,
+	},
+) {}
+
+/** Per-project switches. `logDrainEnabled` creates or deletes a log drain at Supabase. */
+export class SupabaseProjectUpdateRequest extends Schema.Class<SupabaseProjectUpdateRequest>(
+	"SupabaseProjectUpdateRequest",
+)({
+	metricsEnabled: Schema.optionalKey(Schema.Boolean),
+	logsEnabled: Schema.optionalKey(Schema.Boolean),
+	logDrainEnabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class SupabaseDisconnectResponse extends Schema.Class<SupabaseDisconnectResponse>(
+	"SupabaseDisconnectResponse",
+)({
+	disconnected: Schema.Boolean,
+}) {}
+
+export const SupabaseAdvisorLevel = Schema.Literals(["ERROR", "WARN", "INFO"])
+export type SupabaseAdvisorLevel = typeof SupabaseAdvisorLevel.Type
+
+/** Which Management API advisor reported a lint. */
+export const SupabaseAdvisorKind = Schema.Literals(["performance", "security"])
+export type SupabaseAdvisorKind = typeof SupabaseAdvisorKind.Type
+
+/** One advisor finding (a Splinter lint such as `unindexed_foreign_keys`), as stored and served. */
+export const SupabaseAdvisorLint = Schema.Struct({
+	advisor: SupabaseAdvisorKind,
+	/** The lint id, e.g. `rls_disabled_in_public`. */
+	name: Schema.String,
+	title: Schema.String,
+	level: SupabaseAdvisorLevel,
+	/** `PERFORMANCE`, `SECURITY`, `HEALTH`. */
+	categories: Schema.Array(Schema.String),
+	description: Schema.String,
+	/** The finding itself, naming the object (markdown-ish text from Supabase). */
+	detail: Schema.String,
+	/** A docs URL. */
+	remediation: Schema.String,
+	/** The database object the lint is about, when it names one. */
+	schema: Schema.NullOr(Schema.String),
+	object: Schema.NullOr(Schema.String),
+	/** `table`, `view`, `function`, `extension`, `auth`... */
+	objectType: Schema.NullOr(Schema.String),
+	cacheKey: Schema.String,
+})
+export type SupabaseAdvisorLint = typeof SupabaseAdvisorLint.Type
+
+/** One `pg_stat_statements` entry, ranked by total execution time. */
+export const SupabaseTopQuery = Schema.Struct({
+	/** `queryid` as text (a 64-bit hash). */
+	queryId: Schema.String,
+	/** Normalized statement text (`$1` placeholders), cut at 2000 chars. */
+	query: Schema.String,
+	calls: Schema.Number,
+	totalExecMs: Schema.Number,
+	meanExecMs: Schema.Number,
+	rows: Schema.Number,
+})
+export type SupabaseTopQuery = typeof SupabaseTopQuery.Type
+
+export class SupabaseAdvisorsByLevel extends Schema.Class<SupabaseAdvisorsByLevel>("SupabaseAdvisorsByLevel")(
+	{
+		error: Schema.Array(SupabaseAdvisorLint),
+		warn: Schema.Array(SupabaseAdvisorLint),
+		info: Schema.Array(SupabaseAdvisorLint),
+	},
+) {}
+
+/**
+ * A project's polled advisors (hourly) and slowest statements (every 15 minutes). A null
+ * `*CheckedAt` means never polled; an `*Error` is the last poll's failure, with the previous
+ * good result kept beside it.
+ */
+export class SupabaseProjectInsights extends Schema.Class<SupabaseProjectInsights>("SupabaseProjectInsights")(
+	{
+		projectRef: SupabaseProjectRef,
+		advisors: SupabaseAdvisorsByLevel,
+		advisorsCheckedAt: Schema.NullOr(Schema.Number),
+		advisorsError: Schema.NullOr(Schema.String),
+		/** Top 10 by total execution time since the project's stats were last reset. */
+		topQueries: Schema.Array(SupabaseTopQuery),
+		queriesCheckedAt: Schema.NullOr(Schema.Number),
+		queriesError: Schema.NullOr(Schema.String),
+	},
+) {}
+
+export class IntegrationsForbiddenError extends HttpTaggedError<IntegrationsForbiddenError>()(
+	"@maple/http/errors/IntegrationsForbiddenError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 403,
+		code: "integration_forbidden",
+		title: "Permission required",
+		retry: "never",
+		recovery: "request_access",
+		exposure: "public_message",
+	},
+) {}
+
+export class IntegrationsValidationError extends HttpTaggedError<IntegrationsValidationError>()(
+	"@maple/http/errors/IntegrationsValidationError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 400,
+		code: "integration_request_invalid",
+		title: "Invalid integration request",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "public_message",
+	},
+) {}
+
+/** The provider refused a feature the connected account's plan does not include. */
+export class IntegrationsPlanRequiredError extends HttpTaggedError<IntegrationsPlanRequiredError>()(
+	"@maple/http/errors/IntegrationsPlanRequiredError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 402,
+		code: "integration_plan_required",
+		title: "Provider plan required",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "public_message",
+	},
+) {}
+
+/** Maple cannot start an integration because its server-side configuration is incomplete. */
+export class IntegrationsConfigurationError extends HttpTaggedError<IntegrationsConfigurationError>()(
+	"@maple/http/errors/IntegrationsConfigurationError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 503,
+		code: "integration_not_configured",
+		title: "Integration is not configured",
+		message: "This integration is not configured in Maple. Contact support.",
+		retry: "never",
+		recovery: "contact_support",
+		exposure: "redacted",
+	},
+) {}
+
+export class IntegrationsNotConnectedError extends HttpTaggedError<IntegrationsNotConnectedError>()(
+	"@maple/http/errors/IntegrationsNotConnectedError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 409,
+		code: "integration_not_connected",
+		title: "Integration not connected",
+		retry: "never",
+		recovery: "reconnect",
+		exposure: "public_message",
+	},
+) {}
+
+export class IntegrationsRevokedError extends HttpTaggedError<IntegrationsRevokedError>()(
+	"@maple/http/errors/IntegrationsRevokedError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 401,
+		code: "integration_authorization_revoked",
+		title: "Integration authorization revoked",
+		message: "The integration authorization was revoked. Reconnect and try again.",
+		retry: "never",
+		recovery: "reconnect",
+		exposure: "redacted",
+	},
+) {}
+
+export class IntegrationsUpstreamError extends HttpTaggedError<IntegrationsUpstreamError>()(
+	"@maple/http/errors/IntegrationsUpstreamError",
+	{
+		message: Schema.String,
+		status: Schema.optionalKey(Schema.Number),
+		cause: Schema.optionalKey(Schema.Defect()),
+	},
+	{
+		status: 502,
+		code: "integration_upstream_error",
+		title: "Integration provider is unavailable",
+		message: "The integration provider could not complete the request.",
+		retry: "backoff",
+		recovery: "retry",
+		exposure: "redacted",
+	},
+) {}
+
+export class IntegrationsPersistenceError extends HttpTaggedError<IntegrationsPersistenceError>()(
+	"@maple/http/errors/IntegrationsPersistenceError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 503,
+		code: "integration_persistence_unavailable",
+		title: "Integrations are temporarily unavailable",
+		message: "Integrations are temporarily unavailable. Retry in a few seconds.",
+		retry: "backoff",
+		recovery: "retry",
+		exposure: "redacted",
+	},
+) {}
+
+/**
+ * Named neither a connector nor a workspace Maple knows about — the id in the
+ * path does not resolve. One error for both because they answer the same way:
+ * the caller has to name something that exists.
+ */
+export class IntegrationsNotFoundError extends HttpTaggedError<IntegrationsNotFoundError>()(
+	"@maple/http/errors/IntegrationsNotFoundError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 404,
+		code: "integration_not_found",
+		title: "Integration not found",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "public_message",
+	},
+) {}
+
+/** The organization already has a connector for this Google Cloud project, folder or organization. */
+export class GcpScopeAlreadyConnectedError extends HttpTaggedError<GcpScopeAlreadyConnectedError>()(
+	"@maple/http/errors/GcpScopeAlreadyConnectedError",
+	{
+		scopeType: GcpScopeType,
+		scopeId: Schema.Union([GcpProjectId, GcpResourceNumber]),
+		message: Schema.String,
+	},
+	{
+		status: 409,
+		code: "gcp_scope_already_connected",
+		title: "Already connected",
+		param: "scope_id",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "public_message",
+	},
+) {}
+
+/** Metrics were requested on a deployment that has no Google identity to collect them with. */
+export class GcpMetricsUnavailableError extends HttpTaggedError<GcpMetricsUnavailableError>()(
+	"@maple/http/errors/GcpMetricsUnavailableError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 409,
+		code: "gcp_metrics_unavailable",
+		title: "Metrics collection is not available",
+		param: "metrics_enabled",
+		retry: "never",
+		recovery: "none",
+		exposure: "public_message",
+	},
+) {}
+
+/** The organization already has a connection for this AWS account. */
+export class AwsAccountAlreadyConnectedError extends HttpTaggedError<AwsAccountAlreadyConnectedError>()(
+	"@maple/http/errors/AwsAccountAlreadyConnectedError",
+	{
+		accountId: AwsAccountId,
+		message: Schema.String,
+	},
+	{
+		status: 409,
+		code: "aws_account_already_connected",
+		title: "Already connected",
+		param: "account_id",
+		retry: "never",
+		recovery: "fix_request",
+		exposure: "public_message",
+	},
+) {}
+
+/** This Maple deployment has no AWS identity to assume customer roles with. */
+export class AwsIntegrationUnavailableError extends HttpTaggedError<AwsIntegrationUnavailableError>()(
+	"@maple/http/errors/AwsIntegrationUnavailableError",
+	{
+		message: Schema.String,
+	},
+	{
+		status: 409,
+		code: "aws_integration_unavailable",
+		title: "AWS is not available",
+		retry: "never",
+		recovery: "none",
+		exposure: "public_message",
+	},
+) {}
+
+export type IntegrationHttpError =
+	| IntegrationsForbiddenError
+	| IntegrationsConfigurationError
+	| IntegrationsNotFoundError
+	| IntegrationsNotConnectedError
+	| IntegrationsRevokedError
+	| IntegrationsValidationError
+	| IntegrationsUpstreamError
+	| IntegrationsPersistenceError
+
+/**
+ * Dashboard control surface for the Hazel, Cloudflare, Railway and GitHub
+ * integrations, plus VCS lookups. Internal transport: session-only, absent from
+ * the public docs. PlanetScale and chat connectors are public v2 resources.
+ *
+ * The OAuth callbacks and webhook receivers are raw routers under `/api/...`,
+ * not part of this group: providers store those URLs on their side.
+ */
+export class IntegrationsApiGroup extends HttpApiGroup.make("integrations")
+	.add(
+		HttpApiEndpoint.get("hazelStatus", "/hazel/status", {
+			success: HazelIntegrationStatus,
+			error: IntegrationsPersistenceError,
+		}),
+	)
+	.add(
+		HttpApiEndpoint.post("hazelStart", "/hazel/start", {
+			payload: HazelStartConnectRequest,
+			success: HazelStartConnectResponse,
+			error: [
+				IntegrationsForbiddenError,
+				IntegrationsValidationError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("hazelOrganizations", "/hazel/organizations", {
+			success: HazelOrganizationsListResponse,
+			error: [
+				IntegrationsValidationError,
+				IntegrationsNotConnectedError,
+				IntegrationsRevokedError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("hazelChannels", "/hazel/organizations/:organizationId/channels", {
+			params: {
+				organizationId: Schema.String.check(Schema.isMinLength(1), Schema.isTrimmed()),
+			},
+			success: HazelChannelsListResponse,
+			error: [
+				IntegrationsValidationError,
+				IntegrationsNotConnectedError,
+				IntegrationsRevokedError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.delete("hazelDisconnect", "/hazel", {
+			success: HazelDisconnectResponse,
+			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("cloudflareStatus", "/cloudflare/status", {
+			success: CloudflareIntegrationStatus,
+			error: IntegrationsPersistenceError,
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("cloudflareUsage", "/cloudflare/usage", {
+			success: CloudflareUsageResponse,
+			error: IntegrationsPersistenceError,
+		}),
+	)
+	.add(
+		HttpApiEndpoint.post("cloudflareTopTraffic", "/cloudflare/top-traffic", {
+			payload: CloudflareTopTrafficRequest,
+			success: CloudflareTopTrafficResponse,
+			error: [
+				IntegrationsNotConnectedError,
+				IntegrationsValidationError,
+				IntegrationsRevokedError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.post("cloudflareStart", "/cloudflare/start", {
+			payload: CloudflareStartConnectRequest,
+			success: CloudflareStartConnectResponse,
+			error: [
+				IntegrationsForbiddenError,
+				IntegrationsValidationError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.delete("cloudflareDisconnect", "/cloudflare", {
+			success: CloudflareDisconnectResponse,
+			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// Bounded discovery + first-window poll, run on demand right after a connect.
+		HttpApiEndpoint.post("cloudflarePrime", "/cloudflare/prime", {
+			success: CloudflarePrimeResponse,
+			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// The org's polled Hyperdrive config inventory — consumed by the service map to
+		// resolve which origin database (e.g. PlanetScale) sits behind the Hyperdrive node.
+		HttpApiEndpoint.get("cloudflareHyperdrives", "/cloudflare/hyperdrive", {
+			success: CloudflareHyperdrivesResponse,
+			error: IntegrationsPersistenceError,
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("railwayStatus", "/railway/status", {
+			success: RailwayIntegrationStatus,
+			error: IntegrationsPersistenceError,
+		}),
+	)
+	.add(
+		// Validates the token against Railway (discovery + a metrics probe) before storing it.
+		HttpApiEndpoint.put("railwayConnect", "/railway", {
+			payload: RailwayConnectRequest,
+			success: RailwayIntegrationStatus,
+			error: [
+				IntegrationsForbiddenError,
+				IntegrationsValidationError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		// Polls now instead of waiting for the 5-minute cron; returns the refreshed status.
+		HttpApiEndpoint.post("railwaySync", "/railway/sync", {
+			success: RailwayIntegrationStatus,
+			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.delete("railwayDisconnect", "/railway", {
+			success: RailwayDisconnectResponse,
+			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("supabaseStatus", "/supabase/status", {
+			success: SupabaseIntegrationStatus,
+			error: IntegrationsPersistenceError,
+		}),
+	)
+	.add(
+		// Starts the Management API OAuth flow (PKCE); the callback binds the granted organization.
+		HttpApiEndpoint.post("supabaseConnect", "/supabase/connect", {
+			payload: SupabaseConnectRequest,
+			success: SupabaseConnectResponse,
+			error: [IntegrationsForbiddenError, IntegrationsConfigurationError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// Runs project discovery now instead of waiting for the hourly cron.
+		HttpApiEndpoint.post("supabaseSync", "/supabase/sync", {
+			success: SupabaseIntegrationStatus,
+			error: [IntegrationsForbiddenError, IntegrationsNotConnectedError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.patch("supabaseUpdateProject", "/supabase/projects/:ref", {
+			params: { ref: SupabaseProjectRef },
+			payload: SupabaseProjectUpdateRequest,
+			success: SupabaseIntegrationStatus,
+			error: [
+				IntegrationsForbiddenError,
+				IntegrationsNotFoundError,
+				IntegrationsNotConnectedError,
+				IntegrationsRevokedError,
+				IntegrationsPlanRequiredError,
+				IntegrationsValidationError,
+				IntegrationsConfigurationError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("supabaseProjectInsights", "/supabase/projects/:ref/insights", {
+			params: { ref: SupabaseProjectRef },
+			success: SupabaseProjectInsights,
+			error: [IntegrationsNotFoundError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.delete("supabaseDisconnect", "/supabase", {
+			success: SupabaseDisconnectResponse,
+			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// The inventory behind Infrastructure -> Google Cloud. Connectors are public v2
+		// (`/v2/integrations/gcp`); only the dashboard reads what they discovered.
+		HttpApiEndpoint.get("gcpResources", "/gcp/resources", {
+			query: Schema.Struct({
+				assetType: Schema.optional(GcpResourceFilterValue),
+				projectId: Schema.optional(GcpResourceFilterValue),
+				/** The last segment of the resource name: how a workload's page finds its resource. */
+				name: Schema.optional(GcpResourceFilterValue),
+			}),
+			success: GcpResourcesResponse,
+			error: IntegrationsPersistenceError,
+		}),
+	)
+	.add(
+		HttpApiEndpoint.get("githubStatus", "/github/status", {
+			success: GithubIntegrationStatus,
+			error: IntegrationsPersistenceError,
+		}),
+	)
+	.add(
+		// Finishes any OAuth / app-install return for the signed-in caller (see `oauth-return.ts`).
+		// Failures come back as an `error` status with display copy, like the old callback page.
+		HttpApiEndpoint.post("oauthComplete", "/oauth/complete", {
+			payload: OAuthCompleteRequest,
+			success: OAuthCompleteResponse,
+		}),
+	)
+	.add(
+		HttpApiEndpoint.post("githubStart", "/github/start", {
+			payload: GithubStartConnectRequest,
+			success: GithubStartConnectResponse,
+			error: [
+				IntegrationsForbiddenError,
+				IntegrationsValidationError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.delete("githubDisconnect", "/github", {
+			success: GithubDisconnectResponse,
+			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.delete("githubDeleteRepository", "/github/repositories/:repositoryId", {
+			params: {
+				repositoryId: VcsRepositoryId,
+			},
+			success: GithubDeleteRepositoryResponse,
+			// Validation: a repo can only be deleted once its provider access was
+			// removed (status "removed"); deleting an active repo is rejected (400).
+			error: [IntegrationsForbiddenError, IntegrationsValidationError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.put("githubSetTrackedBranch", "/github/repositories/:repositoryId/tracked-branch", {
+			params: {
+				repositoryId: VcsRepositoryId,
+			},
+			payload: GithubSetTrackedBranchRequest,
+			success: GithubSetTrackedBranchResponse,
+			error: [IntegrationsForbiddenError, IntegrationsValidationError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// Org-wide opt-out of CI traces from GitHub Actions. Admin only.
+		HttpApiEndpoint.put("githubSetCiTraces", "/github/ci-traces", {
+			payload: GithubSetCiTracesRequest,
+			success: GithubSetCiTracesResponse,
+			error: [IntegrationsForbiddenError, IntegrationsValidationError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// Per-repository opt-in to the pull request review. Admin only,
+		// like every other write on the integration.
+		HttpApiEndpoint.put("githubSetPrReview", "/github/repositories/:repositoryId/pr-review", {
+			params: {
+				repositoryId: VcsRepositoryId,
+			},
+			payload: GithubSetPrReviewRequest,
+			success: GithubSetPrReviewResponse,
+			error: [IntegrationsForbiddenError, IntegrationsValidationError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// A repository's review settings. Read by any member, written by admins.
+		HttpApiEndpoint.get(
+			"githubGetPrReviewConfig",
+			"/github/repositories/:repositoryId/pr-review/config",
+			{
+				params: { repositoryId: VcsRepositoryId },
+				success: GithubPrReviewConfigResponse,
+				error: [
+					IntegrationsForbiddenError,
+					IntegrationsValidationError,
+					IntegrationsPersistenceError,
+				],
+			},
+		),
+	)
+	.add(
+		HttpApiEndpoint.put(
+			"githubSetPrReviewConfig",
+			"/github/repositories/:repositoryId/pr-review/config",
+			{
+				params: { repositoryId: VcsRepositoryId },
+				payload: GithubPrReviewConfigRequest,
+				success: GithubPrReviewConfigResponse,
+				error: [
+					IntegrationsForbiddenError,
+					IntegrationsValidationError,
+					IntegrationsPersistenceError,
+				],
+			},
+		),
+	)
+	.add(
+		// Organization-wide review settings: the model and the rules every repository inherits. Read by any member, written by admins.
+		HttpApiEndpoint.get("githubGetPrReviewSettings", "/github/pr-review/settings", {
+			success: GithubPrReviewSettingsResponse,
+			error: [IntegrationsForbiddenError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.put("githubSetPrReviewSettings", "/github/pr-review/settings", {
+			payload: GithubPrReviewSettingsRequest,
+			success: GithubPrReviewSettingsResponse,
+			error: [IntegrationsForbiddenError, IntegrationsValidationError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// Vendor-neutral: resolves a commit by SHA across all connected providers.
+		// `:sha` is a raw string (NOT `GitCommitSha`) on purpose — unguarded telemetry
+		// values must reach the handler so they surface as VcsCommitShaInvalidError
+		// (422) rather than a generic decode 400.
+		HttpApiEndpoint.get("vcsCommitDetail", "/vcs/commits/:sha", {
+			params: {
+				sha: Schema.String.check(Schema.isMinLength(1)),
+			},
+			success: VcsCommitDetailResponse,
+			error: [
+				VcsCommitShaInvalidError,
+				VcsCommitNotFoundError,
+				IntegrationsNotConnectedError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.add(
+		// Bulk sibling of vcsCommitDetail, for list views that would otherwise
+		// issue one request (and one CORS preflight) per row. `shas` is a raw
+		// comma-separated string for the same reason `:sha` is raw above —
+		// unguarded telemetry values must reach the handler, which drops the
+		// ones it can't resolve instead of failing the whole batch.
+		HttpApiEndpoint.get("vcsCommitDetails", "/vcs/commits", {
+			query: Schema.Struct({
+				shas: Schema.String.check(Schema.isMinLength(1)),
+			}),
+			success: VcsCommitDetailsResponse,
+			error: [IntegrationsNotConnectedError, IntegrationsUpstreamError, IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// `ranges` is `base..head` pairs, comma-separated, answered in request order.
+		// Raw strings like `shas` above: an unresolvable end reads `unavailable`.
+		HttpApiEndpoint.get("vcsCommitRanges", "/vcs/commit-ranges", {
+			query: Schema.Struct({
+				ranges: Schema.String.check(Schema.isMinLength(1)),
+				limit: Schema.optional(
+					Schema.FiniteFromString.check(
+						Schema.isBetween({ minimum: 0, maximum: VCS_COMMIT_RANGE_COMMITS_MAX }),
+					),
+				),
+			}),
+			success: VcsCommitRangesResponse,
+			error: [IntegrationsPersistenceError],
+		}),
+	)
+	.add(
+		// Scoped to one repository the org has connected, so the picker's options can
+		// never come from a repo this tenant cannot see. `limit` is bounded because
+		// the provider call behind it fetches a single page — this lists the PRs
+		// somebody might be about to attach, not a repository's history.
+		HttpApiEndpoint.get("vcsPullRequests", "/vcs/pull-requests", {
+			query: Schema.Struct({
+				repository: Schema.String.check(Schema.isMinLength(1)),
+				limit: Schema.optional(
+					Schema.FiniteFromString.check(
+						Schema.isBetween({ minimum: 1, maximum: VCS_PULL_REQUESTS_MAX_LIMIT }),
+					),
+				),
+			}),
+			success: VcsPullRequestsResponse,
+			error: [
+				IntegrationsNotConnectedError,
+				IntegrationsValidationError,
+				IntegrationsUpstreamError,
+				IntegrationsPersistenceError,
+			],
+		}),
+	)
+	.prefix("/internal/integrations")
+	.middleware(SessionAuthorization) {}

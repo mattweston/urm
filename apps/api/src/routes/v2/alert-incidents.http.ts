@@ -1,0 +1,65 @@
+import { HttpApiBuilder } from "effect/http-api"
+import type { AlertIncidentDocument } from "@maple/domain/http"
+import { CurrentTenant } from "@maple/domain/http"
+import type { V2AlertIncident } from "@maple/domain/http/v2"
+import { MapleApiV2, paginateOffsetQuery } from "@maple/domain/http/v2"
+import { Effect } from "effect"
+import { AlertReadModelsService } from "@maple/backend/services/alerts/AlertReadModelsService"
+
+const toV2Incident = (doc: AlertIncidentDocument): V2AlertIncident => ({
+	id: doc.id,
+	object: "alert_incident",
+	rule_id: doc.ruleId,
+	rule_name: doc.ruleName,
+	group_key: doc.groupKey,
+	signal_type: doc.signalType,
+	severity: doc.severity,
+	peak_severity: doc.peakSeverity,
+	status: doc.status,
+	comparator: doc.comparator,
+	threshold: doc.threshold,
+	threshold_upper: doc.thresholdUpper,
+	first_triggered_at: doc.firstTriggeredAt,
+	last_triggered_at: doc.lastTriggeredAt,
+	resolved_at: doc.resolvedAt,
+	last_observed_value: doc.lastObservedValue,
+	last_sample_count: doc.lastSampleCount,
+	dedupe_key: doc.dedupeKey,
+	last_delivered_event_type: doc.lastDeliveredEventType,
+	last_notified_at: doc.lastNotifiedAt,
+	hold_reason: doc.holdReason,
+	held_since: doc.heldSince,
+	error_issue_id: doc.errorIssueId,
+})
+
+export const HttpV2AlertIncidentsLive = HttpApiBuilder.group(MapleApiV2, "alertIncidents", (handlers) =>
+	Effect.gen(function* () {
+		const readModels = yield* AlertReadModelsService
+
+		return handlers
+			.handle("list", ({ query }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const page = yield* paginateOffsetQuery(query, ({ limit, offset }) =>
+						readModels
+							.listIncidents(tenant.orgId, {
+								...(query.status !== undefined ? { status: query.status } : undefined),
+								...(query.rule_id !== undefined ? { ruleId: query.rule_id } : undefined),
+								limit,
+								offset,
+							})
+							.pipe(Effect.map((response) => response.incidents.map(toV2Incident))),
+					)
+					return { object: "list" as const, ...page }
+				}),
+			)
+			.handle("retrieve", ({ params }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const incident = yield* readModels.getIncident(tenant.orgId, params.id)
+
+					return toV2Incident(incident)
+				}),
+			)
+	}),
+)

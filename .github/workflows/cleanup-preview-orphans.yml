@@ -1,0 +1,96 @@
+name: Cleanup Preview Orphans
+
+# Backstop for preview resources the close-event teardown misses (no `closed` run
+# for a conflicting PR, PRs running an old workflow file, a deploy landing after close).
+# Sweeps map `pr-<n>` names to THIS repo's PR numbers: never share these accounts with another repo.
+
+on:
+    schedule:
+        # Orphaned Tinybird branches share production compute.
+        - cron: "17 */6 * * *"
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    pull-requests: read # sweep checks each pr-<n> branch's PR state
+    actions: read # stage sweep skips a PR whose preview deploy is queued or running
+    id-token: write # Infisical OIDC machine-identity auth
+
+concurrency:
+    group: cleanup-preview-orphans
+    cancel-in-progress: false
+
+jobs:
+    sweep:
+        runs-on: ubuntu-latest
+        timeout-minutes: 120
+        # `maintenance` (main only) carries this job's own Infisical identity, limited to `dev`.
+        environment: maintenance
+        env:
+            INFISICAL_ENV_SLUG: dev
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+            # Pinned uv and CLI versions instead of piping the vendor install script to sh.
+            # A uv failure only fails the CLI install below, which skips just the Tinybird sweep.
+            - name: Install uv
+              continue-on-error: true
+              uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+
+            # Before secrets load, so the installer never sees them. `continue-on-error` so a
+            # tinybird.co outage skips only the Tinybird sweep, not all of them.
+            - name: Install Tinybird CLI
+              id: install-tinybird-cli
+              continue-on-error: true
+              run: |
+                  uv tool install tinybird==5.0.2 --python 3.11
+                  uv tool dir --bin >> "$GITHUB_PATH"
+
+            # Toolchain, Infisical secrets, AWS OIDC credentials, deps. The deploy role must
+            # trust `repo:<org>/<repo>:environment:maintenance`.
+            - name: Deploy setup
+              id: setup
+              uses: ./.github/actions/deploy-setup
+              with:
+                  infisical-env-slug: ${{ env.INFISICAL_ENV_SLUG }}
+                  infisical-identity-id: ${{ secrets.INFISICAL_MACHINE_IDENTITY_ID }}
+                  infisical-project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+                  aws-role-arn: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+                  ingest-binary: "false"
+
+            - name: Build alchemy deps
+              id: build-deps
+              run: bun run alchemy:build-deps
+
+            - name: Sweep orphaned Tinybird PR branches
+              if: ${{ !cancelled() && env.TINYBIRD_TOKEN != '' && steps.install-tinybird-cli.outcome == 'success' }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: bun scripts/tinybird-pr-branch.ts sweep
+
+            # Whole closed-PR stages (AWS included) via `alchemy destroy`, then their Neon
+            # branch and retained R2 bucket. Before the Worker/Hyperdrive sweeps: alchemy
+            # destroy wants its resources present.
+            - name: Tear down orphaned preview stages
+              if: ${{ !cancelled() && steps.build-deps.outcome == 'success' && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  AWS_ACCOUNT_ID: ${{ steps.setup.outputs.aws-account-id }}
+              run: bun scripts/preview-stage-orphan-sweep.ts
+
+            # Workers before Hyperdrive (zombie crons on a deleted config flood logs), and
+            # Queues before Workers (a registered consumer can't be deleted, error 10064).
+            - name: Sweep orphaned preview Queues and Workers
+              if: ${{ !cancelled() && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: bun scripts/cloudflare-worker-orphan-sweep.ts
+
+            # Each preview creates one; leaked
+            # `maple-db-pr-*` configs count against the 25-per-account cap.
+            - name: Sweep orphaned Hyperdrive PR configs
+              if: ${{ !cancelled() && env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != '' }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: bun scripts/hyperdrive-orphan-sweep.ts

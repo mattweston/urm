@@ -1,0 +1,454 @@
+import { randomUUID } from "node:crypto"
+import type { AlertSeverity, IssueSeverity, OrgId, WorkflowState } from "@maple/domain/http"
+import {
+	ActorId,
+	type AlertIncidentId,
+	type AlertRuleId,
+	ErrorIssueEventId,
+	ErrorIssueId,
+} from "@maple/domain/primitives"
+import * as PG from "@maple-dev/effect-orm/postgres"
+import { Actors, AlertIncidents, ErrorIssueEvents, ErrorIssues, type ErrorIssueRow } from "@maple/db/tables"
+import { Clock, Effect, Schema } from "effect"
+import { Database } from "@maple/backend/platform/DatabaseLive"
+import type { MaybeEnqueueTriageInput } from "./ai-triage-enqueue"
+import { issueSeverityFromAlert } from "./severity-map"
+import { SYSTEM_ALERTS_AGENT_NAME } from "@maple/backend/services/auth/system-actors"
+import { summarizeCause } from "@maple/backend/platform/describe-cause"
+
+/**
+ * Issue-hub glue: alert incidents create/refresh `error_issues` rows
+ * (kind="alert") so the issues queue is the single triage surface. Standalone
+ * over `Database` (in the style of ai-triage-enqueue.ts) so AlertsService
+ * doesn't need the full ErrorsService layer.
+ */
+
+const decodeIssueId = Schema.decodeUnknownSync(ErrorIssueId)
+const decodeEventId = Schema.decodeUnknownSync(ErrorIssueEventId)
+const decodeActorId = Schema.decodeUnknownSync(ActorId)
+
+/**
+ * Synthetic dedupe key for alert-backed issues. Real error fingerprints are
+ * decimal UInt64 strings from ClickHouse, so the `alert:` prefix can never
+ * collide with them inside the UNIQUE(orgId, fingerprintHash) index.
+ */
+export const alertIssueFingerprint = (ruleId: string, groupKey: string) => `alert:${ruleId}:${groupKey}`
+
+/** Detection-time severity mapping; refined later by AI triage or a human. */
+export const detectorSeverityFor = (severity: AlertSeverity): IssueSeverity =>
+	severity === "critical" ? "critical" : "medium"
+
+export interface UpsertAlertIssueInput {
+	readonly orgId: OrgId
+	readonly ruleId: AlertRuleId
+	readonly ruleName: string
+	readonly groupKey: string
+	readonly signalType: string
+	readonly severity: AlertSeverity
+	readonly comparator: string
+	readonly threshold: number
+	readonly thresholdUpper: number | null
+	readonly windowMinutes: number
+	readonly observedValue: number | null
+	readonly sampleCount: number
+	readonly incidentId: AlertIncidentId
+	readonly serviceName: string
+	readonly timestamp: number
+}
+
+export interface UpsertAlertIssueResult {
+	readonly issueId: ErrorIssueId | null
+	readonly action: "created" | "reopened" | "refreshed" | "skipped" | "error"
+	/**
+	 * The investigation start this incident asks for, or null. The caller runs it once its
+	 * own writes are done: a start awaits a model call, which a scheduler tick cannot hold.
+	 */
+	readonly triage: MaybeEnqueueTriageInput | null
+}
+
+const describeIncident = (input: UpsertAlertIssueInput): string => {
+	const observed = input.observedValue == null ? "no data" : `observed ${input.observedValue}`
+	const bound =
+		input.thresholdUpper == null ? `${input.threshold}` : `${input.threshold}..${input.thresholdUpper}`
+	const group = input.groupKey === "__total__" ? "" : ` (group ${input.groupKey})`
+	return `${input.signalType} ${input.comparator} ${bound} — ${observed}${group}`
+}
+
+/**
+ * The system-alerts actor row is upserted immediately above, so a follow-up
+ * select that finds nothing means the write and the read disagreed — a defect,
+ * not something the alert tick could handle. The org and agent name are what
+ * make it reproducible.
+ */
+class SystemActorMissingError extends Schema.TaggedError<SystemActorMissingError>()(
+	"@maple/backend/errors/SystemActorMissingError",
+	{ orgId: Schema.String, agentName: Schema.String, message: Schema.String },
+) {}
+
+const ensureSystemAlertsActor = Effect.fn("IssueHub.ensureSystemAlertsActor")(function* (orgId: OrgId) {
+	const database = yield* Database
+	const select = () =>
+		database.execute((db) =>
+			db.run(
+				PG.from(Actors)
+					.select()
+					.where(($) => [
+						$.orgId.eq(orgId),
+						$.type.eq("agent"),
+						$.agentName.eq(SYSTEM_ALERTS_AGENT_NAME),
+					])
+					.limit(1),
+			),
+		)
+	const existing = yield* select()
+	if (existing[0]) return existing[0].id
+
+	const timestamp = yield* Clock.currentTimeMillis
+	yield* database.execute((db) =>
+		db.run(
+			PG.insertInto(Actors)
+				.values({
+					id: decodeActorId(randomUUID()),
+					orgId,
+					type: "agent",
+					userId: null,
+					agentName: SYSTEM_ALERTS_AGENT_NAME,
+					model: null,
+					capabilitiesJson: ["system", "alert-issues"],
+					createdBy: null,
+					createdAt: timestamp,
+					lastActiveAt: timestamp,
+				})
+				.onConflictDoNothing(),
+		),
+	)
+	const after = yield* select()
+	const row = after[0]
+	if (!row) {
+		// The row was upserted two statements above; a select that then finds nothing
+		// means the write and the read disagree, which the alert tick cannot act on.
+		// oxlint-disable-next-line maple/no-effect-die
+		return yield* Effect.die(
+			new SystemActorMissingError({
+				orgId,
+				agentName: SYSTEM_ALERTS_AGENT_NAME,
+				message: "Failed to ensure the system-alerts actor row",
+			}),
+		)
+	}
+	return row.id
+})
+
+/**
+ * Create-or-refresh the issue backing an alert incident that just opened.
+ *
+ * Never fails: every error path is logged and reported via `action: "error"`
+ * so the per-minute alert scheduler tick is isolated from issue-hub problems.
+ */
+export const upsertAlertIssue: (
+	input: UpsertAlertIssueInput,
+) => Effect.Effect<UpsertAlertIssueResult, never, Database> = Effect.fn("IssueHub.upsertAlertIssue")(
+	function* (input: UpsertAlertIssueInput) {
+		const database = yield* Database
+		const fingerprintHash = alertIssueFingerprint(input.ruleId, input.groupKey)
+		const sourceRefJson = {
+			ruleId: input.ruleId,
+			groupKey: input.groupKey,
+			signalType: input.signalType,
+			latestIncidentId: input.incidentId,
+		}
+
+		const existingRows = yield* database.execute((db) =>
+			db.run(
+				PG.from(ErrorIssues)
+					.select()
+					.where(($) => [$.orgId.eq(input.orgId), $.fingerprintHash.eq(fingerprintHash)])
+					.limit(1),
+			),
+		)
+		const prior: ErrorIssueRow | undefined = existingRows[0]
+
+		let issueId: ErrorIssueId
+		let action: UpsertAlertIssueResult["action"]
+
+		if (prior === undefined) {
+			const candidateId = decodeIssueId(randomUUID())
+			// The select above and this insert are separate statements, so two
+			// scheduler ticks can both miss the fingerprint and both insert. Without
+			// the conflict clause the loser raises `error_issues_org_fp_idx`.
+			const claimed = yield* database.execute((db) =>
+				db.run(
+					PG.insertInto(ErrorIssues)
+						.values({
+							id: candidateId,
+							orgId: input.orgId,
+							kind: "alert",
+							sourceRefJson,
+							fingerprintHash,
+							serviceName: input.serviceName,
+							exceptionType: input.ruleName,
+							exceptionMessage: describeIncident(input),
+							errorLabel: input.ruleName,
+							topFrame: "",
+							workflowState: "triage",
+							priority: 3,
+							severity: detectorSeverityFor(input.severity),
+							severitySource: "detector",
+							assignedActorId: null,
+							leaseHolderActorId: null,
+							leaseExpiresAt: null,
+							claimedAt: null,
+							notes: null,
+							firstSeenAt: input.timestamp,
+							lastSeenAt: input.timestamp,
+							occurrenceCount: 1,
+							resolvedAt: null,
+							resolvedByActorId: null,
+							snoozeUntil: null,
+							archivedAt: null,
+							createdAt: input.timestamp,
+							updatedAt: input.timestamp,
+						})
+						.onConflictDoNothing({ target: ["orgId", "fingerprintHash"] })
+						.returning("id"),
+				),
+			)
+
+			const insertedId = claimed[0]?.id
+			if (insertedId === undefined) {
+				// A concurrent tick created it. Adopt their row and report it as an
+				// update — emitting a second `created` event would double the history.
+				const winner = yield* database.execute((db) =>
+					db.run(
+						PG.from(ErrorIssues)
+							.select("id")
+							.where(($) => [$.orgId.eq(input.orgId), $.fingerprintHash.eq(fingerprintHash)])
+							.limit(1),
+					),
+				)
+				issueId = winner[0]?.id ?? candidateId
+				action = "refreshed"
+			} else {
+				issueId = insertedId
+				action = "created"
+				const actorId = yield* ensureSystemAlertsActor(input.orgId)
+				yield* recordIssueEvent(input.orgId, issueId, actorId, "created", {
+					toState: "triage",
+					payload: {
+						ruleId: input.ruleId,
+						ruleName: input.ruleName,
+						groupKey: input.groupKey,
+						signalType: input.signalType,
+						incidentId: input.incidentId,
+					},
+					timestamp: input.timestamp,
+				})
+			}
+		} else {
+			issueId = prior.id
+			const snoozeActive =
+				prior.workflowState === "wontfix" &&
+				(prior.snoozeUntil == null || prior.snoozeUntil > input.timestamp)
+			if (snoozeActive) {
+				// Mirrors the errors tick: a wontfix issue with an active (or
+				// indefinite) snooze is left alone entirely.
+				return { issueId, action: "skipped" as const, triage: null }
+			}
+
+			yield* database.execute((db) =>
+				db.run(
+					PG.update(ErrorIssues)
+						.set(($) => ({
+							lastSeenAt: input.timestamp,
+							occurrenceCount: $.occurrenceCount.add(1),
+							exceptionMessage: describeIncident(input),
+							sourceRefJson,
+							updatedAt: input.timestamp,
+						}))
+						.where(($) => [$.orgId.eq(input.orgId), $.id.eq(prior.id)]),
+				),
+			)
+			// Backfill the detector severity only while severity is still unset
+			// (precedence: manual > ai > detector).
+			yield* database.execute((db) =>
+				db.run(
+					PG.update(ErrorIssues)
+						.set({
+							severity: detectorSeverityFor(input.severity),
+							severitySource: "detector",
+						})
+						.where(($) => [$.orgId.eq(input.orgId), $.id.eq(prior.id), $.severity.isNull()]),
+				),
+			)
+			const reopenFrom: WorkflowState | null =
+				prior.workflowState === "done" || prior.workflowState === "wontfix"
+					? prior.workflowState
+					: null
+			if (reopenFrom !== null) {
+				action = "reopened"
+				yield* database.execute((db) =>
+					db.run(
+						PG.update(ErrorIssues)
+							.set({
+								workflowState: "triage",
+								resolvedAt: null,
+								resolvedByActorId: null,
+								snoozeUntil: null,
+								updatedAt: input.timestamp,
+							})
+							.where(($) => [$.orgId.eq(input.orgId), $.id.eq(prior.id)]),
+					),
+				)
+				const actorId = yield* ensureSystemAlertsActor(input.orgId)
+				yield* recordIssueEvent(input.orgId, issueId, actorId, "state_change", {
+					fromState: reopenFrom,
+					toState: "triage",
+					payload: { viaRegression: true, incidentId: input.incidentId },
+					timestamp: input.timestamp,
+				})
+				yield* recordIssueEvent(input.orgId, issueId, actorId, "regression", {
+					payload: { incidentId: input.incidentId, ruleId: input.ruleId },
+					timestamp: input.timestamp,
+				})
+			} else {
+				action = "refreshed"
+			}
+			// After the reopen, which takes a wontfix issue out of the raise's exclusion.
+			if (input.severity === "critical")
+				yield* raiseDetectorSeverity(input.orgId, fingerprintHash, input.timestamp)
+		}
+
+		yield* database.execute((db) =>
+			db.run(
+				PG.update(AlertIncidents)
+					.set({ errorIssueId: issueId, updatedAt: input.timestamp })
+					.where(($) => [$.orgId.eq(input.orgId), $.id.eq(input.incidentId)]),
+			),
+		)
+
+		const triage: MaybeEnqueueTriageInput = {
+			orgId: input.orgId,
+			incidentKind: "alert",
+			incidentId: input.incidentId,
+			issueId,
+			context: {
+				kind: "alert",
+				ruleName: input.ruleName,
+				signalType: input.signalType,
+				// `AlertSeverity` is a two-value scale and the snapshot decodes a
+				// four-value one, so passing it through unmapped meant every `warning`
+				// alert failed the decode and arrived as an unclassified incident.
+				severity: issueSeverityFromAlert(input.severity),
+				comparator: input.comparator,
+				threshold: input.threshold,
+				thresholdUpper: input.thresholdUpper,
+				windowMinutes: input.windowMinutes,
+				groupKey: input.groupKey,
+				serviceName: input.serviceName,
+				observedValue: input.observedValue,
+				sampleCount: input.sampleCount,
+				firstTriggeredAt: new Date(input.timestamp).toISOString(),
+				lastTriggeredAt: new Date(input.timestamp).toISOString(),
+				issueId,
+			},
+		}
+
+		return { issueId, action, triage }
+	},
+	(effect, input) =>
+		Effect.catchCause(effect, (cause) =>
+			Effect.gen(function* () {
+				yield* Effect.logError("Alert issue upsert failed").pipe(
+					Effect.annotateLogs({
+						orgId: input.orgId,
+						ruleId: input.ruleId,
+						incidentId: input.incidentId,
+						error: summarizeCause(cause),
+					}),
+				)
+				return { issueId: null, action: "error" as const, triage: null }
+			}),
+		),
+)
+
+/**
+ * Raise an alert issue's severity when its incident escalates, while the severity is still the
+ * detector's (manual > ai > detector). Never fails, like `upsertAlertIssue`.
+ */
+export const escalateAlertIssue = Effect.fn("IssueHub.escalateAlertIssue")(
+	function* (input: {
+		readonly orgId: OrgId
+		readonly ruleId: AlertRuleId
+		readonly groupKey: string
+		readonly timestamp: number
+	}) {
+		yield* raiseDetectorSeverity(
+			input.orgId,
+			alertIssueFingerprint(input.ruleId, input.groupKey),
+			input.timestamp,
+		)
+	},
+	(effect, input) =>
+		Effect.catchCause(effect, (cause) =>
+			Effect.logError("Alert issue escalation failed").pipe(
+				Effect.annotateLogs({
+					orgId: input.orgId,
+					ruleId: input.ruleId,
+					error: summarizeCause(cause),
+				}),
+			),
+		),
+)
+
+/** Raise a detector-set alert issue to critical; manual and AI severities and wontfix issues stay. */
+const raiseDetectorSeverity = Effect.fn("IssueHub.raiseDetectorSeverity")(function* (
+	orgId: OrgId,
+	fingerprintHash: string,
+	timestamp: number,
+) {
+	const database = yield* Database
+	const critical = detectorSeverityFor("critical")
+	yield* database.execute((db) =>
+		db.run(
+			PG.update(ErrorIssues)
+				.set({ severity: critical, updatedAt: timestamp })
+				.where(($) => [
+					$.orgId.eq(orgId),
+					$.fingerprintHash.eq(fingerprintHash),
+					$.severitySource.eq("detector"),
+					$.severity.neq(critical),
+					$.workflowState.neq("wontfix"),
+				]),
+		),
+	)
+})
+
+const recordIssueEvent = Effect.fn("IssueHub.recordIssueEvent")(function* (
+	orgId: OrgId,
+	issueId: ErrorIssueId,
+	actorId: ActorId,
+	type: "created" | "state_change" | "regression",
+	opts: {
+		readonly fromState?: WorkflowState
+		readonly toState?: WorkflowState
+		readonly payload?: Record<string, unknown>
+		readonly timestamp: number
+	},
+) {
+	const database = yield* Database
+	yield* database.execute((db) =>
+		db.run(
+			PG.insertInto(ErrorIssueEvents).values({
+				id: decodeEventId(randomUUID()),
+				orgId,
+				issueId,
+				actorId,
+				type,
+				fromState: opts.fromState ?? null,
+				toState: opts.toState ?? null,
+				payloadJson: opts.payload ?? {},
+				createdAt: opts.timestamp,
+			}),
+		),
+	)
+})

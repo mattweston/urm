@@ -1,0 +1,263 @@
+import { describe, it } from "@effect/vitest"
+import { deepStrictEqual, strictEqual, throws } from "node:assert"
+import { homedir } from "node:os"
+import { join } from "node:path"
+import {
+	buildDetachedChildArgs,
+	commandScope,
+	defaultDataDir,
+	defaultLocalUrl,
+	ingestedSince,
+	storeChangedSince,
+	mapleCommand,
+	parseElapsedSeconds,
+	prettyPath,
+	shellWord,
+	startedBeforeWrite,
+	hostedDashboardUrl,
+	hostedUiOrigin,
+	isProcessAlive,
+	type DirtyStorePolicy,
+	resolveAdvertiseHost,
+	resolveBindHost,
+	serverProbeUrl,
+	serverUrl,
+	validateHost,
+} from "../src/commands/server-args"
+
+describe("local server bind host", () => {
+	it("defaults to loopback and accepts a trimmed environment override", () => {
+		strictEqual(resolveBindHost(undefined), "127.0.0.1")
+		strictEqual(resolveBindHost("  "), "127.0.0.1")
+		strictEqual(resolveBindHost(" 0.0.0.0 "), "0.0.0.0")
+		strictEqual(resolveBindHost(" [::] "), "::")
+	})
+
+	it("formats IPv6 URLs and probes wildcard binds through loopback", () => {
+		strictEqual(serverUrl("::1", 4318), "http://[::1]:4318")
+		strictEqual(serverProbeUrl("0.0.0.0", 4318), "http://127.0.0.1:4318")
+		strictEqual(serverProbeUrl("::", 4318), "http://[::1]:4318")
+		strictEqual(serverProbeUrl("[::]", 4318), "http://[::1]:4318")
+	})
+
+	it("separates the bind address from the client-facing address", () => {
+		strictEqual(resolveAdvertiseHost(undefined, undefined, "0.0.0.0"), "127.0.0.1")
+		strictEqual(
+			resolveAdvertiseHost(undefined, " node-a.example.test ", "0.0.0.0"),
+			"node-a.example.test",
+		)
+		strictEqual(resolveAdvertiseHost(" 192.0.2.10 ", "ignored", "0.0.0.0"), "192.0.2.10")
+		strictEqual(resolveAdvertiseHost("  ", " [::1] ", "0.0.0.0"), "::1")
+	})
+
+	it("derives the normal CLI target from the configured bind host", () => {
+		strictEqual(defaultLocalUrl(undefined), "http://127.0.0.1:4318")
+		strictEqual(defaultLocalUrl("192.0.2.10"), "http://192.0.2.10:4318")
+		strictEqual(defaultLocalUrl("0.0.0.0"), "http://127.0.0.1:4318")
+		strictEqual(defaultLocalUrl("::"), "http://[::1]:4318")
+	})
+
+	it("marks custom hosted dashboards as loopback clients without discarding their URL", () => {
+		strictEqual(
+			hostedDashboardUrl("https://local-preview.maple.dev/preview?channel=next", 4418),
+			"https://local-preview.maple.dev/preview?channel=next&port=4418&maple-local-api=loopback",
+		)
+	})
+
+	it("reports malformed hosted UI URLs clearly", () => {
+		throws(() => hostedUiOrigin("not a url"), /invalid hosted UI URL.*absolute HTTP\(S\) URL/)
+		throws(() => hostedUiOrigin("file:///tmp/local-ui"), /invalid hosted UI URL.*absolute HTTP\(S\) URL/)
+	})
+
+	it("validates explicit bind and advertise hosts before URL construction", () => {
+		strictEqual(validateHost(" [::] "), "::")
+		strictEqual(validateHost(" maple.home.arpa "), "maple.home.arpa")
+		throws(() => validateHost("  "), /non-empty hostname/)
+		throws(() => validateHost("foo bar"), /bare hostname/)
+		throws(() => validateHost("https://maple.home.arpa"), /bare hostname/)
+		throws(() => validateHost("maple.home.arpa:4318"), /invalid hostname/)
+	})
+})
+
+describe("buildDetachedChildArgs", () => {
+	for (const policy of ["wipe", "fail", "restore-checkpoint"] satisfies DirtyStorePolicy[]) {
+		it(`forwards ${policy} exactly once`, () => {
+			const args = buildDetachedChildArgs({
+				entry: "/repo/apps/cli/src/bin.ts",
+				host: "0.0.0.0",
+				advertiseHost: "node-a.example.test",
+				port: 4318,
+				dataDir: "/tmp/maple data",
+				offline: true,
+				chdbConfigFile: "/tmp/backup config.xml",
+				onDirtyStore: policy,
+				minimumRawTelemetryRetentionDays: 120,
+				checkpointInterval: "30m",
+			})
+			deepStrictEqual(args, [
+				"/repo/apps/cli/src/bin.ts",
+				"start",
+				"--host",
+				"0.0.0.0",
+				"--advertise-host",
+				"node-a.example.test",
+				"--port",
+				"4318",
+				"--data-dir",
+				"/tmp/maple data",
+				"--on-dirty-store",
+				policy,
+				"--checkpoint-interval",
+				"30m",
+				"--chdb-config-file",
+				"/tmp/backup config.xml",
+				"--minimum-raw-telemetry-retention-days",
+				"120",
+				"--offline",
+			])
+			strictEqual(args.filter((arg) => arg === "--on-dirty-store").length, 1)
+			strictEqual(args.includes("--background"), false)
+			strictEqual(args.includes("-d"), false)
+		})
+	}
+
+	it("omits the virtual compiled entrypoint and optional flags", () => {
+		deepStrictEqual(
+			buildDetachedChildArgs({
+				entry: "/$bunfs/root/maple",
+				host: "127.0.0.1",
+				advertiseHost: "127.0.0.1",
+				port: 4418,
+				dataDir: "/data",
+				offline: false,
+				chdbConfigFile: undefined,
+				onDirtyStore: "fail",
+				minimumRawTelemetryRetentionDays: undefined,
+				// Not optional, unlike the flags below: an omitted cadence would come
+				// back as the default, so `off` has to survive the re-exec.
+				checkpointInterval: "off",
+			}),
+			[
+				"start",
+				"--host",
+				"127.0.0.1",
+				"--advertise-host",
+				"127.0.0.1",
+				"--port",
+				"4418",
+				"--data-dir",
+				"/data",
+				"--on-dirty-store",
+				"fail",
+				"--checkpoint-interval",
+				"off",
+			],
+		)
+	})
+})
+
+describe("isProcessAlive", () => {
+	it("treats a PID file naming this very process as stale", () => {
+		// A container restarts `maple start` as PID 1 every time, and the PID file
+		// survives on the data volume, so `kill(1, 0)` succeeding must not read as
+		// "already running" or the container never starts again.
+		strictEqual(isProcessAlive(process.pid), false)
+	})
+
+	it("never treats a non-positive PID as alive", () => {
+		// kill(0, 0) / kill(-n, 0) signal process groups and succeed for our own.
+		strictEqual(isProcessAlive(0), false)
+		strictEqual(isProcessAlive(-1), false)
+		strictEqual(isProcessAlive(Number.NaN), false)
+	})
+
+	it("still reports a real foreign process as alive", () => {
+		// The parent shell/runner is the one live process whose PID we can know.
+		strictEqual(isProcessAlive(process.ppid), true)
+	})
+})
+
+describe("recovery hints keep the user's target", () => {
+	it("adds nothing for the default store, port and host", () => {
+		const scope = commandScope({
+			dataDir: defaultDataDir(),
+			port: 4318,
+			host: process.env.MAPLE_LOCAL_BIND_HOST ?? "127.0.0.1",
+		})
+		strictEqual(mapleCommand("reset --yes", scope), "maple reset --yes")
+		strictEqual(mapleCommand("start --reset", scope), "maple start --reset")
+	})
+
+	it("echoes a non-default data dir into every command, and port/host only where accepted", () => {
+		const scope = commandScope({
+			dataDir: join(homedir(), ".maple", "data-b"),
+			port: 4391,
+			host: "0.0.0.0",
+		})
+		strictEqual(mapleCommand("reset --yes", scope), "maple reset --yes --data-dir ~/.maple/data-b")
+		strictEqual(mapleCommand("restore --yes", scope), "maple restore --yes --data-dir ~/.maple/data-b")
+		strictEqual(mapleCommand("stop", scope), "maple stop --data-dir ~/.maple/data-b")
+		strictEqual(
+			mapleCommand("start --reset", scope),
+			"maple start --reset --data-dir ~/.maple/data-b --port 4391 --host 0.0.0.0",
+		)
+		strictEqual(
+			mapleCommand("schema abandon --yes", scope),
+			"maple schema abandon --yes --data-dir ~/.maple/data-b",
+		)
+	})
+
+	it("quotes paths a shell would split", () => {
+		strictEqual(shellWord("/tmp/plain-dir"), "/tmp/plain-dir")
+		strictEqual(shellWord("/tmp/maple data"), "'/tmp/maple data'")
+		strictEqual(shellWord("/tmp/it's"), "'/tmp/it'\\''s'")
+		strictEqual(
+			mapleCommand("stop", commandScope({ dataDir: "/tmp/maple data" })),
+			"maple stop --data-dir '/tmp/maple data'",
+		)
+	})
+})
+
+describe("PID identity", () => {
+	it("parses ps etime in every shape", () => {
+		strictEqual(parseElapsedSeconds("00:07\n"), 7)
+		strictEqual(parseElapsedSeconds(" 12:34"), 754)
+		strictEqual(parseElapsedSeconds("01:02:03"), 3723)
+		strictEqual(parseElapsedSeconds("2-00:00:01"), 172_801)
+		strictEqual(parseElapsedSeconds(""), undefined)
+		strictEqual(parseElapsedSeconds("garbage"), undefined)
+	})
+
+	it("only a process started before the write can own the file", () => {
+		strictEqual(startedBeforeWrite(1_000, 5_000), true)
+		strictEqual(startedBeforeWrite(6_500, 5_000), true) // etime resolution slack
+		strictEqual(startedBeforeWrite(60_000, 5_000), false) // PID reused later
+	})
+})
+
+describe("checkpoint refresh skip", () => {
+	it("refreshes only when something was ingested since the last checkpoint", () => {
+		strictEqual(ingestedSince(null, 1_000), false)
+		strictEqual(ingestedSince(999, 1_000), false)
+		strictEqual(ingestedSince(1_000, 1_000), true)
+		strictEqual(ingestedSince(undefined, 1_000), true) // status unknown: take it
+	})
+
+	it("also refreshes after a scoped delete, so restore points drop the deleted rows", () => {
+		const status = { service: "maple-local", pid: 1, version: "x", url: "", dataDir: "" } as const
+		strictEqual(storeChangedSince({ ...status, lastIngestAtMs: null }, 1_000), false)
+		strictEqual(storeChangedSince({ ...status, lastIngestAtMs: null, lastDeleteAtMs: 1_000 }, 1_000), true)
+		strictEqual(storeChangedSince({ ...status, lastIngestAtMs: 999, lastDeleteAtMs: 999 }, 1_000), false)
+		strictEqual(storeChangedSince(undefined, 1_000), true)
+	})
+})
+
+describe("prettyPath", () => {
+	it("collapses the home directory only at a path boundary", () => {
+		strictEqual(prettyPath("/home/bob", "/home/bob"), "~")
+		strictEqual(prettyPath("/home/bob/.maple/data", "/home/bob"), "~/.maple/data")
+		// A sibling that merely shares the prefix names a different directory.
+		strictEqual(prettyPath("/home/bobby/data", "/home/bob"), "/home/bobby/data")
+		strictEqual(prettyPath("/rootfs/maple", "/root"), "/rootfs/maple")
+	})
+})
