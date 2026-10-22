@@ -1,6 +1,6 @@
 # StandardSchema
 
-Standalone lesson artifacts for the `effect/StandardSchema` module. The repository scaffold at `packages/features/src/learn/_standard-schema` is intentionally left untouched; these files are generated under `/mnt/data/standard-schema` only.
+Standalone lesson artifacts for the `effect/StandardSchema` module. The repository scaffold at `packages/features/src/labs/_standard-schema` is intentionally left untouched; these files are generated under `/mnt/data/standard-schema` only.
 
 ## Lesson shape
 

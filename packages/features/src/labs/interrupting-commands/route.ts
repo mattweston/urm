@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/interrupting-commands"
+const PATH = "/learn/interrupting-commands"
 
 export const interruptingCommandsHref = () => `${PATH}/`
 

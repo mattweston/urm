@@ -1,4 +1,4 @@
-const PATH = "/labs/auth/register"
+const PATH = "/auth/register"
 
 export const registerHref = (): string => `${PATH}/`
 

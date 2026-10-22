@@ -1,4 +1,4 @@
-const PATH = "/labs/ui/resizable"
+const PATH = "/ui/resizable"
 
 export const resizableHref = (): string => `${PATH}/`
 

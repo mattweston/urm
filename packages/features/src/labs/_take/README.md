@@ -2,7 +2,7 @@
 
 Standalone Foldkit lesson for `effect/Take`.
 
-The repository scaffold under `packages/features/src/learn/_take/` is intentionally left untouched. These files are generated under `/mnt/data/take/` only.
+The repository scaffold under `packages/features/src/labs/_take/` is intentionally left untouched. These files are generated under `/mnt/data/take/` only.
 
 ## Lesson shape
 

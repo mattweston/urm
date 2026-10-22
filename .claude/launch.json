@@ -20,6 +20,16 @@
                 "dev"
             ],
             "port": 1421
+        },
+        {
+            "name": "urm.dev",
+            "runtimeExecutable": "pnpm",
+            "runtimeArgs": [
+                "--filter",
+                "@urm/client",
+                "dev"
+            ],
+            "port": 1420
         }
     ]
 }

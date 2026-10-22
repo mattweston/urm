@@ -2,7 +2,7 @@
 
 Standalone Foldkit teaching demo for `effect/Sink`.
 
-- Intended repository location: `packages/features/src/learn/_sink/`
+- Intended repository location: `packages/features/src/labs/_sink/`
 - Repository scaffold remains untouched (`README.md`, `x.ts`, `x.view.ts` remain empty in git).
 - Generated artifacts live only in `/mnt/data/sink/`.
 - Workspace Effect version: `4.0.0-rc.112`.

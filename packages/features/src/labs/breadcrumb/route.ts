@@ -1,4 +1,4 @@
-const BREADCRUMB_PATH = "/labs/breadcrumb"
+const BREADCRUMB_PATH = "/breadcrumb"
 
 export const breadcrumbHref = () => `${BREADCRUMB_PATH}/`
 

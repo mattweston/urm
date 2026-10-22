@@ -4,9 +4,9 @@ import { taggedStruct } from "foldkit/schema"
 import { bind, play, setEnabled, setVolume, sounds } from "cuelume"
 import type { DesktopRoute } from "../../../routing/route.ts"
 
-export const cuelume_href = () => "/labs/media/audio/cuelume"
+export const cuelume_href = () => "/media/audio/cuelume"
 export const is_cuelume_path = (path: string) =>
-    path.replace(/\/$/, "") === "/labs/media/audio/cuelume"
+    path.replace(/\/$/, "") === "/media/audio/cuelume"
 
 const Sound = Schema.Literals(sounds)
 export const Model = Schema.Struct({

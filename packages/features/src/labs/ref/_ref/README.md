@@ -20,7 +20,7 @@ match the current v4 reference used for the lesson.
 ## Intended location
 
 ```text
-packages/features/src/learn/_ref/
+packages/features/src/labs/_ref/
 ├── README.md
 ├── ref.ts
 └── ref.view.ts
@@ -470,7 +470,7 @@ than replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `RefDemo.Message` to the parent Message union,

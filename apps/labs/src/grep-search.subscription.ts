@@ -7,8 +7,8 @@ import {
     ReceivedSearch,
     FailedSearch,
     request_key,
-} from "@urm/features/dev/grep"
-import type { Model, Message } from "@urm/features/dev/grep"
+} from "@urm/features/labs/dev/grep"
+import type { Model, Message } from "@urm/features/labs/dev/grep"
 
 const search = Effect.fn("Grep.search")(function* (
     key: string,

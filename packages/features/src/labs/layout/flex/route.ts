@@ -1,4 +1,4 @@
-const PATH = "/labs/layout/flex"
+const PATH = "/layout/flex"
 
 export const flexHref = () => `${PATH}/`
 

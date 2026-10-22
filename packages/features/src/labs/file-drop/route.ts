@@ -1,4 +1,4 @@
-const PATH = "/labs/media/file-drop"
+const PATH = "/media/file-drop"
 
 export const fileDropHref = () => `${PATH}/`
 

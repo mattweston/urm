@@ -1,4 +1,4 @@
-const PATH = "/labs/media/icons"
+const PATH = "/media/icons"
 
 export const iconsHref = () => `${PATH}/`
 

@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest"
 import {
-    DashboardRoute,
     LabsRoute,
     sidebarRouteTag,
 } from "../../routing/route.ts"
 import { changed_route, gallery_href, init, update } from "./submodel.ts"
 
-const route = LabsRoute({ labs_path: "/labs/media/gallery-view-transitions" })
+const route = LabsRoute({ labs_path: "/media/gallery-view-transitions" })
 
 describe("client gallery view transitions lab", () => {
     it("opens through client navigation and highlights its sidebar entry", () => {
         expect(init(route).active).toBe(true)
-        expect(gallery_href()).toBe("/labs/media/gallery-view-transitions")
+        expect(gallery_href()).toBe("/media/gallery-view-transitions")
         expect(sidebarRouteTag(route)).toBe("LabsGalleryTransitions")
         expect(
             sidebarRouteTag(LabsRoute({ labs_path: `${route.labs_path}/` }))
@@ -25,7 +24,7 @@ describe("client gallery view transitions lab", () => {
             id: selected.id,
         })
         expect(opened.gallery.selected_image_id).toBe(selected.id)
-        const inactive = changed_route(opened, DashboardRoute())
+        const inactive = changed_route(opened, LabsRoute({ labs_path: "/" }))
         expect(inactive.active).toBe(false)
         expect(inactive.gallery.selected_image_id).toBeNull()
         expect(

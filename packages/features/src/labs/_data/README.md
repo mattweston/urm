@@ -228,10 +228,10 @@ obvious.
 
 ## Files
 
-Place these three files together under the learn feature, for example:
+Place these three files together under the labs feature, for example:
 
 ```text
-packages/features/src/learn/data/
+packages/features/src/labs/data/
 ├── data.ts
 ├── data.view.ts
 └── README.md

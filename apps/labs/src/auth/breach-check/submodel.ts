@@ -4,9 +4,9 @@ import { taggedStruct } from "foldkit/schema"
 import { BreachCheckResult } from "@urm/contracts/auth"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const breach_check_href = () => "/labs/auth/breach-check"
+export const breach_check_href = () => "/auth/breach-check"
 export const is_breach_check_path = (path: string) =>
-    path.replace(/\/$/, "") === "/labs/auth/breach-check"
+    path.replace(/\/$/, "") === "/auth/breach-check"
 
 export const Model = Schema.Struct({
     active: Schema.Boolean,

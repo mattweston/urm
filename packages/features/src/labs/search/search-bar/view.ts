@@ -37,7 +37,7 @@ const toItems = (
 /**
  * Open the search control and find a page by name or section. The client supplies
  * visible navigation destinations and renders the same control in its header and
- * at `/labs/search/search-bar/`, with separate state for each instance.
+ * at `/search/search-bar/`, with separate state for each instance.
  */
 export const view = <ParentMessage>(
     model: Model,

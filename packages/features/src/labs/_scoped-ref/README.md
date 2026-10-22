@@ -20,7 +20,7 @@ an API compatibility shim.
 ## Intended location
 
 ```text
-packages/features/src/learn/_scoped-ref/
+packages/features/src/labs/_scoped-ref/
 ├── README.md
 ├── scoped-ref.ts
 └── scoped-ref.view.ts

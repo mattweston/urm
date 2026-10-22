@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { Submodel } from "foldkit"
 import type { Command } from "foldkit"
-import * as Bookmarks from "@urm/features/dev/bookmarks"
+import * as Bookmarks from "@urm/features/labs/bookmarks"
 import type { DesktopRoute } from "../../routing/route.ts"
 
 export const bookmarks_href = () => "/dev/bookmarks"

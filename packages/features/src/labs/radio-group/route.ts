@@ -1,4 +1,4 @@
-const PATH = "/labs/forms/radio-group"
+const PATH = "/forms/radio-group"
 
 export const radioGroupHref = (): string => `${PATH}/`
 

@@ -63,7 +63,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/json-schema/
+packages/features/src/labs/json-schema/
 ├── json-schema.ts
 └── json-schema.view.ts
 ```
@@ -592,7 +592,7 @@ Button attributes are derived from `HtmlBuilder`.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `JsonSchemaDemo.Message` to the parent Message union,

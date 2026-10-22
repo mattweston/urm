@@ -4,9 +4,9 @@ import type { Command } from "foldkit"
 import * as DomDepth from "@urm/features/labs/dom-depth-visualizer"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const dom_depth_href = () => "/labs/design/dom-depth-visualizer"
+export const dom_depth_href = () => "/design/dom-depth-visualizer"
 export const is_dom_depth_path = (path: string) =>
-    path.replace(/\/$/, "") === "/labs/design/dom-depth-visualizer"
+    path.replace(/\/$/, "") === "/design/dom-depth-visualizer"
 
 export const Model = Schema.Struct({
     active: Schema.Boolean,

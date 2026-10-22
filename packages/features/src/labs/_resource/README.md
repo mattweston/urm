@@ -20,7 +20,7 @@ current v4 concepts covered here.
 ## Intended location
 
 ```text
-packages/features/src/learn/_resource/
+packages/features/src/labs/_resource/
 ├── README.md
 ├── resource.ts
 └── resource.view.ts
@@ -326,7 +326,7 @@ workspace-package imports.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos if this lesson is later wired into the app:
+`features/labs/*` demos if this lesson is later wired into the app:
 
 1. add the child Model to the parent learn Model,
 2. add `ResourceDemo.Message` to the parent Message union,

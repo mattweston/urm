@@ -22,14 +22,14 @@ describe("ported demos", () => {
             model,
             ChangedDemoRoute({
                 route: "Draftboard",
-                path: "/labs/draftboard/empty/",
+                path: "/draftboard/empty/",
             })
         )
         const [streambox] = update(
             draftboard,
             ChangedDemoRoute({
                 route: "Streambox",
-                path: "/labs/streambox/quiet-current/transcript/",
+                path: "/streambox/quiet-current/transcript/",
             })
         )
         expect(draftboard.draftboard.document.id).toBe("empty")

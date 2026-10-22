@@ -40,7 +40,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/mutable-ref/
+packages/features/src/labs/mutable-ref/
 ├── mutable-ref.ts
 └── mutable-ref.view.ts
 ```
@@ -831,7 +831,7 @@ replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `MutableRefDemo.Message` to the parent Message union,

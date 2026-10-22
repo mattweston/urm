@@ -34,7 +34,7 @@ export const FoldkitRoute = S.Union([
 ])
 export type FoldkitRoute = typeof FoldkitRoute.Type
 
-const PATH = "/labs/learn"
+const PATH = "/learn"
 
 /** One table both directions: a lesson's path mirrors where it lives, and the
  *  subject names the idea rather than the library. */
@@ -59,15 +59,15 @@ export const walkthrough_href = (segment: string): string =>
 export const walkthrough_segments: ReadonlyArray<string> =
     Object.keys(route_for_segment)
 
-/** Exact membership: `/labs/learn/` is the index and every other lesson also lives
+/** Exact membership: `/learn/` is the index and every other lesson also lives
  *  one or two segments down, so a prefix test would claim them all. */
 export const isFoldkitPath = (pathname: string): boolean =>
     route_for_segment[
-        pathname.replace(/^\/labs\/learn\/?/, "").replace(/\/+$/, "")
+        pathname.replace(/^\/learn\/?/, "").replace(/\/+$/, "")
     ] !== undefined
 
 export const foldkitRouteForPath = (pathname: string): FoldkitRoute => {
-    const segment = pathname.replace(/^\/labs\/learn\/?/, "").replace(/\/+$/, "")
+    const segment = pathname.replace(/^\/learn\/?/, "").replace(/\/+$/, "")
     const route = route_for_segment[segment]
     return route === undefined ? NotFoundRoute({ pathname }) : route()
 }

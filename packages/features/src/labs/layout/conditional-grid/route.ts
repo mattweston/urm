@@ -1,4 +1,4 @@
-const PATH = "/labs/layout/conditional-grid"
+const PATH = "/layout/conditional-grid"
 
 export const conditional_grid_href = () => `${PATH}/`
 

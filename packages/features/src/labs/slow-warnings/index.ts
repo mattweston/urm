@@ -8,7 +8,7 @@ export { subscriptions } from "./subscription.ts"
 export { update } from "./update.ts"
 export { view } from "./view/index.ts"
 
-const BASE = "/labs/studio/slow-warnings"
+const BASE = "/studio/slow-warnings"
 
 export const isSlowWarningsPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

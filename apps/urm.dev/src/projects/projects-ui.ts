@@ -397,7 +397,6 @@ const selected_project_for_route = (
         case "Stats":
         case "Marketing":
         case "Shop":
-        case "Dev":
         case "Issues":
         case "Issue":
         case "Tags":

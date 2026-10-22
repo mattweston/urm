@@ -38,7 +38,7 @@ export type LoggedTransition = typeof LoggedTransition.Type
 
 export const MAX_LOGGED_TRANSITIONS = 20
 
-const PATH = "/labs/learn/route-transitions"
+const PATH = "/learn/route-transitions"
 
 export const routeTransitionsHref = (): string => `${PATH}/`
 export const routeTransitionsGalleryHref = (): string => `${PATH}/gallery/`

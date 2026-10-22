@@ -1,4 +1,4 @@
-const CHARTING_PATH = "/labs/stats/charting"
+const CHARTING_PATH = "/stats/charting"
 
 export const chartingHref = () => `${CHARTING_PATH}/`
 

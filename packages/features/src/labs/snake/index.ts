@@ -6,7 +6,7 @@ export { subscriptions } from "./subscription.ts"
 export { init, update } from "./update.ts"
 export { view } from "./view.ts"
 
-const BASE = "/labs/games/snake"
+const BASE = "/games/snake"
 
 export const isSnakePath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

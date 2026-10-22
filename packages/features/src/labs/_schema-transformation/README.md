@@ -2,7 +2,7 @@
 
 Standalone Foldkit teaching demo for Effect's `SchemaTransformation` module.
 
-- Intended repo location: `packages/features/src/learn/_schema-transformation/`
+- Intended repo location: `packages/features/src/labs/_schema-transformation/`
 - Repo scaffold was inspected only; **no git/repository files were edited**.
 - Workspace Effect pin: `4.0.0-rc.112`
 - Live API page checked on 2026-09-21: `4.0.0-rc.115`, **50 exports**.

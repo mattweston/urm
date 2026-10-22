@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/managed-resource-layer"
+const PATH = "/learn/managed-resource-layer"
 
 export const managedResourceLayerHref = () => `${PATH}/`
 

@@ -1,6 +1,6 @@
 import { Option } from "effect"
 
-const PATH = "/labs/media/view-transitions"
+const PATH = "/media/view-transitions"
 
 export const viewTransitionsHref = () => `${PATH}/`
 

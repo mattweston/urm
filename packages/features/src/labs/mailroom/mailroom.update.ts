@@ -209,12 +209,12 @@ export const update = (
                         compose_subject: "",
                         compose_body: "",
                         compose_draft_id: "new",
-                        view_path: "/labs/mail/sent/",
+                        view_path: "/mail/sent/",
                     },
                     [
                         SendMailroomDraft({ draft: draftInput(draft) }),
                         ...(navigation === "Browser"
-                            ? [navigateMailroom("/labs/mail/sent/")]
+                            ? [navigateMailroom("/mail/sent/")]
                             : []),
                     ],
                 ]
@@ -232,14 +232,14 @@ export const update = (
                     compose_dirty: false,
                     submission: "idle",
                     error: "Draft discarded.",
-                    view_path: "/labs/mail/drafts/",
+                    view_path: "/mail/drafts/",
                 }
                 return [
                     discarded,
                     [
                         DiscardMailroomDraft({ id: model.compose_draft_id }),
                         ...(navigation === "Browser"
-                            ? [navigateMailroom("/labs/mail/drafts/")]
+                            ? [navigateMailroom("/mail/drafts/")]
                             : []),
                     ],
                 ]

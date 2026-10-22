@@ -4,7 +4,7 @@ import type { Command } from "foldkit"
 import * as MusicNotation from "@urm/features/labs/music-notation"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const music_notation_href = () => "/labs/media/music-notation"
+export const music_notation_href = () => "/media/music-notation"
 export const is_music_notation_path = MusicNotation.isMusicNotationPath
 
 export const Model = Schema.Struct({

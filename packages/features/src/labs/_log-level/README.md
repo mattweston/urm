@@ -35,7 +35,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/log-level/
+packages/features/src/labs/log-level/
 ├── log-level.ts
 └── log-level.view.ts
 ```
@@ -589,7 +589,7 @@ replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `LogLevelDemo.Message` to the parent Message union,

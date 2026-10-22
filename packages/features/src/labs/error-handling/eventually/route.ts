@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/error-handling/eventually"
+const PATH = "/learn/error-handling/eventually"
 
 export const eventually_href = () => `${PATH}/`
 

@@ -689,7 +689,7 @@ The README additionally covers:
 ## Suggested placement
 
 ```text
-packages/features/src/learn/foldkit/
+packages/features/src/labs/foldkit/
 ├── examples/
 │   └── cause.ts
 └── cause.view.ts

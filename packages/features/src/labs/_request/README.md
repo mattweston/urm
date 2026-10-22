@@ -17,7 +17,7 @@ public API and the vendored Effect source under `.context/effect`.
 ## Intended location
 
 ```text
-packages/features/src/learn/_request/
+packages/features/src/labs/_request/
 ├── README.md
 ├── request.ts
 └── request.view.ts
@@ -346,7 +346,7 @@ The result contains only the expected unresolved-import diagnostics.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `RequestDemo.Message` to the parent Message union,

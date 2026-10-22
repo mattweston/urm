@@ -2,7 +2,6 @@ import { Effect } from "effect"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { play, setEnabled, setVolume, sounds } from "cuelume"
 import {
-    DashboardRoute,
     LabsRoute,
     sidebarRouteTag,
 } from "../../../routing/route.ts"
@@ -18,20 +17,20 @@ vi.mock("cuelume", async (import_original) => {
         bind: vi.fn(),
     }
 })
-const route = LabsRoute({ labs_path: "/labs/media/audio/cuelume" })
+const route = LabsRoute({ labs_path: "/media/audio/cuelume" })
 
 beforeEach(() => vi.clearAllMocks())
 
 describe("client Cuelume lab", () => {
     it("opens with its nested audio navigation", () => {
         expect(init(route).active).toBe(true)
-        expect(cuelume_href()).toBe("/labs/media/audio/cuelume")
+        expect(cuelume_href()).toBe("/media/audio/cuelume")
         expect(sidebarRouteTag(route)).toBe("LabsCuelume")
         expect(
             sidebarRouteTag(LabsRoute({ labs_path: `${route.labs_path}/` }))
         ).toBe("LabsCuelume")
         expect(
-            sidebarRouteTag(LabsRoute({ labs_path: "/labs/media/audio" }))
+            sidebarRouteTag(LabsRoute({ labs_path: "/media/audio" }))
         ).toBe("LabsAudio")
         expect(play).not.toHaveBeenCalled()
     })
@@ -97,7 +96,7 @@ describe("client Cuelume lab", () => {
     it("keeps preferences on reentry and ignores inactive actions", () => {
         const [muted] = update(init(route), { _tag: "ClickedMute" })
         const [quiet] = update(muted, { _tag: "ChangedVolume", value: "20" })
-        const inactive = changed_route(quiet, DashboardRoute())
+        const inactive = changed_route(quiet, LabsRoute({ labs_path: "/" }))
         expect(inactive.active).toBe(false)
         expect(update(inactive, { _tag: "ClickedSave" })).toEqual([
             inactive,

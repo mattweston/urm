@@ -1,4 +1,4 @@
-const PATH = "/labs/data/query-table"
+const PATH = "/data/query-table"
 
 export const queryTableHref = () => `${PATH}/`
 

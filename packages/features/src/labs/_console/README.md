@@ -173,10 +173,10 @@ service replacement, console-owned state, and scoped cleanup.
 
 ## Files
 
-Place these three files together in the learn feature directory, for example:
+Place these three files together in the labs feature directory, for example:
 
 ```text
-packages/features/src/learn/_console/
+packages/features/src/labs/_console/
 ├── console.ts
 ├── console.view.ts
 └── README.md

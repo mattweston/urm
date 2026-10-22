@@ -65,11 +65,11 @@ describe("mailroom update", () => {
         const [blocked, commands] = update(
             dirty,
             RequestedMailroomNavigation({
-                href: "/labs/mail/inbox/",
+                href: "/mail/inbox/",
             })
         )
 
-        expect(blocked.pending_href).toBe("/labs/mail/inbox/")
+        expect(blocked.pending_href).toBe("/mail/inbox/")
         expect(commands).toHaveLength(0)
 
         const [confirmed, navigation] = update(

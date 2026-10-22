@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/generator-yield"
+const PATH = "/learn/generator-yield"
 
 export const generator_yield_href = () => `${PATH}/`
 

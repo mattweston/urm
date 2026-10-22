@@ -9,7 +9,7 @@ Standalone Foldkit teaching artifact for Effect's `Trie` module.
 - Workspace and rc.117 `Trie.ts`: **byte-identical public module source**
 - Lesson stages: **Build → Lookup → Prefix → Transform**
 
-The repo scaffold at `packages/features/src/learn/_trie/` is intentionally left untouched. These files are standalone outputs under `/mnt/data/trie/`.
+The repo scaffold at `packages/features/src/labs/_trie/` is intentionally left untouched. These files are standalone outputs under `/mnt/data/trie/`.
 
 ## Why `Trie`
 

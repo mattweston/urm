@@ -21,7 +21,7 @@ exports**. The URM workspace pins Effect `4.0.0-rc.112`. The vendored
 ## Intended location
 
 ```text
-packages/features/src/learn/_scoped-cache/
+packages/features/src/labs/_scoped-cache/
 ├── README.md
 ├── scoped-cache.ts
 └── scoped-cache.view.ts

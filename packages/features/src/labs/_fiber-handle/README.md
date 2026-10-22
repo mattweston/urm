@@ -21,7 +21,7 @@ Foldkit message payloads are explicitly typed for `noImplicitAny`.
 ## Intended location
 
 ```text
-packages/features/src/learn/fiber-handle/
+packages/features/src/labs/fiber-handle/
 ├── fiber-handle.ts
 └── fiber-handle.view.ts
 ```
@@ -217,7 +217,7 @@ untyped.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `FiberHandleDemo.Message` to the parent Message union,

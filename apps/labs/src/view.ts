@@ -24,11 +24,10 @@ import * as CtScanLab from "@urm/features/labs/performance/ct-scan"
 import * as GridBuilderLab from "@urm/features/labs/design/grid-builder"
 import * as PropGridLab from "@urm/features/labs/design/prop-grid"
 import * as UrmcssLab from "@urm/features/labs/design/urmcss"
-import { landingEditorHref } from "@urm/features/marketing/landing"
 
 export const view = <Message>(
     h: HtmlBuilder<Message>,
-    path = "/labs"
+    path = "/"
 ): Html => {
     const normalized_path = path.replace(/\/$/, "")
     if (AutoGridLab.is_auto_grid_path(path)) return AutoGridLab.view(h)
@@ -38,8 +37,8 @@ export const view = <Message>(
     if (FinanceChart.is_chart_path(path)) return FinanceChart.view(h)
     if (UrmcssLab.is_urmcss_path(path)) return UrmcssLab.view(h)
     if (
-        normalized_path === "/labs/stats/charts" ||
-        normalized_path === "/labs/charts"
+        normalized_path === "/stats/charts" ||
+        normalized_path === "/charts"
     ) {
         return h.div(
             [h.Class("mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8")],
@@ -53,21 +52,6 @@ export const view = <Message>(
             h.p(
                 [h.Class("text-muted-foreground")],
                 ["Explore experimental features."]
-            ),
-            h.a(
-                [
-                    h.Href(landingEditorHref()),
-                    h.Class(
-                        "block rounded border border-border p-5 hover:bg-accent"
-                    ),
-                ],
-                [
-                    h.h2([h.Class("font-semibold")], ["Marketing / Landing"]),
-                    h.p(
-                        [h.Class("mt-2 text-sm text-muted-foreground")],
-                        ["Preview and edit the URM marketing landing page."]
-                    ),
-                ]
             ),
             h.a(
                 [
@@ -281,7 +265,7 @@ export const view = <Message>(
             ),
             h.a(
                 [
-                    h.Href("/labs/data/spreadsheets"),
+                    h.Href("/data/spreadsheets"),
                     h.Class(
                         "block rounded border border-border p-5 hover:bg-accent"
                     ),
@@ -298,7 +282,7 @@ export const view = <Message>(
             ),
             h.a(
                 [
-                    h.Href("/labs/settings/services-canvas"),
+                    h.Href("/settings/services-canvas"),
                     h.Class(
                         "block rounded border border-border p-5 hover:bg-accent"
                     ),
@@ -318,7 +302,7 @@ export const view = <Message>(
             ),
             h.a(
                 [
-                    h.Href("/labs/stats/charting"),
+                    h.Href("/stats/charting"),
                     h.Class(
                         "block rounded border border-border p-5 hover:bg-accent"
                     ),
@@ -335,7 +319,7 @@ export const view = <Message>(
             ),
             h.a(
                 [
-                    h.Href("/labs/stats/charts"),
+                    h.Href("/stats/charts"),
                     h.Class(
                         "block rounded border border-border p-5 hover:bg-accent"
                     ),

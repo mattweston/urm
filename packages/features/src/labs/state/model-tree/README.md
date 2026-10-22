@@ -81,7 +81,7 @@ In particular, `labs/submodel.ts` demonstrates the real URM parent/child pattern
 Copy this folder to:
 
 ```text
-packages/features/src/learn/model-tree/
+packages/features/src/labs/model-tree/
 ```
 
 The view imports the existing tree component with:

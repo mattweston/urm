@@ -25,7 +25,7 @@ export type ChangedRouteReturn = readonly [
     ReadonlyArray<Command.Command<Message, never, Services>>,
 ]
 
-/** `next_path` and `previous_path` are the incoming and outgoing `/labs/learn/...`
+/** `next_path` and `previous_path` are the incoming and outgoing `/learn/...`
  *  paths, or the empty string when that side of the navigation was not a Learn
  *  route. */
 export const changed_route = (

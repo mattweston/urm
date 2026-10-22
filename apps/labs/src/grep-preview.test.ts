@@ -2,13 +2,13 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { describe, expect, test } from "vitest"
 import { build, createServer } from "vite"
-import { Preview, search_preview } from "@urm/features/dev/grep"
+import { Preview, search_preview } from "@urm/features/labs/dev/grep"
 import { Schema } from "effect"
 import { collect_corpus } from "../../../packages/tools/search/corpus.ts"
 import { extract_associations } from "../../../packages/tools/search/associations.ts"
 import { grep_preview } from "../grep-preview.plugin.ts"
 import { load_search_corpus } from "../grep-search.server.ts"
-import { prepare_preview } from "@urm/features/dev/grep/prepare"
+import { prepare_preview } from "@urm/features/labs/dev/grep/prepare"
 
 const source_path = "packages/domain/src/schemas/documents.ts"
 const notes_path = "example.md"
@@ -51,7 +51,7 @@ describe("Grep preview", () => {
             [
                 "packages/domain/src",
                 "packages/features/src/auth/authkit",
-                "apps/client/src/auth",
+                "apps/urm.dev/src/auth",
             ]
         )
         expect(corpus.contents.has(source_path)).toBe(true)

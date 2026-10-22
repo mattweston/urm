@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/lists/filtering"
+const PATH = "/learn/lists/filtering"
 
 export const filtering_href = () => `${PATH}/`
 

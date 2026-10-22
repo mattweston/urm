@@ -236,7 +236,7 @@ The lesson source includes every export in the module:
 ## Suggested placement
 
 ```text
-packages/features/src/learn/_undefined-or/
+packages/features/src/labs/_undefined-or/
 ├── README.md
 ├── undefined-or.ts
 └── undefined-or.view.ts

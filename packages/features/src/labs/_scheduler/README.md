@@ -18,7 +18,7 @@ six exports. The implementation also follows the vendored Effect source under
 ## Intended location
 
 ```text
-packages/features/src/learn/_scheduler/
+packages/features/src/labs/_scheduler/
 ├── README.md
 ├── scheduler.ts
 └── scheduler.view.ts

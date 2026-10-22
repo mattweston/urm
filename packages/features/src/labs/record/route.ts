@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/record"
+const PATH = "/learn/record"
 
 export const record_href = () => `${PATH}/`
 

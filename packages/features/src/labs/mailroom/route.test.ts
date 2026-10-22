@@ -10,13 +10,13 @@ describe("mailroom routes", () => {
     })
 
     it("routes messages and drafts", () => {
-        expect(viewRouteForPath("/labs/mail/inbox/welcome/")).toEqual({
+        expect(viewRouteForPath("/mail/inbox/welcome/")).toEqual({
             _tag: "Message",
             folder: "inbox",
             messageId: "welcome",
         })
-        expect(draftIdForPath("/labs/mail/compose/draft-1/")).toBe("draft-1")
-        expect(viewRouteForPath("/labs/mail/compose/draft-1/")).toEqual({
+        expect(draftIdForPath("/mail/compose/draft-1/")).toBe("draft-1")
+        expect(viewRouteForPath("/mail/compose/draft-1/")).toEqual({
             _tag: "Compose",
         })
     })

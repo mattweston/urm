@@ -2,7 +2,7 @@ import { view, islandsFor } from "@foldkit/markdown"
 import type { HtmlBuilder } from "foldkit/html"
 import { Callout } from "@urm/ui/foldkit/callout.view.ts"
 import { StepsContainer } from "@urm/ui/foldkit/steps.view.ts"
-import * as DocumentationTabs from "../../documents/documentation/tabs.ts"
+import * as DocumentationTabs from "../../../documents/documentation/tabs.ts"
 import { grep_directives } from "./directives.ts"
 import {
     GotDocumentationTabsMessage,

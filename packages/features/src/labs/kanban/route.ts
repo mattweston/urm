@@ -1,4 +1,4 @@
-const PATH = "/labs/projects/kanban"
+const PATH = "/projects/kanban"
 
 export const kanbanHref = () => `${PATH}/`
 

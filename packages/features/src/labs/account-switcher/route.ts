@@ -1,4 +1,4 @@
-const ACCOUNT_SWITCHER_PATH = "/labs/account-switcher"
+const ACCOUNT_SWITCHER_PATH = "/account-switcher"
 
 export const accountSwitcherHref = () => `${ACCOUNT_SWITCHER_PATH}/`
 

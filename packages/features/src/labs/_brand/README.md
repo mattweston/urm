@@ -1,7 +1,7 @@
 # Foldkit Branded Types port
 
 This bundle is a local, reviewable port of the approved vanilla TypeScript
-prototype into the existing `packages/features/src/learn/foldkit` lesson
+prototype into the existing `packages/features/src/labs/foldkit` lesson
 structure.
 
 **Nothing in this bundle writes to GitHub.**
@@ -46,8 +46,8 @@ integration edits from `integration.patch` by hand.
 
 ## Files in this bundle
 
-- `packages/features/src/learn/foldkit/examples/branded-types.ts`
-- `packages/features/src/learn/foldkit/branded-types.view.ts`
+- `packages/features/src/labs/foldkit/examples/branded-types.ts`
+- `packages/features/src/labs/foldkit/branded-types.view.ts`
 - `integration.patch`
 
 ## Integration points

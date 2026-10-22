@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/schedule/retry-exponential"
+const PATH = "/learn/schedule/retry-exponential"
 
 export const retry_exponential_href = () => `${PATH}/`
 

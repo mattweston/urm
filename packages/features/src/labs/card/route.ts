@@ -1,4 +1,4 @@
-const CARD_PATH = "/labs/ui/card"
+const CARD_PATH = "/ui/card"
 
 export const cardHref = () => `${CARD_PATH}/`
 

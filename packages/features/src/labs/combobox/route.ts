@@ -1,4 +1,4 @@
-const COMBOBOX_PATH = "/labs/ui/combobox"
+const COMBOBOX_PATH = "/ui/combobox"
 
 export const comboboxHref = () => `${COMBOBOX_PATH}/`
 

@@ -1,4 +1,4 @@
-const PATH = "/labs/forms/comments"
+const PATH = "/forms/comments"
 
 export const commentsHref = (): string => `${PATH}/`
 

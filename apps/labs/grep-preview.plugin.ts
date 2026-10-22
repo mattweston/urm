@@ -6,7 +6,7 @@ import {
     SearchResponse,
     SuggestRequest,
     suggest_topics,
-} from "@urm/features/dev/grep"
+} from "@urm/features/labs/dev/grep"
 import {
     load_search_corpus,
     search_corpus,

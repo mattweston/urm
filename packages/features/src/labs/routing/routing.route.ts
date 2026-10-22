@@ -25,7 +25,7 @@ export const RoutingRoute = S.Union([
 
 export type RoutingRoute = typeof RoutingRoute.Type
 
-const BASE = "/labs/learn/routing"
+const BASE = "/learn/routing"
 
 const routingBaseRouter = pipe(
     Route.literal("labs"),

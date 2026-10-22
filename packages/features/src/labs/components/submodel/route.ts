@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/components/submodel"
+const PATH = "/learn/components/submodel"
 
 export const submodel_href = () => `${PATH}/`
 

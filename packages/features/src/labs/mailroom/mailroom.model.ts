@@ -134,5 +134,5 @@ export const initialModel: Model = {
     submission: "idle",
     error: "",
     pending_href: "",
-    view_path: "/labs/mail/inbox/",
+    view_path: "/mail/inbox/",
 }

@@ -1,4 +1,4 @@
-const ARRAY_FOLD_PATH = "/labs/array-fold"
+const ARRAY_FOLD_PATH = "/array-fold"
 
 export const arrayFoldHref = () => `${ARRAY_FOLD_PATH}/`
 

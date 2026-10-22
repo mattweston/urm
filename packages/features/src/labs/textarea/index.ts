@@ -5,7 +5,7 @@ export { update } from "./update.ts"
 export { view } from "./view.ts"
 export { initialModel } from "./model.ts"
 
-const BASE = "/labs/forms/textarea"
+const BASE = "/forms/textarea"
 
 export const isTextareaPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

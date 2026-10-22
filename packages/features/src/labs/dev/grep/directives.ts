@@ -1,5 +1,5 @@
-import { documentationStaticIslandDefinitions } from "../../documents/documentation/static-island-definitions.ts"
-import { documentationInteractiveIslandDefinitions } from "../../documents/documentation/interactive-island-definitions.ts"
+import { documentationStaticIslandDefinitions } from "../../../documents/documentation/static-island-definitions.ts"
+import { documentationInteractiveIslandDefinitions } from "../../../documents/documentation/interactive-island-definitions.ts"
 
 export const grep_directives = {
     Callout: documentationStaticIslandDefinitions.Callout,

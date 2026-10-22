@@ -2,7 +2,7 @@
 
 Standalone Foldkit teaching demo for `effect/Semaphore`.
 
-- Intended repository location: `packages/features/src/learn/_semaphore/`
+- Intended repository location: `packages/features/src/labs/_semaphore/`
 - Repository scaffold remains untouched (`README.md`, `x.ts`, `x.view.ts` are still empty in git).
 - Generated artifacts live only in `/mnt/data/semaphore/`.
 - Workspace Effect version: `4.0.0-rc.112`.

@@ -1,4 +1,4 @@
-const PATH = "/labs/dialog/dialog"
+const PATH = "/dialog/dialog"
 
 export const dialogHref = () => `${PATH}/`
 

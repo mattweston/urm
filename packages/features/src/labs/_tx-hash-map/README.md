@@ -1,6 +1,6 @@
 # TxHashMap
 
-Standalone Foldkit lesson artifact for Effect's `TxHashMap` module. The repository scaffold at `packages/features/src/learn/_tx-hash-map/` is intentionally untouched; these files live only under `/mnt/data/tx-hash-map/`.
+Standalone Foldkit lesson artifact for Effect's `TxHashMap` module. The repository scaffold at `packages/features/src/labs/_tx-hash-map/` is intentionally untouched; these files live only under `/mnt/data/tx-hash-map/`.
 
 ## Lesson shape
 

@@ -7,7 +7,7 @@ Standalone Foldkit lesson for the Effect v4 `Tracer` module.
 - Workspace target: `effect@4.0.0-rc.112`
 - Live source: **21 unique top-level names** because `Tracer` is documented twice: once as the backend interface and once as the active `Context.Reference`
 - Lesson stages: **Create → Enrich → Propagate → Filter**
-- Git / `packages/features/src/learn/_tracer`: untouched
+- Git / `packages/features/src/labs/_tracer`: untouched
 
 ## What `Tracer` is
 

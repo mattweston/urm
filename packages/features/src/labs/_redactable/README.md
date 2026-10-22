@@ -18,7 +18,7 @@ compatibility shim.
 ## Intended location
 
 ```text
-packages/features/src/learn/_redactable/
+packages/features/src/labs/_redactable/
 ├── README.md
 ├── redactable.ts
 └── redactable.view.ts
@@ -351,7 +351,7 @@ view
 
 No raw token is stored in `Model`.
 
-To integrate it with the parent learn feature, follow the neighboring child
+To integrate it with the parent labs feature, follow the neighboring child
 feature pattern:
 
 1. add `Demo.Model` to the parent learn Model,

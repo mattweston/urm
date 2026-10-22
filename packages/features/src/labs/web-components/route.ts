@@ -1,4 +1,4 @@
-const PATH = "/labs/web-components"
+const PATH = "/web-components"
 
 export const webComponentsHref = () => `${PATH}/`
 

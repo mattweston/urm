@@ -47,7 +47,7 @@ export const emptyCrmSyncBrowseFields: CrmSyncBrowseFields = {
     recency: Option.none(),
 }
 
-const BASE = "/labs/contacts/crm-sync"
+const BASE = "/contacts/crm-sync"
 
 export const crmSyncHref = () => `${BASE}/`
 

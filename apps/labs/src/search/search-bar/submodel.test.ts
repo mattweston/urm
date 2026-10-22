@@ -21,7 +21,7 @@ const sections = search_sections([
     { label: "Dashboard", href: "/dashboard" },
     {
         label: "Labs",
-        href: "/labs",
+        href: "/",
         children: [
             {
                 label: "Search",
@@ -39,12 +39,12 @@ describe("page search", () => {
     test("uses nested navigation labels and deduplicates destinations", () => {
         expect(sections.flatMap((section) => section.pages)).toEqual([
             { label: "Dashboard", href: "/dashboard" },
-            { label: "Labs", href: "/labs" },
+            { label: "Labs", href: "/" },
             { label: "Search Bar", href: search_bar_href() },
         ])
         expect(sections.at(-1)?.label).toBe("Labs / Search")
         expect(
-            sidebarRouteTag(LabsRoute({ labs_path: "/labs/search/search-bar" }))
+            sidebarRouteTag(LabsRoute({ labs_path: "/search/search-bar" }))
         ).toBe("LabsSearchBar")
     })
 

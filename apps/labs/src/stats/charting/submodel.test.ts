@@ -2,11 +2,11 @@ import { describe, expect, test } from "vitest"
 import * as Charting from "@urm/features/labs/stats/charting"
 import { changed_route, init, update } from "./submodel.ts"
 
-const charting_route = { _tag: "Labs", labs_path: "/labs/stats/charting" }
+const charting_route = { _tag: "Labs", labs_path: "/stats/charting" }
 
 describe("charting lab lifecycle", () => {
     test("defers telemetry until entering and does not reload for a trailing slash", () => {
-        const [inactive, deferred] = init({ _tag: "Labs", labs_path: "/labs" })
+        const [inactive, deferred] = init({ _tag: "Labs", labs_path: "/" })
         expect(deferred).toHaveLength(0)
         const [active, commands] = changed_route(inactive, {
             _tag: "Labs",
@@ -16,7 +16,7 @@ describe("charting lab lifecycle", () => {
         expect(commands).toHaveLength(1)
         const [unchanged, repeated] = changed_route(active, {
             _tag: "Labs",
-            labs_path: "/labs/stats/charting/",
+            labs_path: "/stats/charting/",
         })
         expect(unchanged).toBe(active)
         expect(repeated).toHaveLength(0)
@@ -29,7 +29,7 @@ describe("charting lab lifecycle", () => {
         })
         const [inactive, commands] = changed_route(active, {
             _tag: "Labs",
-            labs_path: "/labs",
+            labs_path: "/",
         })
         expect(inactive.active).toBe(false)
         expect(inactive.charting).toEqual(Charting.init()[0])

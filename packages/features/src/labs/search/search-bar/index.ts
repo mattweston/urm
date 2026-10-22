@@ -6,7 +6,7 @@ export { init, update } from "./search-bar.update.ts"
 export { view } from "./view.ts"
 export type { SearchSection } from "./view.ts"
 
-const BASE = "/labs/search/search-bar"
+const BASE = "/search/search-bar"
 
 export const isSearchBarPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

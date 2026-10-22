@@ -198,10 +198,10 @@ designs.
 
 ## Files
 
-Place these three files together under the learn feature, for example:
+Place these three files together under the labs feature, for example:
 
 ```text
-packages/features/src/learn/crypto/
+packages/features/src/labs/crypto/
 ├── crypto.ts
 ├── crypto.view.ts
 └── README.md

@@ -21,7 +21,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/filter/
+packages/features/src/labs/filter/
 ├── filter.ts
 └── filter.view.ts
 ```
@@ -389,7 +389,7 @@ attributes are derived from `HtmlBuilder` so the demo remains clean under
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `FilterDemo.Message` to the parent Message union,

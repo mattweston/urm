@@ -21,7 +21,7 @@ destructured Foldkit message payloads have explicit types for `noImplicitAny`.
 ## Intended location
 
 ```text
-packages/features/src/learn/error-reporter/
+packages/features/src/labs/error-reporter/
 ├── error-reporter.ts
 └── error-reporter.view.ts
 ```
@@ -229,7 +229,7 @@ in the earlier Equal demo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as the neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `ErrorReporterDemo.Message` to the parent Message union,

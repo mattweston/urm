@@ -17,7 +17,7 @@ branch.
 ## Intended location
 
 ```text
-packages/features/src/learn/duration/
+packages/features/src/labs/duration/
 ├── duration.ts
 └── duration.view.ts
 ```
@@ -188,7 +188,7 @@ negate(Infinity) = -Infinity
 ## Integration expectation
 
 Follow the same child-feature integration pattern as the neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `DurationDemo.Message` to the parent Message union,

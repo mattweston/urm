@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/error-handling/or-else"
+const PATH = "/learn/error-handling/or-else"
 
 export const or_else_href = () => `${PATH}/`
 

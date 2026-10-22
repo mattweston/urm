@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/concurrency/race"
+const PATH = "/learn/concurrency/race"
 
 export const race_href = () => `${PATH}/`
 

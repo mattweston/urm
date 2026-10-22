@@ -20,10 +20,10 @@ import { lessons, subjects } from "./lessons.ts"
  */
 const SUBJECT_ICON = AppIcon.IconFileCode
 
-/** The path segments under `/labs/learn/`, e.g. `["scope", "acquire-release"]`. */
+/** The path segments under `/learn/`, e.g. `["scope", "acquire-release"]`. */
 const segments_of = (href: string): ReadonlyArray<string> =>
     href
-        .replace(/^\/labs\/learn\/?/, "")
+        .replace(/^\/learn\/?/, "")
         .replace(/\/+$/, "")
         .split("/")
 
@@ -62,7 +62,7 @@ export const nav_items = <ParentMessage>(): ReadonlyArray<
                 label: entry?.label ?? title_case(subject),
                 routeTag: entry?.tag ?? `Learn${title_case(subject)}`,
                 // The subject has a page of its own listing what is under it.
-                href: entry?.href ?? `/labs/learn/${subject}/`,
+                href: entry?.href ?? `/learn/${subject}/`,
                 icon: SUBJECT_ICON,
                 children: [leaf],
             })

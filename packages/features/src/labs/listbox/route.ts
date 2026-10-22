@@ -1,4 +1,4 @@
-const PATH = "/labs/ui/listbox"
+const PATH = "/ui/listbox"
 
 export const listboxHref = () => `${PATH}/`
 

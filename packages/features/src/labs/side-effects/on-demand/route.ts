@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/side-effects/on-demand"
+const PATH = "/learn/side-effects/on-demand"
 
 export const on_demand_href = () => `${PATH}/`
 

@@ -1,4 +1,4 @@
-const CHAT_PATH = "/labs/chat/chat"
+const CHAT_PATH = "/chat/chat"
 
 export const chatHref = () => `${CHAT_PATH}/`
 

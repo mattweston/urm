@@ -1,4 +1,4 @@
-const PATH = "/labs/ui/disclosure"
+const PATH = "/ui/disclosure"
 
 export const disclosureHref = () => `${PATH}/`
 

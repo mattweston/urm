@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/nullish-coalescing-input"
+const PATH = "/learn/nullish-coalescing-input"
 
 export const nullish_coalescing_input_href = () => `${PATH}/`
 

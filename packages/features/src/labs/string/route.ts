@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/string"
+const PATH = "/learn/string"
 
 export const string_href = () => `${PATH}/`
 

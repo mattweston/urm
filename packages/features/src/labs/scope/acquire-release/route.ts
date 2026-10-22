@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/scope/acquire-release"
+const PATH = "/learn/scope/acquire-release"
 
 export const acquire_release_href = () => `${PATH}/`
 

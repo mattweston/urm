@@ -8,22 +8,23 @@ import {
     rank_documentation,
     linked_documentation,
     documentation_source,
-} from "@urm/features/dev/grep"
-import type { SearchRequest } from "@urm/features/dev/grep"
-import type { CodeMatch } from "@urm/features/dev/grep"
-import { group_context } from "@urm/features/dev/grep"
-import { prepare_preview } from "@urm/features/dev/grep/prepare"
+} from "@urm/features/labs/dev/grep"
+import type { SearchRequest } from "@urm/features/labs/dev/grep"
+import type { CodeMatch } from "@urm/features/labs/dev/grep"
+import { group_context } from "@urm/features/labs/dev/grep"
+import { prepare_preview } from "@urm/features/labs/dev/grep/prepare"
 import { collect_corpus } from "../../packages/tools/search/corpus.ts"
 import { extract_associations } from "../../packages/tools/search/associations.ts"
 
 const urm_source_roots = [
     "packages/auth/src",
     "packages/contracts/src",
-    "packages/db/src",
+    "packages/database/src",
     "packages/domain/src",
     "packages/features/src",
     "packages/rpc/src",
-    "apps/client/src",
+    "apps/labs/src",
+    "apps/urm.dev/src",
     "apps/server/src",
 ]
 const foldkit_plus_package_roots = [

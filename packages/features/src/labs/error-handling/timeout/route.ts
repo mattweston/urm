@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/error-handling/timeout"
+const PATH = "/learn/error-handling/timeout"
 
 export const timeout_href = () => `${PATH}/`
 

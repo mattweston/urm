@@ -21,7 +21,7 @@ Foldkit message-handler payloads are explicitly typed for `noImplicitAny`.
 ## Intended location
 
 ```text
-packages/features/src/learn/equivalence/
+packages/features/src/labs/equivalence/
 ├── equivalence.ts
 └── equivalence.view.ts
 ```
@@ -221,7 +221,7 @@ contextual inference, so destructured handler parameters remain safe under
 ## Integration expectation
 
 Follow the same child-feature integration pattern as the neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `EquivalenceDemo.Message` to the parent Message union,

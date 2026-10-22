@@ -16,7 +16,7 @@ const {
     isVariableStatement,
     isIdentifier,
 } = ts
-import type { DocumentationSection, SourceFile } from "@urm/features/dev/grep"
+import type { DocumentationSection, SourceFile } from "@urm/features/labs/dev/grep"
 
 export const extract_api_documentation = (
     file: SourceFile

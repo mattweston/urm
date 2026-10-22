@@ -14,7 +14,7 @@ export type BlogRoute = typeof BlogRoute.Type
 export const isPostOrPosts = (route: BlogRoute): boolean =>
     route._tag === "BlogPosts" || route._tag === "BlogPost"
 
-const PATH = "/labs/documents/personal-blog"
+const PATH = "/documents/personal-blog"
 
 export const personalBlogHref = (): string => `${PATH}/`
 export const personalBlogPostsHref = (): string => `${PATH}/posts/`

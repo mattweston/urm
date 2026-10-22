@@ -1,4 +1,4 @@
-const API_CACHE_PATH = "/labs/api-cache"
+const API_CACHE_PATH = "/api-cache"
 
 export const apiCacheHref = () => `${API_CACHE_PATH}/`
 

@@ -20,7 +20,7 @@ surface as the live page.
 ## Intended location
 
 ```text
-packages/features/src/learn/_regexp/
+packages/features/src/labs/_regexp/
 ├── README.md
 ├── regexp.ts
 └── regexp.view.ts
@@ -353,7 +353,7 @@ replace a full monorepo typecheck.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `RegExpDemo.Message` to the parent Message union,

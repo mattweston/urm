@@ -1,4 +1,4 @@
-const CANVAS_ART_PATH = "/labs/media/canvas-art"
+const CANVAS_ART_PATH = "/media/canvas-art"
 
 export const canvasArtHref = () => `${CANVAS_ART_PATH}/`
 

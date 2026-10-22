@@ -1,4 +1,4 @@
-const PATH = "/labs/design/prop-grid"
+const PATH = "/design/prop-grid"
 
 export const prop_grid_href = () => `${PATH}/`
 

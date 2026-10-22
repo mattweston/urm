@@ -20,7 +20,7 @@ v4 model used here.
 ## Intended location
 
 ```text
-packages/features/src/learn/_references/
+packages/features/src/labs/_references/
 ├── README.md
 ├── references.ts
 └── references.view.ts
@@ -317,7 +317,7 @@ files.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `ReferencesDemo.Message` to the parent Message union,

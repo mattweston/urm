@@ -1,4 +1,4 @@
-const PATH = "/labs/forms/input"
+const PATH = "/forms/input"
 
 export const inputHref = () => `${PATH}/`
 

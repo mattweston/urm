@@ -11,7 +11,7 @@ export const Route = S.TaggedUnion({
 })
 export type Route = typeof Route.Type
 
-const BASE = "/labs/cartlane"
+const BASE = "/cartlane"
 
 export const catalogHref = () => `${BASE}/`
 export const productHref = (product_id: ProductId) =>

@@ -1,4 +1,4 @@
-const PATH = "/labs/issues/report-an-issue"
+const PATH = "/issues/report-an-issue"
 
 export const reportAnIssueHref = (): string => `${PATH}/`
 

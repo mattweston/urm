@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/schedule/repeat-spaced"
+const PATH = "/learn/schedule/repeat-spaced"
 
 export const repeat_spaced_href = () => `${PATH}/`
 

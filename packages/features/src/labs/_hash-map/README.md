@@ -25,7 +25,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/hash-map/
+packages/features/src/labs/hash-map/
 ├── hash-map.ts
 └── hash-map.view.ts
 ```
@@ -478,7 +478,7 @@ derived from `HtmlBuilder`.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `HashMapDemo.Message` to the parent Message union,

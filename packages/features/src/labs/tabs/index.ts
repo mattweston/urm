@@ -9,7 +9,7 @@ export type { Model as ModelType } from "./model.ts"
 export { init, update } from "./update.ts"
 export { view } from "./view.ts"
 
-const BASE = "/labs/ui/tabs"
+const BASE = "/ui/tabs"
 
 export const isTabsPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

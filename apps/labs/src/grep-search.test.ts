@@ -8,7 +8,7 @@ import { grep_preview } from "../grep-preview.plugin.ts"
 import { describe, expect, test } from "vitest"
 import { search_corpus, load_search_corpus } from "../grep-search.server.ts"
 import { Schema } from "effect"
-import { SearchResponse } from "@urm/features/dev/grep"
+import { SearchResponse } from "@urm/features/labs/dev/grep"
 import {
     ChangedQuery,
     ReceivedSearch,
@@ -16,7 +16,7 @@ import {
     init,
     request_key,
     update,
-} from "@urm/features/dev/grep"
+} from "@urm/features/labs/dev/grep"
 
 const preview = {
     snapshot: "fixture",

@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/variables"
+const PATH = "/learn/variables"
 
 export const variablesHref = () => `${PATH}/`
 

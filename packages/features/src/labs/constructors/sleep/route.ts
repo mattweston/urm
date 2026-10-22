@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/constructors/sleep"
+const PATH = "/learn/constructors/sleep"
 
 export const sleep_href = () => `${PATH}/`
 

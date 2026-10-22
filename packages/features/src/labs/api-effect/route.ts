@@ -1,4 +1,4 @@
-const API_EFFECT_PATH = "/labs/learn/api-effect"
+const API_EFFECT_PATH = "/learn/api-effect"
 
 export const apiEffectHref = () => `${API_EFFECT_PATH}/`
 

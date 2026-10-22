@@ -1,4 +1,4 @@
-const PATH = "/labs/media/music-notation"
+const PATH = "/media/music-notation"
 
 export const musicNotationHref = () => `${PATH}/`
 

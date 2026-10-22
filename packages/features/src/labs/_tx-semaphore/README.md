@@ -2,7 +2,7 @@
 
 Standalone Foldkit lesson for Effect v4 `TxSemaphore`.
 
-The repository scaffold under `packages/features/src/learn/_tx-semaphore` is intentionally left untouched. These files live only in `/mnt/data/tx-semaphore/`.
+The repository scaffold under `packages/features/src/labs/_tx-semaphore` is intentionally left untouched. These files live only in `/mnt/data/tx-semaphore/`.
 
 ## Learning path
 

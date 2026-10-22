@@ -5,7 +5,7 @@ export type { Model as ModelType } from "./todo.model.ts"
 export { init, update } from "./todo.update.ts"
 export { view } from "./todo.view.ts"
 
-const BASE = "/labs/projects/todo"
+const BASE = "/projects/todo"
 
 export const isTodoPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

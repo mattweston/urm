@@ -18,7 +18,7 @@ reference.
 ## Intended location
 
 ```text
-packages/features/src/learn/_redacted/
+packages/features/src/labs/_redacted/
 ├── README.md
 ├── redacted.ts
 └── redacted.view.ts

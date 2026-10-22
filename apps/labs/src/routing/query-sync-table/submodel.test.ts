@@ -4,7 +4,7 @@ import { Scene } from "foldkit"
 import { Url } from "foldkit/url"
 import { describe, expect, test } from "vitest"
 import {
-    DashboardRoute,
+    LabsRoute,
     routeForUrl,
     sidebarRouteTag,
 } from "../../routing/route.ts"
@@ -38,10 +38,10 @@ const initial = () => init(route_for_href(query_sync_table_href()))
 describe("client routing query-sync table lab", () => {
     test("opens the routing lab and restores all URL controls", () => {
         const route = route_for_href(
-            "/labs/routing/query-sync-table/?search=rex&diet=Carnivore&period=Cretaceous&sorting=Weight%3ADescending"
+            "/routing/query-sync-table/?search=rex&diet=Carnivore&period=Cretaceous&sorting=Weight%3ADescending"
         )
         const model = init(route)
-        expect(query_sync_table_href()).toBe("/labs/routing/query-sync-table/")
+        expect(query_sync_table_href()).toBe("/routing/query-sync-table/")
         expect(model.active).toBe(true)
         expect(sidebarRouteTag(route)).toBe("LabsQuerySyncTable")
         expect(model.table.route).toEqual({
@@ -67,7 +67,7 @@ describe("client routing query-sync table lab", () => {
             Scene.tap(({ commands }) => {
                 expect(commands).toHaveLength(1)
                 expect(commands[0]?.args).toEqual({
-                    href: "/labs/routing/query-sync-table/?search=Tyrannosaurus",
+                    href: "/routing/query-sync-table/?search=Tyrannosaurus",
                 })
             }),
             Scene.Command.resolve(ReplaceFilters, {
@@ -94,7 +94,7 @@ describe("client routing query-sync table lab", () => {
             column: "Name",
         })
         expect((commands ?? [])[0]?.args).toEqual({
-            href: "/labs/routing/query-sync-table/?search=rex+%26+co%2F&sorting=Name%3AAscending&diet=Carnivore&period=Cretaceous",
+            href: "/routing/query-sync-table/?search=rex+%26+co%2F&sorting=Name%3AAscending&diet=Carnivore&period=Cretaceous",
         })
         const { model: descending } = update(ascending, {
             _tag: "ClickedColumnHeader",
@@ -111,7 +111,7 @@ describe("client routing query-sync table lab", () => {
         const restored = changed_route(
             initial(),
             route_for_href(
-                "/labs/routing/query-sync-table/?search=path/&diet=invalid&period=invalid&sorting=bad"
+                "/routing/query-sync-table/?search=path/&diet=invalid&period=invalid&sorting=bad"
             )
         )
         expect(restored.table.route).toEqual({
@@ -121,7 +121,7 @@ describe("client routing query-sync table lab", () => {
             period: Option.none(),
             sorting: { _tag: "Unsorted" },
         })
-        const inactive = changed_route(restored, DashboardRoute())
+        const inactive = changed_route(restored, LabsRoute({ labs_path: "/" }))
         expect(inactive.active).toBe(false)
         // An inactive table makes no Commands, so the result omits the field.
         expect(
@@ -137,7 +137,7 @@ describe("client routing query-sync table lab", () => {
         Scene.scene(
             scene_config,
             Scene.given(
-                init(route_for_href("/labs/routing/query-sync-table/missing"))
+                init(route_for_href("/routing/query-sync-table/missing"))
             ),
             Scene.expect(Scene.text("404")).toExist(),
             Scene.expect(

@@ -646,7 +646,7 @@ The source includes:
 ## Suggested placement
 
 ```text
-packages/features/src/learn/foldkit/
+packages/features/src/labs/foldkit/
 ├── examples/
 │   └── boolean.ts
 └── boolean.view.ts

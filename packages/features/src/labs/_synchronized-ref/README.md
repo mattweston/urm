@@ -2,7 +2,7 @@
 
 Standalone learning module for [`effect/SynchronizedRef`](https://effect.website/docs/v4/api/effect/SynchronizedRef).
 
-This lesson keeps the repository's `packages/features/src/learn/_synchronized-ref/` scaffold untouched. The generated files are standalone artifacts only.
+This lesson keeps the repository's `packages/features/src/labs/_synchronized-ref/` scaffold untouched. The generated files are standalone artifacts only.
 
 ## Mental model
 

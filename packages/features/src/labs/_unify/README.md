@@ -381,7 +381,7 @@ All eight exports on the module page are represented:
 The repository already contains empty placeholders at:
 
 ```text
-packages/features/src/learn/_unify/
+packages/features/src/labs/_unify/
 ├── README.md
 ├── unify.ts
 └── unify.view.ts

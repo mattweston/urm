@@ -31,7 +31,7 @@ In particular, `update` returns Foldkit's tuple-shaped `Update.Return`, and the 
 Copy this directory to something like:
 
 ```text
-packages/features/src/learn/foldkit/examples/persisted-queue/
+packages/features/src/labs/foldkit/examples/persisted-queue/
 ```
 
 Then import its stylesheet once in the page/feature that renders it:

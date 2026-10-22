@@ -1,4 +1,4 @@
-const PATH = "/labs/ui/menu"
+const PATH = "/ui/menu"
 
 export const menuHref = () => `${PATH}/`
 

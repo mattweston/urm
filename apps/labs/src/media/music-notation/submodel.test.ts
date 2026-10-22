@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest"
 import {
-    DashboardRoute,
     LabsRoute,
     sidebarRouteTag,
 } from "../../routing/route.ts"
 import { changed_route, init, music_notation_href, update } from "./submodel.ts"
 
-const route = LabsRoute({ labs_path: "/labs/media/music-notation" })
+const route = LabsRoute({ labs_path: "/media/music-notation" })
 
 describe("client music notation lab", () => {
     it("opens through client navigation with its sidebar entry", () => {
         expect(init(route).active).toBe(true)
-        expect(music_notation_href()).toBe("/labs/media/music-notation")
+        expect(music_notation_href()).toBe("/media/music-notation")
         expect(sidebarRouteTag(route)).toBe("LabsMusicNotation")
         expect(
             sidebarRouteTag(LabsRoute({ labs_path: `${route.labs_path}/` }))
@@ -27,7 +26,7 @@ describe("client music notation lab", () => {
         const [tablature] = update(playing, { _tag: "ToggledTablature" })
         const [inactive, stop_commands] = changed_route(
             tablature,
-            DashboardRoute()
+            LabsRoute({ labs_path: "/" })
         )
         expect(stop_commands).toHaveLength(1)
         expect(inactive.active).toBe(false)

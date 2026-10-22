@@ -32,7 +32,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/latch/
+packages/features/src/labs/latch/
 ├── latch.ts
 └── latch.view.ts
 ```
@@ -532,7 +532,7 @@ not to replace a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `LatchDemo.Message` to the parent Message union,

@@ -27,7 +27,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/primary-key/
+packages/features/src/labs/primary-key/
 ├── primary-key.ts
 └── primary-key.view.ts
 ```
@@ -752,7 +752,7 @@ than replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `PrimaryKeyDemo.Message` to the parent Message union,

@@ -1,4 +1,4 @@
-const PATH = "/labs/dialog/tooltip"
+const PATH = "/dialog/tooltip"
 
 export const tooltipHref = (): string => `${PATH}/`
 

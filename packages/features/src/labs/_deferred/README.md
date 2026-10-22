@@ -17,7 +17,7 @@ Reference page checked against Effect `4.0.0-rc.115` and the current
 ## Intended location
 
 ```text
-packages/features/src/learn/deferred/
+packages/features/src/labs/deferred/
 ├── deferred.ts
 └── deferred.view.ts
 ```

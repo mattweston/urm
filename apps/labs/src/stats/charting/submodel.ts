@@ -4,7 +4,7 @@ import type { Command } from "foldkit"
 import * as Charting from "@urm/features/labs/stats/charting"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const charting_href = () => "/labs/stats/charting"
+export const charting_href = () => "/stats/charting"
 export const is_charting_path = Charting.isChartingPath
 export const Model = Schema.Struct({
     active: Schema.Boolean,

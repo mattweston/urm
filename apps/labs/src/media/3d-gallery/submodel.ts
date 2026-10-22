@@ -6,7 +6,7 @@ import * as Gallery from "@urm/features/labs/3d-gallery-edit"
 import "@urm/features/labs/3d-gallery-edit/styles.css"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const gallery_path = "/labs/media/3d-gallery"
+export const gallery_path = "/media/3d-gallery"
 export const gallery_href = () => gallery_path
 export const is_gallery_path = (path: string) =>
     path === gallery_path || path.startsWith(`${gallery_path}/`)
@@ -42,7 +42,7 @@ const gallery_route = (path: string) =>
             protocol: "http:",
             host: "gallery.local",
             port: Option.none(),
-            pathname: path.replace(gallery_path, "/labs/3d-gallery-edit"),
+            pathname: path.replace(gallery_path, "/3d-gallery-edit"),
             hash: Option.none(),
             search: Option.none(),
         })

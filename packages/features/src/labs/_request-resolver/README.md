@@ -18,7 +18,7 @@ against the vendored Effect source under `.context/effect`.
 ## Intended location
 
 ```text
-packages/features/src/learn/_request-resolver/
+packages/features/src/labs/_request-resolver/
 ├── README.md
 ├── request-resolver.ts
 └── request-resolver.view.ts
@@ -386,7 +386,7 @@ than replacing a full workspace typecheck.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `RequestResolverDemo.Message` to the parent Message union,

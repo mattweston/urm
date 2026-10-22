@@ -5,7 +5,7 @@ export { update } from "./update.ts"
 export { view } from "./view.ts"
 export { initialModel } from "./model.ts"
 
-const BASE = "/labs/ui/switch"
+const BASE = "/ui/switch"
 
 export const isSwitchPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

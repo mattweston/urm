@@ -17,7 +17,7 @@ import {
     update_with_commands,
 } from "./model.ts"
 import type { Model, Message } from "./model.ts"
-import { GotTabsMessage } from "../../documents/documentation/tabs.ts"
+import { GotTabsMessage } from "../../../documents/documentation/tabs.ts"
 
 const preview = Schema.decodeUnknownSync(Preview)(
     prepare_preview({

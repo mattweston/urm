@@ -1,4 +1,4 @@
-const PATH = "/labs/design/dom-depth-visualizer"
+const PATH = "/design/dom-depth-visualizer"
 
 export const domDepthVisualizerHref = () => `${PATH}/`
 

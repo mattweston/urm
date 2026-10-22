@@ -1,6 +1,6 @@
 /** # Learn submodel
  *
- *  The single surface `main.ts` imports for everything under `/labs/learn`. Adding a
+ *  The single surface `main.ts` imports for everything under `/learn`. Adding a
  *  lesson touches this module's catalogue, model, message, init, update and
  *  view — never the app shell.
  */

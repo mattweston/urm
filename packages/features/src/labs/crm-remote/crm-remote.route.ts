@@ -30,7 +30,7 @@ export const emptyCrmRemoteBrowseFields: CrmRemoteBrowseFields = {
     page: 0,
 }
 
-const BASE = "/labs/contacts/crm-remote"
+const BASE = "/contacts/crm-remote"
 
 export const crmRemoteHref = () => `${BASE}/`
 

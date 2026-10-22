@@ -19,7 +19,7 @@ against the live page.
 ## Intended location
 
 ```text
-packages/features/src/learn/_schema-parser/
+packages/features/src/labs/_schema-parser/
 ├── README.md
 ├── schema-parser.ts
 └── schema-parser.view.ts
@@ -431,7 +431,7 @@ rather than replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `SchemaParserDemo.Message` to the parent Message union,

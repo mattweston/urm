@@ -1,4 +1,4 @@
-const PATH = "/labs/layout/blockquote"
+const PATH = "/layout/blockquote"
 
 export const blockquoteHref = () => `${PATH}/`
 

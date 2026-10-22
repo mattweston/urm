@@ -1,7 +1,7 @@
 import type { ViewRoute } from "./mailroom.view.ts"
 import { isFolderId } from "./mailroom.model.ts"
 
-const BASE = "/labs/mail"
+const BASE = "/mail"
 
 export const mailroomHref = () => `${BASE}/inbox/`
 

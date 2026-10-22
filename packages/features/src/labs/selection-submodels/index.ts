@@ -10,7 +10,7 @@ export type { Model as ModelType } from "./model.ts"
 export { update } from "./update.ts"
 export { view } from "./view.ts"
 
-const BASE = "/labs/learn/selection-submodels"
+const BASE = "/learn/selection-submodels"
 
 export const isSelectionSubmodelsPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

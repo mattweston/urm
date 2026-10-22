@@ -1,7 +1,7 @@
 /** # Learn init
  *
  *  Builds every routed lesson's initial state in one pass. Lessons that derive
- *  their starting sub-route from the URL are given the current `/labs/learn/...`
+ *  their starting sub-route from the URL are given the current `/learn/...`
  *  path; the rest ignore it.
  */
 import { Command } from "foldkit"

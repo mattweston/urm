@@ -16,13 +16,13 @@ describe("map labs routes", () => {
     })
 
     it("falls through to NotFound outside the app", () => {
-        expect(urlToAppRoute("/labs/events/map/nope")).toEqual({
+        expect(urlToAppRoute("/events/map/nope")).toEqual({
             _tag: "NotFound",
-            path: "/labs/events/map/nope",
+            path: "/events/map/nope",
         })
     })
 
     it("no longer claims the YouTube embed path", () => {
-        expect(isAppScope("/labs/media/youtube-embed")).toBe(false)
+        expect(isAppScope("/media/youtube-embed")).toBe(false)
     })
 })

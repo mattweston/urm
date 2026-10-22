@@ -1,4 +1,4 @@
-const BILLING_PATH = "/labs/billing"
+const BILLING_PATH = "/billing"
 
 export const billingHref = () => `${BILLING_PATH}/`
 

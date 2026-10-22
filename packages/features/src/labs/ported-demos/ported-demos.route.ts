@@ -1,11 +1,11 @@
 import type { DemoRoute } from "./ported-demos.model.ts"
 
 const routePaths: Record<DemoRoute, string> = {
-    Cartlane: "/labs/cartlane/",
-    Draftboard: "/labs/draftboard/",
-    Relay: "/labs/relay/",
-    Streambox: "/labs/streambox/",
-    Threadline: "/labs/threadline/",
+    Cartlane: "/cartlane/",
+    Draftboard: "/draftboard/",
+    Relay: "/relay/",
+    Streambox: "/streambox/",
+    Threadline: "/threadline/",
 }
 
 export const demoHref = (route: DemoRoute) => routePaths[route]
@@ -16,16 +16,16 @@ export const isPortedDemoPath = (pathname: string) =>
     )
 
 export const demoRouteForPath = (pathname: string): DemoRoute => {
-    if (pathname.startsWith("/labs/draftboard")) {
+    if (pathname.startsWith("/draftboard")) {
         return "Draftboard"
     }
-    if (pathname.startsWith("/labs/relay")) {
+    if (pathname.startsWith("/relay")) {
         return "Relay"
     }
-    if (pathname.startsWith("/labs/streambox")) {
+    if (pathname.startsWith("/streambox")) {
         return "Streambox"
     }
-    if (pathname.startsWith("/labs/threadline")) {
+    if (pathname.startsWith("/threadline")) {
         return "Threadline"
     }
     return "Cartlane"

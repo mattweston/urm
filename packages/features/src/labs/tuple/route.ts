@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/tuple"
+const PATH = "/learn/tuple"
 
 export const tuple_href = () => `${PATH}/`
 

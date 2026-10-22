@@ -1,20 +1,19 @@
 import { expect, test } from "vitest"
 import {
-    DashboardRoute,
     LabsRoute,
     sidebarRouteTag,
 } from "../../routing/route.ts"
 import { changed_route, init, spreadsheets_href, update } from "./submodel.ts"
 
-const route = LabsRoute({ labs_path: "/labs/data/spreadsheets" })
+const route = LabsRoute({ labs_path: "/data/spreadsheets" })
 
 test("routes the freeform workbook through Labs / Data", () => {
-    expect(spreadsheets_href()).toBe("/labs/data/spreadsheets")
+    expect(spreadsheets_href()).toBe("/data/spreadsheets")
     expect(sidebarRouteTag(route)).toBe("LabsSpreadsheets")
     expect(
-        sidebarRouteTag(LabsRoute({ labs_path: "/labs/data/spreadsheets/" }))
+        sidebarRouteTag(LabsRoute({ labs_path: "/data/spreadsheets/" }))
     ).toBe("LabsSpreadsheets")
-    expect(sidebarRouteTag(LabsRoute({ labs_path: "/labs/data" }))).toBe(
+    expect(sidebarRouteTag(LabsRoute({ labs_path: "/data" }))).toBe(
         "LabsData"
     )
     expect((init(route).commands ?? []).map((command) => command.name)).toEqual(
@@ -24,7 +23,7 @@ test("routes the freeform workbook through Labs / Data", () => {
 
 test("loads on first visit and preserves workbook state across navigation", () => {
     const { model: inactive, commands: initial_commands } =
-        init(DashboardRoute())
+        init(LabsRoute({ labs_path: "/" }))
     expect(initial_commands).toHaveLength(0)
     const { model: active, commands } = changed_route(inactive, route)
     expect((commands ?? []).map((command) => command.name)).toEqual([
@@ -34,7 +33,7 @@ test("loads on first visit and preserves workbook state across navigation", () =
         _tag: "UpdatedNameDraft",
         value: "B4",
     })
-    const { model: away } = changed_route(edited, DashboardRoute())
+    const { model: away } = changed_route(edited, LabsRoute({ labs_path: "/" }))
     expect(away.active).toBe(false)
     const { model: returned, commands: return_commands } = changed_route(
         away,

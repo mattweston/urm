@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/error-handling/all-short-circuit"
+const PATH = "/learn/error-handling/all-short-circuit"
 
 export const all_short_circuit_href = () => `${PATH}/`
 

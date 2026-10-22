@@ -21,7 +21,7 @@ export const ShopRoute = S.Union([
 
 export type ShopRoute = typeof ShopRoute.Type
 
-const BASE = "/labs/shop/shop"
+const BASE = "/shop/shop"
 
 const shopBaseRouter = pipe(
     Route.literal("labs"),

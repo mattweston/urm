@@ -1,4 +1,4 @@
-const PATH = "/labs/auth/otp-field"
+const PATH = "/auth/otp-field"
 
 export const otpFieldHref = (): string => `${PATH}/`
 

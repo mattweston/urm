@@ -6,7 +6,7 @@ A standalone Foldkit lesson for Effect's `TxDeferred` module.
 - Live docs surface: **8 exports**
 - Workspace source target: Effect `4.0.0-rc.112`
 - Teaching stages: **Create → Wait → Complete → Inspect**
-- Repo scaffold `packages/features/src/learn/_tx-deferred/` is intentionally untouched.
+- Repo scaffold `packages/features/src/labs/_tx-deferred/` is intentionally untouched.
 
 ## What TxDeferred is
 

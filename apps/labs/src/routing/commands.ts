@@ -22,4 +22,15 @@ const LoadExternal = Command.define("LoadExternal", {
 export const navigateInternal = (url: Url) =>
     NavigateInternal({ href: urlToString(url) })
 
+const ReplaceInternal = Command.define("ReplaceInternal", {
+    args: { href: S.String },
+    messages: [CompletedNavigateInternal],
+    execute: ({ href }) =>
+        Navigation.replaceUrl(href).pipe(
+            Effect.as(CompletedNavigateInternal())
+        ),
+})
+
 export const loadExternal = (href: string) => LoadExternal({ href })
+
+export const replaceInternalHref = (href: string) => ReplaceInternal({ href })

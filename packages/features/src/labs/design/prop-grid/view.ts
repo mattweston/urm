@@ -27,7 +27,7 @@ export const view = <ParentMessage>(
                 [
                     h.p(
                         [h.Class("text-sm font-medium text-primary")],
-                        ["Labs / Design"]
+                        ["Design"]
                     ),
                     h.h1(
                         [

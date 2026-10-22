@@ -5,7 +5,7 @@ export type { Model as ModelType } from "./share-document.model.ts"
 export { init, update } from "./share-document.update.ts"
 export { view } from "./view.ts"
 
-const BASE = "/labs/documents/share-document"
+const BASE = "/documents/share-document"
 
 export const isShareDocumentPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

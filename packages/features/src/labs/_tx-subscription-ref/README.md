@@ -9,7 +9,7 @@ The lesson keeps runtime Effect values outside the serializable Foldkit model an
 3. **Queue** — subscribe through a scoped transactional queue with current-first semantics.
 4. **Stream** — consume the same committed-change feed through `Stream`.
 
-The repository scaffold at `packages/features/src/learn/_tx-subscription-ref` is intentionally left untouched.
+The repository scaffold at `packages/features/src/labs/_tx-subscription-ref` is intentionally left untouched.
 
 ## Version target
 

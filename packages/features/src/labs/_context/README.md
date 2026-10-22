@@ -154,10 +154,10 @@ does not add a required service to an Effect merely because its default is used.
 
 ## Files
 
-Place these three files together under the learn feature, for example:
+Place these three files together under the labs feature, for example:
 
 ```text
-packages/features/src/learn/context/
+packages/features/src/labs/context/
 ├── context.ts
 ├── context.view.ts
 └── README.md

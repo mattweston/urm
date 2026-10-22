@@ -25,7 +25,7 @@ Foldkit message payloads are explicitly typed for `noImplicitAny`.
 ## Intended location
 
 ```text
-packages/features/src/learn/execution-plan/
+packages/features/src/labs/execution-plan/
 ├── execution-plan.ts
 └── execution-plan.view.ts
 ```
@@ -262,7 +262,7 @@ typing leaks under `noImplicitAny`.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `ExecutionPlanDemo.Message` to the parent Message union,

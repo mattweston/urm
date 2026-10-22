@@ -62,7 +62,7 @@ export const ExampleRoute = S.Union([
 ])
 export type ExampleRoute = typeof ExampleRoute.Type
 
-const PATH = "/labs/learn"
+const PATH = "/learn"
 
 // One table for both directions. Twenty-one routes written out as an `if`
 // chain and a matching set of `href` templates is twenty-one chances for the
@@ -104,11 +104,11 @@ export const example_href = (segment: string): string => `${PATH}/${segment}/`
 export const example_segments: ReadonlyArray<string> =
     Object.keys(route_for_segment)
 
-/** Exact membership, not a prefix: `/labs/learn/` itself is the Learn index and
+/** Exact membership, not a prefix: `/learn/` itself is the Learn index and
  *  every other lesson also lives one segment down. */
 export const isEffectExamplePath = (pathname: string): boolean =>
     route_for_segment[
-        pathname.replace(/^\/labs\/learn\/?/, "").replace(/\/+$/, "")
+        pathname.replace(/^\/learn\/?/, "").replace(/\/+$/, "")
     ] !== undefined
 
 export const effectRouteForPath = (pathname: string): ExampleRoute => {
@@ -116,7 +116,7 @@ export const effectRouteForPath = (pathname: string): ExampleRoute => {
         return NotFoundRoute({ pathname })
     }
 
-    // `/labs/learn/fail` and `/labs/learn/fail/` both reach here, so the surrounding
+    // `/learn/fail` and `/learn/fail/` both reach here, so the surrounding
     // slashes come off before the lookup.
     const segment = pathname.slice(PATH.length).replace(/^\/+|\/+$/g, "")
     const route = route_for_segment[segment]

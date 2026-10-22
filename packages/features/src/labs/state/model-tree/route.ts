@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/state/model-tree"
+const PATH = "/learn/state/model-tree"
 
 export const model_tree_href = () => `${PATH}/`
 

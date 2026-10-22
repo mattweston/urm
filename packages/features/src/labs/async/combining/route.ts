@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/async/combining"
+const PATH = "/learn/async/combining"
 
 export const combining_href = () => `${PATH}/`
 

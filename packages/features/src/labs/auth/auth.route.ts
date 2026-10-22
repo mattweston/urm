@@ -33,7 +33,7 @@ export type LoggedOutRoute = typeof LoggedOutRoute.Type
 export type LoggedInRoute = typeof LoggedInRoute.Type
 export type AuthRoute = typeof AuthRoute.Type
 
-const BASE = "/labs/auth"
+const BASE = "/auth"
 
 const authBaseRouter = pipe(
     Route.literal("labs"),

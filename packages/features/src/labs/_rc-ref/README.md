@@ -23,7 +23,7 @@ The current RcRef API reference exposes **5 public exports**:
 ## Intended location
 
 ```text
-packages/features/src/learn/_rc-ref/
+packages/features/src/labs/_rc-ref/
 ├── README.md
 ├── rc-ref.ts
 └── rc-ref.view.ts

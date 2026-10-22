@@ -25,7 +25,7 @@ export const AppRoute = S.Union([
 
 export type AppRoute = typeof AppRoute.Type
 
-const BASE = "/labs/events/map"
+const BASE = "/events/map"
 
 export const urlToAppRoute = (pathname: string): AppRoute => {
     const path = pathname.endsWith("/") ? pathname.slice(0, -1) : pathname

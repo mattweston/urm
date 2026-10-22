@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/persisted-queue"
+const PATH = "/learn/persisted-queue"
 
 export const persisted_queue_href = () => `${PATH}/`
 

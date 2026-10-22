@@ -1,4 +1,4 @@
-import type { DocumentationSection, SourceFile } from "@urm/features/dev/grep"
+import type { DocumentationSection, SourceFile } from "@urm/features/labs/dev/grep"
 
 const unquote = (value: string) => value.replace(/^(["'])(.*)\1$/, "$2")
 

@@ -153,7 +153,7 @@ const demoShell = (
                                 "text-sm text-muted-foreground hover:text-foreground"
                             ),
                         ],
-                        ["Labs / Map"],
+                        ["Map"],
                         internal_navigation,
                         h
                     ),

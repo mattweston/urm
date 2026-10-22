@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/fold"
+const PATH = "/learn/fold"
 
 export const foldHref = () => `${PATH}/`
 

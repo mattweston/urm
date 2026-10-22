@@ -1,4 +1,4 @@
-const CALENDAR_PATH = "/labs/calendar"
+const CALENDAR_PATH = "/calendar"
 
 export const calendarHref = () => `${CALENDAR_PATH}/`
 

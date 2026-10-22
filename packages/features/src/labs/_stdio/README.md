@@ -2,7 +2,7 @@
 
 Standalone Foldkit teaching demo for `effect/Stdio`.
 
-- Intended repository location: `packages/features/src/learn/_stdio/`
+- Intended repository location: `packages/features/src/labs/_stdio/`
 - Repository scaffold remains untouched (`README.md`, `x.ts`, `x.view.ts` are still empty in git).
 - Generated artifacts live only in `/mnt/data/stdio/`.
 - Workspace Effect version: `4.0.0-rc.112`.

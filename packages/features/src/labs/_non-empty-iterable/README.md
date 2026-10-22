@@ -32,7 +32,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/non-empty-iterable/
+packages/features/src/labs/non-empty-iterable/
 ├── non-empty-iterable.ts
 └── non-empty-iterable.view.ts
 ```
@@ -715,7 +715,7 @@ than replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `Demo.Message` to the parent Message union,

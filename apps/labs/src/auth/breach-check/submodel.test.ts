@@ -8,7 +8,7 @@ import {
 } from "./submodel.ts"
 
 const initial = () => ({
-    ...init({ _tag: "Labs", labs_path: "/labs/auth/breach-check" }),
+    ...init({ _tag: "Labs", labs_path: "/auth/breach-check" }),
     active: true,
 })
 

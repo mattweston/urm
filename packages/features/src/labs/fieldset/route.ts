@@ -1,4 +1,4 @@
-const PATH = "/labs/forms/fieldset"
+const PATH = "/forms/fieldset"
 
 export const fieldsetHref = () => `${PATH}/`
 

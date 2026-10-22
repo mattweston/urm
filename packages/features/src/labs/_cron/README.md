@@ -170,10 +170,10 @@ itself remains unbounded; the consumer decides how much of it to pull.
 
 ## Files
 
-Place these three files together under the learn feature, for example:
+Place these three files together under the labs feature, for example:
 
 ```text
-packages/features/src/learn/cron/
+packages/features/src/labs/cron/
 ├── cron.ts
 ├── cron.view.ts
 └── README.md

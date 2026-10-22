@@ -1,4 +1,4 @@
-const PATH = "/labs/documents/rich-text-editor"
+const PATH = "/documents/rich-text-editor"
 
 export const richTextEditorHref = (): string => `${PATH}/`
 

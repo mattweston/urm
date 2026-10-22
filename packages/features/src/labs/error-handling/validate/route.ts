@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/error-handling/validate"
+const PATH = "/learn/error-handling/validate"
 
 export const validate_href = () => `${PATH}/`
 

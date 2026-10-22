@@ -35,7 +35,7 @@ export const demos = [
     { slug: "data-table", label: "Data Table" },
 ]
 
-export const index_href = () => "/labs/ui"
+export const index_href = () => "/ui"
 export const demo_href = (slug: string) => `${index_href()}/${slug}`
 export const is_ui_path = (path: string) =>
-    path === "/labs/ui" || path.startsWith("/labs/ui/")
+    path === "/ui" || path.startsWith("/ui/")

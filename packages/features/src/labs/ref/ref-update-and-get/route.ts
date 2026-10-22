@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/ref/ref-update-and-get"
+const PATH = "/learn/ref/ref-update-and-get"
 
 export const ref_update_and_get_href = () => `${PATH}/`
 

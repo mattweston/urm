@@ -308,7 +308,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         M.withReturnType<UpdateReturn>(),
         M.tagsExhaustive({
             GotSelectionSubmodelsMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/selection-submodels")
+                if (model.path !== "/ui/selection-submodels")
                     return [model, []]
                 const [selection_submodels, commands] =
                     SelectionSubmodels.update(
@@ -323,7 +323,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotButtonMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/button") return [model, []]
+                if (model.path !== "/ui/button") return [model, []]
                 const [button, commands] = Button.update(model.button, message)
                 return [
                     { ...model, button },
@@ -333,7 +333,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotInputMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/input") return [model, []]
+                if (model.path !== "/ui/input") return [model, []]
                 const [input, commands] = Input.update(model.input, message)
                 return [
                     { ...model, input },
@@ -343,7 +343,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotTextareaMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/textarea") return [model, []]
+                if (model.path !== "/ui/textarea") return [model, []]
                 const [textarea, commands] = Textarea.update(
                     model.textarea,
                     message
@@ -356,7 +356,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotCheckboxMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/checkbox") return [model, []]
+                if (model.path !== "/ui/checkbox") return [model, []]
                 const [checkbox, commands] = Checkbox.update(
                     model.checkbox,
                     message
@@ -369,7 +369,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotFieldsetMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/fieldset") return [model, []]
+                if (model.path !== "/ui/fieldset") return [model, []]
                 const [fieldset, commands] = Fieldset.update(
                     model.fieldset,
                     message
@@ -382,7 +382,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotRadioGroupMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/radio-group") return [model, []]
+                if (model.path !== "/ui/radio-group") return [model, []]
                 const [radio_group, commands] = RadioGroup.update(
                     model.radio_group,
                     message
@@ -395,7 +395,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotSwitchMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/switch") return [model, []]
+                if (model.path !== "/ui/switch") return [model, []]
                 const [switch_model, commands] = Switch.update(
                     model.switch,
                     message
@@ -408,7 +408,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotSliderMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/slider") return [model, []]
+                if (model.path !== "/ui/slider") return [model, []]
                 const { model: slider, commands } = Slider.update(
                     model.slider,
                     message
@@ -421,7 +421,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotSelectMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/select") return [model, []]
+                if (model.path !== "/ui/select") return [model, []]
                 const [select, commands] = Select.update(model.select, message)
                 return [
                     { ...model, select },
@@ -431,7 +431,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotListboxMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/listbox") return [model, []]
+                if (model.path !== "/ui/listbox") return [model, []]
                 const [listbox, commands] = Listbox.update(
                     model.listbox,
                     message
@@ -444,7 +444,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotComboboxMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/combobox") return [model, []]
+                if (model.path !== "/ui/combobox") return [model, []]
                 const [combobox, commands] = Combobox.update(
                     model.combobox,
                     message
@@ -457,7 +457,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotDialogMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/dialog") return [model, []]
+                if (model.path !== "/ui/dialog") return [model, []]
                 const [dialog, commands] = Dialog.update(model.dialog, message)
                 return [
                     { ...model, dialog },
@@ -467,7 +467,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotMenuMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/menu") return [model, []]
+                if (model.path !== "/ui/menu") return [model, []]
                 const [menu, commands] = Menu.update(model.menu, message)
                 return [
                     { ...model, menu },
@@ -477,7 +477,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotPopoverMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/popover") return [model, []]
+                if (model.path !== "/ui/popover") return [model, []]
                 const [popover, commands] = Popover.update(
                     model.popover,
                     message
@@ -490,7 +490,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotTooltipMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/tooltip") return [model, []]
+                if (model.path !== "/ui/tooltip") return [model, []]
                 const [tooltip, commands] = Tooltip.update(
                     model.tooltip,
                     message
@@ -503,7 +503,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotToastMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/toast") return [model, []]
+                if (model.path !== "/ui/toast") return [model, []]
                 const [toast, commands] = Toast.update(model.toast, message)
                 return [
                     { ...model, toast },
@@ -513,7 +513,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotDisclosureMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/disclosure") return [model, []]
+                if (model.path !== "/ui/disclosure") return [model, []]
                 const [disclosure, commands] = Disclosure.update(
                     model.disclosure,
                     message
@@ -526,7 +526,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotTabsMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/tabs") return [model, []]
+                if (model.path !== "/ui/tabs") return [model, []]
                 const [tabs, commands] = Tabs.update(model.tabs, message)
                 return [
                     { ...model, tabs },
@@ -536,7 +536,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotDragAndDropMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/drag-and-drop") return [model, []]
+                if (model.path !== "/ui/drag-and-drop") return [model, []]
                 const [drag_and_drop, commands] = DragAndDrop.update(
                     model.drag_and_drop,
                     message
@@ -549,7 +549,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotFileDropMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/file-drop") return [model, []]
+                if (model.path !== "/ui/file-drop") return [model, []]
                 const [file_drop, commands] = FileDrop.update(
                     model.file_drop,
                     message
@@ -562,7 +562,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotCalendarMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/calendar") return [model, []]
+                if (model.path !== "/ui/calendar") return [model, []]
                 const [calendar, commands] = Calendar.update(
                     model.calendar,
                     message
@@ -575,7 +575,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotDatePickerMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/date-picker") return [model, []]
+                if (model.path !== "/ui/date-picker") return [model, []]
                 const [date_picker, commands] = DatePicker.update(
                     model.date_picker,
                     message
@@ -588,7 +588,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotTimePickerMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/time-picker") return [model, []]
+                if (model.path !== "/ui/time-picker") return [model, []]
                 const [time_picker, commands] = TimePicker.update(
                     model.time_picker,
                     message
@@ -601,7 +601,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotAnimationMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/animation") return [model, []]
+                if (model.path !== "/ui/animation") return [model, []]
                 const [animation, commands] = Animation.update(
                     model.animation,
                     message
@@ -614,7 +614,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                 ]
             },
             GotVirtualListMessage: ({ message }) => {
-                if (model.path !== "/labs/ui/virtual-list") return [model, []]
+                if (model.path !== "/ui/virtual-list") return [model, []]
                 const [virtual_list, commands] = VirtualList.update(
                     model.virtual_list,
                     message
@@ -631,97 +631,97 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
 const content_view = (model: Model, h: HtmlBuilder<Message>): Html => {
     switch (model.path) {
-        case "/labs/ui/data-table":
+        case "/ui/data-table":
             return DataTable.view()
-        case "/labs/ui/file-tree":
+        case "/ui/file-tree":
             return FileTree.view()
-        case "/labs/ui/selection-submodels":
+        case "/ui/selection-submodels":
             return SelectionSubmodels.view(
                 model.selection_submodels.listbox,
                 model.selection_submodels.maybeSelectedPlan,
                 (message) => GotSelectionSubmodelsMessage({ message }),
                 h
             )
-        case "/labs/ui/button":
+        case "/ui/button":
             return Button.view(
                 model.button,
                 (message) => GotButtonMessage({ message }),
                 h
             )
-        case "/labs/ui/input":
+        case "/ui/input":
             return Input.view(
                 model.input,
                 (message) => GotInputMessage({ message }),
                 h
             )
-        case "/labs/ui/textarea":
+        case "/ui/textarea":
             return Textarea.view(
                 model.textarea,
                 (message) => GotTextareaMessage({ message }),
                 h
             )
-        case "/labs/ui/checkbox":
+        case "/ui/checkbox":
             return Checkbox.view(
                 model.checkbox,
                 (message) => GotCheckboxMessage({ message }),
                 h
             )
-        case "/labs/ui/fieldset":
+        case "/ui/fieldset":
             return Fieldset.view(
                 model.fieldset,
                 (message) => GotFieldsetMessage({ message }),
                 h
             )
-        case "/labs/ui/radio-group":
+        case "/ui/radio-group":
             return RadioGroup.view(
                 model.radio_group.horizontal,
                 model.radio_group.vertical,
                 (message) => GotRadioGroupMessage({ message }),
                 h
             )
-        case "/labs/ui/switch":
+        case "/ui/switch":
             return Switch.view(
                 model.switch,
                 (message) => GotSwitchMessage({ message }),
                 h
             )
-        case "/labs/ui/slider":
+        case "/ui/slider":
             return Slider.view(
                 model.slider,
                 (message) => GotSliderMessage({ message }),
                 h
             )
-        case "/labs/ui/select":
+        case "/ui/select":
             return Select.view(
                 model.select,
                 (message) => GotSelectMessage({ message }),
                 h
             )
-        case "/labs/ui/listbox":
+        case "/ui/listbox":
             return Listbox.view(
                 model.listbox,
                 (message) => GotListboxMessage({ message }),
                 h
             )
-        case "/labs/ui/combobox":
+        case "/ui/combobox":
             return Combobox.view(
                 model.combobox,
                 (message) => GotComboboxMessage({ message }),
                 h
             )
-        case "/labs/ui/dialog":
+        case "/ui/dialog":
             return Dialog.view(
                 model.dialog,
                 (message) => GotDialogMessage({ message }),
                 h
             )
-        case "/labs/ui/menu":
+        case "/ui/menu":
             return Menu.view(
                 model.menu,
                 (message) => GotMenuMessage({ message }),
                 h
             )
-        case "/labs/ui/popover":
+        case "/ui/popover":
             return Popover.view(
                 model.popover.basic,
                 model.popover.animated,
@@ -735,7 +735,7 @@ const content_view = (model: Model, h: HtmlBuilder<Message>): Html => {
                     }),
                 h
             )
-        case "/labs/ui/tooltip":
+        case "/ui/tooltip":
             return Tooltip.view(
                 model.tooltip.basic,
                 model.tooltip.noDelay,
@@ -749,19 +749,19 @@ const content_view = (model: Model, h: HtmlBuilder<Message>): Html => {
                     }),
                 h
             )
-        case "/labs/ui/toast":
+        case "/ui/toast":
             return Toast.view(
                 model.toast,
                 (message) => GotToastMessage({ message }),
                 h
             )
-        case "/labs/ui/disclosure":
+        case "/ui/disclosure":
             return Disclosure.view(
                 model.disclosure,
                 (message) => GotDisclosureMessage({ message }),
                 h
             )
-        case "/labs/ui/tabs":
+        case "/ui/tabs":
             return Tabs.view(
                 model.tabs.horizontalTabs,
                 model.tabs.horizontalValue,
@@ -777,37 +777,37 @@ const content_view = (model: Model, h: HtmlBuilder<Message>): Html => {
                     }),
                 h
             )
-        case "/labs/ui/drag-and-drop":
+        case "/ui/drag-and-drop":
             return DragAndDrop.view(
                 model.drag_and_drop,
                 (message) => GotDragAndDropMessage({ message }),
                 h
             )
-        case "/labs/ui/file-drop":
+        case "/ui/file-drop":
             return FileDrop.view(
                 model.file_drop,
                 (message) => GotFileDropMessage({ message }),
                 h
             )
-        case "/labs/ui/calendar":
+        case "/ui/calendar":
             return Calendar.view(
                 model.calendar,
                 (message) => GotCalendarMessage({ message }),
                 h
             )
-        case "/labs/ui/date-picker":
+        case "/ui/date-picker":
             return DatePicker.view(
                 model.date_picker,
                 (message) => GotDatePickerMessage({ message }),
                 h
             )
-        case "/labs/ui/time-picker":
+        case "/ui/time-picker":
             return TimePicker.view(
                 model.time_picker,
                 (message) => GotTimePickerMessage({ message }),
                 h
             )
-        case "/labs/ui/animation":
+        case "/ui/animation":
             return Animation.view(
                 model.animation.animation,
                 model.animation.isShowing,
@@ -821,7 +821,7 @@ const content_view = (model: Model, h: HtmlBuilder<Message>): Html => {
                     }),
                 h
             )
-        case "/labs/ui/virtual-list":
+        case "/ui/virtual-list":
             return VirtualList.view(
                 model.virtual_list.fixed,
                 model.virtual_list.variable,
@@ -836,7 +836,7 @@ const content_view = (model: Model, h: HtmlBuilder<Message>): Html => {
                 (message) => GotVirtualListMessage({ message }),
                 h
             )
-        case "/labs/ui/callout":
+        case "/ui/callout":
             return h.div(
                 [],
                 [
@@ -868,7 +868,7 @@ const content_view = (model: Model, h: HtmlBuilder<Message>): Html => {
                     }),
                 ]
             )
-        case "/labs/ui/steps":
+        case "/ui/steps":
             return Steps({
                 items: [
                     [
@@ -902,25 +902,25 @@ const content_view = (model: Model, h: HtmlBuilder<Message>): Html => {
                     ],
                 ],
             })
-        case "/labs/ui/nav/graph":
+        case "/ui/nav/graph":
             return graph_view(h)
-        case "/labs/ui/nav":
+        case "/ui/nav":
             return nav_view(h)
-        case "/labs/ui/hover-intent":
+        case "/ui/hover-intent":
             return h.p(
                 [],
                 [
                     "Hover Intent has no demo in packages/features/src/labs or API in the pinned UI source.",
                 ]
             )
-        case "/labs/ui/anchor":
+        case "/ui/anchor":
             return h.p(
                 [],
                 [
                     "Anchor has no standalone lab in packages/features/src/labs. Anchored positioning is demonstrated in Popover, Menu, and Tooltip.",
                 ]
             )
-        case "/labs/ui":
+        case "/ui":
             return h.div(
                 [h.Class("grid gap-3 sm:grid-cols-2 lg:grid-cols-3")],
                 demos.map((demo) =>
@@ -954,7 +954,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
             h.h1(
                 [h.Class("text-2xl font-semibold")],
                 [
-                    demos.find((demo) => model.path === `/labs/ui/${demo.slug}`)
+                    demos.find((demo) => model.path === `/ui/${demo.slug}`)
                         ?.label ?? "UI Labs",
                 ]
             ),
@@ -965,12 +965,12 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
 
 export const subscriptions = Subscription.aggregate<Model, Message>()(
     Subscription.lift(DragAndDrop.subscriptions)<Model, Message>({
-        when: (model) => model.path === "/labs/ui/drag-and-drop",
+        when: (model) => model.path === "/ui/drag-and-drop",
         read: (model) => Option.some(model.drag_and_drop),
         toParentMessage: (message) => GotDragAndDropMessage({ message }),
     }),
     Subscription.lift(Slider.subscriptions)<Model, Message>({
-        when: (model) => model.path === "/labs/ui/slider",
+        when: (model) => model.path === "/ui/slider",
         read: (model) => Option.some(model.slider),
         toParentMessage: (message) => GotSliderMessage({ message }),
     })

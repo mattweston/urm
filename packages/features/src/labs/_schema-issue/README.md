@@ -36,7 +36,7 @@ Message union, a pure update function, and a view that receives a
 ## Intended location
 
 ```text
-packages/features/src/learn/_schema-issue/
+packages/features/src/labs/_schema-issue/
 ├── README.md
 ├── schema-issue.ts
 └── schema-issue.view.ts
@@ -501,7 +501,7 @@ replacing a full monorepo typecheck.
 # Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `SchemaIssueDemo.Message` to the parent Message union,

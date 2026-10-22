@@ -106,7 +106,7 @@ const normalizeQuerySyncTablePathname = (pathname: string) =>
         ? pathname.slice(0, -1)
         : pathname
 
-const BASE = "/labs/routing/query-sync-table"
+const BASE = "/routing/query-sync-table"
 
 export const isQuerySyncTablePath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

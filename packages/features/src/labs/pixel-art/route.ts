@@ -1,4 +1,4 @@
-const PATH = "/labs/media/pixel-art"
+const PATH = "/media/pixel-art"
 
 export const pixelArtHref = (): string => `${PATH}/`
 

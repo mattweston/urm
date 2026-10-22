@@ -37,7 +37,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/pull/
+packages/features/src/labs/pull/
 ├── pull.ts
 └── pull.view.ts
 ```
@@ -1025,7 +1025,7 @@ than replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `PullDemo.Message` to the parent Message union,

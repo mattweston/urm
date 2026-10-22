@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/payment-fold"
+const PATH = "/learn/payment-fold"
 
 export const paymentFoldHref = (): string => `${PATH}/`
 

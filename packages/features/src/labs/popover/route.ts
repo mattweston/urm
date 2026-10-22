@@ -1,4 +1,4 @@
-const PATH = "/labs/dialog/popover"
+const PATH = "/dialog/popover"
 
 export const popoverHref = (): string => `${PATH}/`
 

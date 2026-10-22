@@ -888,7 +888,7 @@ The README also covers:
 ## Suggested placement
 
 ```text
-packages/features/src/learn/foldkit/
+packages/features/src/labs/foldkit/
 ├── examples/
 │   └── channel.ts
 └── channel.view.ts

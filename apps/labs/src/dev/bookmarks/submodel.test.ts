@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-    DashboardRoute,
+    LabsRoute,
     DevRoute,
     sidebarRouteTag,
 } from "../../routing/route.ts"
@@ -24,7 +24,7 @@ describe("client dev bookmarks", () => {
             value: "typescript",
         })
         expect(searched.bookmarks.query).toBe("typescript")
-        const inactive = changed_route(searched, DashboardRoute())
+        const inactive = changed_route(searched, LabsRoute({ labs_path: "/" }))
         expect(inactive.active).toBe(false)
         expect(inactive.bookmarks.query).toBe("")
         expect(

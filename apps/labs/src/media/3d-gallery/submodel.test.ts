@@ -2,7 +2,6 @@ import { Option } from "effect"
 import { describe, expect, it } from "vitest"
 import {
     LabsRoute,
-    DashboardRoute,
     sidebarRouteTag,
 } from "../../routing/route.ts"
 import { init, update, changed_route, gallery_path } from "./submodel.ts"
@@ -38,7 +37,7 @@ describe("client 3D gallery lab", () => {
         expect(
             list_commands.find((command) => command.name === "NavigateGallery")
                 ?.args
-        ).toEqual({ href: "/labs/media/3d-gallery/artworks" })
+        ).toEqual({ href: "/media/3d-gallery/artworks" })
         const [list_details, list_detail_commands] = update(artwork_list, {
             _tag: "ClickedArtworkListItem",
             frameKey: "bridge",
@@ -50,7 +49,7 @@ describe("client 3D gallery lab", () => {
             list_detail_commands.find(
                 (command) => command.name === "NavigateGallery"
             )?.args
-        ).toEqual({ href: "/labs/media/3d-gallery/artworks/bridge" })
+        ).toEqual({ href: "/media/3d-gallery/artworks/bridge" })
         const [edited] = update(initial, {
             _tag: "ChangedGalleryText",
             frameKey: "bridge",
@@ -63,7 +62,7 @@ describe("client 3D gallery lab", () => {
         })
         expect(
             commands.find((command) => command.name === "NavigateGallery")?.args
-        ).toEqual({ href: "/labs/media/3d-gallery/bridge" })
+        ).toEqual({ href: "/media/3d-gallery/bridge" })
         const [details] = changed_route(selected, route("/bridge/details"))
         const [back] = changed_route(details, route())
         expect(back.gallery.textOverrides.bridge?.title).toBe("Edited")
@@ -72,7 +71,7 @@ describe("client 3D gallery lab", () => {
 
     it("resets on exit and ignores late messages while inactive", () => {
         const [initial] = init(route())
-        const [exited] = changed_route(initial, DashboardRoute())
+        const [exited] = changed_route(initial, LabsRoute({ labs_path: "/" }))
         const late = {
             _tag: "ClickedFrame",
             frameKey: "bridge",

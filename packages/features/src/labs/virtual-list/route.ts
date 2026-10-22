@@ -1,4 +1,4 @@
-const PATH = "/labs/lists/virtual-list"
+const PATH = "/lists/virtual-list"
 
 export const virtualListHref = () => `${PATH}/`
 

@@ -20,7 +20,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/fiber-set/
+packages/features/src/labs/fiber-set/
 ├── fiber-set.ts
 └── fiber-set.view.ts
 ```
@@ -254,7 +254,7 @@ attributes are derived from `HtmlBuilder` so the demo remains clean under
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `FiberSetDemo.Message` to the parent Message union,

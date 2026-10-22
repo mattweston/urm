@@ -1,4 +1,4 @@
-const PATH = "/labs/media/generative-art"
+const PATH = "/media/generative-art"
 
 export const generativeArtHref = () => `${PATH}/`
 

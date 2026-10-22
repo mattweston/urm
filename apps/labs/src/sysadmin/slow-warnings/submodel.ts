@@ -4,9 +4,9 @@ import type { Command } from "foldkit"
 import * as SlowWarnings from "@urm/features/labs/slow-warnings"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const slow_warnings_href = () => "/labs/sysadmin/slow-warnings"
+export const slow_warnings_href = () => "/sysadmin/slow-warnings"
 export const is_slow_warnings_path = (path: string) =>
-    path.replace(/\/$/, "") === "/labs/sysadmin/slow-warnings"
+    path.replace(/\/$/, "") === "/sysadmin/slow-warnings"
 
 export const Model = Schema.Struct({
     active: Schema.Boolean,

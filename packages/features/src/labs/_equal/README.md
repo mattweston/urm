@@ -19,7 +19,7 @@ The TypeScript in this artifact intentionally uses no explicit `any` types.
 ## Intended location
 
 ```text
-packages/features/src/learn/equal/
+packages/features/src/labs/equal/
 ├── equal.ts
 └── equal.view.ts
 ```
@@ -192,7 +192,7 @@ uses `unknown`; otherwise it keeps generic or concrete types.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as the neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `EqualDemo.Message` to the parent Message union,

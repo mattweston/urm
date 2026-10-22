@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/constructors/promise"
+const PATH = "/learn/constructors/promise"
 
 export const promise_href = () => `${PATH}/`
 

@@ -30,14 +30,14 @@ describe("client UI labs", () => {
         ({ slug }) => {
             const route = route_for_path(`${demo_href(slug)}/`)
             const [model, commands] = init(route)
-            expect(model.path).toBe(`/labs/ui/${slug}`)
+            expect(model.path).toBe(`/ui/${slug}`)
             expect(sidebarRouteTag(route)).toBe(`LabsUi-${slug}`)
             expect(commands).toEqual([])
         }
     )
 
     test("updates the active lab and preserves it on same-route navigation", () => {
-        const route = route_for_path("/labs/ui/button")
+        const route = route_for_path("/ui/button")
         const [model] = init(route)
         const [clicked] = update(
             model,
@@ -49,19 +49,19 @@ describe("client UI labs", () => {
     })
 
     test("ignores inactive messages after navigation and resets demo state", () => {
-        const [model] = init(route_for_path("/labs/ui/button"))
+        const [model] = init(route_for_path("/ui/button"))
         const click = GotButtonMessage({ message: { _tag: "ClickedButton" } })
         const [clicked] = update(model, click)
         const [exited] = changed_route(clicked, route_for_path("/dashboard"))
         expect(exited.path).toBe("")
         expect(exited.button.clickCount).toBe(model.button.clickCount)
         expect(update(exited, click)).toEqual([exited, []])
-        const [input] = changed_route(clicked, route_for_path("/labs/ui/input"))
+        const [input] = changed_route(clicked, route_for_path("/ui/input"))
         expect(update(input, click)[0]).toBe(input)
     })
 
     test("updates the time picker lab through its nested message", () => {
-        const [model] = init(route_for_path("/labs/ui/time-picker"))
+        const [model] = init(route_for_path("/ui/time-picker"))
         const [stepped] = update(
             model,
             GotTimePickerMessage({
@@ -86,7 +86,7 @@ describe("client UI labs", () => {
         // @foldkit/ui 0.168 moved them into the view's ObserveVirtualList
         // Mount. Drag and drop is now the demo with subscriptions of its own,
         // and its four entries open while the Slider lift stays closed.
-        const [active] = init(route_for_path("/labs/ui/drag-and-drop"))
+        const [active] = init(route_for_path("/ui/drag-and-drop"))
         const dependencies = Object.values(subscriptions).map((subscription) =>
             subscription.modelToDependencies(active)
         )

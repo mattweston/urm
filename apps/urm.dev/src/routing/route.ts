@@ -9,7 +9,6 @@ export const MarketingRoute = taggedStruct("Marketing", {
 })
 export const StatsRoute = taggedStruct("Stats", { stats_path: S.String })
 export const ShopRoute = taggedStruct("Shop", { shop_path: S.String })
-export const DevRoute = taggedStruct("Dev", { dev_path: S.String })
 export const ProjectsRoute = taggedStruct("Projects")
 export const ProjectRoute = taggedStruct("Project", { project_slug: S.String })
 export const IssuesRoute = taggedStruct("Issues")
@@ -47,7 +46,6 @@ export const DesktopRoute = S.Union([
     MarketingRoute,
     StatsRoute,
     ShopRoute,
-    DevRoute,
     ProjectsRoute,
     ProjectRoute,
     IssuesRoute,
@@ -95,9 +93,6 @@ export const routeForUrl = (url: Url): DesktopRoute => {
     }
     if (path === "/shop" || path.startsWith("/shop/")) {
         return ShopRoute({ shop_path: path })
-    }
-    if (path === "/dev" || path.startsWith("/dev/")) {
-        return DevRoute({ dev_path: path })
     }
     if (path === "/issues") {
         return IssuesRoute()
@@ -273,10 +268,6 @@ export const shopCollectionsHref = () => "/shop/collections"
 export const shopCartHref = () => "/shop/cart"
 export const shopCheckoutHref = () => "/shop/checkout"
 export const shopOrdersHref = () => "/shop/orders"
-export const devHref = () => "/dev"
-export const devKbdShortcutsHref = () => "/dev/kbd-shortcuts"
-export const devTerminalHref = () => "/dev/terminal"
-export const dev_grep_href = () => "/dev/grep"
 export const pagesBookmarksHref = () => "/pages/bookmarks"
 export const projectsHref = () => "/projects"
 export const projectHref = (project_slug: string) =>
@@ -380,16 +371,6 @@ export const sidebarRouteTag = (route: DesktopRoute): string => {
                         : route.shop_path.startsWith("/shop/orders")
                           ? "ShopOrders"
                           : "Shop"
-        case "Dev":
-            if (route.dev_path.replace(/\/$/, "") === "/dev/grep")
-                return "DevGrep"
-            if (route.dev_path.replace(/\/$/, "") === "/dev/bookmarks")
-                return "DevBookmarks"
-            return route.dev_path === "/dev/kbd-shortcuts"
-                ? "DevKbdShortcuts"
-                : route.dev_path === "/dev/terminal"
-                  ? "DevTerminal"
-                  : "Dev"
         case "Projects":
         case "Project":
             return "Projects"
@@ -545,7 +526,6 @@ export const issuesFeaturePath = (
         case "Stats":
         case "Marketing":
         case "Shop":
-        case "Dev":
         case "Projects":
         case "Project":
         case "Tags":

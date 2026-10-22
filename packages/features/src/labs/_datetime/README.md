@@ -229,10 +229,10 @@ showing the role of the attached zone.
 
 ## Files
 
-Place these files together under the learn feature, for example:
+Place these files together under the labs feature, for example:
 
 ```text
-packages/features/src/learn/datetime/
+packages/features/src/labs/datetime/
 ├── datetime.ts
 ├── datetime.view.ts
 └── README.md

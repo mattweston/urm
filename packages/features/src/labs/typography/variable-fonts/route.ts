@@ -1,4 +1,4 @@
-const PATH = "/labs/typography/variable-fonts"
+const PATH = "/typography/variable-fonts"
 
 export const variableFontsHref = () => `${PATH}/`
 

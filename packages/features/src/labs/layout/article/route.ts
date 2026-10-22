@@ -1,4 +1,4 @@
-const PATH = "/labs/layout/article"
+const PATH = "/layout/article"
 
 export const articleHref = () => `${PATH}/`
 

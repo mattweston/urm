@@ -1,4 +1,4 @@
-const COUNTERS_PATH = "/labs/data/counters"
+const COUNTERS_PATH = "/data/counters"
 
 export const countersHref = () => `${COUNTERS_PATH}/`
 

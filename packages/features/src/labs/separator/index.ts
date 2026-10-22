@@ -1,6 +1,6 @@
 export { view } from "./view.ts"
 
-const BASE = "/labs/ui/separator"
+const BASE = "/ui/separator"
 
 export const isSeparatorPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

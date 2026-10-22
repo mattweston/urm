@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/async/optimistic-update"
+const PATH = "/learn/async/optimistic-update"
 
 export const optimistic_update_href = () => `${PATH}/`
 

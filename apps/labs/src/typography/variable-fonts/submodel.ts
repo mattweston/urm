@@ -5,7 +5,7 @@ import * as VariableFonts from "@urm/features/labs/typography/variable-fonts"
 import "./styles.css"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const variable_fonts_href = () => "/labs/typography/variable-fonts"
+export const variable_fonts_href = () => "/typography/variable-fonts"
 export const is_variable_fonts_path = VariableFonts.isVariableFontsPath
 
 export const Model = Schema.Struct({

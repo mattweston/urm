@@ -29,7 +29,7 @@ const frameSubscriptions = Subscription.make<
     GenerativeArtModel,
     GenerativeArtMessage
 >()(() => ({
-    generativeArtFrame: Subscription.animationFrame({
+    generativeArtFrame: Subscription.animationFrameEntry({
         isActive: (model) => model.isRunning,
         toMessage: (deltaTimeMs) => TickedFrame({ deltaTimeMs }),
     }),

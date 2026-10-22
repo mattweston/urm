@@ -237,3 +237,58 @@ https://github.com/platformatic/sqlite-js-stream backups database
 https://docs.kishore.app/kabuki
 
 https://native-sdk.dev native
+https://motherload.dev/
+https://demo.r2db.dev/activity sync
+https://github.com/natew/orez sync
+https://r2db.dev/
+https://reylo.dev/?og#supported-drivers
+https://corca.app/ maths
+https://tools.diffui.ai/palette/ color
+https://github.com/MapleTechLabs/effect-orm
+https://mkdir.directory/ design
+https://docs.typesafe.ai/introduction ai
+https://github.com/mikecann/voice-type
+https://github.com/joelhooks/rat-stack web
+https://alchemy-integration-varlock-website.dmno.workers.dev/integrations/alchemy/ security env
+https://effect.website/blog/module-of-the-week/cluster-idempotency cluster effect
+https://chenglou.me/handwired/ neural net
+https://github.com/cursor/plugins/tree/main/pstack skills
+https://expand.ai/ ai crawl
+https://skills.wheresryan.sh/anatomy diagrams
+https://github.com/wheresryan22/anatomy
+https://planetscale.com/changelog/postgres-neki-huge-pages memory database
+https://www.postgresql.org/docs/current/runtime-config-resource.html#GUC-HUGE-PAGES
+https://www.postgresql.org/docs/ database
+https://uselayouts.com/docs/ ui layout components
+https://github.com/lucas-barake/effect-local
+https://diffs.com/highlights syntax highlighting docs
+https://github.com/galadran/we-have-a-problem.com security
+https://github.com/nyacg/pagedb sync database
+https://pagedb.do-pool-lab.workers.dev/how sync
+https://github.com/nltk/nltk/blob/develop-security/tools/pentest/AGENT_PENTEST.md security
+https://github.com/duanebester/gooey native zig
+https://github.com/foldkit/coverchart music
+https://github.com/foldhub/awesome-foldkit#ai-and-agents AI
+https://github.com/foldhub/awesome-foldkit#ui-kits-and-styling UI
+https://github.com/filipfalcon/egonitida 3D
+https://github.com/boozedog/foldstylex layout
+https://github.com/guidefari/efa-template web
+https://creaseui.com/blocks ui
+https://github.com/opsydyn/fold-kit-experiments
+https://github.com/oleksandr-antonenko/foldkit-extras
+https://github.com/Potti1234/foldkit-lucide-icons
+https://github.com/peterje/foldui ui
+https://github.com/lloydrichards/stack-effect
+https://github.com/birbprophet/shadcn-ui-foldkit
+https://github.com/deracs/effect-webmcp/tree/main/examples/foldkit mcp
+https://github.com/just-be-dev/foldmark ai ui
+https://github.com/MentalGear/foldkit-shadcn
+https://creasekit.up.railway.app/ ui
+https://github.com/skoshx/foldkit-icons
+https://github.com/planetaryescape/foldkit-mde editor markdown
+https://github.com/tao-io/foldcase testing
+https://github.com/mwarger/foldkit-convex-clerk-lab
+https://github.com/elianiva/cafe-template
+https://github.com/Potti1234/zero-foldkit
+https://github.com/yatainc/cafe-stack
+https://ratstack.sh/lore/no-comments

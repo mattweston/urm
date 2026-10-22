@@ -1,6 +1,6 @@
 /** # Learn navigation
  *
- *  Route tags, titles and breadcrumbs for `/labs/learn/...`, derived from
+ *  Route tags, titles and breadcrumbs for `/learn/...`, derived from
  *  {@link lessons} so a catalogue entry is all a flat lesson needs.
  *
  *  Foldkit and Visual Effect are grouped lessons: they own a family of
@@ -16,7 +16,7 @@ import { lessons, subject_for_path, subjects } from "./lessons.ts"
 const matching_lesson = (learn_path: string) =>
     Array.findFirst(lessons, (lesson) => lesson.is_path(learn_path))
 
-/** The sidebar `routeTag` for a `/labs/learn/...` path, or `Learn` for the index. */
+/** The sidebar `routeTag` for a `/learn/...` path, or `Learn` for the index. */
 export const route_tag = (learn_path: string): string => {
     const subject = subject_for_path(learn_path)
     if (subject !== undefined) return subject.tag
@@ -52,7 +52,7 @@ export const breadcrumb = (
     return Option.match(matching_lesson(learn_path), {
         onSome: (lesson) => {
             const segments = lesson.href
-                .replace(/^\/labs\/learn\/?/, "")
+                .replace(/^\/learn\/?/, "")
                 .replace(/\/+$/, "")
                 .split("/")
             const parent = subjects.find(

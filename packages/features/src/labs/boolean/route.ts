@@ -1,4 +1,4 @@
-const BOOLEAN_PATH = "/labs/boolean"
+const BOOLEAN_PATH = "/boolean"
 
 export const booleanHref = () => `${BOOLEAN_PATH}/`
 

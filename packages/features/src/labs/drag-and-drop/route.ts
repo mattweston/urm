@@ -1,4 +1,4 @@
-const PATH = "/labs/ui/drag-and-drop"
+const PATH = "/ui/drag-and-drop"
 
 export const dragAndDropHref = () => `${PATH}/`
 

@@ -1,6 +1,6 @@
 # Spreadsheet | Octane to Foldkit port
 
-This directory ports `@urm/features-octane/spreadsheet` to the Foldkit Elm architecture. The public entry point is `@urm/features/spreadsheet`, and the client Labs route is `/labs/data/spreadsheets`.
+This directory ports `@urm/features-octane/spreadsheet` to the Foldkit Elm architecture. The public entry point is `@urm/features/spreadsheet`, and the client Labs route is `/data/spreadsheets`.
 
 This is also the canonical layout for `/data/spreadsheets`. Its table adapter
 supplies real rows and column labels, validates edits, and sends revision-checked

@@ -28,7 +28,7 @@
         "foldkit-surface": "catalog:"
     },
     "devDependencies": {
-        "@foldkit/vite-plugin": "0.20.2",
+        "@foldkit/vite-plugin": "0.22.0",
         "@tailwindcss/vite": "catalog:layout",
         "@urm/config": "workspace:*",
         "tailwindcss": "catalog:layout",

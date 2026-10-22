@@ -4,7 +4,7 @@ import type { Command } from "foldkit"
 import * as YouTubeEmbed from "@urm/features/labs/media/youtube-embed"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const embed_href = () => "/labs/media/youtube-embed"
+export const embed_href = () => "/media/youtube-embed"
 export const is_embed_path = YouTubeEmbed.isYouTubeEmbedPath
 
 export const Model = Schema.Struct({

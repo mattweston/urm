@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest"
 import { Option } from "effect"
 import { Url } from "foldkit/url"
-import { init } from "@urm/features/dev/submodel"
-import { grep_url_href } from "@urm/features/dev/grep/route"
+import { init } from "@urm/features/labs/dev/submodel"
+import { grep_url_href } from "@urm/features/labs/dev/grep/route"
 import { restore_grep_route } from "./grep-route.ts"
 import { routeForUrl, sidebarRouteTag } from "./routing/route.ts"
 import * as Client from "./main.ts"
@@ -24,7 +24,7 @@ const url_for = (href: string) => {
 describe("Grep query URLs", () => {
     test("the client forwards edits to navigation and restores history without unrelated commands", () => {
         const initial = Client.init(url_for("/dev/grep?q=Schema.Struct")).model
-        const [edited, commands] = Client.update(
+        const { model: edited, commands } = Client.update(
             initial,
             Client.GotDevMessage({
                 message: {
@@ -34,8 +34,8 @@ describe("Grep query URLs", () => {
             })
         )
         expect(edited.dev.grep.query).toBe("Effect")
-        expect(commands).toHaveLength(1)
-        const [expanded] = Client.update(
+        expect(commands ?? []).toHaveLength(1)
+        const { model: expanded } = Client.update(
             edited,
             Client.GotDevMessage({
                 message: {
@@ -44,19 +44,19 @@ describe("Grep query URLs", () => {
                 },
             })
         )
-        const [same, same_commands] = Client.update(
+        const { model: same, commands: same_commands } = Client.update(
             expanded,
             ChangedUrl({ url: url_for("/dev/grep?q=Effect") })
         )
         expect(same.dev.grep.visible_files).toBe(20)
-        expect(same_commands).toEqual([])
-        const [restored, restored_commands] = Client.update(
+        expect(same_commands ?? []).toEqual([])
+        const { model: restored, commands: restored_commands } = Client.update(
             same,
             ChangedUrl({ url: url_for("/dev/grep?q=Schema.Struct") })
         )
         expect(restored.dev.grep.query).toBe("Schema.Struct")
         expect(restored.dev.grep.visible_files).toBe(10)
-        expect(restored_commands).toEqual([])
+        expect(restored_commands ?? []).toEqual([])
     })
     test.each(["Schema.Struct", "=>", "a+b & c?#/", " ", "", "😀"])(
         "round-trips the literal %j without changing route",

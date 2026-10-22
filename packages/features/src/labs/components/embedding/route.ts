@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/components/embedding"
+const PATH = "/learn/components/embedding"
 
 export const embedding_href = () => `${PATH}/`
 

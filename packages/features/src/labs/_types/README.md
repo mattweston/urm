@@ -1,6 +1,6 @@
 # Effect v4 `Types` — standalone lesson
 
-A standalone Foldkit lesson for Effect's `Types` module. The repo scaffold under `packages/features/src/learn/_types` remains untouched.
+A standalone Foldkit lesson for Effect's `Types` module. The repo scaffold under `packages/features/src/labs/_types` remains untouched.
 
 ## Lesson flow
 

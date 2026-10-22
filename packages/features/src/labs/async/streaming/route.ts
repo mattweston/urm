@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/async/streaming"
+const PATH = "/learn/async/streaming"
 
 export const streaming_href = () => `${PATH}/`
 

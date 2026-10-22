@@ -4,9 +4,9 @@ import * as Gallery from "@urm/features/labs/gallery-view-transitions"
 import "@urm/features/labs/gallery-view-transitions/styles.css"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const gallery_href = () => "/labs/media/gallery-view-transitions"
+export const gallery_href = () => "/media/gallery-view-transitions"
 export const is_gallery_path = (path: string) =>
-    path.replace(/\/$/, "") === "/labs/media/gallery-view-transitions"
+    path.replace(/\/$/, "") === "/media/gallery-view-transitions"
 
 export const Model = Schema.Struct({
     active: Schema.Boolean,

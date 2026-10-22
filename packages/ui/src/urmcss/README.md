@@ -17,7 +17,7 @@ URMCSS combines:
   explicit relationships.
 
 The administration client imports an isolated Button experiment at
-`/labs/design/urmcss/button`. Production components and generated public sites
+`/design/urmcss/button`. Production components and generated public sites
 have not migrated.
 
 ## Colocation

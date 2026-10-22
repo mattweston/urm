@@ -1,6 +1,6 @@
 /** # Learn view
  *
- *  Dispatches a `/labs/learn/...` path to its lesson's view, falling back to the
+ *  Dispatches a `/learn/...` path to its lesson's view, falling back to the
  *  index. The index cards are generated from {@link lessons}, so a new lesson
  *  appears there by being in the catalogue.
  */

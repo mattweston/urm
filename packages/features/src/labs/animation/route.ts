@@ -1,4 +1,4 @@
-const ANIMATION_PATH = "/labs/animation"
+const ANIMATION_PATH = "/animation"
 
 export const animationHref = () => `${ANIMATION_PATH}/`
 

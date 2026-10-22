@@ -6,7 +6,7 @@ export { subscriptions } from "./stopwatch.subscription.ts"
 export { init, update } from "./stopwatch.update.ts"
 export { view } from "./stopwatch.view.ts"
 
-const BASE = "/labs/learn/stopwatch"
+const BASE = "/learn/stopwatch"
 
 export const isStopwatchPath = (pathname: string) =>
     pathname === BASE || pathname.startsWith(`${BASE}/`)

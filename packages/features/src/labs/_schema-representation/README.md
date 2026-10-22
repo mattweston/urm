@@ -17,7 +17,7 @@ target for the generated code.
 ## Files
 
 ```text
-packages/features/src/learn/_schema-representation/
+packages/features/src/labs/_schema-representation/
 ├── README.md
 ├── schema-representation.ts
 └── schema-representation.view.ts
@@ -583,7 +583,7 @@ local syntax or implicit-`any` diagnostics.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as the neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model;
 2. add `SchemaRepresentationDemo.Message` to the parent Message union;

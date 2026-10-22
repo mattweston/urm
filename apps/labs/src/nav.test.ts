@@ -10,34 +10,34 @@ describe("learn subjects", () => {
     it("resolves a subject path to that subject", () => {
         for (const subject of subjects) {
             expect(subject_for_path(subject.href)?.slug).toBe(subject.slug)
-            expect(subject_for_path(`/labs/learn/${subject.slug}`)?.slug).toBe(
+            expect(subject_for_path(`/learn/${subject.slug}`)?.slug).toBe(
                 subject.slug
             )
         }
     })
 
     it("is not a subject when the path names a lesson or the index", () => {
-        expect(subject_for_path("/labs/learn")).toBeUndefined()
-        expect(subject_for_path("/labs/learn/")).toBeUndefined()
-        expect(subject_for_path("/labs/learn/scope/acquire-release")).toBeUndefined()
+        expect(subject_for_path("/learn")).toBeUndefined()
+        expect(subject_for_path("/learn/")).toBeUndefined()
+        expect(subject_for_path("/learn/scope/acquire-release")).toBeUndefined()
     })
 
     it("titles and tags a subject as itself", () => {
         const scope = subjects.find((one) => one.slug === "scope")
         expect(scope).toBeDefined()
-        expect(route_tag("/labs/learn/scope/")).toBe("LearnScope")
-        expect(route_title("/labs/learn/scope/", undefined)).toBe(
+        expect(route_tag("/learn/scope/")).toBe("LearnScope")
+        expect(route_title("/learn/scope/", undefined)).toBe(
             "Scope · Learn · URM"
         )
-        expect(breadcrumb("/labs/learn/scope/", undefined)).toBe("Learn / Scope")
+        expect(breadcrumb("/learn/scope/", undefined)).toBe("Learn / Scope")
     })
 
     it("puts a lesson under its subject in the breadcrumb", () => {
-        expect(breadcrumb("/labs/learn/scope/acquire-release/", undefined)).toBe(
+        expect(breadcrumb("/learn/scope/acquire-release/", undefined)).toBe(
             "Learn / Scope / Acquire Release"
         )
         // A lesson that is its own subject has no parent to name.
-        expect(breadcrumb("/labs/learn/number/", undefined)).toBe("Learn / Number")
+        expect(breadcrumb("/learn/number/", undefined)).toBe("Learn / Number")
     })
 
     it("gives every subject at least one lesson", () => {

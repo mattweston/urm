@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/array"
+const PATH = "/learn/array"
 
 export const array_href = () => `${PATH}/`
 

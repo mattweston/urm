@@ -18,14 +18,14 @@ import { init, update } from "./cartlane.update.ts"
 
 describe("Cartlane update", () => {
     it("parses catalog, product, cart, checkout, and order routes", () => {
-        expect(routeForPath("/labs/cartlane/")._tag).toBe("Catalog")
+        expect(routeForPath("/cartlane/")._tag).toBe("Catalog")
         expect(routeForPath(productHref("arc-lamp"))).toEqual({
             _tag: "Product",
             product_id: "arc-lamp",
         })
         expect(routeForPath(cartHref())._tag).toBe("Cart")
-        expect(routeForPath("/labs/cartlane/checkout/")._tag).toBe("Checkout")
-        expect(routeForPath("/labs/cartlane/orders/CL-1234567/")).toEqual({
+        expect(routeForPath("/cartlane/checkout/")._tag).toBe("Checkout")
+        expect(routeForPath("/cartlane/orders/CL-1234567/")).toEqual({
             _tag: "Order",
             order_id: "CL-1234567",
         })

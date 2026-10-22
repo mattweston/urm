@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/state/counter"
+const PATH = "/learn/state/counter"
 
 export const counter_href = () => `${PATH}/`
 

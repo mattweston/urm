@@ -88,7 +88,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/predicate/
+packages/features/src/labs/predicate/
 ├── predicate.ts
 └── predicate.view.ts
 ```
@@ -1018,7 +1018,7 @@ than replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `PredicateDemo.Message` to the parent Message union,

@@ -211,7 +211,7 @@ If the `_hkt` lesson is read first, `Utils.Gen` is a practical example of why
 ## Intended location
 
 ```text
-packages/features/src/learn/_utils/
+packages/features/src/labs/_utils/
 ├── README.md
 ├── utils.ts
 └── utils.view.ts

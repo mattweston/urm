@@ -27,7 +27,7 @@ Message types, a pure update function, and a view that receives a
 ## Intended location
 
 ```text
-packages/features/src/learn/_schema-getter/
+packages/features/src/labs/_schema-getter/
 ├── README.md
 ├── schema-getter.ts
 └── schema-getter.view.ts

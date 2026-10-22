@@ -1,4 +1,4 @@
-const CHECKBOX_PATH = "/labs/forms/checkbox"
+const CHECKBOX_PATH = "/forms/checkbox"
 
 export const checkboxHref = () => `${CHECKBOX_PATH}/`
 

@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/state/combined-inputs"
+const PATH = "/learn/state/combined-inputs"
 
 export const combined_inputs_href = () => `${PATH}/`
 

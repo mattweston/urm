@@ -3,9 +3,9 @@ import { Submodel, Subscription, type Update } from "foldkit"
 import * as Spreadsheet from "@urm/features/spreadsheet"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const spreadsheets_href = () => "/labs/data/spreadsheets"
+export const spreadsheets_href = () => "/data/spreadsheets"
 export const is_spreadsheets_path = (path: string) =>
-    path.replace(/\/$/, "") === "/labs/data/spreadsheets"
+    path.replace(/\/$/, "") === "/data/spreadsheets"
 const active_for_route = (route: DesktopRoute) =>
     route._tag === "Labs" && is_spreadsheets_path(route.labs_path)
 

@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/error-handling/first-success-of"
+const PATH = "/learn/error-handling/first-success-of"
 
 export const first_success_of_href = () => `${PATH}/`
 

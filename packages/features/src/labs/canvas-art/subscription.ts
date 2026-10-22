@@ -9,7 +9,7 @@ export const subscriptions = <ParentModel, ParentMessage>(config: {
     readonly isRouteActive: (parentModel: ParentModel) => boolean
 }) =>
     Subscription.make<ParentModel, ParentMessage>()(() => ({
-        canvasArtFrame: Subscription.animationFrame({
+        canvasArtFrame: Subscription.animationFrameEntry({
             isActive: (model) =>
                 config.isRouteActive(model) &&
                 config.toChildModel(model).isRunning,

@@ -18,7 +18,7 @@ The live Effect v4 API reference currently displays `4.0.0-rc.115` and contains
 ## Intended location
 
 ```text
-packages/features/src/learn/_schema-ast/
+packages/features/src/labs/_schema-ast/
 ├── README.md
 ├── schema-ast.ts
 └── schema-ast.view.ts

@@ -1,4 +1,4 @@
-const PATH = "/labs/shop/payment-method"
+const PATH = "/shop/payment-method"
 
 export const paymentMethodHref = (): string => `${PATH}/`
 

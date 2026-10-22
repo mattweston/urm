@@ -41,8 +41,8 @@ describe("navigation graph", () => {
 
     test("renders links to related labs with the graph itself current", () => {
         const rendered = JSON.stringify(graph_view(inertHtml))
-        expect(rendered).toContain("/labs/ui/nav/graph")
-        expect(rendered).toContain("/labs/ui/steps")
+        expect(rendered).toContain("/ui/nav/graph")
+        expect(rendered).toContain("/ui/steps")
         expect(rendered).toContain("Related UI components")
         expect(rendered).toContain("aria-current")
     })

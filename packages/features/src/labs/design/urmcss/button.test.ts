@@ -111,7 +111,7 @@ describe("URMCSS Button experiment", () => {
         )
     })
 
-    test.each(["/labs/design/urmcss/button", "/labs/design/urmcss/button/"])(
+    test.each(["/design/urmcss/button", "/design/urmcss/button/"])(
         "recognizes the Button route at %s",
         (path) => {
             expect(is_button_path(path)).toBe(true)
@@ -120,7 +120,7 @@ describe("URMCSS Button experiment", () => {
     )
 
     test("does not claim unknown sibling routes", () => {
-        expect(is_urmcss_path("/labs/design/urmcss/buttonish")).toBe(false)
-        expect(is_button_path("/labs/design/urmcss/")).toBe(false)
+        expect(is_urmcss_path("/design/urmcss/buttonish")).toBe(false)
+        expect(is_button_path("/design/urmcss/")).toBe(false)
     })
 })

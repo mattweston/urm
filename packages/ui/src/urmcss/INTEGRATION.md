@@ -1,7 +1,7 @@
 # URM integration
 
 URMCSS is an adoption target, not an active replacement for Tailwind yet.
-The Button comparison at `/labs/design/urmcss/button` is scoped to
+The Button comparison at `/design/urmcss/button` is scoped to
 `.urmcss-preview` and imports its CSS through the administration client.
 
 ## Administration client

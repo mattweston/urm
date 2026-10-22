@@ -1,4 +1,4 @@
-const PATH = "/labs/media/youtube-embed"
+const PATH = "/media/youtube-embed"
 
 export const youtubeEmbedHref = (): string => `${PATH}/`
 

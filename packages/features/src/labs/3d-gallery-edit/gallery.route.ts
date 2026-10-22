@@ -29,7 +29,7 @@ export const Gallery3dEditRoute = S.Union([
 ])
 export type Gallery3dEditRoute = typeof Gallery3dEditRoute.Type
 
-const BASE = "/labs"
+const BASE = "/"
 
 export type Gallery3dEditHrefs = Readonly<{
     index: () => string

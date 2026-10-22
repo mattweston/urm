@@ -8,7 +8,7 @@ export const view = <Message>(h: HtmlBuilder<Message>): Html =>
             h.header(
                 [],
                 [
-                    h.p([], ["Labs / Design"]),
+                    h.p([], ["Design"]),
                     h.h1([], ["URMCSS migration lab"]),
                     h.p(
                         [],

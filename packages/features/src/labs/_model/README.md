@@ -277,7 +277,7 @@ The source uses:
 ## Suggested placement
 
 ```text
-packages/features/src/learn/foldkit/
+packages/features/src/labs/foldkit/
 ├── examples/
 │   └── model.ts
 └── model.view.ts

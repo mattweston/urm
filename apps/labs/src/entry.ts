@@ -1,5 +1,7 @@
 import { Runtime } from "foldkit"
 
+import * as Appearance from "@urm/features/settings/appearance"
+
 import { browser_breach_check } from "./auth/breach-check/submodel.ts"
 import {
     Message,
@@ -11,6 +13,8 @@ import {
     view,
 } from "./main.ts"
 import { ChangedUrl, ClickedLink } from "./routing/message.ts"
+
+Appearance.bootstrap()
 
 const container = document.getElementById("root")
 

@@ -27,14 +27,14 @@ describe("client map labs", () => {
         ["weather", "Weather"],
         ["weather-map", "WeatherMap"],
     ])("opens %s from its sidebar route", (slug, tag) => {
-        const route = route_for_path(`/labs/events/map/${slug}/`)
+        const route = route_for_path(`/events/map/${slug}/`)
         const [model] = init(route)
         expect(model.route._tag).toBe(tag)
         expect(sidebarRouteTag(route)).toBe(`LabsMap-${slug}`)
     })
 
     test("clears map subscriptions on exit and ignores late mount messages", () => {
-        const route = route_for_path("/labs/events/map/map")
+        const route = route_for_path("/events/map/map")
         const [initial] = init(route)
         const [mounted] = update(initial, {
             _tag: "GotMapMessage",
@@ -59,7 +59,7 @@ describe("client map labs", () => {
     })
 
     test("does not reinitialize the active demo for the same route", () => {
-        const route = route_for_path("/labs/events/map/weather-map")
+        const route = route_for_path("/events/map/weather-map")
         const [model] = init(route)
         const [next, commands] = changed_route(model, route, route)
         expect(next).toBe(model)

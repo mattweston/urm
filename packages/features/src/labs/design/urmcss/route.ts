@@ -1,4 +1,4 @@
-const PATH = "/labs/design/urmcss"
+const PATH = "/design/urmcss"
 const BUTTON_PATH = `${PATH}/button`
 
 export const urmcss_href = () => `${PATH}/`

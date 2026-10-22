@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/schedule/repeat-while"
+const PATH = "/learn/schedule/repeat-while"
 
 export const repeat_while_href = () => `${PATH}/`
 

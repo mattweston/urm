@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/concurrency/all"
+const PATH = "/learn/concurrency/all"
 
 export const all_href = () => `${PATH}/`
 

@@ -600,16 +600,6 @@ describe("desktop routes", () => {
         expect(documentsBlogNewHref()).toBe("/blog/new")
     })
 
-    test("routes the bookmark reference under Dev", () => {
-        const bookmarks = routeForUrl(url_with_hash("/dev/bookmarks"))
-
-        expect(bookmarks).toEqual({
-            _tag: "Dev",
-            dev_path: "/dev/bookmarks",
-        })
-        expect(sidebarRouteTag(bookmarks)).toBe("DevBookmarks")
-    })
-
 })
 
 test("redirects the old Links URL to Bookmarks with search and hash intact", () => {

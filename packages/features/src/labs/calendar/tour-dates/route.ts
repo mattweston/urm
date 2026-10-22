@@ -1,4 +1,4 @@
-const TOUR_DATES_PATH = "/labs/calendar/tour-dates"
+const TOUR_DATES_PATH = "/calendar/tour-dates"
 
 export const tourDatesHref = () => `${TOUR_DATES_PATH}/`
 

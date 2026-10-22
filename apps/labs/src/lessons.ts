@@ -81,7 +81,7 @@ export type Lesson = Readonly<{
     is_group?: true
     label: string
     href: string
-    /** Recognises this lesson's own `/labs/learn/...` path, trailing slash or not. */
+    /** Recognises this lesson's own `/learn/...` path, trailing slash or not. */
     is_path: (pathname: string) => boolean
     description: string
     icon: LessonIcon
@@ -582,10 +582,10 @@ export const lessons: ReadonlyArray<Lesson> = [
     },
 ]
 
-/** The path segments under `/labs/learn/`, e.g. `["scope", "acquire-release"]`. */
+/** The path segments under `/learn/`, e.g. `["scope", "acquire-release"]`. */
 export const segments_of = (href: string): ReadonlyArray<string> =>
     href
-        .replace(/^\/labs\/learn\/?/, "")
+        .replace(/^\/learn\/?/, "")
         .replace(/\/+$/, "")
         .split("/")
 
@@ -622,7 +622,7 @@ export const subjects: ReadonlyArray<Subject> = lessons.reduce<Array<Subject>>(
                 slug,
                 label: title_case(slug),
                 tag: `Learn${title_case(slug).replace(/ /g, "")}`,
-                href: `/labs/learn/${slug}/`,
+                href: `/learn/${slug}/`,
                 lessons: [lesson],
             })
             return found
@@ -636,10 +636,11 @@ export const subjects: ReadonlyArray<Subject> = lessons.reduce<Array<Subject>>(
     []
 )
 
-/** The subject a `/labs/learn/...` path names, when it names one and nothing more. */
+/** The subject a `/learn/...` path names, when it names one and nothing more. */
 export const subject_for_path = (learn_path: string): Subject | undefined => {
     const segments = segments_of(learn_path)
     return segments.length === 1
         ? subjects.find((subject) => subject.slug === segments[0])
         : undefined
 }
+

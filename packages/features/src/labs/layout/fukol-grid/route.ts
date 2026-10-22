@@ -1,4 +1,4 @@
-const PATH = "/labs/layout/fukol-grid"
+const PATH = "/layout/fukol-grid"
 
 export const fukol_grid_href = () => `${PATH}/`
 

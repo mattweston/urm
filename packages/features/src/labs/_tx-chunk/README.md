@@ -1,6 +1,6 @@
 # Effect v4 — TxChunk lesson
 
-Standalone Foldkit lesson artifact for the Effect `TxChunk` module. The repository scaffold at `packages/features/src/learn/_tx-chunk/` is intentionally left untouched.
+Standalone Foldkit lesson artifact for the Effect `TxChunk` module. The repository scaffold at `packages/features/src/labs/_tx-chunk/` is intentionally left untouched.
 
 ## Lesson shape
 

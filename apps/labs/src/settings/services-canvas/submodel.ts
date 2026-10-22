@@ -3,9 +3,9 @@ import { Submodel } from "foldkit"
 import * as ServicesCanvas from "@urm/features/labs/settings/services-canvas"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const services_canvas_href = () => "/labs/settings/services-canvas"
+export const services_canvas_href = () => "/settings/services-canvas"
 export const is_services_canvas_path = (path: string) =>
-    path.replace(/\/$/, "") === "/labs/settings/services-canvas"
+    path.replace(/\/$/, "") === "/settings/services-canvas"
 
 export const Model = Schema.Struct({
     active: Schema.Boolean,

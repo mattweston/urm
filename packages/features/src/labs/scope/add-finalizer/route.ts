@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/scope/add-finalizer"
+const PATH = "/learn/scope/add-finalizer"
 
 export const add_finalizer_href = () => `${PATH}/`
 

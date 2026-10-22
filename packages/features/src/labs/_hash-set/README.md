@@ -24,7 +24,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/hash-set/
+packages/features/src/labs/hash-set/
 ├── hash-set.ts
 └── hash-set.view.ts
 ```
@@ -508,7 +508,7 @@ derived from `HtmlBuilder`.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `HashSetDemo.Message` to the parent Message union,

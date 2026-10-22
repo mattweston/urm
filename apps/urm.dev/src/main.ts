@@ -66,7 +66,6 @@ import {
     newsletter_template_catalog_id,
 } from "@urm/domain/mail-templates"
 import { is_contacts_path } from "./contacts/path.ts"
-import * as DevBookmarks from "./dev/bookmarks/submodel.ts"
 import * as Array from "effect/Array"
 import { Effect, Match as M, Option, Schema as S, Stream } from "effect"
 import {
@@ -95,11 +94,6 @@ import {
     load_detail as load_form_detail,
 } from "./forms/api.ts"
 import * as AuthKit from "@urm/features/auth/authkit"
-import * as Dev from "@urm/features/dev/submodel"
-import { Preview } from "@urm/features/dev/grep"
-import preview_data from "virtual:grep-preview"
-import "@urm/features/dev/terminal/styles.css"
-import "@urm/features/dev/grep/styles.css"
 import * as Dashboard from "@urm/features/dashboard"
 import * as Content from "@urm/features/content"
 import * as DesignIdeas from "@urm/features/design/ideas"
@@ -163,13 +157,6 @@ import {
     navigateSelectedDomain,
     ReplaceInternalHref,
 } from "./routing/commands.ts"
-import { grep_search_subscriptions } from "./grep-search.subscription.ts"
-import { restore_grep_route } from "./grep-route.ts"
-import {
-    request_parameters as grep_request_parameters,
-    request_key as grep_request_key,
-} from "@urm/features/dev/grep"
-import { grep_url_href } from "@urm/features/dev/grep/route"
 import {
     ChangedUrl,
     ClickedLink,
@@ -218,10 +205,6 @@ import {
     legacy_mail_templates_replacement_href,
     legacy_pages_replacement_href,
     legacy_content_replacement_href,
-    devHref,
-    devTerminalHref,
-    dev_grep_href,
-    devKbdShortcutsHref,
     mailFeaturePath,
     mailContactsHref,
     mailHref,
@@ -309,9 +292,7 @@ export const Model = S.Struct({
     pages: DesktopPages.Model,
     design: DesktopDesign.Model,
     design_logo: DesktopLogo.Model,
-    dev: Dev.Model,
     labs_marketing_landing: MarketingLanding.Model,
-    dev_bookmarks: DevBookmarks.Model,
     data: DesktopData.Model,
     blog: DesktopBlog.Model,
     documents: DesktopDocuments.Model,
@@ -478,14 +459,8 @@ export const GotLabsMarketingLandingMessage = taggedStruct(
     "GotLabsMarketingLandingMessage",
     { message: MarketingLanding.Message }
 )
-export const GotDevBookmarksMessage = taggedStruct("GotDevBookmarksMessage", {
-    message: DevBookmarks.Message,
-})
 export const GotDesignLogoMessage = taggedStruct("GotDesignLogoMessage", {
     message: DesktopLogo.Message,
-})
-export const GotDevMessage = taggedStruct("GotDevMessage", {
-    message: Dev.Message,
 })
 export const GotPagesMessage = taggedStruct("GotPagesMessage", {
     message: DesktopPages.Message,
@@ -700,9 +675,7 @@ export const Message = S.Union([
     GotDomainPublishingMessage,
     GotPagesMessage,
     GotDesignMessage,
-    GotDevMessage,
     GotLabsMarketingLandingMessage,
-    GotDevBookmarksMessage,
     GotDesignLogoMessage,
     GotDataMessage,
     GotBlogMessage,
@@ -1246,8 +1219,6 @@ const map_forms_commands = (
 ): Commands =>
     Command.mapMessages(commands, (message) => GotFormsMessage({ message }))
 
-const grep_preview = S.decodeUnknownSync(Preview)(preview_data)
-
 const create_sidebar_tooltips = () => ({
     toggle: createSidebarTooltip("desktop-sidebar-toggle"),
     home: createSidebarTooltip("desktop-sidebar-home"),
@@ -1269,7 +1240,6 @@ const create_sidebar_tooltips = () => ({
         ),
         DevTerminal: createSidebarTooltip("desktop-sidebar-dev-terminal"),
         DevGrep: createSidebarTooltip("desktop-sidebar-dev-grep"),
-        DevBookmarks: createSidebarTooltip("desktop-sidebar-dev-bookmarks"),
         DesignLogo: createSidebarTooltip("desktop-sidebar-design-logo"),
         DesignFavicons: createSidebarTooltip("desktop-sidebar-design-favicons"),
         DesignIdeas: createSidebarTooltip("desktop-sidebar-design-ideas"),
@@ -1448,9 +1418,7 @@ export const init: Runtime.RoutingApplicationInit<
             pages: DesktopPages.init(url),
             design: DesktopDesign.init(url),
             design_logo: DesktopLogo.init(route),
-            dev: restore_grep_route(Dev.init()[0], url),
             labs_marketing_landing,
-            dev_bookmarks: DevBookmarks.init(route),
             data,
             blog,
             documents,
@@ -1859,18 +1827,6 @@ const update_inner = (
                 }
 
                 const route = routeForUrl(url)
-                if (
-                    route._tag === "Dev" &&
-                    route.dev_path === "/dev/grep" &&
-                    model.route._tag === "Dev" &&
-                    model.route.dev_path === "/dev/grep"
-                )
-                    return [
-                        modifyFields(model, {
-                            dev: (dev) => restore_grep_route(dev, url),
-                        }),
-                        [],
-                    ]
                 const projects = DesktopProjects.changed_route(
                     model.projects,
                     route
@@ -2177,7 +2133,6 @@ const update_inner = (
                 return [
                     modifyFields(model, {
                         route: () => route,
-                        dev: (dev) => restore_grep_route(dev, url),
                         issues: () => issues,
                         events: () => events,
                         media: () => media,
@@ -2194,11 +2149,6 @@ const update_inner = (
                         forms: () => forms,
                         sysadmin: () => sysadmin,
                         labs_marketing_landing: () => labs_marketing_landing,
-                        dev_bookmarks: () =>
-                            DevBookmarks.changed_route(
-                                model.dev_bookmarks,
-                                route
-                            ),
                         design_logo: () =>
                             DesktopLogo.changed_route(model.design_logo, route),
                         is_sidebar_mobile_open: () => false,
@@ -2943,18 +2893,6 @@ const update_inner = (
                     ],
                 ]
             },
-            GotDevBookmarksMessage: ({ message }) => {
-                const [dev_bookmarks, commands] = DevBookmarks.update(
-                    model.dev_bookmarks,
-                    message
-                )
-                return [
-                    modifyFields(model, { dev_bookmarks: () => dev_bookmarks }),
-                    Command.mapMessages(commands, (message) =>
-                        GotDevBookmarksMessage({ message })
-                    ),
-                ]
-            },
             GotDesignLogoMessage: ({ message }) => {
                 if (
                     (message._tag === "LoadedLogo" ||
@@ -2986,31 +2924,6 @@ const update_inner = (
                     Command.mapMessages(commands, (message) =>
                         GotDesignLogoMessage({ message })
                     ),
-                ]
-            },
-            GotDevMessage: ({ message }) => {
-                const [dev, commands] = Dev.update(model.dev, message)
-                return [
-                    modifyFields(model, { dev: () => dev }),
-                    [
-                        ...Command.mapMessages(commands, (message) =>
-                            GotDevMessage({ message })
-                        ),
-                        ...(message._tag === "GotGrepMessage" &&
-                        grep_request_key(dev.grep) !==
-                            grep_request_key(model.dev.grep) &&
-                        model.route._tag === "Dev" &&
-                        model.route.dev_path === "/dev/grep"
-                            ? [
-                                  ReplaceInternalHref({
-                                      href: grep_url_href(
-                                          dev.grep.query,
-                                          grep_request_parameters(dev.grep)
-                                      ),
-                                  }),
-                              ]
-                            : []),
-                    ],
                 ]
             },
             GotPagesMessage: ({ message }) => {
@@ -5271,16 +5184,6 @@ export const subscriptions = FoldkitSubscription.aggregate<
         toParentMessage: (message) => message,
         when: has_verified_session,
     }),
-    FoldkitSubscription.lift(grep_search_subscriptions)<Model, Message>({
-        read: (model) => Option.some(model.dev.grep),
-        toParentMessage: (message) =>
-            GotDevMessage({ message: Dev.GotGrepMessage({ message }) }),
-        when: (model) =>
-            grep_preview.snapshot === "remote" &&
-            has_verified_session(model) &&
-            model.route._tag === "Dev" &&
-            model.route.dev_path === "/dev/grep",
-    }),
     navigation_subscriptions,
     FoldkitSubscription.lift(DesktopDesign.subscriptions)<Model, Message>({
         read: (model) => Option.some(model.design),
@@ -5808,38 +5711,6 @@ const nav_items: ReadonlyArray<PortalSidebarNavItem<Message>> = [
                 routeTag: "SysadminSystem",
                 href: sysadminSystemHref(),
                 icon: AppIcon.IconSettings,
-            },
-        ],
-    },
-    {
-        label: "Dev",
-        routeTag: "Dev",
-        href: devHref(),
-        icon: AppIcon.IconBrandTypescript,
-        children: [
-            {
-                label: "Keyboard Shortcuts",
-                routeTag: "DevKbdShortcuts",
-                href: devKbdShortcutsHref(),
-                icon: AppIcon.IconListChecks,
-            },
-            {
-                label: "Terminal",
-                routeTag: "DevTerminal",
-                href: devTerminalHref(),
-                icon: AppIcon.IconTerminal,
-            },
-            {
-                label: "Grep",
-                routeTag: "DevGrep",
-                href: dev_grep_href(),
-                icon: AppIcon.IconSearch,
-            },
-            {
-                label: "Bookmarks",
-                routeTag: "DevBookmarks",
-                href: DevBookmarks.bookmarks_href(),
-                icon: AppIcon.IconBookmark,
             },
         ],
     },
@@ -7003,36 +6874,6 @@ const route_view = (model: Model, h: HtmlBuilder<Message>): Html => {
             return model.route.stats_path === "/stats/reports"
                 ? placeholder_view(h, "Reports", "Reports are coming soon.")
                 : stats_view(model, h)
-        case "Dev":
-            if (DevBookmarks.is_bookmarks_path(model.route.dev_path)) {
-                return h.submodel({
-                    slotId: "desktop-dev-bookmarks",
-                    model: model.dev_bookmarks,
-                    view: DevBookmarks.view,
-                    toParentMessage: (message) =>
-                        GotDevBookmarksMessage({ message }),
-                })
-            }
-            return h.div(
-                [h.Class("min-w-0 px-4 py-6 sm:px-6 lg:px-8")],
-                [
-                    h.submodel({
-                        slotId: "desktop-dev",
-                        model: model.dev,
-                        view: Dev.view,
-                        viewInputs: {
-                            path: model.route.dev_path,
-                            terminal_href: devTerminalHref(),
-                            grep_href: dev_grep_href(),
-                            bookmarks_href: DevBookmarks.bookmarks_href(),
-                            grep_preview,
-                            kbd_shortcuts_href: devKbdShortcutsHref(),
-                        },
-                        toParentMessage: (message) =>
-                            GotDevMessage({ message }),
-                    }),
-                ]
-            )
         case "Mail":
             return model.route.mail_path === "/mail/groups"
                 ? placeholder_view(h, "Groups", "Mail groups are coming soon.")
@@ -7334,16 +7175,6 @@ const route_title = (route: DesktopRoute): string => {
             return route.stats_path === "/stats/reports"
                 ? "Reports · Stats · URM"
                 : "Stats · URM"
-        case "Dev":
-            if (route.dev_path.replace(/\/$/, "") === "/dev/grep")
-                return "Grep · Dev · URM"
-            if (route.dev_path.replace(/\/$/, "") === "/dev/bookmarks")
-                return "Bookmarks · Dev · URM"
-            return route.dev_path === "/dev/kbd-shortcuts"
-                ? "Keyboard Shortcuts · Dev · URM"
-                : route.dev_path === "/dev/terminal"
-                  ? "Terminal · Dev · URM"
-                  : "Dev · URM"
         case "Mail":
             return route.mail_path === "/mail/groups"
                 ? "Groups · Mail · URM"
@@ -7465,16 +7296,6 @@ const route_label = (route: DesktopRoute): string => {
             return route.stats_path === "/stats/reports"
                 ? "Stats / Reports"
                 : "Stats"
-        case "Dev":
-            if (route.dev_path.replace(/\/$/, "") === "/dev/grep")
-                return "Dev / Grep"
-            if (route.dev_path.replace(/\/$/, "") === "/dev/bookmarks")
-                return "Dev / Bookmarks"
-            return route.dev_path === "/dev/kbd-shortcuts"
-                ? "Dev / Keyboard Shortcuts"
-                : route.dev_path === "/dev/terminal"
-                  ? "Dev / Terminal"
-                  : "Dev"
         case "Mail":
             return route.mail_path === "/mail/groups"
                 ? "Mail / Groups"

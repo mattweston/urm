@@ -24,7 +24,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/hash-ring/
+packages/features/src/labs/hash-ring/
 ├── hash-ring.ts
 └── hash-ring.view.ts
 ```
@@ -447,7 +447,7 @@ Button attributes are derived from `HtmlBuilder`.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `HashRingDemo.Message` to the parent Message union,

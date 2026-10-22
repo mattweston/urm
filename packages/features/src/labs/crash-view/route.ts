@@ -1,4 +1,4 @@
-const CRASH_VIEW_PATH = "/labs/errors/crash-view"
+const CRASH_VIEW_PATH = "/errors/crash-view"
 
 export const crashViewHref = () => `${CRASH_VIEW_PATH}/`
 

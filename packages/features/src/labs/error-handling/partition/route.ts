@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/error-handling/partition"
+const PATH = "/learn/error-handling/partition"
 
 export const partition_href = () => `${PATH}/`
 

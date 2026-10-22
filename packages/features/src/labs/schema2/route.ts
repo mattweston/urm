@@ -1,4 +1,4 @@
-const PATH = "/labs/learn/schema"
+const PATH = "/learn/schema"
 
 export const schema_href = () => `${PATH}/`
 

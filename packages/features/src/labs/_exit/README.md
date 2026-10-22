@@ -20,7 +20,7 @@ Foldkit message payloads are explicitly typed for `noImplicitAny`.
 ## Intended location
 
 ```text
-packages/features/src/learn/exit/
+packages/features/src/labs/exit/
 ├── exit.ts
 └── exit.view.ts
 ```
@@ -239,7 +239,7 @@ properties remain typed under `noImplicitAny`.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `ExitDemo.Message` to the parent Message union,

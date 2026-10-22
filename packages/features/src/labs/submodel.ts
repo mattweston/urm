@@ -54,21 +54,21 @@ export type UpdateReturn = readonly [
     ReadonlyArray<Command.Command<Message>>,
 ]
 
-export const labsHref = () => "/labs/"
-export const labsChartsHref = () => "/labs/stats/charts/"
+export const labsHref = () => "/"
+export const labsChartsHref = () => "/stats/charts/"
 export const labsDocumentsLandingHref = () => Landing.landingEditorHref()
 export const labsMailInboxHref = () => Mailroom.mailroomHref()
 
 export const isAppScope = (pathname: string): boolean =>
-    pathname === "/labs" || pathname.startsWith("/labs/")
+    pathname === "/" || pathname.startsWith("/")
 
 const route_for_path = (pathname: string): LabsRoute => {
     const path = pathname.replace(/\/$/, "")
 
-    if (path === "/labs") {
+    if (path === "/") {
         return LabsHomeRoute()
     }
-    if (path === "/labs/stats/charts" || path === "/labs/charts") {
+    if (path === "/stats/charts" || path === "/charts") {
         return LabsChartsRoute()
     }
     if (Landing.isLandingEditorPath(path)) {
@@ -303,11 +303,11 @@ const content_view = (model: Model, h: HtmlBuilder<Message>): Html => {
                     view: Mailroom.view,
                     viewInputs: {
                         route: Mailroom.viewRouteForPath(path),
-                        folderHref: (folder) => `/labs/mail/${folder}/`,
+                        folderHref: (folder) => `/mail/${folder}/`,
                         composeHref: (draft_id = "new") =>
-                            `/labs/mail/compose/${draft_id}/`,
+                            `/mail/compose/${draft_id}/`,
                         messageHref: (folder, message_id) =>
-                            `/labs/mail/${folder}/${message_id}/`,
+                            `/mail/${folder}/${message_id}/`,
                         internalNavigation: true,
                     },
                     toParentMessage: (message) =>

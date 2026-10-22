@@ -4,7 +4,7 @@ import type { Command } from "foldkit"
 import * as OtpField from "@urm/features/labs/otp-field"
 import type { DesktopRoute } from "../../routing/route.ts"
 
-export const otp_field_href = () => "/labs/auth/otp-field"
+export const otp_field_href = () => "/auth/otp-field"
 export const is_otp_field_path = OtpField.isOtpFieldPath
 
 export const Model = Schema.Struct({

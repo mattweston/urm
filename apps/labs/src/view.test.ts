@@ -4,10 +4,10 @@ import { view } from "./view.ts"
 
 describe("Labs chart page", () => {
     test.each([
-        "/labs/charts",
-        "/labs/charts/",
-        "/labs/stats/charts",
-        "/labs/stats/charts/",
+        "/charts",
+        "/charts/",
+        "/stats/charts",
+        "/stats/charts/",
     ])("renders chart demos at %s", (path) => {
         const rendered = JSON.stringify(view(inertHtml, path))
         expect(rendered).toContain("Chart prototypes")
@@ -21,28 +21,28 @@ describe("Labs chart page", () => {
     })
 
     test("links to chart demos from the Labs landing page", () => {
-        const rendered = JSON.stringify(view(inertHtml, "/labs"))
-        expect(rendered).toContain("/labs/stats/charts")
+        const rendered = JSON.stringify(view(inertHtml, "/"))
+        expect(rendered).toContain("/stats/charts")
         expect(rendered).toContain("Stats / Charts")
     })
 
-    test.each(["/labs/design/urmcss", "/labs/design/urmcss/"])(
+    test.each(["/design/urmcss", "/design/urmcss/"])(
         "renders the URMCSS migration index at %s",
         (path) => {
             const rendered = JSON.stringify(view(inertHtml, path))
 
             expect(rendered).toContain("URMCSS migration lab")
             expect(rendered).toContain("First experiment")
-            expect(rendered).toContain("/labs/design/urmcss/button/")
+            expect(rendered).toContain("/design/urmcss/button/")
             expect(rendered).toContain("Foldkit UI primitive")
             expect(rendered).not.toContain("Explore experimental features.")
         }
     )
 
     test("links to the URMCSS migration lab from the Labs landing page", () => {
-        const rendered = JSON.stringify(view(inertHtml, "/labs"))
+        const rendered = JSON.stringify(view(inertHtml, "/"))
 
-        expect(rendered).toContain("/labs/design/urmcss/")
+        expect(rendered).toContain("/design/urmcss/")
         expect(rendered).toContain("Design / URMCSS")
     })
 })

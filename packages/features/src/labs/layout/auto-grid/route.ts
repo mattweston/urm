@@ -1,4 +1,4 @@
-const PATH = "/labs/layout/auto-grid"
+const PATH = "/layout/auto-grid"
 
 export const auto_grid_href = () => `${PATH}/`
 

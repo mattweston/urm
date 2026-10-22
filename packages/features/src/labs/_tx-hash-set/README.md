@@ -2,7 +2,7 @@
 
 Standalone Foldkit lesson for the Effect `TxHashSet` module.
 
-The repository scaffold at `packages/features/src/learn/_tx-hash-set/` is intentionally left untouched. These files are standalone artifacts only.
+The repository scaffold at `packages/features/src/labs/_tx-hash-set/` is intentionally left untouched. These files are standalone artifacts only.
 
 ## Lesson shape
 

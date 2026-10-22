@@ -20,7 +20,7 @@ The implementation was also checked against the current
 ## Intended location
 
 ```text
-packages/features/src/learn/encoding/
+packages/features/src/labs/encoding/
 ├── encoding.ts
 └── encoding.view.ts
 ```
@@ -200,7 +200,7 @@ observable on the decode side.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as the neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `EncodingDemo.Message` to the parent Message union,

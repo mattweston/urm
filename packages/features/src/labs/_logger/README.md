@@ -70,7 +70,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/logger/
+packages/features/src/labs/logger/
 ├── logger.ts
 └── logger.view.ts
 ```
@@ -753,7 +753,7 @@ than replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `LoggerDemo.Message` to the parent Message union,

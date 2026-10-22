@@ -20,7 +20,7 @@ present in the vendored snapshot and its public API matches the current v4 page:
 ## Intended location
 
 ```text
-packages/features/src/learn/_reducer/
+packages/features/src/labs/_reducer/
 ├── README.md
 ├── reducer.ts
 └── reducer.view.ts

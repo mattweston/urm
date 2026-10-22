@@ -1,22 +1,21 @@
 import { describe, expect, it } from "vitest"
 import {
-    DashboardRoute,
     LabsRoute,
     sidebarRouteTag,
 } from "../../routing/route.ts"
 import { changed_route, init, otp_field_href, update } from "./submodel.ts"
 
-const route = LabsRoute({ labs_path: "/labs/auth/otp-field" })
+const route = LabsRoute({ labs_path: "/auth/otp-field" })
 
 describe("client OTP field lab", () => {
     it("opens through client navigation under Auth", () => {
         expect(init(route).active).toBe(true)
-        expect(otp_field_href()).toBe("/labs/auth/otp-field")
+        expect(otp_field_href()).toBe("/auth/otp-field")
         expect(sidebarRouteTag(route)).toBe("LabsOtpField")
         expect(
             sidebarRouteTag(LabsRoute({ labs_path: `${route.labs_path}/` }))
         ).toBe("LabsOtpField")
-        expect(sidebarRouteTag(LabsRoute({ labs_path: "/labs/auth" }))).toBe(
+        expect(sidebarRouteTag(LabsRoute({ labs_path: "/auth" }))).toBe(
             "LabsAuth"
         )
     })
@@ -27,7 +26,7 @@ describe("client OTP field lab", () => {
             value: "1234567",
         })
         expect(filled.otp.value).toBe("123456")
-        const inactive = changed_route(filled, DashboardRoute())
+        const inactive = changed_route(filled, LabsRoute({ labs_path: "/" }))
         expect(inactive.active).toBe(false)
         expect(inactive.otp.value).toBe("")
         expect(

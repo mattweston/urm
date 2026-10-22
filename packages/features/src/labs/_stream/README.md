@@ -2,7 +2,7 @@
 
 Standalone Foldkit teaching demo for `effect/Stream`.
 
-- Intended repository location: `packages/features/src/learn/_stream/`
+- Intended repository location: `packages/features/src/labs/_stream/`
 - Repository scaffold remains untouched (`README.md`, `x.ts`, `x.view.ts` remain empty in git).
 - Generated artifacts live only in `/mnt/data/stream/`.
 - Workspace Effect version: `4.0.0-rc.112`.

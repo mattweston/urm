@@ -1,4 +1,4 @@
-const FILE_TREE_PATH = "/labs/ui/file-tree"
+const FILE_TREE_PATH = "/ui/file-tree"
 
 export const fileTreeHref = () => `${FILE_TREE_PATH}/`
 

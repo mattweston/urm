@@ -1,4 +1,4 @@
-import type { SearchResponse } from "@urm/features/dev/grep"
+import type { SearchResponse } from "@urm/features/labs/dev/grep"
 
 type Group = SearchResponse["groups"][number]
 

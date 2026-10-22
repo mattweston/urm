@@ -1,4 +1,4 @@
-const BUTTON_PATH = "/labs/button"
+const BUTTON_PATH = "/button"
 
 export const buttonHref = () => `${BUTTON_PATH}/`
 

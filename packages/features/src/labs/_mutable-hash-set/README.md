@@ -37,7 +37,7 @@ derives Button callback attribute types from `HtmlBuilder`.
 ## Intended location
 
 ```text
-packages/features/src/learn/mutable-hash-set/
+packages/features/src/labs/mutable-hash-set/
 ├── mutable-hash-set.ts
 └── mutable-hash-set.view.ts
 ```
@@ -723,7 +723,7 @@ than replacing a full typecheck inside the target monorepo.
 ## Integration expectation
 
 Follow the same child-feature integration pattern as neighboring
-`features/learn/*` demos:
+`features/labs/*` demos:
 
 1. add the child Model to the parent learn Model,
 2. add `MutableHashSetDemo.Message` to the parent Message union,

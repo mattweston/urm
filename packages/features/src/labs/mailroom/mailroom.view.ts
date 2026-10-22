@@ -33,7 +33,7 @@ export type MailroomHrefs = Readonly<{
     message: (folder: FolderId, message_id: string) => string
 }>
 
-const base = "/labs/mail"
+const base = "/mail"
 const default_hrefs: MailroomHrefs = {
     folder: (folder) => `${base}/${folder}/`,
     compose: (draft_id = "new") => `${base}/compose/${draft_id}/`,

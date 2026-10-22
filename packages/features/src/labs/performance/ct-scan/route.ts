@@ -1,4 +1,4 @@
-const PATH = "/labs/performance/ct-scan"
+const PATH = "/performance/ct-scan"
 
 export const ct_scan_href = () => `${PATH}/`
 
