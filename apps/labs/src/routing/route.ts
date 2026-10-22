@@ -4,41 +4,41 @@ import { isQuerySyncTablePath } from "@urm/features/labs/routing/query-sync-tabl
 import { isLandingEditorPath } from "@urm/features/marketing/landing"
 import { is_content_email_path } from "@urm/features/content"
 import { Option, Schema as S } from "effect"
-import { r } from "foldkit/route"
+import { taggedStruct } from "foldkit/schema"
 import type { Url } from "foldkit/url"
 
-export const DashboardRoute = r("Dashboard")
-export const MarketingRoute = r("Marketing", { marketing_path: S.String })
-export const StatsRoute = r("Stats", { stats_path: S.String })
-export const ShopRoute = r("Shop", { shop_path: S.String })
-export const DevRoute = r("Dev", { dev_path: S.String })
-export const LearnRoute = r("Learn", { learn_path: S.String })
-export const LabsRoute = r("Labs", { labs_path: S.String })
-export const ProjectsRoute = r("Projects")
-export const ProjectRoute = r("Project", { project_slug: S.String })
-export const IssuesRoute = r("Issues")
-export const IssueRoute = r("Issue", { issue_id: S.String })
-export const TagsRoute = r("Tags")
-export const FinanceRoute = r("Finance")
-export const MediaRoute = r("Media", { media_path: S.String })
-export const EventsRoute = r("Events", { events_path: S.String })
-export const MailRoute = r("Mail", { mail_path: S.String })
-export const DataRoute = r("Data", { data_path: S.String })
-export const ContentRoute = r("Content", {
+export const DashboardRoute = taggedStruct("Dashboard")
+export const MarketingRoute = taggedStruct("Marketing", { marketing_path: S.String })
+export const StatsRoute = taggedStruct("Stats", { stats_path: S.String })
+export const ShopRoute = taggedStruct("Shop", { shop_path: S.String })
+export const DevRoute = taggedStruct("Dev", { dev_path: S.String })
+export const LearnRoute = taggedStruct("Learn", { learn_path: S.String })
+export const LabsRoute = taggedStruct("Labs", { labs_path: S.String })
+export const ProjectsRoute = taggedStruct("Projects")
+export const ProjectRoute = taggedStruct("Project", { project_slug: S.String })
+export const IssuesRoute = taggedStruct("Issues")
+export const IssueRoute = taggedStruct("Issue", { issue_id: S.String })
+export const TagsRoute = taggedStruct("Tags")
+export const FinanceRoute = taggedStruct("Finance")
+export const MediaRoute = taggedStruct("Media", { media_path: S.String })
+export const EventsRoute = taggedStruct("Events", { events_path: S.String })
+export const MailRoute = taggedStruct("Mail", { mail_path: S.String })
+export const DataRoute = taggedStruct("Data", { data_path: S.String })
+export const ContentRoute = taggedStruct("Content", {
     content_path: S.String,
     content_search: S.String,
 })
-export const DocumentsRoute = r("Documents", { documents_path: S.String })
-export const WebRoute = r("Web", { web_path: S.String })
-export const PagesRoute = r("Pages", { pages_path: S.String })
-export const BlogRoute = r("Blog", { blog_path: S.String })
-export const DesignRoute = r("Design", { design_path: S.String })
-export const FormsRoute = r("Forms", { forms_path: S.String })
-export const SysadminRoute = r("Sysadmin", { sysadmin_path: S.String })
-export const DomainsRoute = r("Domains")
-export const SocialRoute = r("Social")
-export const ChatRoute = r("Chat")
-export const SettingsRoute = r("Settings", { settings_path: S.String })
+export const DocumentsRoute = taggedStruct("Documents", { documents_path: S.String })
+export const WebRoute = taggedStruct("Web", { web_path: S.String })
+export const PagesRoute = taggedStruct("Pages", { pages_path: S.String })
+export const BlogRoute = taggedStruct("Blog", { blog_path: S.String })
+export const DesignRoute = taggedStruct("Design", { design_path: S.String })
+export const FormsRoute = taggedStruct("Forms", { forms_path: S.String })
+export const SysadminRoute = taggedStruct("Sysadmin", { sysadmin_path: S.String })
+export const DomainsRoute = taggedStruct("Domains")
+export const SocialRoute = taggedStruct("Social")
+export const ChatRoute = taggedStruct("Chat")
+export const SettingsRoute = taggedStruct("Settings", { settings_path: S.String })
 
 export const DesktopRoute = S.Union([
     DashboardRoute,
@@ -103,7 +103,7 @@ export const routeForUrl = (url: Url): DesktopRoute => {
     if (path === "/dev" || path.startsWith("/dev/")) {
         return DevRoute({ dev_path: path })
     }
-    if (path === "/learn" || path.startsWith("/learn/")) {
+    if (path === "/labs/learn" || path.startsWith("/labs/learn/")) {
         return LearnRoute({ learn_path: path })
     }
     if (path === "/labs" || path.startsWith("/labs/")) {
@@ -287,7 +287,7 @@ export const devHref = () => "/dev"
 export const devKbdShortcutsHref = () => "/dev/kbd-shortcuts"
 export const devTerminalHref = () => "/dev/terminal"
 export const dev_grep_href = () => "/dev/grep"
-export const learn_href = () => "/learn"
+export const learn_href = () => "/labs/learn"
 export const pagesBookmarksHref = () => "/pages/bookmarks"
 export const labsEventsHref = () => "/labs/events"
 export const labsMapHref = () => "/labs/events/map"
@@ -459,35 +459,35 @@ export const sidebarRouteTag = (route: DesktopRoute): string => {
                   ? "DevTerminal"
                   : "Dev"
         case "Learn":
-            return route.learn_path === "/learn/visual-effect" ||
-                route.learn_path.startsWith("/learn/visual-effect/")
+            return route.learn_path === "/labs/learn/visual-effect" ||
+                route.learn_path.startsWith("/labs/learn/visual-effect/")
                 ? nested_learn_sidebar_route_tag(
                       route.learn_path,
-                      "/learn/visual-effect",
+                      "/labs/learn/visual-effect",
                       visual_effect_sidebar_route_tags,
                       "LearnVisualEffect"
                   )
-                : route.learn_path === "/learn/foldkit" ||
-                    route.learn_path.startsWith("/learn/foldkit/")
+                : route.learn_path === "/labs/learn/foldkit" ||
+                    route.learn_path.startsWith("/labs/learn/foldkit/")
                   ? nested_learn_sidebar_route_tag(
                         route.learn_path,
-                        "/learn/foldkit",
+                        "/labs/learn/foldkit",
                         foldkit_sidebar_route_tags,
                         "LearnFoldkit"
                     )
-                  : route.learn_path.replace(/\/$/, "") === "/learn/array"
+                  : route.learn_path.replace(/\/$/, "") === "/labs/learn/array"
                     ? "LearnArray"
                     : route.learn_path.replace(/\/$/, "") ===
-                        "/learn/nullish-coalescing-input"
+                        "/labs/learn/nullish-coalescing-input"
                       ? "LearnNullishCoalescingInput"
                       : route.learn_path.replace(/\/$/, "") ===
-                          "/learn/managed-resource-layer"
+                          "/labs/learn/managed-resource-layer"
                         ? "LearnManagedResourceLayer"
                         : route.learn_path.replace(/\/$/, "") ===
-                            "/learn/reduce"
+                            "/labs/learn/reduce"
                           ? "LearnReduce"
                           : route.learn_path.replace(/\/$/, "") ===
-                              "/learn/api-effect"
+                              "/labs/learn/api-effect"
                             ? "LearnApiEffect"
                             : "Learn"
         case "Labs":

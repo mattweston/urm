@@ -4,13 +4,17 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "build": "vite build --configLoader runner",
+        "dev": "vite --configLoader runner",
         "format": "oxfmt .",
         "lint": "oxlint -c ../../.oxlintrc.json .",
+        "preview": "vite preview --configLoader runner",
         "test": "vitest run",
         "typecheck": "tsc --project tsconfig.json --noEmit"
     },
     "dependencies": {
         "@foldkit/ui": "catalog:ui",
+        "@urm/contracts": "workspace:*",
         "@urm/database": "workspace:*",
         "@urm/features": "workspace:*",
         "@urm/ui": "workspace:*",
@@ -19,8 +23,11 @@
         "foldkit": "catalog:"
     },
     "devDependencies": {
+        "@foldkit/vite-plugin": "0.22.0",
+        "@tailwindcss/vite": "catalog:layout",
         "@types/node": "catalog:server",
         "@urm/config": "workspace:*",
+        "tailwindcss": "catalog:layout",
         "typescript": "catalog:",
         "vite": "catalog:build",
         "vitest": "catalog:testing"

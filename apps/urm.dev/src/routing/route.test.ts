@@ -20,7 +20,6 @@ import {
     legacy_mail_templates_replacement_href,
     legacy_marketing_replacement_href,
     legacy_pages_replacement_href,
-    learn_href,
     mailFeaturePath,
     media_streaming_href,
     routeForUrl,
@@ -224,36 +223,6 @@ describe("desktop routes", () => {
         expect(href).toBe(path)
     })
 
-    test.each(["/labs/finance/invoice", "/labs/finance/invoice/"])(
-        "selects the invoice form demo at %s",
-        (path) => {
-            expect(sidebarRouteTag(routeForUrl(url_with_hash(path)))).toBe(
-                "LabsFinanceInvoice"
-            )
-        }
-    )
-    test.each(["/labs/finance/chart", "/labs/finance/chart/"])(
-        "selects the Finance chart demo at %s",
-        (path) => {
-            const route = routeForUrl(url_with_hash(path))
-            expect(route._tag).toBe("Labs")
-            expect(sidebarRouteTag(route)).toBe("LabsFinanceChart")
-        }
-    )
-    test.each([
-        ["/labs/layout/conditional-grid", "LabsConditionalGrid"],
-        ["/labs/layout/conditional-grid/", "LabsConditionalGrid"],
-        ["/labs/layout/auto-grid", "LabsAutoGrid"],
-        ["/labs/layout/auto-grid/", "LabsAutoGrid"],
-        ["/labs/layout/fukol-grid", "LabsFukolGrid"],
-        ["/labs/layout/fukol-grid/", "LabsFukolGrid"],
-        ["/labs/layout/flex-form", "LabsFlexForm"],
-        ["/labs/layout/flex-form/", "LabsFlexForm"],
-    ])("selects the layout grid demo at %s", (path, route_tag) => {
-        expect(sidebarRouteTag(routeForUrl(url_with_hash(path)))).toBe(
-            route_tag
-        )
-    })
     test.each(["/finance", "/finance/"])(
         "routes Finance through its sidebar destination at %s",
         (path) => {
@@ -293,15 +262,6 @@ describe("desktop routes", () => {
         }
     )
 
-    test.each([
-        "/labs/settings/services-canvas",
-        "/labs/settings/services-canvas/",
-    ])("selects Services Canvas at %s", (path) => {
-        expect(sidebarRouteTag(routeForUrl(url_with_hash(path)))).toBe(
-            "LabsServicesCanvas"
-        )
-    })
-
     test.each(["/design/logo", "/design/logo/"])(
         "selects Logo at %s",
         (path) => {
@@ -310,26 +270,6 @@ describe("desktop routes", () => {
             )
         }
     )
-
-    test.each(["/labs/stats/charting", "/labs/stats/charting/"])(
-        "selects Charting in the sidebar at %s",
-        (path) => {
-            expect(sidebarRouteTag(routeForUrl(url_with_hash(path)))).toBe(
-                "LabsStatsCharting"
-            )
-        }
-    )
-
-    test.each([
-        "/labs/design/urmcss",
-        "/labs/design/urmcss/",
-        "/labs/design/urmcss/button",
-        "/labs/design/urmcss/button/",
-    ])("selects the URMCSS migration lab at %s", (path) => {
-        expect(sidebarRouteTag(routeForUrl(url_with_hash(path)))).toBe(
-            "LabsUrmcss"
-        )
-    })
 
     test("uses the dashboard as the desktop landing route", () => {
         const route = routeForUrl(url_with_hash("/"))
@@ -392,37 +332,6 @@ describe("desktop routes", () => {
         expect(sidebarRouteTag(products)).toBe("ShopProducts")
         expect(sidebarRouteTag(create_product)).toBe("ShopProductCreate")
         expect(sidebarRouteTag(collections)).toBe("ShopCollections")
-    })
-
-    test("keeps other lab paths on the Labs entry", () => {
-        const index = routeForUrl(url_with_hash("/labs"))
-        const charts = routeForUrl(url_with_hash("/labs/charts"))
-        const landing = routeForUrl(url_with_hash("/labs/marketing/landing"))
-        const mail_inbox = routeForUrl(url_with_hash("/labs/mail/inbox"))
-
-        expect(index).toEqual({ _tag: "Labs", labs_path: "/labs" })
-        expect(sidebarRouteTag(index)).toBe("Labs")
-        expect(charts).toEqual({
-            _tag: "Labs",
-            labs_path: "/labs/charts",
-        })
-        expect(sidebarRouteTag(charts)).toBe("LabsStatsCharts")
-        expect(
-            sidebarRouteTag(routeForUrl(url_with_hash("/labs/stats/charts")))
-        ).toBe("LabsStatsCharts")
-        expect(
-            sidebarRouteTag(routeForUrl(url_with_hash("/labs/stats/charts/")))
-        ).toBe("LabsStatsCharts")
-        expect(landing).toEqual({
-            _tag: "Labs",
-            labs_path: "/labs/marketing/landing",
-        })
-        expect(sidebarRouteTag(landing)).toBe("LabsMarketingLanding")
-        expect(mail_inbox).toEqual({
-            _tag: "Labs",
-            labs_path: "/labs/mail/inbox",
-        })
-        expect(sidebarRouteTag(mail_inbox)).toBe("Labs")
     })
 
     test("loads a project from its slug", () => {
@@ -701,54 +610,6 @@ describe("desktop routes", () => {
         expect(sidebarRouteTag(bookmarks)).toBe("DevBookmarks")
     })
 
-    test.each([
-        "/learn",
-        "/learn/",
-        "/learn/api-effect",
-        "/learn/api-effect/",
-        "/learn/state/counter",
-        "/learn/state/derived-values/",
-        "/learn/async/streaming/",
-        "/learn/managed-resource-layer",
-        "/learn/managed-resource-layer/",
-        "/learn/constructors/succeed",
-        "/learn/error-handling/partition/",
-        "/learn/scope/acquire-release/",
-    ])(
-        "routes Learn pages through their sidebar destinations at %s",
-        (path) => {
-            const route = routeForUrl(url_with_hash(path))
-
-            expect(route).toEqual({
-                _tag: "Learn",
-                learn_path: path.replace(/\/$/, ""),
-            })
-            expect(sidebarRouteTag(route)).toBe(
-                path.startsWith("/learn/state/derived-values")
-                    ? "LearnDerivedValues"
-                    : path.startsWith("/learn/state/counter")
-                      ? "LearnCounter"
-                      : path.startsWith("/learn/async/streaming")
-                        ? "LearnStreaming"
-                        : path.startsWith("/learn/managed-resource-layer")
-                          ? "LearnManagedResourceLayer"
-                          : path.startsWith("/learn/api-effect")
-                            ? "LearnApiEffect"
-                            : path.startsWith("/learn/constructors/succeed")
-                              ? "LearnSucceed"
-                              : path.startsWith(
-                                      "/learn/error-handling/partition"
-                                  )
-                                ? "LearnPartition"
-                                : path.startsWith(
-                                        "/learn/scope/acquire-release"
-                                    )
-                                  ? "LearnAcquireRelease"
-                                  : "Learn"
-            )
-            expect(learn_href()).toBe("/learn")
-        }
-    )
 })
 
 test("redirects the old Links URL to Bookmarks with search and hash intact", () => {

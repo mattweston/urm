@@ -8,6 +8,7 @@
         "audit:npm": "cve-lite /home/matt/urm --verbose",
         "audit:pnpm": "pnpm audit",
         "dev:client": "pnpm --filter @urm/client dev | tee logs/client.log",
+        "dev:labs": "pnpm --filter @urm/labs dev | tee logs/labs.log",
         "dev:desktop": "pnpm --filter @urm/desktop dev",
         "dev:server": "tsx apps/server/src/main.ts | tee logs/server.log",
         "dev:server:kill": "node scripts/stop-dev-server.mjs",
@@ -38,7 +39,8 @@
         "prepare": "effect-tsgo patch",
         "diagnostics": "effect-tsgo diagnostics --project tsconfig.json",
         "check": "pnpm typecheck && pnpm lint && pnpm test",
-        "typecheck:core": "pnpm --filter @urm/contracts --filter @urm/database --filter @urm/domain --filter @urm/env --filter @urm/utils typecheck"
+        "typecheck:core": "pnpm --filter @urm/contracts --filter @urm/database --filter @urm/domain --filter @urm/env --filter @urm/utils typecheck",
+        "build:labs": "pnpm --filter @urm/labs build"
     },
     "devDependencies": {
         "@effect/tsgo": "catalog:server",

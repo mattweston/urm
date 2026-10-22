@@ -397,9 +397,7 @@ const selected_project_for_route = (
         case "Stats":
         case "Marketing":
         case "Shop":
-        case "Labs":
         case "Dev":
-        case "Learn":
         case "Issues":
         case "Issue":
         case "Tags":
@@ -1181,14 +1179,14 @@ export const update = (
 const project_drag_subscriptions = FoldkitSubscription.lift(
     Ui.DragAndDrop.subscriptions
 )<Model, Message>({
-    toChildModel: (model) => model.project_drag_and_drop,
+    read: (model) => Option.some(model.project_drag_and_drop),
     toParentMessage: (message) => GotProjectDragAndDropMessage({ message }),
 })
 
 const task_drag_subscriptions = FoldkitSubscription.lift(
     Ui.DragAndDrop.subscriptions
 )<Model, Message>({
-    toChildModel: (model) => model.task_drag_and_drop,
+    read: (model) => Option.some(model.task_drag_and_drop),
     toParentMessage: (message) => GotTaskDragAndDropMessage({ message }),
 })
 
@@ -1207,7 +1205,7 @@ const interaction_subscriptions = FoldkitSubscription.make<Model, Message>()(
 
 export const subscriptions = <ParentModel, ParentMessage>(
     config: Readonly<{
-        toChildModel: (model: ParentModel) => Model
+        read: (model: ParentModel) => Option.Option<Model>
         toActiveDomainId: (model: ParentModel) => Option.Option<DomainId>
         toParentMessage: (message: Message) => ParentMessage
     }>
@@ -1216,10 +1214,7 @@ export const subscriptions = <ParentModel, ParentMessage>(
         ParentModel,
         ParentMessage
     >({
-        // Adapt at the foldkit boundary rather than renaming this module's own
-        // config: `lift` wants `read` returning an Option, while callers of
-        // `subscriptions` still pass `toChildModel`.
-        read: (model) => Option.some(config.toChildModel(model)),
+        read: config.read,
         toParentMessage: config.toParentMessage,
     })
     return interactions

@@ -351,7 +351,7 @@ const storeChanges = Stream.callback<Message>((queue) =>
 )
 
 export const subscriptions = Subscription.make<Model, Message>()(() => ({
-    feedbackStoreChanges: Subscription.persistent(storeChanges),
+    feedbackStoreChanges: Subscription.persistentEntry(storeChanges),
 }))
 
 export const view = <ParentMessage>(

@@ -1,6 +1,5 @@
 import { is_contacts_path } from "./contacts/path.ts"
 import { contacts_resources } from "./contacts/resources.ts"
-import { handle_slow } from "./labs/sysadmin/slow-warnings/submodel.ts"
 import { Capacitor } from "@capacitor/core"
 import { Layer } from "effect"
 import { Runtime } from "foldkit"
@@ -80,45 +79,8 @@ if (redirect_url !== undefined) {
             onUrlRequest: (request) => ClickedLink({ request }),
             onUrlChange: (url) => ChangedUrl({ url }),
         },
-        viewTransition: ({ previousModel, model, message }) => {
-            if (message._tag === "GotLabsGridBuilderMessage") {
-                return (
-                    message.message._tag === "ClickedAddBox" ||
-                    message.message._tag === "ClickedRemoveBox"
-                )
-            }
-
-            if (message._tag === "GotLabsGalleryMessage") {
-                return message.message._tag === "ClickedArtworkListItem"
-                    ? { types: ["to-gallery-image"] }
-                    : message.message._tag === "ClickedArtworkList"
-                      ? { types: ["to-gallery-grid"] }
-                      : false
-            }
-
-            if (message._tag === "ChangedUrl") {
-                const previous_route =
-                    previousModel.labs_gallery.gallery.route._tag
-                const route = model.labs_gallery.gallery.route._tag
-                if (
-                    previous_route === "Gallery3dEditArtworkList" &&
-                    route === "Gallery3dEditArtworkDetails"
-                ) {
-                    return { types: ["to-gallery-image"] }
-                }
-                if (
-                    previous_route === "Gallery3dEditArtworkDetails" &&
-                    route === "Gallery3dEditArtworkList"
-                ) {
-                    return { types: ["to-gallery-grid"] }
-                }
-                return false
-            }
-
-            if (
-                message._tag !== "GotMediaMessage" &&
-                message._tag !== "GotLabsGalleryTransitionsMessage"
-            ) {
+        viewTransition: ({ message }) => {
+            if (message._tag !== "GotMediaMessage") {
                 return false
             }
 
@@ -128,19 +90,7 @@ if (redirect_url !== undefined) {
                   ? { types: ["to-gallery-grid"] }
                   : false
         },
-        slow: {
-            onSlow: (context) => {
-                const model =
-                    context._tag === "Update"
-                        ? context.nextModel
-                        : context.model
-                if (model.labs_slow_warnings.active) {
-                    handle_slow(context)
-                } else {
-                    Runtime.defaultSlowCallback(context)
-                }
-            },
-        },
+        slow: { onSlow: Runtime.defaultSlowCallback },
         devTools: { Message },
     })
 

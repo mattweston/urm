@@ -1,6 +1,5 @@
 import { foldkit } from "@foldkit/vite-plugin"
 import tailwindcss from "@tailwindcss/vite"
-import { highlighted_source_plugin } from "@urm/features/learn/walkthrough/highlighted-source.plugin"
 import { devServerUrls } from "@urm/utils/dev-server"
 import { defineConfig } from "vite"
 import { grep_preview } from "./grep-preview.plugin.ts"
@@ -10,7 +9,6 @@ export default defineConfig({
     appType: "spa",
     envDir: "../..",
     plugins: [
-        highlighted_source_plugin(),
         publication_site(),
         foldkit({}),
         tailwindcss(),

@@ -59,7 +59,7 @@ const mouseUpStream = Stream.fromEventListener<MouseEvent>(
 
 export const subscriptions = Subscription.make<unknown, PixelArtMessage>()(
     () => ({
-        pixelArtKeyboard: Subscription.persistent(keyboardStream),
-        pixelArtMouseUp: Subscription.persistent(mouseUpStream),
+        pixelArtKeyboard: Subscription.persistentEntry(keyboardStream),
+        pixelArtMouseUp: Subscription.persistentEntry(mouseUpStream),
     })
 )

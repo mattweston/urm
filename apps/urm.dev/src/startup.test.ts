@@ -3,9 +3,9 @@ import { development_redirect_url } from "./startup.ts"
 
 describe("client startup host redirect", () => {
     test.each([
-        "https://localhost/labs/ui",
+        "https://localhost/dev/grep",
         "capacitor://localhost/dashboard",
-        "http://localhost:1420/labs/ui",
+        "http://localhost:1420/dev/grep",
     ])(
         "keeps the native app on its bundled or live-reload origin: %s",
         (href) => {
@@ -16,10 +16,10 @@ describe("client startup host redirect", () => {
     test("preserves browser development paths, query parameters, and routes", () => {
         expect(
             development_redirect_url(
-                "http://localhost:1420/labs/ui?code=test",
+                "http://localhost:1420/dev/grep?code=test",
                 false
             )
-        ).toBe("http://app.localhost:1420/labs/ui?code=test")
+        ).toBe("http://app.localhost:1420/dev/grep?code=test")
     })
 
     test.each([

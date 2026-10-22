@@ -1,21 +1,9 @@
-import { Effect, Option, Queue, Stream } from "effect"
+import { Effect, Queue, Stream } from "effect"
 import { Subscription } from "foldkit"
-import { VirtualList } from "@foldkit/ui"
-import {
-    GotRowsMessage,
-    ScrolledColumns,
-    type Message,
-} from "./spreadsheet.message.ts"
+import { ScrolledColumns, type Message } from "./spreadsheet.message.ts"
 import type { Model } from "./spreadsheet.model.ts"
 
 const GRID_ID = "foldkit-spreadsheet-rows"
-
-const rows = Subscription.lift({
-    spreadsheetRows: VirtualList.subscriptions.containerEvents,
-})<Model, Message>({
-    read: (model) => Option.some(model.rows),
-    toParentMessage: (message) => GotRowsMessage({ message }),
-})
 
 const columns = Subscription.make<Model, Message>()((entry) => ({
     spreadsheetColumns: entry(
@@ -92,7 +80,4 @@ const columns = Subscription.make<Model, Message>()((entry) => ({
     ),
 }))
 
-export const subscriptions = Subscription.aggregate<Model, Message>()(
-    rows,
-    columns
-)
+export const subscriptions = Subscription.aggregate<Model, Message>()(columns)

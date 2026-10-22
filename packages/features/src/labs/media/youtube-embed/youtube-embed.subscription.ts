@@ -1,5 +1,6 @@
 import { Effect, Option, Schema as S, Stream } from "effect"
 import { Subscription } from "foldkit"
+import { streamFromEventFilterMap } from "foldkit/dom"
 import {
     ReceivedPlayerError,
     ReceivedPlayerEvent,
@@ -79,10 +80,10 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
             }),
             dependenciesToStream: ({ isListening }) =>
                 Stream.when(
-                    Subscription.fromEventFilterMap<MessageEvent, Message>({
+                    streamFromEventFilterMap({
                         target: window,
                         type: "message",
-                        toMessage,
+                        filterMapEvent: toMessage,
                     }),
                     Effect.succeed(isListening)
                 ),

@@ -1,8 +1,3 @@
-import { route_tag as learn_route_tag } from "../learn/nav.ts"
-import { is_urmcss_path } from "@urm/features/labs/design/urmcss"
-import { isSearchBarPath } from "@urm/features/labs/search/search-bar"
-import { isQuerySyncTablePath } from "@urm/features/labs/routing/query-sync-table"
-import { isLandingEditorPath } from "@urm/features/marketing/landing"
 import { is_content_email_path } from "@urm/features/content"
 import { Option, Schema as S } from "effect"
 import { taggedStruct } from "foldkit/schema"
@@ -15,8 +10,6 @@ export const MarketingRoute = taggedStruct("Marketing", {
 export const StatsRoute = taggedStruct("Stats", { stats_path: S.String })
 export const ShopRoute = taggedStruct("Shop", { shop_path: S.String })
 export const DevRoute = taggedStruct("Dev", { dev_path: S.String })
-export const LearnRoute = taggedStruct("Learn", { learn_path: S.String })
-export const LabsRoute = taggedStruct("Labs", { labs_path: S.String })
 export const ProjectsRoute = taggedStruct("Projects")
 export const ProjectRoute = taggedStruct("Project", { project_slug: S.String })
 export const IssuesRoute = taggedStruct("Issues")
@@ -54,9 +47,7 @@ export const DesktopRoute = S.Union([
     MarketingRoute,
     StatsRoute,
     ShopRoute,
-    LabsRoute,
     DevRoute,
-    LearnRoute,
     ProjectsRoute,
     ProjectRoute,
     IssuesRoute,
@@ -84,10 +75,6 @@ export type DesktopRoute = typeof DesktopRoute.Type
 
 const route_path = (url: Url): string => {
     const path = url.pathname.replace(/\/$/, "")
-    if (isQuerySyncTablePath(path)) {
-        const search = Option.getOrElse(url.search, () => "").replace(/^\?/, "")
-        return search === "" ? path : `${path}?${search}`
-    }
     return path === "" ? "/" : path
 }
 
@@ -111,12 +98,6 @@ export const routeForUrl = (url: Url): DesktopRoute => {
     }
     if (path === "/dev" || path.startsWith("/dev/")) {
         return DevRoute({ dev_path: path })
-    }
-    if (path === "/learn" || path.startsWith("/learn/")) {
-        return LearnRoute({ learn_path: path })
-    }
-    if (path === "/labs" || path.startsWith("/labs/")) {
-        return LabsRoute({ labs_path: path })
     }
     if (path === "/issues") {
         return IssuesRoute()
@@ -296,13 +277,7 @@ export const devHref = () => "/dev"
 export const devKbdShortcutsHref = () => "/dev/kbd-shortcuts"
 export const devTerminalHref = () => "/dev/terminal"
 export const dev_grep_href = () => "/dev/grep"
-export const learn_href = () => "/learn"
 export const pagesBookmarksHref = () => "/pages/bookmarks"
-export const labsEventsHref = () => "/labs/events"
-export const labsMapHref = () => "/labs/events/map"
-export const labsMapDemoHref = (slug: string) => `/labs/events/map/${slug}`
-export const labsHref = () => "/labs"
-export const labsStatsChartsHref = () => "/labs/stats/charts"
 export const projectsHref = () => "/projects"
 export const projectHref = (project_slug: string) =>
     `/projects/${encodeURIComponent(project_slug)}`
@@ -415,130 +390,6 @@ export const sidebarRouteTag = (route: DesktopRoute): string => {
                 : route.dev_path === "/dev/terminal"
                   ? "DevTerminal"
                   : "Dev"
-        case "Learn":
-            return learn_route_tag(route.learn_path)
-        case "Labs":
-            if (isLandingEditorPath(route.labs_path))
-                return "LabsMarketingLanding"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/marketing")
-                return "LabsMarketing"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/layout/conditional-grid"
-            )
-                return "LabsConditionalGrid"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/layout/auto-grid")
-                return "LabsAutoGrid"
-            if (
-                route.labs_path.replace(/\/$/, "") === "/labs/layout/fukol-grid"
-            )
-                return "LabsFukolGrid"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/layout/flex-form")
-                return "LabsFlexForm"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/finance/invoice")
-                return "LabsFinanceInvoice"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/finance/chart")
-                return "LabsFinanceChart"
-            if (
-                route.labs_path.replace(/\/$/, "") === "/labs/data/spreadsheets"
-            )
-                return "LabsSpreadsheets"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/data")
-                return "LabsData"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/settings/services-canvas"
-            )
-                return "LabsServicesCanvas"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/stats/charting")
-                return "LabsStatsCharting"
-            if (
-                route.labs_path.replace(/\/$/, "") === "/labs/stats/charts" ||
-                route.labs_path.replace(/\/$/, "") === "/labs/charts"
-            )
-                return "LabsStatsCharts"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/media/gallery-view-transitions"
-            )
-                return "LabsGalleryTransitions"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/media/music-notation"
-            )
-                return "LabsMusicNotation"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/auth")
-                return "LabsAuth"
-            if (
-                route.labs_path.replace(/\/$/, "") === "/labs/auth/breach-check"
-            )
-                return "LabsBreachCheck"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/auth/otp-field")
-                return "LabsOtpField"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/sysadmin")
-                return "LabsSysadmin"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/sysadmin/slow-warnings"
-            )
-                return "LabsSlowWarnings"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/design")
-                return "LabsDesign"
-            if (is_urmcss_path(route.labs_path)) return "LabsUrmcss"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/design/dom-depth-visualizer"
-            )
-                return "LabsDomDepth"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/design/grid-builder"
-            )
-                return "LabsGridBuilder"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/design/prop-grid")
-                return "LabsPropGrid"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/typography")
-                return "LabsTypography"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/typography/variable-fonts"
-            )
-                return "LabsVariableFonts"
-            if (route.labs_path.replace(/\/$/, "") === "/labs/media/audio")
-                return "LabsAudio"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/media/audio/cuelume"
-            )
-                return "LabsCuelume"
-            if (route.labs_path === "/labs/media") return "LabsMedia"
-            if (
-                route.labs_path.replace(/\/$/, "") ===
-                "/labs/media/youtube-embed"
-            )
-                return "LabsYouTube"
-            if (
-                route.labs_path === "/labs/media/3d-gallery" ||
-                route.labs_path.startsWith("/labs/media/3d-gallery/")
-            )
-                return "LabsGallery"
-            if (
-                isQuerySyncTablePath(
-                    route.labs_path.split("?")[0] ?? route.labs_path
-                )
-            )
-                return "LabsQuerySyncTable"
-            if (isSearchBarPath(route.labs_path)) return "LabsSearchBar"
-            if (route.labs_path === "/labs/ui") return "LabsUi"
-            if (route.labs_path.startsWith("/labs/ui/"))
-                return `LabsUi-${route.labs_path.slice("/labs/ui/".length)}`
-            return route.labs_path === "/labs/events"
-                ? "LabsEvents"
-                : route.labs_path.startsWith("/labs/events/map/")
-                  ? `LabsMap-${route.labs_path.slice("/labs/events/map/".length)}`
-                  : route.labs_path === "/labs/events/map"
-                    ? "LabsMap"
-                    : "Labs"
         case "Projects":
         case "Project":
             return "Projects"
@@ -694,9 +545,7 @@ export const issuesFeaturePath = (
         case "Stats":
         case "Marketing":
         case "Shop":
-        case "Labs":
         case "Dev":
-        case "Learn":
         case "Projects":
         case "Project":
         case "Tags":
@@ -729,9 +578,6 @@ export const shopFeaturePath = (route: DesktopRoute): Option.Option<string> =>
 
 export const eventsFeaturePath = (route: DesktopRoute): Option.Option<string> =>
     route._tag === "Events" ? Option.some(route.events_path) : Option.none()
-
-export const labsFeaturePath = (route: DesktopRoute): Option.Option<string> =>
-    route._tag === "Labs" ? Option.some(route.labs_path) : Option.none()
 
 export const mailFeaturePath = (route: DesktopRoute): Option.Option<string> =>
     route._tag === "Mail"

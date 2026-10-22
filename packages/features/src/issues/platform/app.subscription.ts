@@ -1,5 +1,6 @@
 import { Option, Schema as S, Stream } from "effect"
 import { Subscription } from "foldkit"
+import { streamFromEvent } from "foldkit/dom"
 import * as Ui from "@foldkit/ui"
 import { GotDragAndDropMessage, ViewportChanged } from "./app.message.ts"
 import type { AppMessage } from "./app.message.ts"
@@ -43,13 +44,10 @@ const viewportSubscriptions = Subscription.make<Model, AppMessage>()(
                         ViewportChanged({ isCompact: media_query.matches })
                     ).pipe(
                         Stream.concat(
-                            Subscription.fromEvent<
-                                MediaQueryListEvent,
-                                AppMessage
-                            >({
+                            streamFromEvent({
                                 target: media_query,
                                 type: "change",
-                                toMessage: (event) =>
+                                mapEvent: (event) =>
                                     ViewportChanged({
                                         isCompact: event.matches,
                                     }),

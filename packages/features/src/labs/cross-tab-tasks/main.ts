@@ -363,7 +363,7 @@ const streamStoreChanges = Stream.callback<Message>((queue) =>
 )
 
 export const subscriptions = Subscription.make<Model, Message>()((_entry) => ({
-    storeChanges: Subscription.persistent(streamStoreChanges),
+    storeChanges: Subscription.persistentEntry(streamStoreChanges),
 }))
 
 // VIEW

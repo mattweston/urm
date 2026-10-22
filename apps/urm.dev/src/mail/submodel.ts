@@ -200,15 +200,11 @@ const SubscriptionsData = Remote.make({
         SendTransactionalEmail,
     ],
 })
-const send_contacts_page = (domain_id: string, after: string | null) =>
+const send_contacts_page = (domain_id: string) =>
     ContactsData.query(
         DomainContacts,
         { domain_id, search: "" },
-        {
-            select: ContactSummary,
-            first: 100,
-            ...(after === null ? {} : { after }),
-        }
+        { select: ContactSummary, first: 100 }
     )
 
 const LoadMailSendRecipients = Command.define("LoadMailSendRecipients", {
@@ -217,14 +213,12 @@ const LoadMailSendRecipients = Command.define("LoadMailSendRecipients", {
     execute: ({ domain_id }) =>
         Effect.gen(function* () {
             const api = yield* ContactsApi
-            const recipients: Array<Send.SendRecipientType> = []
-            let after: string | null = null
+            const query = send_contacts_page(domain_id)
+            let loaded = yield* ContactsData.prefetch(
+                { remote: Remote.initial },
+                query
+            ).pipe(Effect.provide(api.remote(domain_id)))
             for (;;) {
-                const query = send_contacts_page(domain_id, after)
-                const loaded = yield* ContactsData.prefetch(
-                    { remote: Remote.initial },
-                    query
-                ).pipe(Effect.provide(api.remote(domain_id)))
                 const page = query.read(loaded)
                 if (page._tag !== "Ready")
                     return yield* Effect.fail(
@@ -232,23 +226,27 @@ const LoadMailSendRecipients = Command.define("LoadMailSendRecipients", {
                             message: "Contacts could not be loaded.",
                         })
                     )
-                recipients.push(
-                    ...page.value.items.flatMap(({ contact_id, name, email }) =>
-                        email === null || email.trim() === ""
-                            ? []
-                            : [{ id: contact_id, name, email }]
-                    )
-                )
-                const next = ContactsData.next(loaded, query)?.window.after
-                if (next === undefined) break
-                after = next
+
+                const grown = ContactsData.more(loaded, query)
+                if (Option.isNone(grown)) {
+                    return Mail.GotSendMessage({
+                        message: Send.SendRecipientsLoaded({
+                            domain_id,
+                            recipients: page.value.items.flatMap(
+                                ({ contact_id, name, email }) =>
+                                    email === null || email.trim() === ""
+                                        ? []
+                                        : [{ id: contact_id, name, email }]
+                            ),
+                        }),
+                    })
+                }
+
+                loaded = yield* ContactsData.prefetch(
+                    grown.value,
+                    query
+                ).pipe(Effect.provide(api.remote(domain_id)))
             }
-            return Mail.GotSendMessage({
-                message: Send.SendRecipientsLoaded({
-                    domain_id,
-                    recipients,
-                }),
-            })
         }).pipe(
             Effect.catch((error) =>
                 Effect.succeed(

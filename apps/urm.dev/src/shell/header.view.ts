@@ -28,7 +28,7 @@ type Props<ParentMessage> = Readonly<{
     on_submit_spotify_playlist_id: ParentMessage
     to_appearance_message: (message: Appearance.MessageType) => ParentMessage
     auth: Html
-    search: Html
+    search?: Html
 }>
 
 export const headerView = <ParentMessage>(
@@ -92,7 +92,7 @@ export const headerView = <ParentMessage>(
                     ),
                 ],
                 [
-                    props.search,
+                    ...(props.search === undefined ? [] : [props.search]),
                     spotifyPlayerView(
                         {
                             state: props.spotify_player_state,

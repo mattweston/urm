@@ -1,5 +1,6 @@
 import { Effect, Option, Schema as S, Stream } from "effect"
 import { Subscription } from "foldkit"
+import { streamFromEventFilterMap } from "foldkit/dom"
 import { DismissedMenus, type Message } from "./appearance.message.ts"
 import type { Model } from "./appearance.model.ts"
 
@@ -19,27 +20,28 @@ const isOutsideMenus = (event: Event): boolean => {
 }
 
 export const subscriptions = <ParentModel, ParentMessage>(config: {
-    readonly toChildModel: (parentModel: ParentModel) => Model
+    readonly read: (parentModel: ParentModel) => Option.Option<Model>
     readonly toParentMessage: (message: Message) => ParentMessage
 }) =>
     Subscription.make<ParentModel, ParentMessage>()((entry) => ({
         appearanceMenuDismiss: entry(
             { isAnyMenuOpen: S.Boolean },
             {
-                modelToDependencies: (parentModel) => {
-                    const model = config.toChildModel(parentModel)
-
-                    return {
-                        isAnyMenuOpen:
+                // No child, no open menu: absence closes the listener through
+                // the same dependency the menus do.
+                modelToDependencies: (parentModel) => ({
+                    isAnyMenuOpen: Option.match(config.read(parentModel), {
+                        onNone: () => false,
+                        onSome: (model) =>
                             model.isThemeMenuOpen || model.isFontMenuOpen,
-                    }
-                },
+                    }),
+                }),
                 dependenciesToStream: ({ isAnyMenuOpen }) =>
                     Stream.when(
-                        Subscription.fromEventFilterMap<Event, ParentMessage>({
+                        streamFromEventFilterMap({
                             target: document,
                             type: "pointerdown",
-                            toMessage: (event) =>
+                            filterMapEvent: (event) =>
                                 isOutsideMenus(event)
                                     ? Option.some(
                                           config.toParentMessage(

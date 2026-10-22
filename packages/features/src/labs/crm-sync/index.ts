@@ -7,6 +7,5 @@ export {
     isCrmSyncPath,
     urlToCrmSyncRoute,
 } from "./crm-sync.route.ts"
-export { subscriptions } from "./crm-sync.subscription.ts"
 export { init, update } from "./crm-sync.update.ts"
 export { view } from "./crm-sync.view.ts"

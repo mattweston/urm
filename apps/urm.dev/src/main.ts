@@ -66,17 +66,7 @@ import {
     newsletter_template_catalog_id,
 } from "@urm/domain/mail-templates"
 import { is_contacts_path } from "./contacts/path.ts"
-import * as SearchBarLab from "./labs/search/search-bar/submodel.ts"
-import * as SpreadsheetsLab from "./labs/data/spreadsheets/submodel.ts"
-import * as CuelumeLab from "./labs/media/audio/cuelume/submodel.ts"
-import * as VariableFontsLab from "./labs/typography/variable-fonts/submodel.ts"
-import * as DomDepthLab from "./labs/design/dom-depth-visualizer/submodel.ts"
 import * as DevBookmarks from "./dev/bookmarks/submodel.ts"
-import * as SlowWarningsLab from "./labs/sysadmin/slow-warnings/submodel.ts"
-import * as BreachCheckLab from "./labs/auth/breach-check/submodel.ts"
-import * as OtpFieldLab from "./labs/auth/otp-field/submodel.ts"
-import * as ServicesCanvasLab from "./labs/settings/services-canvas/submodel.ts"
-import * as ChartingLab from "./labs/stats/charting/submodel.ts"
 import * as Array from "effect/Array"
 import { Effect, Match as M, Option, Schema as S, Stream } from "effect"
 import {
@@ -85,6 +75,7 @@ import {
     Runtime,
     Subscription as FoldkitSubscription,
 } from "foldkit"
+import { streamFromEvent } from "foldkit/dom"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
 import { taggedStruct } from "foldkit/schema"
 import { modifyFields } from "foldkit/struct"
@@ -114,22 +105,6 @@ import * as Content from "@urm/features/content"
 import * as DesignIdeas from "@urm/features/design/ideas"
 import * as Finance from "@urm/features/finance"
 import * as MarketingLanding from "@urm/features/marketing/landing"
-import * as FinanceChart from "@urm/features/labs/finance/chart"
-import * as InvoiceLab from "@urm/features/labs/finance/invoice"
-import * as AutoGridLab from "@urm/features/labs/layout/auto-grid"
-import * as ConditionalGridLab from "@urm/features/labs/layout/conditional-grid"
-import * as FlexFormLab from "@urm/features/labs/layout/flex-form"
-import * as FukolGridLab from "@urm/features/labs/layout/fukol-grid"
-import * as CtScanLab from "@urm/features/labs/performance/ct-scan"
-import * as GridBuilderLab from "@urm/features/labs/design/grid-builder"
-import "@urm/features/labs/design/grid-builder/styles.css"
-import * as PropGridLab from "@urm/features/labs/design/prop-grid"
-import * as UrmcssLab from "@urm/features/labs/design/urmcss"
-import "@urm/features/labs/design/urmcss/styles.css"
-import * as FoldkitLesson from "@urm/features/learn/walkthrough"
-import * as ManagedResourceLayer from "@urm/features/learn/managed-resource-layer"
-import * as EffectRunner from "@urm/features/learn/runner"
-import * as Learn from "./learn/submodel.ts"
 import * as Forms from "./forms/submodel.ts"
 import * as NavigationSettings from "@urm/features/settings/navigation"
 import {
@@ -174,20 +149,6 @@ import * as DesktopBlog from "./blog/submodel.ts"
 import * as DesktopDocuments from "./documents/submodel.ts"
 import * as DesktopBookmarks from "./content/bookmarks-submodel.ts"
 import * as DesktopIssues from "./issues/submodel.ts"
-import * as DesktopMaps from "./labs/events/map/submodel.ts"
-import * as YouTubeLab from "./labs/media/youtube-embed/submodel.ts"
-import * as MusicNotationLab from "./labs/media/music-notation/submodel.ts"
-import * as GalleryTransitionsLab from "./labs/media/gallery-view-transitions/submodel.ts"
-import * as GalleryLab from "./labs/media/3d-gallery/submodel.ts"
-import * as UiLabs from "./labs/ui/submodel.ts"
-import * as QuerySyncTableLab from "./labs/routing/query-sync-table/submodel.ts"
-import {
-    demos as ui_demos,
-    demo_href as ui_demo_href,
-    index_href as ui_index_href,
-    is_ui_path,
-} from "./labs/ui/catalog.ts"
-import { view as labs_view } from "./labs/view.ts"
 import * as DesktopMail from "./mail/submodel.ts"
 import * as DesktopMedia from "./media/submodel.ts"
 import * as DesktopProjects from "./projects/submodel.ts"
@@ -253,15 +214,10 @@ import {
     formSubmissionsHref,
     issuesFeaturePath,
     issuesHref,
-    labsHref,
-    labsEventsHref,
-    labsMapHref,
-    labsMapDemoHref,
     legacy_marketing_replacement_href,
     legacy_mail_templates_replacement_href,
     legacy_pages_replacement_href,
     legacy_content_replacement_href,
-    learn_href,
     devHref,
     devTerminalHref,
     dev_grep_href,
@@ -354,32 +310,8 @@ export const Model = S.Struct({
     design: DesktopDesign.Model,
     design_logo: DesktopLogo.Model,
     dev: Dev.Model,
-    labs_maps: DesktopMaps.Model,
-    labs_ui: UiLabs.Model,
-    labs_urmcss: UrmcssLab.Model,
-    labs_query_sync_table: QuerySyncTableLab.Model,
-    labs_search_bar: SearchBarLab.Model,
-    labs_services_canvas: ServicesCanvasLab.Model,
-    labs_charting: ChartingLab.Model,
-    labs_invoice: InvoiceLab.Model,
-    labs_flex_form: FlexFormLab.Model,
-    labs_ct_scan: CtScanLab.Model,
-    labs_grid_builder: GridBuilderLab.Model,
-    labs_prop_grid: PropGridLab.Model,
     labs_marketing_landing: MarketingLanding.Model,
-    learn: Learn.Model,
-    labs_slow_warnings: SlowWarningsLab.Model,
-    labs_dom_depth: DomDepthLab.Model,
-    labs_variable_fonts: VariableFontsLab.Model,
-    labs_spreadsheets: SpreadsheetsLab.Model,
-    labs_cuelume: CuelumeLab.Model,
     dev_bookmarks: DevBookmarks.Model,
-    labs_breach_check: BreachCheckLab.Model,
-    labs_otp_field: OtpFieldLab.Model,
-    labs_music_notation: MusicNotationLab.Model,
-    labs_gallery_transitions: GalleryTransitionsLab.Model,
-    labs_gallery: GalleryLab.Model,
-    labs_youtube: YouTubeLab.Model,
     data: DesktopData.Model,
     blog: DesktopBlog.Model,
     documents: DesktopDocuments.Model,
@@ -542,115 +474,15 @@ export const GotDomainPublishingMessage = taggedStruct(
         message: DomainPublishing.Message,
     }
 )
-export const GotLabsYouTubeMessage = taggedStruct("GotLabsYouTubeMessage", {
-    message: YouTubeLab.Message,
-})
-export const GotLabsServicesCanvasMessage = taggedStruct(
-    "GotLabsServicesCanvasMessage",
-    {
-        message: ServicesCanvasLab.Message,
-    }
-)
-export const GotLabsChartingMessage = taggedStruct("GotLabsChartingMessage", {
-    message: ChartingLab.Message,
-})
-export const GotLabsInvoiceMessage = taggedStruct("GotLabsInvoiceMessage", {
-    message: InvoiceLab.Message,
-})
-export const GotLabsFlexFormMessage = taggedStruct("GotLabsFlexFormMessage", {
-    message: FlexFormLab.Message,
-})
-export const GotLabsCtScanMessage = taggedStruct("GotLabsCtScanMessage", {
-    message: CtScanLab.Message,
-})
-export const GotLabsGridBuilderMessage = taggedStruct(
-    "GotLabsGridBuilderMessage",
-    {
-        message: GridBuilderLab.Message,
-    }
-)
-export const GotLabsPropGridMessage = taggedStruct("GotLabsPropGridMessage", {
-    message: PropGridLab.Message,
-})
 export const GotLabsMarketingLandingMessage = taggedStruct(
     "GotLabsMarketingLandingMessage",
     { message: MarketingLanding.Message }
 )
-export const GotLearnMessage = taggedStruct("GotLearnMessage", {
-    message: Learn.Message,
-})
-export const GotLabsSlowWarningsMessage = taggedStruct(
-    "GotLabsSlowWarningsMessage",
-    {
-        message: SlowWarningsLab.Message,
-    }
-)
-export const GotLabsDomDepthMessage = taggedStruct("GotLabsDomDepthMessage", {
-    message: DomDepthLab.Message,
-})
-export const GotLabsSpreadsheetsMessage = taggedStruct(
-    "GotLabsSpreadsheetsMessage",
-    {
-        message: SpreadsheetsLab.Message,
-    }
-)
-export const GotLabsVariableFontsMessage = taggedStruct(
-    "GotLabsVariableFontsMessage",
-    {
-        message: VariableFontsLab.Message,
-    }
-)
-export const GotLabsCuelumeMessage = taggedStruct("GotLabsCuelumeMessage", {
-    message: CuelumeLab.Message,
-})
 export const GotDevBookmarksMessage = taggedStruct("GotDevBookmarksMessage", {
     message: DevBookmarks.Message,
 })
-export const GotLabsBreachCheckMessage = taggedStruct(
-    "GotLabsBreachCheckMessage",
-    {
-        message: BreachCheckLab.Message,
-    }
-)
-export const GotLabsOtpFieldMessage = taggedStruct("GotLabsOtpFieldMessage", {
-    message: OtpFieldLab.Message,
-})
-export const GotLabsMusicNotationMessage = taggedStruct(
-    "GotLabsMusicNotationMessage",
-    {
-        message: MusicNotationLab.Message,
-    }
-)
 export const GotDesignLogoMessage = taggedStruct("GotDesignLogoMessage", {
     message: DesktopLogo.Message,
-})
-export const GotLabsGalleryTransitionsMessage = taggedStruct(
-    "GotLabsGalleryTransitionsMessage",
-    {
-        message: GalleryTransitionsLab.Message,
-    }
-)
-export const GotLabsGalleryMessage = taggedStruct("GotLabsGalleryMessage", {
-    message: GalleryLab.Message,
-})
-export const GotLabsSearchBarMessage = taggedStruct("GotLabsSearchBarMessage", {
-    message: SearchBarLab.Message,
-})
-
-export const GotLabsQuerySyncTableMessage = taggedStruct(
-    "GotLabsQuerySyncTableMessage",
-    {
-        message: QuerySyncTableLab.Message,
-    }
-)
-export const GotUrmcssMessage = taggedStruct("GotUrmcssMessage", {
-    message: UrmcssLab.Message,
-})
-export const GotLabsUiMessage = taggedStruct("GotLabsUiMessage", {
-    message: UiLabs.Message,
-})
-export const GotLabsMapMessage = taggedStruct("GotLabsMapMessage", {
-    message: DesktopMaps.Message,
 })
 export const GotDevMessage = taggedStruct("GotDevMessage", {
     message: Dev.Message,
@@ -869,33 +701,9 @@ export const Message = S.Union([
     GotPagesMessage,
     GotDesignMessage,
     GotDevMessage,
-    GotLabsMapMessage,
-    GotLabsUiMessage,
-    GotUrmcssMessage,
-    GotLabsQuerySyncTableMessage,
-    GotLabsSearchBarMessage,
-    GotLabsServicesCanvasMessage,
-    GotLabsChartingMessage,
-    GotLabsInvoiceMessage,
-    GotLabsFlexFormMessage,
-    GotLabsCtScanMessage,
-    GotLabsGridBuilderMessage,
-    GotLabsPropGridMessage,
     GotLabsMarketingLandingMessage,
-    GotLearnMessage,
-    GotLabsSlowWarningsMessage,
-    GotLabsDomDepthMessage,
-    GotLabsVariableFontsMessage,
-    GotLabsSpreadsheetsMessage,
-    GotLabsCuelumeMessage,
     GotDevBookmarksMessage,
-    GotLabsBreachCheckMessage,
-    GotLabsOtpFieldMessage,
-    GotLabsMusicNotationMessage,
     GotDesignLogoMessage,
-    GotLabsGalleryTransitionsMessage,
-    GotLabsGalleryMessage,
-    GotLabsYouTubeMessage,
     GotDataMessage,
     GotBlogMessage,
     GotDocumentsMessage,
@@ -1229,7 +1037,7 @@ type Commands = ReadonlyArray<
     Command.Command<
         Message,
         never,
-        ContactsApi | AuthKit.Service | Learn.Services
+        ContactsApi | AuthKit.Service
     >
 >
 
@@ -1462,137 +1270,9 @@ const create_sidebar_tooltips = () => ({
         DevTerminal: createSidebarTooltip("desktop-sidebar-dev-terminal"),
         DevGrep: createSidebarTooltip("desktop-sidebar-dev-grep"),
         DevBookmarks: createSidebarTooltip("desktop-sidebar-dev-bookmarks"),
-        Learn: createSidebarTooltip("desktop-sidebar-learn"),
-        LearnApiEffect: createSidebarTooltip(
-            "desktop-sidebar-learn-api-effect"
-        ),
-        LearnArray: createSidebarTooltip("desktop-sidebar-learn-array"),
-        LearnFoldkit: createSidebarTooltip("desktop-sidebar-learn-foldkit"),
-        LearnManagedResourceLayer: createSidebarTooltip(
-            "desktop-sidebar-learn-managed-resource-layer"
-        ),
-        LearnNullishCoalescingInput: createSidebarTooltip(
-            "desktop-sidebar-learn-nullish-coalescing-input"
-        ),
-        LearnNumber: createSidebarTooltip("desktop-sidebar-learn-number"),
-        LearnReduce: createSidebarTooltip("desktop-sidebar-learn-reduce"),
-        LearnEffectExamples: createSidebarTooltip(
-            "desktop-sidebar-learn-effect-examples"
-        ),
-        LabsSysadmin: createSidebarTooltip("desktop-sidebar-labs-sysadmin"),
-        LabsSlowWarnings: createSidebarTooltip(
-            "desktop-sidebar-labs-slow-warnings"
-        ),
-        LabsDesign: createSidebarTooltip("desktop-sidebar-labs-design"),
-        LabsDomDepth: createSidebarTooltip("desktop-sidebar-labs-dom-depth"),
-        LabsGridBuilder: createSidebarTooltip(
-            "desktop-sidebar-labs-grid-builder"
-        ),
-        LabsPropGrid: createSidebarTooltip("desktop-sidebar-labs-prop-grid"),
-        LabsUrmcss: createSidebarTooltip("desktop-sidebar-labs-urmcss"),
-        LabsData: createSidebarTooltip("desktop-sidebar-labs-data"),
-        LabsSpreadsheets: createSidebarTooltip(
-            "desktop-sidebar-labs-spreadsheets"
-        ),
-        LabsTypography: createSidebarTooltip("desktop-sidebar-labs-typography"),
-        LabsVariableFonts: createSidebarTooltip(
-            "desktop-sidebar-labs-variable-fonts"
-        ),
-        LabsAudio: createSidebarTooltip("desktop-sidebar-labs-audio"),
-        LabsCuelume: createSidebarTooltip("desktop-sidebar-labs-cuelume"),
-        LabsMarketing: createSidebarTooltip("desktop-sidebar-labs-marketing"),
-        LabsMarketingLanding: createSidebarTooltip(
-            "desktop-sidebar-labs-marketing-landing"
-        ),
-        LabsAuth: createSidebarTooltip("desktop-sidebar-labs-auth"),
-        LabsBreachCheck: createSidebarTooltip(
-            "desktop-sidebar-labs-breach-check"
-        ),
-        LabsOtpField: createSidebarTooltip("desktop-sidebar-labs-otp-field"),
-        LabsMedia: createSidebarTooltip("desktop-sidebar-labs-media"),
-        LabsYouTube: createSidebarTooltip("desktop-sidebar-labs-youtube"),
-        LabsMusicNotation: createSidebarTooltip(
-            "desktop-sidebar-labs-music-notation"
-        ),
         DesignLogo: createSidebarTooltip("desktop-sidebar-design-logo"),
         DesignFavicons: createSidebarTooltip("desktop-sidebar-design-favicons"),
         DesignIdeas: createSidebarTooltip("desktop-sidebar-design-ideas"),
-        LabsGalleryTransitions: createSidebarTooltip(
-            "desktop-sidebar-labs-gallery-transitions"
-        ),
-        LabsGallery: createSidebarTooltip("desktop-sidebar-labs-gallery"),
-        LabsSearch: createSidebarTooltip("desktop-sidebar-labs-search"),
-        LabsSearchBar: createSidebarTooltip("desktop-sidebar-labs-search-bar"),
-        LabsRouting: createSidebarTooltip("desktop-sidebar-labs-routing"),
-        LabsLayout: createSidebarTooltip("desktop-sidebar-labs-layout"),
-        LabsAutoGrid: createSidebarTooltip(
-            "desktop-sidebar-labs-layout-auto-grid"
-        ),
-        LabsConditionalGrid: createSidebarTooltip(
-            "desktop-sidebar-labs-layout-conditional-grid"
-        ),
-        LabsFukolGrid: createSidebarTooltip(
-            "desktop-sidebar-labs-layout-fukol-grid"
-        ),
-        LabsFlexForm: createSidebarTooltip(
-            "desktop-sidebar-labs-layout-flex-form"
-        ),
-        LabsPerformance: createSidebarTooltip(
-            "desktop-sidebar-labs-performance"
-        ),
-        LabsCtScan: createSidebarTooltip(
-            "desktop-sidebar-labs-performance-ct-scan"
-        ),
-        LabsQuerySyncTable: createSidebarTooltip(
-            "desktop-sidebar-labs-query-sync-table"
-        ),
-        LabsUi: createSidebarTooltip("desktop-sidebar-labs-ui"),
-        ...Object.fromEntries(
-            ui_demos.map((demo) => [
-                `LabsUi-${demo.slug}`,
-                createSidebarTooltip(`desktop-sidebar-labs-ui-${demo.slug}`),
-            ])
-        ),
-        LabsEvents: createSidebarTooltip("desktop-sidebar-labs-events"),
-        LabsMap: createSidebarTooltip("desktop-sidebar-labs-map"),
-        "LabsMap-interactive-map": createSidebarTooltip(
-            "desktop-sidebar-labs-map-interactive-map"
-        ),
-        "LabsMap-map": createSidebarTooltip("desktop-sidebar-labs-map-map"),
-        "LabsMap-journey": createSidebarTooltip(
-            "desktop-sidebar-labs-map-journey"
-        ),
-        "LabsMap-isochrone": createSidebarTooltip(
-            "desktop-sidebar-labs-map-isochrone"
-        ),
-        "LabsMap-storymap": createSidebarTooltip(
-            "desktop-sidebar-labs-map-storymap"
-        ),
-        "LabsMap-weather": createSidebarTooltip(
-            "desktop-sidebar-labs-map-weather"
-        ),
-        "LabsMap-weather-map": createSidebarTooltip(
-            "desktop-sidebar-labs-map-weather-map"
-        ),
-        Labs: createSidebarTooltip("desktop-sidebar-labs"),
-        LabsFinance: createSidebarTooltip("desktop-sidebar-labs-finance"),
-        LabsFinanceInvoice: createSidebarTooltip(
-            "desktop-sidebar-labs-finance-invoice"
-        ),
-        LabsFinanceChart: createSidebarTooltip(
-            "desktop-sidebar-labs-finance-chart"
-        ),
-        LabsStatsCharting: createSidebarTooltip(
-            "desktop-sidebar-labs-stats-charting"
-        ),
-        LabsSettings: createSidebarTooltip("desktop-sidebar-labs-settings"),
-        LabsServicesCanvas: createSidebarTooltip(
-            "desktop-sidebar-labs-services-canvas"
-        ),
-        LabsStats: createSidebarTooltip("desktop-sidebar-labs-stats"),
-        LabsStatsCharts: createSidebarTooltip(
-            "desktop-sidebar-labs-stats-charts"
-        ),
         Mail: createSidebarTooltip("desktop-sidebar-mail"),
         Projects: createSidebarTooltip("desktop-sidebar-projects"),
         Shop: createSidebarTooltip("desktop-sidebar-shop"),
@@ -1660,8 +1340,8 @@ export const init: Runtime.RoutingApplicationInit<
     Model,
     Message,
     void,
-    ContactsApi | AuthKit.Service | Learn.Services,
-    Learn.Services
+    ContactsApi | AuthKit.Service,
+    never
 > = (url) => {
     const [appearance] = Appearance.init()
     const [auth] = AuthKit.init()
@@ -1671,33 +1351,12 @@ export const init: Runtime.RoutingApplicationInit<
         legacy_mail_templates_replacement_href(url)
     const legacy_pages_href = legacy_pages_replacement_href(url)
     const legacy_documents_href = legacy_content_replacement_href(url)
-    const [labs_charting, labs_charting_commands] = ChartingLab.init(route)
-    const [labs_flex_form, labs_flex_form_commands] = FlexFormLab.init()
-    const [labs_ct_scan] = CtScanLab.init()
-    const [labs_grid_builder] = GridBuilderLab.init()
-    const [labs_prop_grid] = PropGridLab.init()
     const initial_landing_editor_path =
-        route._tag === "Marketing"
-            ? route.marketing_path
-            : route._tag === "Labs"
-              ? route.labs_path
-              : ""
+        route._tag === "Marketing" ? route.marketing_path : ""
     const [labs_marketing_landing, labs_marketing_landing_commands] =
         MarketingLanding.init(
             MarketingLanding.editorPresetForPath(initial_landing_editor_path)
         )
-    const [learn, learn_init_commands] = Learn.init(
-        route._tag === "Learn" ? route.learn_path : ""
-    )
-    const learn_commands = Command.mapMessages(learn_init_commands, (message) =>
-        GotLearnMessage({ message })
-    )
-    const [labs_dom_depth, labs_dom_depth_commands] = DomDepthLab.init(route)
-    const [labs_spreadsheets, labs_spreadsheets_commands] =
-        SpreadsheetsLab.init(route)
-    const [labs_gallery, labs_gallery_commands] = GalleryLab.init(route)
-    const [labs_ui, labs_ui_commands] = UiLabs.init(route)
-    const [labs_maps, labs_map_commands] = DesktopMaps.init(route)
     const issues = Option.match(issuesFeaturePath(route), {
         onNone: () => DesktopIssues.init(url),
         onSome: (pathname) => DesktopIssues.init(url, pathname),
@@ -1756,56 +1415,11 @@ export const init: Runtime.RoutingApplicationInit<
             return [Option.some(forms_model), commands]
         },
     })
-    const labs_commands =
-        route._tag === "Labs"
-            ? [
-                  ...(DesktopMaps.isAppScope(route.labs_path)
-                      ? Command.mapMessages(labs_map_commands, (message) =>
-                            GotLabsMapMessage({ message })
-                        )
-                      : []),
-                  ...(ChartingLab.is_charting_path(route.labs_path)
-                      ? Command.mapMessages(labs_charting_commands, (message) =>
-                            GotLabsChartingMessage({ message })
-                        )
-                      : []),
-                  ...(FlexFormLab.isFlexFormPath(route.labs_path)
-                      ? Command.mapMessages(
-                            labs_flex_form_commands,
-                            (message) => GotLabsFlexFormMessage({ message })
-                        )
-                      : []),
-                  ...(DomDepthLab.is_dom_depth_path(route.labs_path)
-                      ? Command.mapMessages(
-                            labs_dom_depth_commands,
-                            (message) => GotLabsDomDepthMessage({ message })
-                        )
-                      : []),
-                  ...(SpreadsheetsLab.is_spreadsheets_path(route.labs_path)
-                      ? Command.mapMessages(
-                            labs_spreadsheets_commands,
-                            (message) => GotLabsSpreadsheetsMessage({ message })
-                        )
-                      : []),
-                  ...(GalleryLab.is_gallery_path(route.labs_path)
-                      ? Command.mapMessages(labs_gallery_commands, (message) =>
-                            GotLabsGalleryMessage({ message })
-                        )
-                      : []),
-                  ...(is_ui_path(route.labs_path)
-                      ? Command.mapMessages(labs_ui_commands, (message) =>
-                            GotLabsUiMessage({ message })
-                        )
-                      : []),
-              ]
-            : []
     const landing_editor_commands =
         (route._tag === "Marketing" &&
             MarketingLanding.isLandingEditorPath(route.marketing_path)) ||
         (route._tag === "Content" &&
-            is_content_web_item_path(route.content_path)) ||
-        (route._tag === "Labs" &&
-            MarketingLanding.isLandingEditorPath(route.labs_path))
+            is_content_web_item_path(route.content_path))
             ? Command.mapMessages(labs_marketing_landing_commands, (message) =>
                   GotLabsMarketingLandingMessage({ message })
               )
@@ -1835,32 +1449,8 @@ export const init: Runtime.RoutingApplicationInit<
             design: DesktopDesign.init(url),
             design_logo: DesktopLogo.init(route),
             dev: restore_grep_route(Dev.init()[0], url),
-            labs_maps,
-            labs_ui,
-            labs_urmcss: UrmcssLab.init(),
-            labs_query_sync_table: QuerySyncTableLab.init(route),
-            labs_search_bar: SearchBarLab.init(),
-            labs_services_canvas: ServicesCanvasLab.init(route),
-            labs_charting,
-            labs_invoice: InvoiceLab.init(),
-            labs_flex_form,
-            labs_ct_scan,
-            labs_grid_builder,
-            labs_prop_grid,
             labs_marketing_landing,
-            learn,
-            labs_slow_warnings: SlowWarningsLab.init(route),
-            labs_dom_depth,
-            labs_variable_fonts: VariableFontsLab.init(route),
-            labs_spreadsheets,
-            labs_cuelume: CuelumeLab.init(route),
             dev_bookmarks: DevBookmarks.init(route),
-            labs_breach_check: BreachCheckLab.init(route),
-            labs_otp_field: OtpFieldLab.init(route),
-            labs_music_notation: MusicNotationLab.init(route),
-            labs_gallery_transitions: GalleryTransitionsLab.init(route),
-            labs_gallery,
-            labs_youtube: YouTubeLab.init(route),
             data,
             blog,
             documents,
@@ -1916,9 +1506,7 @@ export const init: Runtime.RoutingApplicationInit<
                 onNone: () => [],
                 onSome: (href) => [ReplaceInternalHref({ href })],
             }),
-            ...labs_commands,
             ...landing_editor_commands,
-            ...learn_commands,
             ...map_sysadmin_commands(sysadmin_commands),
             ...map_forms_commands(forms_commands),
         ],
@@ -2283,37 +1871,6 @@ const update_inner = (
                         }),
                         [],
                     ]
-                const [labs_charting, labs_charting_commands] =
-                    ChartingLab.changed_route(model.labs_charting, route)
-                const [learn, learn_route_commands] = Learn.changed_route(
-                    model.learn,
-                    route._tag === "Learn" ? route.learn_path : "",
-                    model.route._tag === "Learn" ? model.route.learn_path : ""
-                )
-                const [labs_dom_depth, labs_dom_depth_commands] =
-                    DomDepthLab.changed_route(model.labs_dom_depth, route)
-                const [labs_spreadsheets, labs_spreadsheets_commands] =
-                    SpreadsheetsLab.changed_route(
-                        model.labs_spreadsheets,
-                        route
-                    )
-                const [labs_gallery, labs_gallery_commands] =
-                    GalleryLab.changed_route(model.labs_gallery, route)
-                const [labs_music_notation, labs_music_notation_commands] =
-                    MusicNotationLab.changed_route(
-                        model.labs_music_notation,
-                        route
-                    )
-                const [labs_ui, labs_ui_commands] = UiLabs.changed_route(
-                    model.labs_ui,
-                    route
-                )
-                const [labs_maps, labs_map_commands] =
-                    DesktopMaps.changed_route(
-                        model.labs_maps,
-                        model.route,
-                        route
-                    )
                 const projects = DesktopProjects.changed_route(
                     model.projects,
                     route
@@ -2554,11 +2111,7 @@ const update_inner = (
                     ...forms_content_commands,
                 ]
                 const landing_editor_path =
-                    route._tag === "Marketing"
-                        ? route.marketing_path
-                        : route._tag === "Labs"
-                          ? route.labs_path
-                          : ""
+                    route._tag === "Marketing" ? route.marketing_path : ""
                 const preset_marketing_landing =
                     MarketingLanding.isLandingEditorPath(landing_editor_path)
                         ? MarketingLanding.changed_preset(
@@ -2640,118 +2193,17 @@ const update_inner = (
                         domain_publishing: () => domain_publishing,
                         forms: () => forms,
                         sysadmin: () => sysadmin,
-                        labs_maps: () => labs_maps,
-                        labs_ui: () => labs_ui,
-                        labs_search_bar: () => SearchBarLab.changed_route(),
                         labs_marketing_landing: () => labs_marketing_landing,
-                        learn: () => learn,
-                        labs_query_sync_table: () =>
-                            QuerySyncTableLab.changed_route(
-                                model.labs_query_sync_table,
-                                route
-                            ),
-                        labs_services_canvas: () =>
-                            ServicesCanvasLab.changed_route(
-                                model.labs_services_canvas,
-                                route
-                            ),
-                        labs_charting: () => labs_charting,
-                        labs_ct_scan: () =>
-                            route._tag === "Labs" &&
-                            CtScanLab.is_ct_scan_path(route.labs_path)
-                                ? model.labs_ct_scan
-                                : CtScanLab.initialModel,
-                        labs_slow_warnings: () =>
-                            SlowWarningsLab.changed_route(
-                                model.labs_slow_warnings,
-                                route
-                            ),
-                        labs_dom_depth: () => labs_dom_depth,
-                        labs_variable_fonts: () =>
-                            VariableFontsLab.changed_route(
-                                model.labs_variable_fonts,
-                                route
-                            ),
-                        labs_cuelume: () =>
-                            CuelumeLab.changed_route(model.labs_cuelume, route),
                         dev_bookmarks: () =>
                             DevBookmarks.changed_route(
                                 model.dev_bookmarks,
                                 route
                             ),
-                        labs_breach_check: () =>
-                            BreachCheckLab.changed_route(
-                                model.labs_breach_check,
-                                route
-                            ),
-                        labs_otp_field: () =>
-                            OtpFieldLab.changed_route(
-                                model.labs_otp_field,
-                                route
-                            ),
-                        labs_music_notation: () => labs_music_notation,
                         design_logo: () =>
                             DesktopLogo.changed_route(model.design_logo, route),
-                        labs_gallery_transitions: () =>
-                            GalleryTransitionsLab.changed_route(
-                                model.labs_gallery_transitions,
-                                route
-                            ),
-                        labs_gallery: () => labs_gallery,
-                        labs_spreadsheets: () => labs_spreadsheets,
-                        labs_youtube: () =>
-                            YouTubeLab.changed_route(model.labs_youtube, route),
                         is_sidebar_mobile_open: () => false,
                     }),
                     [
-                        ...Command.mapMessages(
-                            learn_route_commands,
-                            (message) => GotLearnMessage({ message })
-                        ),
-                        ...(route._tag === "Labs" &&
-                        MusicNotationLab.is_music_notation_path(route.labs_path)
-                            ? Command.mapMessages(
-                                  labs_music_notation_commands,
-                                  (message) =>
-                                      GotLabsMusicNotationMessage({ message })
-                              )
-                            : []),
-                        ...(route._tag === "Labs" &&
-                        ChartingLab.is_charting_path(route.labs_path)
-                            ? Command.mapMessages(
-                                  labs_charting_commands,
-                                  (message) =>
-                                      GotLabsChartingMessage({ message })
-                              )
-                            : []),
-                        ...(route._tag === "Labs" &&
-                        DomDepthLab.is_dom_depth_path(route.labs_path)
-                            ? Command.mapMessages(
-                                  labs_dom_depth_commands,
-                                  (message) =>
-                                      GotLabsDomDepthMessage({ message })
-                              )
-                            : []),
-                        ...(route._tag === "Labs" &&
-                        GalleryLab.is_gallery_path(route.labs_path)
-                            ? Command.mapMessages(
-                                  labs_gallery_commands,
-                                  (message) =>
-                                      GotLabsGalleryMessage({ message })
-                              )
-                            : []),
-                        ...(route._tag === "Labs" && is_ui_path(route.labs_path)
-                            ? Command.mapMessages(labs_ui_commands, (message) =>
-                                  GotLabsUiMessage({ message })
-                              )
-                            : []),
-                        ...(route._tag === "Labs" &&
-                        DesktopMaps.isAppScope(route.labs_path)
-                            ? Command.mapMessages(
-                                  labs_map_commands,
-                                  (message) => GotLabsMapMessage({ message })
-                              )
-                            : []),
                         ...map_issue_commands(issue_commands),
                         ...map_event_commands(event_commands),
                         ...map_media_commands(media_commands),
@@ -2759,14 +2211,6 @@ const update_inner = (
                         ...map_data_commands(data_commands),
                         ...map_blog_commands(blog_commands),
                         ...map_social_commands(social_commands),
-                        ...(route._tag === "Labs" &&
-                        SpreadsheetsLab.is_spreadsheets_path(route.labs_path)
-                            ? Command.mapMessages(
-                                  labs_spreadsheets_commands,
-                                  (message) =>
-                                      GotLabsSpreadsheetsMessage({ message })
-                              )
-                            : []),
                         ...map_document_commands(document_commands),
                         ...map_blog_commands(blog_commands),
                         ...map_page_commands(page_commands),
@@ -3399,101 +2843,6 @@ const update_inner = (
                     map_bookmark_commands(commands),
                 ]
             },
-            GotLabsYouTubeMessage: ({ message }) => {
-                const [labs_youtube, commands] = YouTubeLab.update(
-                    model.labs_youtube,
-                    message
-                )
-                return [
-                    modifyFields(model, { labs_youtube: () => labs_youtube }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsYouTubeMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsServicesCanvasMessage: ({ message }) => [
-                modifyFields(model, {
-                    labs_services_canvas: (canvas) =>
-                        ServicesCanvasLab.update(canvas, message),
-                }),
-                [],
-            ],
-            GotLabsChartingMessage: ({ message }) => {
-                const [labs_charting, commands] = ChartingLab.update(
-                    model.labs_charting,
-                    message
-                )
-                return [
-                    modifyFields(model, { labs_charting: () => labs_charting }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsChartingMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsInvoiceMessage: ({ message }) => [
-                {
-                    ...model,
-                    labs_invoice: InvoiceLab.update(
-                        model.labs_invoice,
-                        message
-                    ),
-                },
-                [],
-            ],
-            GotLabsFlexFormMessage: ({ message }) => {
-                const [labs_flex_form, commands] = FlexFormLab.update(
-                    model.labs_flex_form,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_flex_form: () => labs_flex_form,
-                    }),
-                    Command.mapMessages(commands, (next_message) =>
-                        GotLabsFlexFormMessage({ message: next_message })
-                    ),
-                ]
-            },
-            GotLabsCtScanMessage: ({ message }) => {
-                const [labs_ct_scan, commands] = CtScanLab.update(
-                    model.labs_ct_scan,
-                    message
-                )
-                return [
-                    modifyFields(model, { labs_ct_scan: () => labs_ct_scan }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsCtScanMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsGridBuilderMessage: ({ message }) => {
-                const [labs_grid_builder, commands] = GridBuilderLab.update(
-                    model.labs_grid_builder,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_grid_builder: () => labs_grid_builder,
-                    }),
-                    Command.mapMessages(commands, (next_message) =>
-                        GotLabsGridBuilderMessage({ message: next_message })
-                    ),
-                ]
-            },
-            GotLabsPropGridMessage: ({ message }) => {
-                const [labs_prop_grid, commands] = PropGridLab.update(
-                    model.labs_prop_grid,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_prop_grid: () => labs_prop_grid,
-                    }),
-                    Command.mapMessages(commands, (next_message) =>
-                        GotLabsPropGridMessage({ message: next_message })
-                    ),
-                ]
-            },
             GotLabsMarketingLandingMessage: ({ message }) => {
                 const [labs_marketing_landing, commands] =
                     MarketingLanding.update(
@@ -3594,83 +2943,6 @@ const update_inner = (
                     ],
                 ]
             },
-            GotLearnMessage: ({ message }) => {
-                const [learn, commands] = Learn.update(model.learn, message)
-                return [
-                    modifyFields(model, { learn: () => learn }),
-                    Command.mapMessages(commands, (next_message) =>
-                        GotLearnMessage({ message: next_message })
-                    ),
-                ]
-            },
-            GotLabsSlowWarningsMessage: ({ message }) => {
-                const [labs_slow_warnings, commands] = SlowWarningsLab.update(
-                    model.labs_slow_warnings,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_slow_warnings: () => labs_slow_warnings,
-                    }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsSlowWarningsMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsDomDepthMessage: ({ message }) => {
-                const [labs_dom_depth, commands] = DomDepthLab.update(
-                    model.labs_dom_depth,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_dom_depth: () => labs_dom_depth,
-                    }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsDomDepthMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsSpreadsheetsMessage: ({ message }) => {
-                const [labs_spreadsheets, commands] = SpreadsheetsLab.update(
-                    model.labs_spreadsheets,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_spreadsheets: () => labs_spreadsheets,
-                    }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsSpreadsheetsMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsVariableFontsMessage: ({ message }) => {
-                const [labs_variable_fonts, commands] = VariableFontsLab.update(
-                    model.labs_variable_fonts,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_variable_fonts: () => labs_variable_fonts,
-                    }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsVariableFontsMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsCuelumeMessage: ({ message }) => {
-                const [labs_cuelume, commands] = CuelumeLab.update(
-                    model.labs_cuelume,
-                    message
-                )
-                return [
-                    modifyFields(model, { labs_cuelume: () => labs_cuelume }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsCuelumeMessage({ message })
-                    ),
-                ]
-            },
             GotDevBookmarksMessage: ({ message }) => {
                 const [dev_bookmarks, commands] = DevBookmarks.update(
                     model.dev_bookmarks,
@@ -3680,48 +2952,6 @@ const update_inner = (
                     modifyFields(model, { dev_bookmarks: () => dev_bookmarks }),
                     Command.mapMessages(commands, (message) =>
                         GotDevBookmarksMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsBreachCheckMessage: ({ message }) => {
-                const [labs_breach_check, commands] = BreachCheckLab.update(
-                    model.labs_breach_check,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_breach_check: () => labs_breach_check,
-                    }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsBreachCheckMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsOtpFieldMessage: ({ message }) => {
-                const [labs_otp_field, commands] = OtpFieldLab.update(
-                    model.labs_otp_field,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_otp_field: () => labs_otp_field,
-                    }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsOtpFieldMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsMusicNotationMessage: ({ message }) => {
-                const [labs_music_notation, commands] = MusicNotationLab.update(
-                    model.labs_music_notation,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_music_notation: () => labs_music_notation,
-                    }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsMusicNotationMessage({ message })
                     ),
                 ]
             },
@@ -3755,95 +2985,6 @@ const update_inner = (
                     }),
                     Command.mapMessages(commands, (message) =>
                         GotDesignLogoMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsGalleryTransitionsMessage: ({ message }) => {
-                const [labs_gallery_transitions, commands] =
-                    GalleryTransitionsLab.update(
-                        model.labs_gallery_transitions,
-                        message
-                    )
-                return [
-                    modifyFields(model, {
-                        labs_gallery_transitions: () =>
-                            labs_gallery_transitions,
-                    }),
-                    commands,
-                ]
-            },
-            GotLabsGalleryMessage: ({ message }) => {
-                const [labs_gallery, commands] = GalleryLab.update(
-                    model.labs_gallery,
-                    message
-                )
-                return [
-                    modifyFields(model, { labs_gallery: () => labs_gallery }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsGalleryMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsSearchBarMessage: ({ message }) => {
-                const [labs_search_bar] = SearchBarLab.update(
-                    model.labs_search_bar,
-                    message
-                )
-                return [
-                    modifyFields(model, {
-                        labs_search_bar: () => labs_search_bar,
-                    }),
-                    [],
-                ]
-            },
-            GotLabsQuerySyncTableMessage: ({ message }) => {
-                const [labs_query_sync_table, commands] =
-                    QuerySyncTableLab.update(
-                        model.labs_query_sync_table,
-                        message
-                    )
-                return [
-                    modifyFields(model, {
-                        labs_query_sync_table: () => labs_query_sync_table,
-                    }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsQuerySyncTableMessage({ message })
-                    ),
-                ]
-            },
-            GotUrmcssMessage: ({ message }) => {
-                const [labs_urmcss, commands] = UrmcssLab.update(
-                    model.labs_urmcss,
-                    message
-                )
-                return [
-                    modifyFields(model, { labs_urmcss: () => labs_urmcss }),
-                    Command.mapMessages(commands, (message) =>
-                        GotUrmcssMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsUiMessage: ({ message }) => {
-                const [labs_ui, commands] = UiLabs.update(
-                    model.labs_ui,
-                    message
-                )
-                return [
-                    modifyFields(model, { labs_ui: () => labs_ui }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsUiMessage({ message })
-                    ),
-                ]
-            },
-            GotLabsMapMessage: ({ message }) => {
-                const [labs_maps, commands] = DesktopMaps.update(
-                    model.labs_maps,
-                    message
-                )
-                return [
-                    modifyFields(model, { labs_maps: () => labs_maps }),
-                    Command.mapMessages(commands, (message) =>
-                        GotLabsMapMessage({ message })
                     ),
                 ]
             },
@@ -5654,14 +4795,12 @@ const navigation_subscriptions = FoldkitSubscription.lift(
         model.route.settings_path === "/settings/sidebar",
 })
 
-const inactive_forms_model = Forms.init("/forms")[0]
 const forms_drag_subscriptions = FoldkitSubscription.lift(Forms.subscriptions)<
     Model,
     Message
 >({
-    read: (model) => Option.getOrElse(model.forms, () => inactive_forms_model),
+    read: (model) => model.forms,
     toParentMessage: (message) => GotFormsMessage({ message }),
-    when: (model) => Option.isSome(model.forms),
 })
 
 const project_subscriptions = DesktopProjects.subscriptions<Model, Message>({
@@ -5762,13 +4901,10 @@ const desktop_subscriptions = FoldkitSubscription.make<Model, Message>()(
                         })
                     ).pipe(
                         Stream.concat(
-                            FoldkitSubscription.fromEvent<
-                                MediaQueryListEvent,
-                                Message
-                            >({
+                            streamFromEvent({
                                 target: media_query,
                                 type: "change",
-                                toMessage: (event) =>
+                                mapEvent: (event) =>
                                     GotIssuesMessage({
                                         message: DesktopIssues.viewport_changed(
                                             {
@@ -6089,10 +5225,7 @@ export const contacts_mail_subscriptions = FoldkitSubscription.lift(
 export const subscriptions = FoldkitSubscription.aggregate<
     Model,
     Message,
-    | ContactsApi
-    | AuthKit.Service
-    | FoldkitLesson.AudioService
-    | EffectRunner.AudioService
+    ContactsApi | AuthKit.Service
 >()(
     auth_session_subscriptions,
     contacts_mail_subscriptions,
@@ -6107,11 +5240,6 @@ export const subscriptions = FoldkitSubscription.aggregate<
         toParentMessage: (message) => message,
         when: (model) => Option.isSome(forms_domain_id(model)),
     }),
-    FoldkitSubscription.lift(SearchBarLab.subscriptions)<Model, Message>({
-        read: (model) => Option.some(model.labs_search_bar),
-        toParentMessage: (message) => GotLabsSearchBarMessage({ message }),
-        when: (model) => app_surface(model) === "domain",
-    }),
     FoldkitSubscription.lift(MarketingLanding.subscriptions)<Model, Message>({
         read: (model) => Option.some(model.labs_marketing_landing),
         toParentMessage: (message) =>
@@ -6122,27 +5250,7 @@ export const subscriptions = FoldkitSubscription.aggregate<
                     model.route.marketing_path
                 )) ||
             (model.route._tag === "Content" &&
-                is_content_web_item_path(model.route.content_path)) ||
-            (model.route._tag === "Labs" &&
-                MarketingLanding.isLandingEditorPath(model.route.labs_path)),
-    }),
-    FoldkitSubscription.lift(FoldkitLesson.subscriptions)<Model, Message>({
-        read: (model) => Option.some(model.learn.foldkit),
-        toParentMessage: (message) =>
-            GotLearnMessage({ message: Learn.GotFoldkitMessage({ message }) }),
-        when: (model) =>
-            model.route._tag === "Learn" &&
-            FoldkitLesson.isFoldkitPath(model.route.learn_path),
-    }),
-    FoldkitSubscription.lift(EffectRunner.subscriptions)<Model, Message>({
-        read: (model) => Option.some(model.learn.effect_runner),
-        toParentMessage: (message) =>
-            GotLearnMessage({
-                message: Learn.GotEffectRunnerMessage({ message }),
-            }),
-        when: (model) =>
-            model.route._tag === "Learn" &&
-            EffectRunner.isEffectExamplePath(model.route.learn_path),
+                is_content_web_item_path(model.route.content_path)),
     }),
     FoldkitSubscription.lift(DesktopChat.subscriptions)<Model, Message>({
         read: (model) => Option.some(model.chat),
@@ -6173,12 +5281,6 @@ export const subscriptions = FoldkitSubscription.aggregate<
             model.route._tag === "Dev" &&
             model.route.dev_path === "/dev/grep",
     }),
-    FoldkitSubscription.lift(SlowWarningsLab.subscriptions)<Model, Message>({
-        read: (model) => Option.some(model.labs_slow_warnings.warnings),
-        toParentMessage: (message) => GotLabsSlowWarningsMessage({ message }),
-        when: (model) =>
-            has_verified_session(model) && model.labs_slow_warnings.active,
-    }),
     navigation_subscriptions,
     FoldkitSubscription.lift(DesktopDesign.subscriptions)<Model, Message>({
         read: (model) => Option.some(model.design),
@@ -6204,13 +5306,6 @@ export const subscriptions = FoldkitSubscription.aggregate<
         toParentMessage: (message) => message,
         when: (model) => module_enabled(model, "Events"),
     }),
-    FoldkitSubscription.lift(SpreadsheetsLab.subscriptions)<Model, Message>({
-        read: (model) => Option.some(model.labs_spreadsheets),
-        toParentMessage: (message) => GotLabsSpreadsheetsMessage({ message }),
-        when: (model) =>
-            model.route._tag === "Labs" &&
-            SpreadsheetsLab.is_spreadsheets_path(model.route.labs_path),
-    }),
     FoldkitSubscription.lift(blog_subscriptions)<Model, Message>({
         read: (model) => Option.some(model),
         toParentMessage: (message) => message,
@@ -6218,89 +5313,20 @@ export const subscriptions = FoldkitSubscription.aggregate<
     }),
     document_subscriptions,
     page_editor_subscriptions,
-    FoldkitSubscription.lift(UiLabs.subscriptions)<Model, Message>({
-        read: (model) => Option.some(model.labs_ui),
-        toParentMessage: (message) => GotLabsUiMessage({ message }),
-        when: (model) =>
-            model.route._tag === "Labs" && is_ui_path(model.route.labs_path),
-    }),
-    FoldkitSubscription.lift(ChartingLab.subscriptions)<Model, Message>({
-        read: (model) => Option.some(model.labs_charting),
-        toParentMessage: (message) => GotLabsChartingMessage({ message }),
-        when: (model) =>
-            model.route._tag === "Labs" &&
-            ChartingLab.is_charting_path(model.route.labs_path),
-    }),
     FoldkitSubscription.lift(DataTables.subscriptions)<Model, Message>({
         read: (model) => Option.some(model.data),
         toParentMessage: (message) => GotDataMessage({ message }),
         when: (model) =>
             model.route._tag === "Data" && module_enabled(model, "Data"),
-    }),
-    YouTubeLab.subscriptions<Model, Message>({
-        read: (model) => Option.some(model.labs_youtube),
-        toParentMessage: (message) => GotLabsYouTubeMessage({ message }),
-        when: (model) =>
-            model.route._tag === "Labs" &&
-            YouTubeLab.is_embed_path(model.route.labs_path),
-    }),
-    DesktopMaps.subscriptions<Model, Message>({
-        read: (model) => Option.some(model.labs_maps),
-        toParentMessage: (message) => GotLabsMapMessage({ message }),
-        when: (model) =>
-            model.route._tag === "Labs" &&
-            DesktopMaps.isAppScope(model.route.labs_path),
     })
 )
-
-const learn_managed_resources = ManagedResource.lift(
-    ManagedResourceLayer.managedResources
-)<Model, Message>({
-    read: (model) =>
-        model.route._tag === "Learn" &&
-        ManagedResourceLayer.isManagedResourceLayerPath(model.route.learn_path)
-            ? Option.some(model.learn.managed_resource_layer)
-            : Option.none(),
-    toParentMessage: (message) =>
-        GotLearnMessage({
-            message: Learn.GotManagedResourceLayerMessage({ message }),
-        }),
-})
-
-const learn_foldkit_managed_resources = ManagedResource.lift(
-    FoldkitLesson.managedResources
-)<Model, Message>({
-    read: (model) =>
-        model.route._tag === "Learn" &&
-        FoldkitLesson.isFoldkitPath(model.route.learn_path)
-            ? Option.some(model.learn.foldkit)
-            : Option.none(),
-    toParentMessage: (message) =>
-        GotLearnMessage({ message: Learn.GotFoldkitMessage({ message }) }),
-})
-
-const learn_effect_runner_managed_resources = ManagedResource.lift(
-    EffectRunner.managedResources
-)<Model, Message>({
-    read: (model) =>
-        model.route._tag === "Learn" &&
-        EffectRunner.isEffectExamplePath(model.route.learn_path)
-            ? Option.some(model.learn.effect_runner)
-            : Option.none(),
-    toParentMessage: (message) =>
-        GotLearnMessage({ message: Learn.GotEffectRunnerMessage({ message }) }),
-})
 
 /**
  * Owns external resource lifetimes independently of retained child state.
  * Route-local resources must release when their owner becomes inactive, even
  * when its model remains available for back-navigation.
  */
-export const managedResources = ManagedResource.aggregate<Model, Message>()(
-    learn_managed_resources,
-    learn_foldkit_managed_resources,
-    learn_effect_runner_managed_resources
-)
+export const managedResources = ManagedResource.aggregate<Model, Message>()()
 
 const projects_view = (model: Model, h: HtmlBuilder<Message>): Html =>
     model.projects.domain_id === ""
@@ -6736,352 +5762,6 @@ const nav_items: ReadonlyArray<PortalSidebarNavItem<Message>> = [
         ],
     },
     {
-        label: "Labs",
-        routeTag: "Labs",
-        href: labsHref(),
-        icon: AppIcon.IconFlaskConical,
-        children: [
-            {
-                label: "Settings",
-                routeTag: "LabsSettings",
-                href: ServicesCanvasLab.services_canvas_href(),
-                icon: AppIcon.IconLayoutGrid,
-                children: [
-                    {
-                        label: "Services Canvas",
-                        routeTag: "LabsServicesCanvas",
-                        href: ServicesCanvasLab.services_canvas_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                ],
-            },
-            {
-                label: "Stats",
-                routeTag: "LabsStats",
-                href: "/labs/stats/charts",
-                icon: AppIcon.IconChartColumnDecreasing,
-                children: [
-                    {
-                        label: "Charting",
-                        routeTag: "LabsStatsCharting",
-                        href: ChartingLab.charting_href(),
-                        icon: AppIcon.IconChartColumnDecreasing,
-                    },
-                    {
-                        label: "Charts",
-                        routeTag: "LabsStatsCharts",
-                        href: "/labs/stats/charts",
-                        icon: AppIcon.IconChartColumnDecreasing,
-                    },
-                ],
-            },
-            {
-                label: "Finance",
-                routeTag: "LabsFinance",
-                href: FinanceChart.chart_href(),
-                icon: AppIcon.IconCreditCard,
-                children: [
-                    {
-                        label: "Chart",
-                        routeTag: "LabsFinanceChart",
-                        href: FinanceChart.chart_href(),
-                        icon: AppIcon.IconChartColumnDecreasing,
-                    },
-                    {
-                        label: "Invoice",
-                        routeTag: "LabsFinanceInvoice",
-                        href: InvoiceLab.invoice_href(),
-                        icon: AppIcon.IconFileText,
-                    },
-                ],
-            },
-            {
-                label: "Search",
-                routeTag: "LabsSearch",
-                href: SearchBarLab.search_bar_href(),
-                icon: AppIcon.IconSearch,
-                children: [
-                    {
-                        label: "Search Bar",
-                        routeTag: "LabsSearchBar",
-                        href: SearchBarLab.search_bar_href(),
-                        icon: AppIcon.IconSearch,
-                    },
-                ],
-            },
-            {
-                label: "Performance",
-                routeTag: "LabsPerformance",
-                href: CtScanLab.ct_scan_href(),
-                icon: AppIcon.IconZap,
-                children: [
-                    {
-                        label: "CT Scan",
-                        routeTag: "LabsCtScan",
-                        href: CtScanLab.ct_scan_href(),
-                        icon: AppIcon.IconZap,
-                    },
-                ],
-            },
-            {
-                label: "Layout",
-                routeTag: "LabsLayout",
-                href: ConditionalGridLab.conditional_grid_href(),
-                icon: AppIcon.IconLayoutGrid,
-                children: [
-                    {
-                        label: "Conditional Grid",
-                        routeTag: "LabsConditionalGrid",
-                        href: ConditionalGridLab.conditional_grid_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                    {
-                        label: "Auto Grid",
-                        routeTag: "LabsAutoGrid",
-                        href: AutoGridLab.auto_grid_href(),
-                        icon: AppIcon.IconGrid3x3,
-                    },
-                    {
-                        label: "Fukol Grid",
-                        routeTag: "LabsFukolGrid",
-                        href: FukolGridLab.fukol_grid_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                    {
-                        label: "Flex Form",
-                        routeTag: "LabsFlexForm",
-                        href: FlexFormLab.flexFormHref(),
-                        icon: AppIcon.IconLayout,
-                    },
-                ],
-            },
-            {
-                label: "Routing",
-                routeTag: "LabsRouting",
-                href: QuerySyncTableLab.query_sync_table_href(),
-                icon: AppIcon.IconLink,
-                children: [
-                    {
-                        label: "Query Sync Table",
-                        routeTag: "LabsQuerySyncTable",
-                        href: QuerySyncTableLab.query_sync_table_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                ],
-            },
-            {
-                label: "UI",
-                routeTag: "LabsUi",
-                href: ui_index_href(),
-                icon: AppIcon.IconLayoutGrid,
-                children: ui_demos.map((demo) => ({
-                    label: demo.label,
-                    routeTag: `LabsUi-${demo.slug}`,
-                    href: ui_demo_href(demo.slug),
-                    icon: AppIcon.IconLayoutGrid,
-                })),
-            },
-            {
-                label: "Sysadmin",
-                routeTag: "LabsSysadmin",
-                href: "/labs/sysadmin",
-                icon: AppIcon.IconSettings,
-                children: [
-                    {
-                        label: "Slow Warnings",
-                        routeTag: "LabsSlowWarnings",
-                        href: SlowWarningsLab.slow_warnings_href(),
-                        icon: AppIcon.IconTriangleAlert,
-                    },
-                ],
-            },
-            {
-                label: "Design",
-                routeTag: "LabsDesign",
-                href: "/labs/design",
-                icon: AppIcon.IconLayoutGrid,
-                children: [
-                    {
-                        label: "URMCSS",
-                        routeTag: "LabsUrmcss",
-                        href: UrmcssLab.urmcss_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                    {
-                        label: "DOM Depth Visualizer",
-                        routeTag: "LabsDomDepth",
-                        href: DomDepthLab.dom_depth_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                    {
-                        label: "Grid Builder",
-                        routeTag: "LabsGridBuilder",
-                        href: GridBuilderLab.grid_builder_href(),
-                        icon: AppIcon.IconGrid3x3,
-                    },
-                    {
-                        label: "Prop Grid",
-                        routeTag: "LabsPropGrid",
-                        href: PropGridLab.prop_grid_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                ],
-            },
-            {
-                label: "Data",
-                routeTag: "LabsData",
-                href: "/labs/data",
-                icon: AppIcon.IconLayoutGrid,
-                children: [
-                    {
-                        label: "Spreadsheets",
-                        routeTag: "LabsSpreadsheets",
-                        href: SpreadsheetsLab.spreadsheets_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                ],
-            },
-            {
-                label: "Typography",
-                routeTag: "LabsTypography",
-                href: "/labs/typography",
-                icon: AppIcon.IconFileType,
-                children: [
-                    {
-                        label: "Variable Fonts",
-                        routeTag: "LabsVariableFonts",
-                        href: VariableFontsLab.variable_fonts_href(),
-                        icon: AppIcon.IconFileType,
-                    },
-                ],
-            },
-            {
-                label: "Auth",
-                routeTag: "LabsAuth",
-                href: "/labs/auth",
-                icon: AppIcon.IconLock,
-                children: [
-                    {
-                        label: "Email breach checker",
-                        routeTag: "LabsBreachCheck",
-                        href: BreachCheckLab.breach_check_href(),
-                        icon: AppIcon.IconLock,
-                    },
-                    {
-                        label: "OTP Field",
-                        routeTag: "LabsOtpField",
-                        href: OtpFieldLab.otp_field_href(),
-                        icon: AppIcon.IconLock,
-                    },
-                ],
-            },
-            {
-                label: "Media",
-                routeTag: "LabsMedia",
-                href: "/labs/media",
-                icon: AppIcon.IconLayoutGrid,
-                children: [
-                    {
-                        label: "Audio",
-                        routeTag: "LabsAudio",
-                        href: "/labs/media/audio",
-                        icon: AppIcon.IconVolume2,
-                        children: [
-                            {
-                                label: "Cuelume",
-                                routeTag: "LabsCuelume",
-                                href: CuelumeLab.cuelume_href(),
-                                icon: AppIcon.IconVolume2,
-                            },
-                        ],
-                    },
-                    {
-                        label: "YouTube Embed",
-                        routeTag: "LabsYouTube",
-                        href: YouTubeLab.embed_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                    {
-                        label: "Music Notation",
-                        routeTag: "LabsMusicNotation",
-                        href: MusicNotationLab.music_notation_href(),
-                        icon: AppIcon.IconVolume2,
-                    },
-                    {
-                        label: "Gallery View Transitions",
-                        routeTag: "LabsGalleryTransitions",
-                        href: GalleryTransitionsLab.gallery_href(),
-                        icon: AppIcon.IconCamera,
-                    },
-                    {
-                        label: "3D Gallery",
-                        routeTag: "LabsGallery",
-                        href: GalleryLab.gallery_href(),
-                        icon: AppIcon.IconLayoutGrid,
-                    },
-                ],
-            },
-            {
-                label: "Events",
-                routeTag: "LabsEvents",
-                href: labsEventsHref(),
-                icon: AppIcon.IconCalendar,
-                children: [
-                    {
-                        label: "Map",
-                        routeTag: "LabsMap",
-                        href: labsMapHref(),
-                        icon: AppIcon.IconLayoutGrid,
-                        children: [
-                            {
-                                label: "Interactive Map",
-                                routeTag: "LabsMap-interactive-map",
-                                href: labsMapDemoHref("interactive-map"),
-                                icon: AppIcon.IconLayoutGrid,
-                            },
-                            {
-                                label: "Locations Map",
-                                routeTag: "LabsMap-map",
-                                href: labsMapDemoHref("map"),
-                                icon: AppIcon.IconLayoutGrid,
-                            },
-                            {
-                                label: "Journey",
-                                routeTag: "LabsMap-journey",
-                                href: labsMapDemoHref("journey"),
-                                icon: AppIcon.IconLayoutGrid,
-                            },
-                            {
-                                label: "Isochrone",
-                                routeTag: "LabsMap-isochrone",
-                                href: labsMapDemoHref("isochrone"),
-                                icon: AppIcon.IconLayoutGrid,
-                            },
-                            {
-                                label: "Storymap",
-                                routeTag: "LabsMap-storymap",
-                                href: labsMapDemoHref("storymap"),
-                                icon: AppIcon.IconLayoutGrid,
-                            },
-                            {
-                                label: "Weather",
-                                routeTag: "LabsMap-weather",
-                                href: labsMapDemoHref("weather"),
-                                icon: AppIcon.IconLayoutGrid,
-                            },
-                            {
-                                label: "Weather Map",
-                                routeTag: "LabsMap-weather-map",
-                                href: labsMapDemoHref("weather-map"),
-                                icon: AppIcon.IconLayoutGrid,
-                            },
-                        ],
-                    },
-                ],
-            },
-        ],
-    },
-    {
         label: "Sysadmin",
         routeTag: "Sysadmin",
         href: sysadminHref(),
@@ -7162,13 +5842,6 @@ const nav_items: ReadonlyArray<PortalSidebarNavItem<Message>> = [
                 icon: AppIcon.IconBookmark,
             },
         ],
-    },
-    {
-        label: "Learn",
-        routeTag: "Learn",
-        href: learn_href(),
-        icon: AppIcon.IconListChecks,
-        children: Learn.nav_items<Message>(),
     },
 ]
 
@@ -8360,224 +7033,6 @@ const route_view = (model: Model, h: HtmlBuilder<Message>): Html => {
                     }),
                 ]
             )
-        case "Learn":
-            return Learn.view(
-                model.learn,
-                model.route.learn_path,
-                (message) => GotLearnMessage({ message }),
-                h
-            )
-        case "Labs":
-            if (MarketingLanding.isLandingEditorPath(model.route.labs_path)) {
-                return landing_page_editor_view(model, h)
-            }
-            if (PropGridLab.is_prop_grid_path(model.route.labs_path)) {
-                return PropGridLab.view(
-                    model.labs_prop_grid,
-                    (message) => GotLabsPropGridMessage({ message }),
-                    h
-                )
-            }
-            if (GridBuilderLab.is_grid_builder_path(model.route.labs_path)) {
-                return GridBuilderLab.view(
-                    model.labs_grid_builder,
-                    (message) => GotLabsGridBuilderMessage({ message }),
-                    h
-                )
-            }
-            if (CtScanLab.is_ct_scan_path(model.route.labs_path)) {
-                return CtScanLab.view(
-                    model.labs_ct_scan,
-                    (message) => GotLabsCtScanMessage({ message }),
-                    h
-                )
-            }
-            if (FlexFormLab.isFlexFormPath(model.route.labs_path)) {
-                return FlexFormLab.view(
-                    model.labs_flex_form,
-                    (message) => GotLabsFlexFormMessage({ message }),
-                    h
-                )
-            }
-            if (YouTubeLab.is_embed_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-media-youtube",
-                    model: model.labs_youtube,
-                    view: YouTubeLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsYouTubeMessage({ message }),
-                })
-            }
-            if (
-                ServicesCanvasLab.is_services_canvas_path(model.route.labs_path)
-            ) {
-                return h.submodel({
-                    slotId: "desktop-labs-services-canvas",
-                    model: model.labs_services_canvas,
-                    view: ServicesCanvasLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsServicesCanvasMessage({ message }),
-                })
-            }
-            if (ChartingLab.is_charting_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-charting",
-                    model: model.labs_charting,
-                    view: ChartingLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsChartingMessage({ message }),
-                })
-            }
-            if (InvoiceLab.is_invoice_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-finance-invoice",
-                    model: model.labs_invoice,
-                    view: InvoiceLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsInvoiceMessage({ message }),
-                })
-            }
-            if (
-                MusicNotationLab.is_music_notation_path(model.route.labs_path)
-            ) {
-                return h.submodel({
-                    slotId: "desktop-labs-media-music-notation",
-                    model: model.labs_music_notation,
-                    view: MusicNotationLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsMusicNotationMessage({ message }),
-                })
-            }
-            if (SlowWarningsLab.is_slow_warnings_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-sysadmin-slow-warnings",
-                    model: model.labs_slow_warnings,
-                    view: SlowWarningsLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsSlowWarningsMessage({ message }),
-                })
-            }
-            if (DomDepthLab.is_dom_depth_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-design-dom-depth",
-                    model: model.labs_dom_depth,
-                    view: DomDepthLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsDomDepthMessage({ message }),
-                })
-            }
-            if (
-                VariableFontsLab.is_variable_fonts_path(model.route.labs_path)
-            ) {
-                return h.submodel({
-                    slotId: "desktop-labs-typography-variable-fonts",
-                    model: model.labs_variable_fonts,
-                    view: VariableFontsLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsVariableFontsMessage({ message }),
-                })
-            }
-            if (CuelumeLab.is_cuelume_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-media-audio-cuelume",
-                    model: model.labs_cuelume,
-                    view: CuelumeLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsCuelumeMessage({ message }),
-                })
-            }
-            if (SpreadsheetsLab.is_spreadsheets_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-data-spreadsheets",
-                    model: model.labs_spreadsheets,
-                    view: SpreadsheetsLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsSpreadsheetsMessage({ message }),
-                })
-            }
-            if (BreachCheckLab.is_breach_check_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-auth-breach-check",
-                    model: model.labs_breach_check,
-                    view: BreachCheckLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsBreachCheckMessage({ message }),
-                })
-            }
-            if (OtpFieldLab.is_otp_field_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-auth-otp-field",
-                    model: model.labs_otp_field,
-                    view: OtpFieldLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsOtpFieldMessage({ message }),
-                })
-            }
-            if (GalleryTransitionsLab.is_gallery_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-media-gallery-transitions",
-                    model: model.labs_gallery_transitions,
-                    view: GalleryTransitionsLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsGalleryTransitionsMessage({ message }),
-                })
-            }
-            if (GalleryLab.is_gallery_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-media-gallery",
-                    model: model.labs_gallery,
-                    view: GalleryLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsGalleryMessage({ message }),
-                })
-            }
-            if (
-                QuerySyncTableLab.is_query_sync_table_path(
-                    model.route.labs_path
-                )
-            ) {
-                return h.submodel({
-                    slotId: "desktop-labs-routing-query-sync-table",
-                    model: model.labs_query_sync_table,
-                    view: QuerySyncTableLab.view,
-                    toParentMessage: (message) =>
-                        GotLabsQuerySyncTableMessage({ message }),
-                })
-            }
-            if (SearchBarLab.is_search_bar_path(model.route.labs_path)) {
-                return SearchBarLab.view(
-                    model.labs_search_bar,
-                    SearchBarLab.search_sections(visible_nav_items(model)),
-                    (message) => GotLabsSearchBarMessage({ message }),
-                    h
-                )
-            }
-            if (UrmcssLab.is_button_path(model.route.labs_path)) {
-                return UrmcssLab.button_view(
-                    model.labs_urmcss,
-                    (message) => GotUrmcssMessage({ message }),
-                    h
-                )
-            }
-            if (is_ui_path(model.route.labs_path)) {
-                return h.submodel({
-                    slotId: "desktop-labs-ui",
-                    model: model.labs_ui,
-                    view: UiLabs.view,
-                    toParentMessage: (message) => GotLabsUiMessage({ message }),
-                })
-            }
-            return model.route.labs_path === "/labs/events/map" ||
-                model.route.labs_path.startsWith("/labs/events/map/")
-                ? h.submodel({
-                      slotId: "desktop-labs-events-map",
-                      model: model.labs_maps,
-                      view: DesktopMaps.view,
-                      viewInputs: {},
-                      toParentMessage: (message) =>
-                          GotLabsMapMessage({ message }),
-                  })
-                : labs_view(h, model.route.labs_path)
         case "Mail":
             return model.route.mail_path === "/mail/groups"
                 ? placeholder_view(h, "Groups", "Mail groups are coming soon.")
@@ -8867,9 +7322,6 @@ const nav_item_label = (
     return undefined
 }
 
-const nested_learn_label = (route: DesktopRoute): string | undefined =>
-    nav_item_label(nav_items, sidebarRouteTag(route))
-
 const route_title = (route: DesktopRoute): string => {
     switch (route._tag) {
         case "Dashboard":
@@ -8892,33 +7344,6 @@ const route_title = (route: DesktopRoute): string => {
                 : route.dev_path === "/dev/terminal"
                   ? "Terminal · Dev · URM"
                   : "Dev · URM"
-        case "Learn":
-            return Learn.route_title(
-                route.learn_path,
-                nested_learn_label(route)
-            )
-        case "Labs":
-            if (MarketingLanding.isLandingEditorPath(route.labs_path))
-                return "Landing · Marketing · Labs · URM"
-            if (UrmcssLab.is_button_path(route.labs_path))
-                return "Button · URMCSS · Design · Labs · URM"
-            if (UrmcssLab.is_urmcss_path(route.labs_path))
-                return "URMCSS · Design · Labs · URM"
-            if (PropGridLab.is_prop_grid_path(route.labs_path))
-                return "Prop Grid · Design · Labs · URM"
-            if (GridBuilderLab.is_grid_builder_path(route.labs_path))
-                return "Grid Builder · Design · Labs · URM"
-            if (QuerySyncTableLab.is_query_sync_table_path(route.labs_path))
-                return "Query Sync Table · Routing · Labs · URM"
-            if (SearchBarLab.is_search_bar_path(route.labs_path))
-                return "Search Bar · Search · Labs · URM"
-            if (CtScanLab.is_ct_scan_path(route.labs_path))
-                return "CT Scan · Performance · Labs · URM"
-            return FinanceChart.is_chart_path(route.labs_path)
-                ? "Finance chart · Labs · URM"
-                : InvoiceLab.is_invoice_path(route.labs_path)
-                  ? "Invoice form · Labs · URM"
-                  : "Labs · URM"
         case "Mail":
             return route.mail_path === "/mail/groups"
                 ? "Groups · Mail · URM"
@@ -9050,30 +7475,6 @@ const route_label = (route: DesktopRoute): string => {
                 : route.dev_path === "/dev/terminal"
                   ? "Dev / Terminal"
                   : "Dev"
-        case "Learn":
-            return Learn.breadcrumb(route.learn_path, nested_learn_label(route))
-        case "Labs":
-            if (MarketingLanding.isLandingEditorPath(route.labs_path))
-                return "Labs / Marketing / Landing"
-            if (UrmcssLab.is_button_path(route.labs_path))
-                return "Labs / Design / URMCSS / Button"
-            if (UrmcssLab.is_urmcss_path(route.labs_path))
-                return "Labs / Design / URMCSS"
-            if (PropGridLab.is_prop_grid_path(route.labs_path))
-                return "Labs / Design / Prop Grid"
-            if (GridBuilderLab.is_grid_builder_path(route.labs_path))
-                return "Labs / Design / Grid Builder"
-            if (CtScanLab.is_ct_scan_path(route.labs_path))
-                return "Labs / Performance / CT Scan"
-            if (QuerySyncTableLab.is_query_sync_table_path(route.labs_path))
-                return "Labs / Routing / Query Sync Table"
-            if (SearchBarLab.is_search_bar_path(route.labs_path))
-                return "Labs / Search / Search Bar"
-            return FinanceChart.is_chart_path(route.labs_path)
-                ? "Labs / Finance / Chart"
-                : InvoiceLab.is_invoice_path(route.labs_path)
-                  ? "Labs / Finance / Invoice"
-                  : "Labs"
         case "Mail":
             return route.mail_path === "/mail/groups"
                 ? "Mail / Groups"
@@ -9368,12 +7769,6 @@ const tenant_document = (model: Model, h: HtmlBuilder<Message>): Document => ({
             header: headerView<Message>(
                 {
                     title: route_label(model.route),
-                    search: SearchBarLab.header_view(
-                        model.labs_search_bar,
-                        SearchBarLab.search_sections(visible_nav_items(model)),
-                        (message) => GotLabsSearchBarMessage({ message }),
-                        h
-                    ),
                     is_sidebar_collapsed: model.is_sidebar_collapsed,
                     spotify_player_state: model.spotify_player_state,
                     spotify_player_popover: model.spotify_player_popover,

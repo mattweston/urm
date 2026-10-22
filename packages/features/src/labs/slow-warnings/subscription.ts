@@ -12,7 +12,7 @@ import {
 const SUBSCRIPTION_DEPENDENCIES_WORK_MS = 8
 
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
-    slowWarnings: Subscription.persistent(
+    slowWarnings: Subscription.persistentEntry(
         Stream.callback<typeof RecordedSlowWarning.Type>((queue) =>
             Effect.acquireRelease(
                 Effect.sync(() => {

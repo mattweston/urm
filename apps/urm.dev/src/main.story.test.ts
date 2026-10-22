@@ -136,45 +136,12 @@ describe("route-scoped cold loads", () => {
         ).toHaveLength(1)
     })
 
-    test("does not start Labs or Learn commands on the dashboard", () => {
+    test("does not start child commands on the dashboard", () => {
         const { commands = [] } = init_at("/dashboard")
 
         expect(commands).toHaveLength(0)
     })
 
-    test("does not start child commands on section index routes", () => {
-        expect(init_at("/labs").commands ?? []).toHaveLength(0)
-        expect(init_at("/learn").commands ?? []).toHaveLength(0)
-    })
-
-    test("starts Learn commands on a Learn cold load", () => {
-        const { commands = [] } = init_at("/learn/state/counter/")
-
-        expect(commands.map((command) => command.name)).toEqual([
-            "FetchWeather",
-            "FetchBooks",
-            "FetchAgeAtDeath",
-        ])
-    })
-
-    test("starts and stops leaf commands at client route boundaries", () => {
-        const { model: dashboard } = init_at("/dashboard")
-        const [learn, enter_commands] = update(
-            dashboard,
-            ChangedUrl({ url: url_at("/learn/state/counter/") })
-        )
-        const [, leave_commands] = update(
-            learn,
-            ChangedUrl({ url: url_at("/dashboard") })
-        )
-
-        expect(enter_commands.map((command) => command.name)).toEqual([
-            "FetchWeather",
-            "FetchBooks",
-            "FetchAgeAtDeath",
-        ])
-        expect(leave_commands).toHaveLength(0)
-    })
 })
 
 describe("host and authentication surfaces", () => {

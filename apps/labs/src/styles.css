@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@import "@urm/ui/styles/theme.css";
+@import "@urm/ui/styles/theme-tokens.css";
+@import "@urm/ui/styles/themes-extra.css";
+@import "@urm/ui/styles/appearance-fonts.css";
+@import "@urm/ui/styles/canvas-grid.css";
+@import "@urm/ui/styles/graph.css";
+@import "@urm/ui/styles/callout-steps.css";
+
+/* The labs render markup that lives in these packages, so Tailwind has to scan
+   them for class names as well as this app's own source. */
+@source "../../../packages/features/src";
+@source "../../../packages/ui/src";
