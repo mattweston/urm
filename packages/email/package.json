@@ -19,12 +19,12 @@
     "dependencies": {
         "@urm/domain": "workspace:*",
         "@urm/env": "workspace:*",
-        "alchemy": "2.0.0-beta.67",
         "effect": "catalog:",
         "@urm/database": "workspace:*",
         "drizzle-orm": "catalog:database"
     },
     "devDependencies": {
+        "alchemy": "2.0.0-beta.67",
         "@effect/vitest": "catalog:testing",
         "@types/node": "catalog:frontend",
         "typescript": "catalog:",

@@ -195,3 +195,6 @@ https://github.com/lucasmerlin/egui-subsecond-example hot reloading
 https://github.com/leptos-rs/leptos/tree/main/examples/subsecond_hot_patch hot reloading
 https://github.com/DioxusLabs/dioxus/pull/4588 hot reloading
 https://dioxuslabs.com/learn/0.7/essentials/ui/hotreload/ hot reloading
+https://halloy.chat/ IRC
+https://github.com/doeixd/gpui-ts native
+https://github.com/doeixd/csv-utils

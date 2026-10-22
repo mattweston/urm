@@ -2,14 +2,12 @@ import { Option } from "effect"
 import { Subscription } from "foldkit"
 
 import { subscriptions as interactiveMapSubscriptions } from "./interactive-map/interactive-map.subscription.ts"
-import { subscriptions as mapSubscriptions } from "./map/map.subscription.ts"
 import { subscriptions as isochroneSubscriptions } from "./isochrone/isochrone.subscription.ts"
 import { subscriptions as storymapSubscriptions } from "./storymap/storymap.subscription.ts"
 import { subscriptions as weatherMapSubscriptions } from "./weather-map/weather-map.subscription.ts"
 import {
     GotInteractiveMapMessage,
     GotIsochroneMessage,
-    GotMapMessage,
     GotStorymapMessage,
     GotWeatherMapMessage,
     Message,
@@ -26,7 +24,6 @@ export {
     isAppScope,
     isochroneHref,
     journeyHref,
-    mapHref,
     storymapHref,
     weatherHref,
     weatherMapHref,
@@ -43,10 +40,6 @@ export const subscriptions = <ParentModel, ParentMessage>(config: {
         Subscription.lift(interactiveMapSubscriptions)({
             read: (model: Model) => Option.some(model.interactiveMap),
             toParentMessage: (message) => GotInteractiveMapMessage({ message }),
-        }),
-        Subscription.lift(mapSubscriptions)({
-            read: (model: Model) => Option.some(model.map),
-            toParentMessage: (message) => GotMapMessage({ message }),
         }),
         Subscription.lift(isochroneSubscriptions)({
             read: (model: Model) => Option.some(model.isochrone),

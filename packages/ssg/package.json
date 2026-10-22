@@ -22,13 +22,13 @@
         "@foldkit/markdown": "0.9.2",
         "@urm/domain": "workspace:*",
         "@urm/ui": "workspace:*",
-        "alchemy": "2.0.0-beta.67",
         "effect": "catalog:",
         "foldkit": "catalog:",
-        "mapbox-gl": "catalog:ui"
+        "mapbox-gl": "catalog:ui",
+        "vite": "8.0.13"
     },
     "devDependencies": {
-        "vite": "8.0.13",
+        "alchemy": "2.0.0-beta.67",
         "vitest": "catalog:testing"
     }
 }

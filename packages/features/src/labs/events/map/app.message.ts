@@ -4,7 +4,6 @@ import { Navigation } from "foldkit"
 import { Url } from "foldkit/url"
 
 import { Message as InteractiveMapMessage } from "./interactive-map/interactive-map.message.ts"
-import { Message as MapMessage } from "./map/map.message.ts"
 import { Message as JourneyMessage } from "./journey/journey.message.ts"
 import { Message as IsochroneMessage } from "./isochrone/isochrone.message.ts"
 import { Message as StorymapMessage } from "./storymap/storymap.message.ts"
@@ -22,9 +21,6 @@ export const GotInteractiveMapMessage = taggedStruct(
         message: InteractiveMapMessage,
     }
 )
-export const GotMapMessage = taggedStruct("GotMapMessage", {
-    message: MapMessage,
-})
 export const GotJourneyMessage = taggedStruct("GotJourneyMessage", {
     message: JourneyMessage,
 })
@@ -45,7 +41,6 @@ export const Message = S.Union([
     ChangedPath,
     ClickedLink,
     GotInteractiveMapMessage,
-    GotMapMessage,
     GotJourneyMessage,
     GotIsochroneMessage,
     GotStorymapMessage,

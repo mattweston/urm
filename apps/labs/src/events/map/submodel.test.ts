@@ -20,7 +20,6 @@ const route_for_path = (path: string) =>
 describe("client map labs", () => {
     test.each([
         ["interactive-map", "InteractiveMap"],
-        ["map", "Map"],
         ["journey", "Journey"],
         ["isochrone", "Isochrone"],
         ["storymap", "Storymap"],
@@ -34,24 +33,24 @@ describe("client map labs", () => {
     })
 
     test("clears map subscriptions on exit and ignores late mount messages", () => {
-        const route = route_for_path("/events/map/map")
+        const route = route_for_path("/events/map/weather-map")
         const [initial] = init(route)
         const [mounted] = update(initial, {
-            _tag: "GotMapMessage",
+            _tag: "GotWeatherMapMessage",
             message: { _tag: "SucceededMountMap", hostId: "test-map" },
         })
-        expect(Option.isSome(mounted.map.maybeMapHostId)).toBe(true)
+        expect(Option.isSome(mounted.weatherMap.maybeMapHostId)).toBe(true)
 
         const [exited, commands] = changed_route(
             mounted,
             route,
             route_for_path("/dashboard")
         )
-        expect(Option.isNone(exited.map.maybeMapHostId)).toBe(true)
+        expect(Option.isNone(exited.weatherMap.maybeMapHostId)).toBe(true)
         expect(commands).toEqual([])
 
         const [late, late_commands] = update(exited, {
-            _tag: "GotMapMessage",
+            _tag: "GotWeatherMapMessage",
             message: { _tag: "SucceededMountMap", hostId: "test-map" },
         })
         expect(late).toBe(exited)

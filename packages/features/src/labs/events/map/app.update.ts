@@ -4,9 +4,6 @@ import { Command } from "foldkit"
 import * as InteractiveMap from "./interactive-map/interactive-map.update.ts"
 import { initialModel as initialInteractiveMapModel } from "./interactive-map/interactive-map.model.ts"
 import type { Message as InteractiveMapMessage } from "./interactive-map/interactive-map.message.ts"
-import * as MapDemo from "./map/map.update.ts"
-import { initialModel as initialMapModel } from "./map/map.model.ts"
-import type { Message as MapMessage } from "./map/map.message.ts"
 import * as Journey from "./journey/journey.update.ts"
 import { initialModel as initialJourneyModel } from "./journey/journey.model.ts"
 import type { Message as JourneyMessage } from "./journey/journey.message.ts"
@@ -26,7 +23,6 @@ import {
     GotInteractiveMapMessage,
     GotIsochroneMessage,
     GotJourneyMessage,
-    GotMapMessage,
     GotStorymapMessage,
     GotWeatherMessage,
     GotWeatherMapMessage,
@@ -41,7 +37,6 @@ const withUpdateReturn = M.withReturnType<UpdateReturn>()
 const initialModel = (route: AppRoute): Model => ({
     route,
     interactiveMap: initialInteractiveMapModel,
-    map: initialMapModel,
     journey: initialJourneyModel,
     isochrone: initialIsochroneModel,
     storymap: initialStorymapModel,
@@ -65,15 +60,6 @@ const initializeRoute = (model: Model): UpdateReturn =>
                     { ...model, interactiveMap },
                     mapCommands(commands, (message: InteractiveMapMessage) =>
                         GotInteractiveMapMessage({ message })
-                    ),
-                ]
-            },
-            Map: () => {
-                const [map, commands] = MapDemo.init()
-                return [
-                    { ...model, map },
-                    mapCommands(commands, (message: MapMessage) =>
-                        GotMapMessage({ message })
                     ),
                 ]
             },
@@ -153,15 +139,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
                     { ...model, interactiveMap },
                     mapCommands(commands, (next: InteractiveMapMessage) =>
                         GotInteractiveMapMessage({ message: next })
-                    ),
-                ]
-            },
-            GotMapMessage: ({ message }) => {
-                const [map, commands] = MapDemo.update(model.map, message)
-                return [
-                    { ...model, map },
-                    mapCommands(commands, (next: MapMessage) =>
-                        GotMapMessage({ message: next })
                     ),
                 ]
             },

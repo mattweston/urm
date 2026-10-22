@@ -3,7 +3,6 @@ import { Submodel } from "foldkit"
 import type { Attribute, Html, HtmlBuilder } from "foldkit/html"
 
 import { view as interactiveMapView } from "./interactive-map/interactive-map.view.ts"
-import { view as mapView } from "./map/map.view.ts"
 import { view as journeyView } from "./journey/journey.view.ts"
 import { view as isochroneView } from "./isochrone/isochrone.view.ts"
 import { view as storymapView } from "./storymap/storymap.view.ts"
@@ -14,7 +13,6 @@ import {
     GotInteractiveMapMessage,
     GotIsochroneMessage,
     GotJourneyMessage,
-    GotMapMessage,
     GotStorymapMessage,
     GotWeatherMessage,
     GotWeatherMapMessage,
@@ -26,7 +24,6 @@ import {
     interactiveMapHref,
     isochroneHref,
     journeyHref,
-    mapHref,
     storymapHref,
     weatherHref,
     weatherMapHref,
@@ -38,7 +35,6 @@ const demos: ReadonlyArray<readonly [string, string, string]> = [
         interactiveMapHref(),
         "Area selection, studios, routes, and geolocation.",
     ],
-    ["Map", mapHref(), "Searchable locations on a MapLibre map."],
     [
         "Journey",
         journeyHref(),
@@ -176,16 +172,6 @@ const contentView = (
                     interactiveMapView(
                         model.interactiveMap,
                         (message) => GotInteractiveMapMessage({ message }),
-                        h
-                    ),
-                    internal_navigation,
-                    h
-                ),
-            Map: () =>
-                demoShell(
-                    mapView(
-                        model.map,
-                        (message) => GotMapMessage({ message }),
                         h
                     ),
                     internal_navigation,

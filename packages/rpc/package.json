@@ -27,7 +27,7 @@
         "test:integration:auth": "vitest run --config vitest.auth.integration.config.ts"
     },
     "dependencies": {
-        "@effect/ai-openai": "4.0.0-rc.108",
+        "@effect/ai-openai": "catalog:llms",
         "@shikijs/twoslash": "4.1.0",
         "@urm/auth": "workspace:*",
         "@urm/contracts": "workspace:*",

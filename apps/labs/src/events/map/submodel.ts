@@ -40,8 +40,6 @@ export const update = (
         switch (message._tag) {
             case "GotInteractiveMapMessage":
                 return model.route._tag === "InteractiveMap"
-            case "GotMapMessage":
-                return model.route._tag === "Map"
             case "GotJourneyMessage":
                 return model.route._tag === "Journey"
             case "GotIsochroneMessage":

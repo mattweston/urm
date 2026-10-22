@@ -292,3 +292,6 @@ https://github.com/elianiva/cafe-template
 https://github.com/Potti1234/zero-foldkit
 https://github.com/yatainc/cafe-stack
 https://ratstack.sh/lore/no-comments
+https://pumpbin.b1n.io/ security
+https://github.com/doeixd/CSS-Reset layout
+https://github.com/doeixd/CSS-Tags layout

@@ -291,7 +291,6 @@
         "foldkit": "catalog:",
         "fractional-indexing": "^3.2.0",
         "mapbox-gl": "catalog:ui",
-        "maplibre-gl": "catalog:ui",
         "shiki": "4.2.0",
         "three": "catalog:ui",
         "tone": "catalog:ui"

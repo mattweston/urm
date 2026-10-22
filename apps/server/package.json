@@ -14,7 +14,6 @@
         "contacts:smoke": "tsx scripts/contacts-smoke.ts"
     },
     "dependencies": {
-        "@tailwindcss/vite": "catalog:layout",
         "@urm/auth": "workspace:*",
         "@urm/contracts": "workspace:*",
         "@urm/database": "workspace:*",
@@ -30,6 +29,7 @@
         "vite": "8.0.13"
     },
     "devDependencies": {
+        "@tailwindcss/vite": "catalog:layout",
         "@electric-sql/pglite": "^0.5.8",
         "@types/node": "catalog:frontend",
         "@urm/config": "workspace:*",

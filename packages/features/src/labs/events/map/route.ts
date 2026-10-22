@@ -3,7 +3,6 @@ import { taggedStruct } from "foldkit/schema"
 
 export const IndexRoute = taggedStruct("Index")
 export const InteractiveMapRoute = taggedStruct("InteractiveMap")
-export const MapRoute = taggedStruct("Map")
 export const JourneyRoute = taggedStruct("Journey")
 export const IsochroneRoute = taggedStruct("Isochrone")
 export const StorymapRoute = taggedStruct("Storymap")
@@ -14,7 +13,6 @@ export const NotFoundRoute = taggedStruct("NotFound", { path: S.String })
 export const AppRoute = S.Union([
     IndexRoute,
     InteractiveMapRoute,
-    MapRoute,
     JourneyRoute,
     IsochroneRoute,
     StorymapRoute,
@@ -34,8 +32,6 @@ export const urlToAppRoute = (pathname: string): AppRoute => {
             return IndexRoute()
         case `${BASE}/interactive-map`:
             return InteractiveMapRoute()
-        case `${BASE}/map`:
-            return MapRoute()
         case `${BASE}/journey`:
             return JourneyRoute()
         case `${BASE}/isochrone`:
@@ -53,7 +49,6 @@ export const urlToAppRoute = (pathname: string): AppRoute => {
 
 export const indexHref = () => `${BASE}/`
 export const interactiveMapHref = () => `${BASE}/interactive-map/`
-export const mapHref = () => `${BASE}/map/`
 export const journeyHref = () => `${BASE}/journey/`
 export const isochroneHref = () => `${BASE}/isochrone/`
 export const storymapHref = () => `${BASE}/storymap/`
