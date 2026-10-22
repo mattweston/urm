@@ -295,3 +295,11 @@ https://ratstack.sh/lore/no-comments
 https://pumpbin.b1n.io/ security
 https://github.com/doeixd/CSS-Reset layout
 https://github.com/doeixd/CSS-Tags layout
+https://ratstack.sh/lore/the-fence linting
+https://github.com/Effect-TS/slopcop
+https://github.com/NigelThorne/foldkit-demo web
+https://just-be.dev/ blog
+https://github.com/mwarger/corefour foldkit
+https://github.com/just-be-dev/entity-store
+https://github.com/just-be-dev/foldmark
+https://github.com/jlcanela/effect-pg-api/tree/main/packages full text search

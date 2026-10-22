@@ -1,0 +1,20 @@
+{
+  "name": "effect-marko",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sketch: Effect wrapper for Marko (block registry, SSG/SSR build modes, patch renders)",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "smoke": "tsc && node dist/test/smoke.js"
+  },
+  "dependencies": {
+    "effect": "^3.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
