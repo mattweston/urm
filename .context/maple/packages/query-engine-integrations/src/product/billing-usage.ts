@@ -1,0 +1,138 @@
+// Billing — daily ingested volume
+//
+// The billing page's spend chart is cumulative dollars by feature, which needs
+// per-day volume per billable signal. Autumn only reports cycle *totals*
+// (`aggregateEvents`), so the daily shape comes from the warehouse:
+//
+//   `dailySignalVolumeQuery`  — logs/traces/metrics bytes per UTC day, from the
+//     hourly `service_usage` MV. Same source the usage cards read, so the
+//     chart's totals reconcile with them rather than telling a second story.
+//
+//   `dailySessionCountQuery`  — browser sessions per UTC day, from
+//     `session_replays` (several rows per session). Kept as a separate query rather
+//     than a UNION branch: the two tables disagree on column types (byte sums
+//     are UInt64, the session count is UInt64 but the bucket column comes from
+//     DateTime64) and unifying them has bitten us with 502s before.
+//
+// Day buckets are UTC, matching how the warehouse stores every timestamp. Byte
+// sums are UInt64 and arrive as JSON strings on BYO-ClickHouse, so both row
+// schemas are built from `CHNumber`.
+
+import { type DateTime, Schema } from "effect"
+import * as CH from "@maple-dev/effect-orm/expr"
+import { dateTime64, from, param, type CompiledQueryRowSchema } from "@maple-dev/effect-orm/clickhouse"
+import { ProductEvents, ServiceUsage, SessionReplays, orgIdParam, utcSecondsParam } from "@maple/query-engine/ch/tables"
+import { CHNumber } from "@maple/query-engine/ch/schema"
+import { utcHourFloor } from "@maple/query-engine/ch/query-helpers"
+
+const DAY_SECONDS = 86_400
+
+export interface DailySignalVolumeOutput {
+	/** The UTC day boundary. */
+	readonly day: DateTime.Utc
+	readonly logBytes: number
+	readonly traceBytes: number
+	readonly metricBytes: number
+}
+
+/**
+ * Per-UTC-day log/trace/metric bytes for one org.
+ *
+ * `service_usage` is keyed on top-of-hour `Hour`, so both bounds snap to their
+ * hour floor — the same correction `serviceUsageQuery` makes. A billing cycle
+ * always starts and ends on a day boundary, so the snap is exact here.
+ *
+ * "Metrics" sums all four metric-type columns: the plan meters one `metrics`
+ * feature, and splitting sum/gauge/histogram/exp-histogram would price bytes
+ * the customer is never billed for separately.
+ */
+export function dailySignalVolumeQuery() {
+	return from(ServiceUsage)
+		.select(($) => ({
+			day: CH.toStartOfInterval($.Hour, DAY_SECONDS),
+			logBytes: CH.sum($.LogSizeBytes),
+			traceBytes: CH.sum($.TraceSizeBytes),
+			metricBytes: CH.sum($.SumMetricSizeBytes)
+				.add(CH.sum($.GaugeMetricSizeBytes))
+				.add(CH.sum($.HistogramMetricSizeBytes))
+				.add(CH.sum($.ExpHistogramMetricSizeBytes)),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.Hour.gte(utcHourFloor("startTime")),
+			$.Hour.lte(utcHourFloor("endTime")),
+		])
+		.groupBy("day")
+		.orderBy(["day", "asc"])
+		.format("JSON")
+}
+
+export interface DailySessionCountOutput {
+	readonly day: DateTime.Utc
+	readonly sessions: number
+}
+
+/**
+ * Per-UTC-day browser session count for one org.
+ *
+ * `session_replays` is PARTITION BY toDate(StartTime), so the window predicate
+ * on `StartTime` prunes partitions. A session is counted on the day it started.
+ *
+ * `uniqExact(SessionId)`, not `count()`: every heartbeat is a row until a merge
+ * collapses it, so `count()` rendered a 10-minute session as ~12. This counts
+ * sessions, which reads above the bill when a visitor used several tabs or
+ * subdomains inside one billed visit.
+ */
+export function dailySessionCountQuery() {
+	return from(SessionReplays)
+		.select(($) => ({
+			day: CH.toStartOfInterval($.StartTime, DAY_SECONDS),
+			sessions: CH.uniqExact($.SessionId),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.StartTime.gte(CH.toDateTime(utcSecondsParam("startTime"))),
+			$.StartTime.lte(CH.toDateTime(utcSecondsParam("endTime"))),
+		])
+		.groupBy("day")
+		.orderBy(["day", "asc"])
+		.format("JSON")
+}
+
+export interface DailyProductEventCountOutput {
+	readonly day: DateTime.Utc
+	readonly events: number
+}
+
+export const dailyProductEventCountRowSchema: CompiledQueryRowSchema<DailyProductEventCountOutput> =
+	Schema.Struct({
+		day: dateTime64.schema,
+		events: CHNumber,
+	})
+
+/**
+ * Per-UTC-day billable product events for one org.
+ *
+ * Mirrors what the ingest gateway meters as `product_events`: every directly
+ * posted row (`POST /v1/events`, `Kind` custom/screen) plus browser `track()`
+ * calls (`Kind = 'custom'` via `product_events_mv`). Page views are part of the
+ * session, billed under `browser_sessions`, so `Kind = 'navigation'` is
+ * excluded. `product_events` is PARTITION BY toDate(Timestamp) with Timestamp
+ * second in the sorting key, so the window predicate is a primary-index range.
+ */
+export function dailyProductEventCountQuery() {
+	return from(ProductEvents)
+		.select(($) => ({
+			day: CH.toStartOfInterval($.Timestamp, DAY_SECONDS),
+			events: CH.count(),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.Timestamp.gte(CH.toDateTime(utcSecondsParam("startTime"))),
+			$.Timestamp.lte(CH.toDateTime(utcSecondsParam("endTime"))),
+			$.Kind.neq("navigation"),
+		])
+		.groupBy("day")
+		.orderBy(["day", "asc"])
+		.format("JSON")
+}

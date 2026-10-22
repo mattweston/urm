@@ -1,0 +1,1381 @@
+import { afterEach, describe, expect, it } from "@effect/vitest"
+import { ConfigProvider, Context, Effect, Layer, ManagedRuntime, Option, Ref, Schema } from "effect"
+import { HttpRouter } from "effect/http"
+import { HttpApiBuilder } from "effect/http-api"
+import { DashboardNotFoundError, DashboardPersistenceError, OrgId, UserId } from "@maple/domain/http"
+import { DashboardPublicId, DashboardTemplatePublicId, MapleApiV2 } from "@maple/domain/http/v2"
+import { Env } from "@maple/backend/platform/Env"
+import {
+	cleanupTestDbs,
+	createTestDb,
+	executeSql,
+	queryFirstRow,
+	type TestDb,
+} from "@maple/backend/platform/test-pglite"
+import { ApiKeysService } from "@maple/backend/services/org/ApiKeysService"
+import { AuthService } from "@maple/backend/services/auth/AuthService"
+import { DashboardPersistenceService } from "@maple/backend/services/dashboards/DashboardPersistenceService"
+import { SharedDashboardService } from "@maple/backend/services/dashboards/SharedDashboardService"
+import { ApiAuthorizationV2Live } from "@maple/backend/services/auth/ApiAuthorizationV2Live"
+import { AuditLogService } from "@maple/backend/services/audit/AuditLogService"
+import { V2TransportErrorBoundaryLive } from "./error-envelope"
+import {
+	AlertsServiceStubLayer,
+	AllV2GroupLayersLive,
+	ApiV2RateLimiterAllowAllLayer,
+	ConfigResourceServiceStubsLayer,
+	PlanetScaleServiceStubsLayer,
+	TelemetryServiceStubsLayer,
+} from "./v2-test-support"
+
+const createdDbs: TestDb[] = []
+const encodeDashboardPublicId = Schema.encodeUnknownSync(DashboardPublicId)
+const USER_OTHER = Schema.decodeUnknownSync(UserId)("user_other_org")
+afterEach(() => cleanupTestDbs(createdDbs))
+
+const testConfig = () =>
+	ConfigProvider.layer(
+		ConfigProvider.fromUnknown({
+			PORT: "3478",
+			MCP_PORT: "3479",
+			TINYBIRD_HOST: "https://api.tinybird.co",
+			TINYBIRD_TOKEN: "test-token",
+			MAPLE_AUTH_MODE: "self_hosted",
+			MAPLE_ROOT_PASSWORD: "test-root-password",
+			MAPLE_DEFAULT_ORG_ID: "default",
+			MAPLE_INGEST_KEY_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+			MAPLE_INGEST_KEY_LOOKUP_HMAC_KEY: "maple-test-lookup-secret",
+			MAPLE_SHARE_TOKEN_HMAC_KEY: "maple-test-share-secret",
+			INTERNAL_SERVICE_TOKEN: "test-internal-token",
+		}),
+	)
+
+type Harness = ReturnType<typeof makeHarness>
+
+/** How the next `DashboardPersistenceService.get` should fail, if at all. */
+type DashboardGetFailure = "missing" | "unavailable"
+
+const makeHarness = () => {
+	const testDb = createTestDb(createdDbs)
+	const envLive = Env.layer.pipe(Layer.provide(testConfig()))
+	// Passthrough unless a test arms a failure: the real store cannot fail a read
+	// on demand, nor keep a share live once its dashboard row is gone.
+	const dashboardGetFailure = Ref.makeUnsafe(Option.none<DashboardGetFailure>())
+	const persistenceLive = Layer.effect(
+		DashboardPersistenceService,
+		Effect.gen(function* () {
+			const live = yield* DashboardPersistenceService
+			return {
+				...live,
+				get: (orgId: OrgId, dashboardId: Parameters<typeof live.get>[1]) =>
+					Ref.get(dashboardGetFailure).pipe(
+						Effect.flatMap(
+							Option.match({
+								onNone: () => live.get(orgId, dashboardId),
+								onSome: (failure) =>
+									failure === "missing"
+										? Effect.fail(
+												new DashboardNotFoundError({
+													dashboardId,
+													message: "Dashboard not found",
+												}),
+											)
+										: Effect.fail(
+												new DashboardPersistenceError({
+													message: "connection reset",
+												}),
+											),
+							}),
+						),
+					),
+			}
+		}),
+	).pipe(Layer.provide(DashboardPersistenceService.layer))
+	const servicesLive = Layer.mergeAll(
+		ApiKeysService.layer,
+		AuthService.layer,
+		persistenceLive,
+		SharedDashboardService.layer,
+	).pipe(Layer.provideMerge(Layer.mergeAll(envLive, testDb.layer)))
+
+	const routes = HttpApiBuilder.layer(MapleApiV2).pipe(
+		Layer.provide(AllV2GroupLayersLive),
+		Layer.provide(V2TransportErrorBoundaryLive),
+		Layer.provide(PlanetScaleServiceStubsLayer),
+		Layer.provide(AlertsServiceStubLayer),
+		Layer.provide(ConfigResourceServiceStubsLayer),
+		Layer.provide(TelemetryServiceStubsLayer),
+		Layer.provideMerge(ApiAuthorizationV2Live),
+		Layer.provideMerge(AuditLogService.layerMemory),
+		Layer.provideMerge(ApiV2RateLimiterAllowAllLayer),
+		Layer.provideMerge(servicesLive),
+	)
+	const { handler, dispose: disposeHandler } = HttpRouter.toWebHandler(routes, {
+		disableLogger: true,
+	})
+	const runtime = ManagedRuntime.make(servicesLive)
+	const ORG = Schema.decodeUnknownSync(OrgId)("org_dashboard_e2e")
+	const USER = Schema.decodeUnknownSync(UserId)("user_dashboard_e2e")
+
+	const bootstrapKey = (scopes?: ReadonlyArray<string>) =>
+		runtime.runPromise(
+			Effect.gen(function* () {
+				const service = yield* ApiKeysService
+				return yield* service.create(ORG, USER, { name: "dashboard-test", scopes })
+			}),
+		)
+
+	// A self-hosted root session: a dashboard user, which carries no scopes.
+	const bootstrapSession = () =>
+		runtime.runPromise(
+			Effect.gen(function* () {
+				const auth = yield* AuthService
+				return (yield* auth.loginSelfHosted("test-root-password")).token
+			}),
+		)
+
+	// `token` is optional so the same helper can call the share group, which is
+	// the one v2 surface a caller reaches with no credential at all.
+	const request = async (method: string, path: string, token?: string, body?: unknown) => {
+		const response = await handler(
+			new Request(`http://maple.test${path}`, {
+				method,
+				headers: {
+					...(token === undefined ? undefined : { authorization: `Bearer ${token}` }),
+					...(body !== undefined ? { "content-type": "application/json" } : undefined),
+				},
+				body: body === undefined ? undefined : JSON.stringify(body),
+			}),
+			Context.empty() as never,
+		)
+		const text = await response.text()
+		return { status: response.status, body: text.length === 0 ? null : JSON.parse(text) }
+	}
+
+	return {
+		bootstrapKey,
+		bootstrapSession,
+		request,
+		testDb,
+		runtime,
+		ORG,
+		failDashboardGet: (failure: DashboardGetFailure) =>
+			Effect.runSync(Ref.set(dashboardGetFailure, Option.some(failure))),
+		dispose: async () => {
+			await disposeHandler()
+			await runtime.dispose()
+		},
+	}
+}
+
+describe("v2 dashboards over HTTP", () => {
+	it("supports headless CRUD and version restore with v2 wire conventions", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:write"])
+
+		const created = await harness.request("POST", "/v2/dashboards", key.secret, {
+			name: "Operations",
+			description: "Production overview",
+			tags: ["production"],
+			time_range: { type: "relative", value: "12h" },
+			widgets: [],
+			variables: [],
+		})
+		expect(created.status).toBe(200)
+		expect(created.body.object).toBe("dashboard")
+		expect(created.body.id).toMatch(/^dash_/)
+		expect(created.body.time_range).toEqual({ type: "relative", value: "12h" })
+		expect(created.body.txid).toMatch(/^\d+$/)
+		expect("timeRange" in created.body).toBe(false)
+
+		const id: string = created.body.id
+		const listed = await harness.request("GET", "/v2/dashboards?limit=1", key.secret)
+		expect(listed.status).toBe(200)
+		expect(listed.body).toMatchObject({ object: "list", has_more: false, next_cursor: null })
+		expect(listed.body.data[0].id).toBe(id)
+		expect("txid" in listed.body.data[0]).toBe(false)
+
+		const retrieved = await harness.request("GET", `/v2/dashboards/${id}`, key.secret)
+		expect(retrieved.status).toBe(200)
+		expect(retrieved.body.description).toBe("Production overview")
+
+		const updated = await harness.request("PATCH", `/v2/dashboards/${id}`, key.secret, {
+			name: "Operations v2",
+			description: null,
+			time_range: {
+				type: "absolute",
+				start_time: "2026-07-15T00:00:00.000Z",
+				end_time: "2026-07-16T00:00:00.000Z",
+			},
+		})
+		expect(updated.status).toBe(200)
+		expect(updated.body.name).toBe("Operations v2")
+		expect(updated.body.description).toBeNull()
+		expect(updated.body.time_range.start_time).toBe("2026-07-15T00:00:00.000Z")
+		expect(updated.body.txid).toMatch(/^\d+$/)
+
+		const versions = await harness.request("GET", `/v2/dashboards/${id}/versions?limit=100`, key.secret)
+		expect(versions.status).toBe(200)
+		expect(versions.body.object).toBe("list")
+		expect(versions.body.data.length).toBeGreaterThanOrEqual(2)
+		expect(versions.body.data[0].id).toMatch(/^dbv_/)
+		expect(versions.body.data[0].dashboard_id).toBe(id)
+
+		const oldest = versions.body.data.at(-1)
+		const detail = await harness.request("GET", `/v2/dashboards/${id}/versions/${oldest.id}`, key.secret)
+		expect(detail.status).toBe(200)
+		expect(detail.body.snapshot.object).toBe("dashboard")
+		expect(detail.body.snapshot.name).toBe("Operations")
+
+		const restored = await harness.request(
+			"POST",
+			`/v2/dashboards/${id}/versions/${oldest.id}/restore`,
+			key.secret,
+		)
+		expect(restored.status).toBe(200)
+		expect(restored.body.name).toBe("Operations")
+		expect(restored.body.txid).toMatch(/^\d+$/)
+
+		const deleted = await harness.request("DELETE", `/v2/dashboards/${id}`, key.secret)
+		expect(deleted.status).toBe(200)
+		expect(deleted.body).toMatchObject({ id, object: "dashboard", deleted: true })
+		expect(deleted.body.txid).toMatch(/^\d+$/)
+
+		const missing = await harness.request("GET", `/v2/dashboards/${id}`, key.secret)
+		expect(missing.status).toBe(404)
+		expect(missing.body.error).toMatchObject({
+			type: "not_found_error",
+			code: "dashboard_not_found",
+		})
+		await harness.dispose()
+	})
+
+	it("reports corrupt stored dashboards separately from retryable persistence failures", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:write"])
+		const created = await harness.request("POST", "/v2/dashboards", key.secret, {
+			name: "Corrupt me",
+			widgets: [],
+		})
+		expect(created.status).toBe(200)
+
+		await executeSql(
+			harness.testDb,
+			"update dashboards set payload_json = '\"not-a-dashboard\"'::jsonb where org_id = $1",
+			["org_dashboard_e2e"],
+		)
+
+		const response = await harness.request("GET", `/v2/dashboards/${created.body.id}`, key.secret)
+		expect(response.status).toBe(500)
+		expect(response.body.error).toMatchObject({
+			_tag: "@maple/http/errors/DashboardStoredConfigInvalidError",
+			code: "dashboard_stored_config_invalid",
+			retryable: false,
+			recovery: "contact_support",
+		})
+		expect(JSON.stringify(response.body)).not.toContain("not-a-dashboard")
+
+		await harness.dispose()
+	})
+
+	// A widget may pin its own window; the field is optional, snake_cased on the
+	// wire, and must survive a round-trip without leaking onto unpinned widgets.
+	it("round-trips a per-widget time range", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:write"])
+
+		const widget = (id: string, timeRange?: unknown) => ({
+			id,
+			visualization: "stat",
+			data_source: { kind: "query", result_shape: "timeseries", queries: [] },
+			display: { title: id },
+			layout: { x: 0, y: 0, w: 3, h: 3 },
+			...(timeRange !== undefined ? { time_range: timeRange } : undefined),
+		})
+
+		const created = await harness.request("POST", "/v2/dashboards", key.secret, {
+			name: "Mixed ranges",
+			time_range: { type: "relative", value: "7d" },
+			widgets: [widget("pinned", { type: "relative", value: "30m" }), widget("follows")],
+		})
+		expect(created.status).toBe(200)
+		expect(created.body.widgets[0].time_range).toEqual({ type: "relative", value: "30m" })
+		expect("time_range" in created.body.widgets[1]).toBe(false)
+		expect("timeRange" in created.body.widgets[0]).toBe(false)
+
+		const id: string = created.body.id
+		const patched = await harness.request("PATCH", `/v2/dashboards/${id}`, key.secret, {
+			widgets: [
+				widget("pinned", {
+					type: "absolute",
+					start_time: "2026-07-15T00:00:00.000Z",
+					end_time: "2026-07-16T00:00:00.000Z",
+				}),
+			],
+		})
+		expect(patched.status).toBe(200)
+		expect(patched.body.widgets[0].time_range).toEqual({
+			type: "absolute",
+			start_time: "2026-07-15T00:00:00.000Z",
+			end_time: "2026-07-16T00:00:00.000Z",
+		})
+
+		// Re-sending the widget without the field is how an override is removed.
+		const cleared = await harness.request("PATCH", `/v2/dashboards/${id}`, key.secret, {
+			widgets: [widget("pinned")],
+		})
+		expect(cleared.status).toBe(200)
+		expect("time_range" in cleared.body.widgets[0]).toBe(false)
+
+		await harness.dispose()
+	})
+
+	it("enforces dashboard read/write scopes", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:read"])
+		const list = await harness.request("GET", "/v2/dashboards", key.secret)
+		expect(list.status).toBe(200)
+
+		const create = await harness.request("POST", "/v2/dashboards", key.secret, { name: "Denied" })
+		expect(create.status).toBe(403)
+		expect(create.body.error).toMatchObject({
+			type: "permission_error",
+			code: "insufficient_scope",
+		})
+		await harness.dispose()
+	})
+
+	// The picker asks for every template in one page; `limit` defaulting to 20
+	// silently truncated the catalogue and hid the last two templates.
+	it("returns the whole template catalogue with structured requirements", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:read"])
+
+		const listed = await harness.request("GET", "/v2/dashboards/templates?limit=100", key.secret)
+		expect(listed.status).toBe(200)
+		expect(listed.body.has_more).toBe(false)
+		expect(listed.body.data.length).toBeGreaterThan(20)
+
+		const postgres = listed.body.data.find((t: { name: string }) => t.name === "Postgres Overview")
+		expect(postgres.object).toBe("dashboard_template")
+		expect(postgres.id).toMatch(/^dtpl_/)
+		expect(postgres.required_metric_prefixes).toEqual(["postgresql."])
+		expect(postgres.requirement).toMatchObject({
+			kind: "metrics",
+			collector: "the OpenTelemetry postgresreceiver",
+			setup_label: "the Postgres receiver",
+		})
+		// The prose array stays on the wire, derived from the structured field.
+		expect(postgres.requirements).toEqual([postgres.requirement.label])
+
+		const cloudflare = listed.body.data.find((t: { name: string }) => t.name === "Cloudflare Edge")
+		expect(cloudflare.requirement).toMatchObject({ kind: "integration" })
+		expect(cloudflare.requirement.missing).toBeUndefined()
+
+		const blank = listed.body.data.find((t: { name: string }) => t.name === "Blank Dashboard")
+		expect(blank.requirement).toBeNull()
+		expect(blank.requirements).toEqual([])
+
+		await harness.dispose()
+	})
+
+	it("previews a template's widgets without creating a dashboard", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:read"])
+
+		const listed = await harness.request("GET", "/v2/dashboards/templates?limit=100", key.secret)
+		const postgres = listed.body.data.find((t: { name: string }) => t.name === "Postgres Overview")
+
+		const preview = await harness.request(
+			"POST",
+			`/v2/dashboards/templates/${postgres.id}/preview`,
+			key.secret,
+			{},
+		)
+		expect(preview.status).toBe(200)
+		expect(preview.body.object).toBe("dashboard_template_preview")
+		expect(preview.body.time_range).toEqual({ type: "relative", value: "1h" })
+		// One real widget per preview-metadata entry, carrying the data source the
+		// browser needs to evaluate it.
+		expect(preview.body.widgets.length).toBe(postgres.preview.length)
+		// v3: identity is `kind`, and only the `route` arm still carries an endpoint.
+		expect(preview.body.widgets[0].data_source.kind.length).toBeGreaterThan(0)
+		expect("timeRange" in preview.body).toBe(false)
+
+		// Nothing was persisted.
+		const dashboards = await harness.request("GET", "/v2/dashboards", key.secret)
+		expect(dashboards.body.data).toEqual([])
+
+		// Parameters scope the build.
+		const scoped = await harness.request(
+			"POST",
+			`/v2/dashboards/templates/${postgres.id}/preview`,
+			key.secret,
+			{ parameters: { service_name: "postgres-primary" } },
+		)
+		expect(scoped.status).toBe(200)
+		expect(JSON.stringify(scoped.body.widgets)).toContain("postgres-primary")
+
+		// Well-formed public id, no such template.
+		const unknownId = Schema.encodeUnknownSync(DashboardTemplatePublicId)("does-not-exist")
+		const missing = await harness.request(
+			"POST",
+			`/v2/dashboards/templates/${unknownId}/preview`,
+			key.secret,
+			{},
+		)
+		expect(missing.status).toBe(404)
+		expect(missing.body.error.code).toBe("dashboard_template_not_found")
+
+		await harness.dispose()
+	})
+
+	it("keeps a template's tabs and variables on the dashboard it creates", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:read", "dashboards:write"])
+
+		const listed = await harness.request("GET", "/v2/dashboards/templates?limit=100", key.secret)
+		const gcp = listed.body.data.find((t: { name: string }) => t.name === "Google Cloud")
+		const created = await harness.request(
+			"POST",
+			`/v2/dashboards/templates/${gcp.id}/instantiate`,
+			key.secret,
+			{ parameters: { project_id: "acme-prod" } },
+		)
+		expect(created.status).toBe(200)
+
+		const read = await harness.request("GET", `/v2/dashboards/${created.body.id}`, key.secret)
+		const [section] = read.body.sections
+		expect(section.tabs.map((tab: { title: string }) => tab.title)).toContain("Cloud SQL")
+		const tabIds = new Set(section.tabs.map((tab: { id: string }) => tab.id))
+		for (const widget of read.body.widgets) expect(tabIds).toContain(widget.tab_id)
+		expect(read.body.variables.map((v: { name: string }) => v.name)).toEqual([
+			"project",
+			"region",
+			"workload",
+		])
+		expect(read.body.variables[0].default_value).toBe("acme-prod")
+
+		await harness.dispose()
+	})
+
+	it("points an invalid widget field at its widget id and full path", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:write"])
+
+		const response = await harness.request("POST", "/v2/dashboards", key.secret, {
+			name: "Operations",
+			time_range: { type: "relative", value: "12h" },
+			widgets: [
+				{
+					id: "error-rate",
+					visualization: "chart",
+					data_source: { kind: "route", endpoint: "traces_timeseries" },
+					// `fill_nulls` is `number | false`; `true` is not a member.
+					display: { title: "error-rate", chart_presentation: { fill_nulls: true } },
+					layout: { x: 0, y: 0, w: 6, h: 4 },
+				},
+			],
+		})
+
+		expect(response.status).toBe(400)
+		expect(response.body.error.type).toBe("invalid_request_error")
+		expect(response.body.error.code).toBe("parameter_invalid")
+		// `param` is the whole path, not just its first segment, and the message
+		// repeats it: that path is what points a caller at the offending widget.
+		// It no longer names the widget's `id` or echoes the rejected value —
+		// effect rc.116 reports neither the input nor the actual for a struct or
+		// array decode failure.
+		expect(response.body.error.param).toContain("widgets[0]")
+		expect(response.body.error.param).toContain("fill_nulls")
+		expect(response.body.error.message).toContain("widgets[0]")
+		expect(response.body.error.message).toContain("fill_nulls")
+		expect(response.body.error.message).toContain("Expected")
+
+		await harness.dispose()
+	})
+})
+
+describe("v2 dashboard widget data", () => {
+	const createBoard = async (harness: Harness, key: string) => {
+		const created = await harness.request("POST", "/v2/dashboards", key, {
+			name: "Checkout",
+			time_range: { type: "relative", value: "12h" },
+			widgets: [
+				{
+					id: "notes",
+					visualization: "stat",
+					data_source: { kind: "static" },
+					display: {},
+					layout: { x: 0, y: 0, w: 3, h: 4 },
+				},
+				{
+					id: "latency",
+					visualization: "chart",
+					data_source: { kind: "route", endpoint: "traces_timeseries" },
+					display: {},
+					layout: { x: 3, y: 0, w: 9, h: 4 },
+				},
+				{
+					id: "empty-query",
+					visualization: "chart",
+					data_source: { kind: "query", result_shape: "timeseries", queries: [] },
+					display: {},
+					layout: { x: 0, y: 4, w: 12, h: 4 },
+				},
+			],
+			variables: [],
+		})
+		expect(created.status).toBe(200)
+		return created.body.id as string
+	}
+
+	it("returns one outcome per requested widget, in order, with a read-only key", async () => {
+		const harness = makeHarness()
+		const writer = await harness.bootstrapKey(["dashboards:write"])
+		const id = await createBoard(harness, writer.secret)
+		const reader = await harness.bootstrapKey(["dashboards:read"])
+
+		const response = await harness.request("POST", `/v2/dashboards/${id}/widget_data`, reader.secret, {
+			requests: [
+				{ widget_id: "notes" },
+				{ widget_id: "latency" },
+				{ widget_id: "empty-query", max_data_points: 120 },
+				{ widget_id: "nope" },
+			],
+			time_range: { type: "relative", value: "1h" },
+		})
+
+		expect(response.status).toBe(200)
+		expect(response.body.object).toBe("dashboard_widget_data")
+		expect(response.body.variables).toEqual({})
+		const [notes, latency, emptyQuery, unknown] = response.body.results
+		// A static tile has nothing to fetch: a success with no data.
+		expect(notes).toEqual({ widget_id: "notes", ok: true, data: null })
+		// A route the server cannot evaluate fails inside the 200; its neighbours still render.
+		expect(latency).toMatchObject({ widget_id: "latency", ok: false, reason: "unsupported" })
+		// The harness query engine refuses to run, so this tile fails, retryably, on its own.
+		expect(emptyQuery).toMatchObject({ widget_id: "empty-query", ok: false, reason: "failed" })
+		expect(unknown).toMatchObject({ widget_id: "nope", ok: false, reason: "not_found" })
+		await harness.dispose()
+	})
+
+	it("rejects an unresolvable range and an unknown dashboard", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:write"])
+		const id = await createBoard(harness, key.secret)
+
+		const badRange = await harness.request("POST", `/v2/dashboards/${id}/widget_data`, key.secret, {
+			requests: [{ widget_id: "notes" }],
+			time_range: { type: "relative", value: "sometime" },
+		})
+		expect(badRange.status).toBe(400)
+		expect(badRange.body.error.param).toBe("time_range")
+
+		harness.failDashboardGet("missing")
+		const missing = await harness.request("POST", `/v2/dashboards/${id}/widget_data`, key.secret, {
+			requests: [{ widget_id: "notes" }],
+			time_range: { type: "relative", value: "1h" },
+		})
+		expect(missing.status).toBe(404)
+		await harness.dispose()
+	})
+})
+
+// Minting a share link also needs read access to the telemetry it serves.
+const SHARE_SCOPES = ["dashboards:write", "traces:read", "logs:read", "metrics:read"]
+
+describe("v2 dashboard shares", () => {
+	const createDashboard = async (harness: Harness, key: string) => {
+		const created = await harness.request("POST", "/v2/dashboards", key, {
+			name: "Shared board",
+			time_range: { type: "relative", value: "12h" },
+			widgets: [
+				{
+					id: "w-1",
+					visualization: "stat",
+					data_source: { kind: "static" },
+					display: {},
+					layout: { x: 0, y: 0, w: 3, h: 4 },
+				},
+			],
+			variables: [],
+		})
+		expect(created.status).toBe(200)
+		return created.body.id as string
+	}
+
+	/**
+	 * Resolve a raw token the way the public share endpoint will, in Phase 3.
+	 *
+	 * Returns the dashboard's *public* id so callers can compare against what the
+	 * v2 API handed them — the share row stores the internal id, and the two are
+	 * different strings for the same dashboard.
+	 */
+	const resolve = (harness: Harness, token: string) =>
+		harness.runtime.runPromise(
+			SharedDashboardService.use((shares) => shares.resolveByToken(token)).pipe(
+				Effect.map((resolved) => encodeDashboardPublicId(resolved.share.dashboardId)),
+				Effect.catchTag("@maple/http/errors/ShareNotFoundError", () =>
+					Effect.succeed("__not_found__"),
+				),
+			),
+		)
+
+	/** The mode a token actually grants, or `"__not_found__"`. */
+	const resolveMode = (harness: Harness, token: string) =>
+		harness.runtime.runPromise(
+			SharedDashboardService.use((shares) => shares.resolveByToken(token)).pipe(
+				Effect.map((resolved) => resolved.share.mode),
+				Effect.catchTag("@maple/http/errors/ShareNotFoundError", () =>
+					Effect.succeed("__not_found__"),
+				),
+			),
+		)
+
+	it("mints a token once, and never hands it back", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		const unshared = await harness.request("GET", `/v2/dashboards/${id}/share`, key.secret)
+		expect(unshared.status).toBe(200)
+		expect(unshared.body).toBeNull()
+
+		const shared = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "public",
+		})
+		expect(shared.status).toBe(200)
+		expect(shared.body.object).toBe("dashboard_share")
+		expect(shared.body.id).toMatch(/^dshr_/)
+		expect(shared.body.mode).toBe("public")
+		expect(typeof shared.body.token).toBe("string")
+
+		const token: string = shared.body.token
+		expect(shared.body.token_suffix).toBe(token.slice(-6))
+
+		// Readable again on a later call, decrypted out of storage: a caller who
+		// never saw the mint response, or who simply reopened the dialog, gets the
+		// same working link rather than having to rotate to see one.
+		const fetched = await harness.request("GET", `/v2/dashboards/${id}/share`, key.secret)
+		expect(fetched.status).toBe(200)
+		expect(fetched.body.id).toBe(shared.body.id)
+		expect(fetched.body.token).toBe(token)
+
+		expect(await resolve(harness, token)).toBe(id)
+
+		await harness.dispose()
+	})
+
+	it("refuses a share link to a key that cannot read the telemetry it serves", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(["dashboards:write"])
+		const id = await createDashboard(harness, key.secret)
+
+		const shared = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "public",
+		})
+		const rotated = await harness.request("POST", `/v2/dashboards/${id}/share/rotate`, key.secret)
+		expect([shared.status, rotated.status]).toEqual([403, 403])
+		expect(shared.body.error.code).toBe("insufficient_permissions")
+
+		await harness.dispose()
+	})
+
+	it("keeps the same link when only the mode changes", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		const first = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "public",
+		})
+		const token: string = first.body.token
+
+		const switched = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "org",
+		})
+		expect(switched.status).toBe(200)
+		expect(switched.body.mode).toBe("org")
+		// The same token comes back, not a new one: a link already pasted somewhere
+		// must keep working across a mode change.
+		expect(switched.body.token).toBe(token)
+		expect(switched.body.id).toBe(first.body.id)
+		expect(await resolve(harness, token)).toBe(id)
+
+		await harness.dispose()
+	})
+
+	it("rotates: the old link stops resolving the moment the new one starts", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		const first = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "public",
+		})
+		const oldToken: string = first.body.token
+
+		const rotated = await harness.request("POST", `/v2/dashboards/${id}/share/rotate`, key.secret)
+		expect(rotated.status).toBe(200)
+		const newToken: string = rotated.body.token
+		expect(newToken).not.toBe(oldToken)
+		expect(rotated.body.mode).toBe("public")
+
+		expect(await resolve(harness, oldToken)).toBe("__not_found__")
+		expect(await resolve(harness, newToken)).toBe(id)
+
+		// Rotating twice must not leave two live rows behind — the partial unique
+		// index is the guarantee, this asserts it holds in practice.
+		const second = await harness.request("POST", `/v2/dashboards/${id}/share/rotate`, key.secret)
+		expect(second.status).toBe(200)
+		expect(await resolve(harness, newToken)).toBe("__not_found__")
+		expect(await resolve(harness, second.body.token)).toBe(id)
+
+		const live = await queryFirstRow<{ count: number }>(
+			harness.testDb,
+			"select count(*)::int as count from dashboard_shares where revoked_at is null",
+		)
+		expect(live?.count).toBe(1)
+
+		await harness.dispose()
+	})
+
+	it("rotating an unshared dashboard reports no such share", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		const rotated = await harness.request("POST", `/v2/dashboards/${id}/share/rotate`, key.secret)
+		expect(rotated.status).toBe(404)
+
+		await harness.dispose()
+	})
+
+	it("revokes idempotently, and the link stops resolving", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		const shared = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "public",
+		})
+		const token: string = shared.body.token
+
+		const revoked = await harness.request("DELETE", `/v2/dashboards/${id}/share`, key.secret)
+		expect(revoked.status).toBe(200)
+		expect(revoked.body.deleted).toBe(true)
+		expect(await resolve(harness, token)).toBe("__not_found__")
+		expect((await harness.request("GET", `/v2/dashboards/${id}/share`, key.secret)).body).toBeNull()
+
+		// "Stop sharing" is a statement about the end state, so a second call — or a
+		// double-clicked button — succeeds rather than 404ing.
+		const again = await harness.request("DELETE", `/v2/dashboards/${id}/share`, key.secret)
+		expect(again.status).toBe(200)
+		expect(again.body.deleted).toBe(true)
+
+		await harness.dispose()
+	})
+
+	it("stops resolving when the dashboard itself is deleted", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		const shared = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "public",
+		})
+		const token: string = shared.body.token
+		expect(await resolve(harness, token)).toBe(id)
+
+		const deleted = await harness.request("DELETE", `/v2/dashboards/${id}`, key.secret)
+		expect(deleted.status).toBe(200)
+
+		// A live link to a deleted dashboard is the failure mode the foreign key's
+		// ON DELETE CASCADE exists to prevent.
+		expect(await resolve(harness, token)).toBe("__not_found__")
+
+		await harness.dispose()
+	})
+
+	/** A public link plus its preview-image id, minted while the board still reads. */
+	const openPublicShare = async (harness: Harness, key: string) => {
+		const id = await createDashboard(harness, key)
+		const shared = await harness.request("PUT", `/v2/dashboards/${id}/share`, key, { mode: "public" })
+		const token: string = shared.body.token
+		const meta = await harness.request("POST", "/v2/share/og-meta", undefined, { token })
+		expect(meta.status).toBe(200)
+		const ogId: string = meta.body.imagePath.slice("/share/og/".length, -".png".length)
+		return { token, ogId }
+	}
+
+	it("answers a live link whose dashboard is gone exactly like an unknown token", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const { token, ogId } = await openPublicShare(harness, key.secret)
+
+		const unknown = await harness.request("POST", "/v2/share/resolve", undefined, {
+			token: "not-a-token",
+		})
+		expect(unknown.status).toBe(404)
+		expect(unknown.body.error.code).toBe("share_not_found")
+
+		harness.failDashboardGet("missing")
+		const reads = [
+			await harness.request("POST", "/v2/share/resolve", undefined, { token }),
+			await harness.request("POST", "/v2/share/og-meta", undefined, { token }),
+			await harness.request("POST", "/v2/share/og-card", undefined, { ogId }),
+		]
+		for (const read of reads) {
+			expect(read.status).toBe(404)
+			expect(read.body).toEqual(unknown.body)
+		}
+
+		await harness.dispose()
+	})
+
+	it("reports a failed dashboard read as a 503, never as a missing link", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const { token, ogId } = await openPublicShare(harness, key.secret)
+
+		harness.failDashboardGet("unavailable")
+		const reads = [
+			await harness.request("POST", "/v2/share/resolve", undefined, { token }),
+			await harness.request("POST", "/v2/share/og-meta", undefined, { token }),
+			await harness.request("POST", "/v2/share/og-card", undefined, { ogId }),
+		]
+		for (const read of reads) {
+			expect(read.status).toBe(503)
+			expect(read.body.error.code).toBe("share_persistence_failed")
+		}
+
+		await harness.dispose()
+	})
+
+	it("enforces dashboard scopes on share management", async () => {
+		const harness = makeHarness()
+		const readOnly = await harness.bootstrapKey(["dashboards:read"])
+		const writer = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, writer.secret)
+
+		// Reading a share is a read; every mutation is a write. The scope is derived
+		// mechanically from method + path, so this guards that derivation too.
+		expect((await harness.request("GET", `/v2/dashboards/${id}/share`, readOnly.secret)).status).toBe(200)
+		expect(
+			(await harness.request("PUT", `/v2/dashboards/${id}/share`, readOnly.secret, { mode: "public" }))
+				.status,
+		).toBe(403)
+		expect(
+			(await harness.request("POST", `/v2/dashboards/${id}/share/rotate`, readOnly.secret)).status,
+		).toBe(403)
+		expect((await harness.request("DELETE", `/v2/dashboards/${id}/share`, readOnly.secret)).status).toBe(
+			403,
+		)
+
+		await harness.dispose()
+	})
+
+	it("cannot reach a dashboard belonging to another org", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+		await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, { mode: "public" })
+
+		const foreign = await harness.runtime.runPromise(
+			Effect.gen(function* () {
+				const service = yield* ApiKeysService
+				return yield* service.create(Schema.decodeUnknownSync(OrgId)("org_other"), USER_OTHER, {
+					name: "other-org",
+					scopes: ["dashboards:write"],
+				})
+			}),
+		)
+
+		// The dashboard load is org-scoped, so another org's key cannot even learn
+		// that this dashboard is shared.
+		expect((await harness.request("GET", `/v2/dashboards/${id}/share`, foreign.secret)).status).toBe(404)
+		expect(
+			(await harness.request("PUT", `/v2/dashboards/${id}/share`, foreign.secret, { mode: "public" }))
+				.status,
+		).toBe(404)
+
+		await harness.dispose()
+	})
+
+	it("shares a single widget on its own link", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		const unshared = await harness.request("GET", `/v2/dashboards/${id}/widgets/w-1/share`, key.secret)
+		expect(unshared.body).toBeNull()
+
+		const shared = await harness.request("PUT", `/v2/dashboards/${id}/widgets/w-1/share`, key.secret, {
+			mode: "public",
+		})
+		expect(shared.status).toBe(200)
+		expect(shared.body.widget_id).toBe("w-1")
+		expect(typeof shared.body.token).toBe("string")
+
+		// Minted, but dormant until the board itself is shared.
+		expect(await resolve(harness, shared.body.token)).toBe("__not_found__")
+		await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, { mode: "public" })
+		expect(await resolve(harness, shared.body.token)).toBe(id)
+
+		await harness.dispose()
+	})
+
+	it("resolves only the shared widget's own variables on a chart link", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const created = await harness.request("POST", "/v2/dashboards", key.secret, {
+			name: "Board with variables",
+			time_range: { type: "relative", value: "1h" },
+			widgets: [
+				{
+					id: "w-1",
+					visualization: "stat",
+					data_source: { kind: "static" },
+					display: { title: "Errors in $region" },
+					layout: { x: 0, y: 0, w: 3, h: 4 },
+				},
+			],
+			variables: [
+				{ name: "region", type: "textbox", default_value: "eu" },
+				{ name: "tier", type: "custom", options: [{ value: "gold" }], default_value: "gold" },
+			],
+		})
+		const id: string = created.body.id
+		const board = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "public",
+		})
+		const chart = await harness.request("PUT", `/v2/dashboards/${id}/widgets/w-1/share`, key.secret, {
+			mode: "public",
+		})
+
+		const at = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace("T", " ")
+		const variablesFor = async (token: string) => {
+			const response = await harness.request("POST", "/v2/share/widget-data", undefined, {
+				token,
+				requests: [{ widgetId: "w-1" }],
+				timeRange: { startTime: at(Date.now() - 3_600_000), endTime: at(Date.now() - 60_000) },
+			})
+			expect(response.status).toBe(200)
+			return Object.keys(response.body.variables).sort()
+		}
+
+		expect(await variablesFor(board.body.token)).toEqual(["region", "tier"])
+		expect(await variablesFor(chart.body.token)).toEqual(["region"])
+
+		// Once its widget is edited away, a chart link must not fall back to the board's variables.
+		const edited = await harness.request("PATCH", `/v2/dashboards/${id}`, key.secret, {
+			widgets: [
+				{
+					id: "w-2",
+					visualization: "stat",
+					data_source: { kind: "static" },
+					display: { title: "Tier $tier" },
+					layout: { x: 0, y: 0, w: 3, h: 4 },
+				},
+			],
+		})
+		expect(edited.status).toBe(200)
+		expect(await variablesFor(chart.body.token)).toEqual([])
+		await harness.dispose()
+	})
+
+	it("refuses to mint a link for a widget that is not on the board", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		// Otherwise the caller walks away with a token that resolves to a
+		// permanently blank tile.
+		const bogus = await harness.request(
+			"PUT",
+			`/v2/dashboards/${id}/widgets/does-not-exist/share`,
+			key.secret,
+			{ mode: "public" },
+		)
+		expect(bogus.status).toBe(404)
+
+		await harness.dispose()
+	})
+
+	it("gates a widget share on the dashboard's own", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		const board = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "public",
+		})
+		const widget = await harness.request("PUT", `/v2/dashboards/${id}/widgets/w-1/share`, key.secret, {
+			mode: "public",
+		})
+		const boardToken: string = board.body.token
+		const widgetToken: string = widget.body.token
+		expect(widgetToken).not.toBe(boardToken)
+
+		// Both live at once — the partial unique index folds a null widget_id to
+		// '', so the two scopes do not collide.
+		const listed = await harness.request("GET", `/v2/dashboards/${id}/shares`, key.secret)
+		expect(listed.body).toHaveLength(2)
+
+		// Unsharing the board takes its chart links down with it...
+		await harness.request("DELETE", `/v2/dashboards/${id}/share`, key.secret)
+		expect(await resolve(harness, boardToken)).toBe("__not_found__")
+		expect(await resolve(harness, widgetToken)).toBe("__not_found__")
+
+		// ...and sharing it again brings the same chart link back.
+		const reshared = await harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, {
+			mode: "public",
+		})
+		expect(await resolve(harness, widgetToken)).toBe(id)
+
+		// Rotating the widget link leaves the board's alone.
+		const rotated = await harness.request(
+			"POST",
+			`/v2/dashboards/${id}/widgets/w-1/share/rotate`,
+			key.secret,
+		)
+		expect(await resolve(harness, widgetToken)).toBe("__not_found__")
+		expect(await resolve(harness, rotated.body.token)).toBe(id)
+		expect(await resolve(harness, reshared.body.token)).toBe(id)
+
+		// And rotating the board's link keeps its chart links alive: the board is
+		// still shared, just under a new token.
+		const boardRotated = await harness.request("POST", `/v2/dashboards/${id}/share/rotate`, key.secret)
+		expect(await resolve(harness, reshared.body.token)).toBe("__not_found__")
+		expect(await resolve(harness, boardRotated.body.token)).toBe(id)
+		expect(await resolve(harness, rotated.body.token)).toBe(id)
+
+		await harness.dispose()
+	})
+
+	it("never grants a chart link more than its board's mode", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+		const share = (mode: "public" | "org") =>
+			harness.request("PUT", `/v2/dashboards/${id}/share`, key.secret, { mode })
+
+		await share("public")
+		const chart = await harness.request("PUT", `/v2/dashboards/${id}/widgets/w-1/share`, key.secret, {
+			mode: "public",
+		})
+		const token: string = chart.body.token
+		expect(await resolveMode(harness, token)).toBe("public")
+
+		// An org-only board caps a public chart link at org: no anonymous embed.
+		await share("org")
+		expect(await resolveMode(harness, token)).toBe("org")
+		const anonymous = await harness.request("POST", "/v2/share/resolve", undefined, { token })
+		expect(anonymous.status).toBe(403)
+		expect(anonymous.body.error.code).toBe("share_signin_required")
+
+		// The cap only ever narrows: an org chart link on a public board stays org.
+		await share("public")
+		await harness.request("PUT", `/v2/dashboards/${id}/widgets/w-1/share`, key.secret, { mode: "org" })
+		expect(await resolveMode(harness, token)).toBe("org")
+
+		await harness.request("PUT", `/v2/dashboards/${id}/widgets/w-1/share`, key.secret, {
+			mode: "public",
+		})
+		expect(await resolveMode(harness, token)).toBe("public")
+		expect((await harness.request("POST", "/v2/share/resolve", undefined, { token })).status).toBe(200)
+
+		await harness.dispose()
+	})
+
+	it("scopes each widget's link to its own widget", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+
+		await harness.request("PUT", `/v2/dashboards/${id}/widgets/w-1/share`, key.secret, {
+			mode: "public",
+		})
+
+		// A second widget's scope is a separate row; asking for it must not return
+		// the first one's share.
+		const other = await harness.request("GET", `/v2/dashboards/${id}/widgets/w-2/share`, key.secret)
+		expect(other.body).toBeNull()
+
+		await harness.dispose()
+	})
+})
+
+/**
+ * The social-preview surface, end to end over HTTP.
+ *
+ * Both endpoints are unauthenticated by design — the callers are the page
+ * worker and whatever chat client unfurled the link — so every request below
+ * deliberately carries no bearer.
+ */
+describe("v2 share previews", () => {
+	const createDashboard = async (harness: Harness, key: string) => {
+		const created = await harness.request("POST", "/v2/dashboards", key, {
+			name: "Checkout health",
+			description: "Latency and errors for the checkout path.",
+			time_range: { type: "relative", value: "12h" },
+			widgets: [
+				{
+					id: "w-1",
+					visualization: "stat",
+					data_source: { kind: "static" },
+					display: { title: "Requests" },
+					layout: { x: 0, y: 0, w: 3, h: 4 },
+				},
+				{
+					id: "w-2",
+					visualization: "chart",
+					data_source: { kind: "static" },
+					display: { title: "Latency" },
+					layout: { x: 3, y: 0, w: 9, h: 4 },
+				},
+			],
+			variables: [],
+		})
+		expect(created.status).toBe(200)
+		return created.body.id as string
+	}
+
+	const share = async (harness: Harness, key: string, id: string, mode: "public" | "org") => {
+		const shared = await harness.request("PUT", `/v2/dashboards/${id}/share`, key, { mode })
+		expect(shared.status).toBe(200)
+		return shared.body.token as string
+	}
+
+	it("describes a public link and draws its board", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+		const token = await share(harness, key.secret, id, "public")
+
+		const meta = await harness.request("POST", "/v2/share/og-meta", undefined, { token })
+		expect(meta.status).toBe(200)
+		expect(meta.body.title).toBe("Checkout health")
+		expect(meta.body.description).toBe("Latency and errors for the checkout path.")
+		expect(meta.body.imagePath).toMatch(/^\/share\/og\/[^/]+\.png$/)
+		// The image URL is the one place a share travels beyond the page, so it
+		// must carry nothing that could be replayed as the link itself.
+		expect(meta.body.imagePath).not.toContain(token)
+
+		const ogId = meta.body.imagePath.slice("/share/og/".length, -".png".length)
+		const card = await harness.request("POST", "/v2/share/og-card", undefined, { ogId })
+		expect(card.status).toBe(200)
+		expect(card.body.title).toBe("Checkout health")
+		// The card draws the board's own words, never a rendered sentence — the
+		// image and the `og:description` tag phrase the same board differently.
+		expect(card.body.description).toBe("Latency and errors for the checkout path.")
+		expect(card.body.widgetCount).toBe(2)
+		// No directory in this harness, so the card carries no byline and still
+		// renders everything else.
+		expect(card.body.org).toBeUndefined()
+		expect(card.body.tiles).toEqual([
+			{ x: 0, y: 0, w: 3, h: 4, title: "Requests", visualization: "stat" },
+			{ x: 3, y: 0, w: 9, h: 4, title: "Latency", visualization: "chart" },
+		])
+
+		await harness.dispose()
+	})
+
+	it("hides a chart's preview while its board is not public", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+		await share(harness, key.secret, id, "public")
+		const chart = await harness.request("PUT", `/v2/dashboards/${id}/widgets/w-1/share`, key.secret, {
+			mode: "public",
+		})
+		const token: string = chart.body.token
+
+		const meta = await harness.request("POST", "/v2/share/og-meta", undefined, { token })
+		expect(meta.status).toBe(200)
+		const ogId = meta.body.imagePath.slice("/share/og/".length, -".png".length)
+		expect((await harness.request("POST", "/v2/share/og-card", undefined, { ogId })).status).toBe(200)
+
+		// The chart row itself stays `public`; the board's mode is what the card
+		// checks, so a saved image URL stops rendering the moment the board goes
+		// org-only — and comes back when it is public again.
+		await share(harness, key.secret, id, "org")
+		expect((await harness.request("POST", "/v2/share/og-meta", undefined, { token })).status).toBe(404)
+		expect((await harness.request("POST", "/v2/share/og-card", undefined, { ogId })).status).toBe(404)
+
+		await share(harness, key.secret, id, "public")
+		expect((await harness.request("POST", "/v2/share/og-card", undefined, { ogId })).status).toBe(200)
+
+		await harness.dispose()
+	})
+
+	it("refuses an org-only link, without saying that is why", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+		const token = await share(harness, key.secret, id, "org")
+
+		const meta = await harness.request("POST", "/v2/share/og-meta", undefined, { token })
+		expect(meta.status).toBe(404)
+		// Identical to an unknown token: a preview must not be the thing that
+		// tells an anonymous caller a private board exists.
+		const unknown = await harness.request("POST", "/v2/share/og-meta", undefined, {
+			token: "mshare_not-a-real-token",
+		})
+		expect(unknown.status).toBe(404)
+		expect(meta.body).toEqual(unknown.body)
+
+		await harness.dispose()
+	})
+
+	it("stops drawing the moment the link is revoked", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+		const token = await share(harness, key.secret, id, "public")
+
+		const meta = await harness.request("POST", "/v2/share/og-meta", undefined, { token })
+		const ogId = meta.body.imagePath.slice("/share/og/".length, -".png".length)
+
+		await harness.request("DELETE", `/v2/dashboards/${id}/share`, key.secret)
+
+		const card = await harness.request("POST", "/v2/share/og-card", undefined, { ogId })
+		expect(card.status).toBe(404)
+
+		await harness.dispose()
+	})
+
+	it("rejects a tampered image id", async () => {
+		const harness = makeHarness()
+		const key = await harness.bootstrapKey(SHARE_SCOPES)
+		const id = await createDashboard(harness, key.secret)
+		const token = await share(harness, key.secret, id, "public")
+
+		const meta = await harness.request("POST", "/v2/share/og-meta", undefined, { token })
+		const ogId: string = meta.body.imagePath.slice("/share/og/".length, -".png".length)
+		const [encodedId] = ogId.split(".") as [string]
+
+		const forged = await harness.request("POST", "/v2/share/og-card", undefined, {
+			ogId: `${encodedId}.not-a-signature`,
+		})
+		expect(forged.status).toBe(404)
+
+		await harness.dispose()
+	})
+})
+
+describe("v2 raw SQL widgets", () => {
+	const TELEMETRY = ["traces:read", "logs:read", "metrics:read"]
+	const SQL = "SELECT count() FROM logs WHERE $__orgFilter"
+	const rawSqlWidget = (sql: string) => ({
+		id: "sql",
+		visualization: "table",
+		data_source: { kind: "raw_sql", sql },
+		display: {},
+		layout: { x: 0, y: 0, w: 6, h: 4 },
+	})
+	const board = (widgets: ReadonlyArray<unknown>) => ({
+		name: "SQL board",
+		time_range: { type: "relative", value: "12h" },
+		widgets,
+		variables: [],
+	})
+	const widgetData = (harness: Harness, id: string, token: string) =>
+		harness.request("POST", `/v2/dashboards/${id}/widget_data`, token, {
+			requests: [{ widget_id: "sql" }],
+			time_range: { type: "relative", value: "1h" },
+		})
+
+	it("refuses to save new raw SQL with a key that cannot read the telemetry", async () => {
+		const harness = makeHarness()
+		const writer = await harness.bootstrapKey(["dashboards:write"])
+		const created = await harness.request(
+			"POST",
+			"/v2/dashboards",
+			writer.secret,
+			board([rawSqlWidget(SQL)]),
+		)
+		expect(created.status).toBe(403)
+		expect(created.body.error.code).toBe("insufficient_scope")
+
+		const plain = await harness.request("POST", "/v2/dashboards", writer.secret, board([]))
+		expect(plain.status).toBe(200)
+		const added = await harness.request("PATCH", `/v2/dashboards/${plain.body.id}`, writer.secret, {
+			widgets: [rawSqlWidget(SQL)],
+		})
+		expect(added.status).toBe(403)
+		await harness.dispose()
+	})
+
+	it("lets a narrow key edit around SQL it did not write, but not change or restore it", async () => {
+		const harness = makeHarness()
+		const author = await harness.bootstrapKey(["dashboards:write", ...TELEMETRY])
+		const created = await harness.request(
+			"POST",
+			"/v2/dashboards",
+			author.secret,
+			board([rawSqlWidget(SQL)]),
+		)
+		expect(created.status).toBe(200)
+		const id = created.body.id as string
+
+		const writer = await harness.bootstrapKey(["dashboards:write"])
+		const patch = (token: string, body: unknown) =>
+			harness.request("PATCH", `/v2/dashboards/${id}`, token, body)
+		expect((await patch(writer.secret, { name: "Renamed" })).status).toBe(200)
+		const changed = await patch(writer.secret, {
+			widgets: [rawSqlWidget("SELECT * FROM traces WHERE $__orgFilter")],
+		})
+		expect(changed.status).toBe(403)
+
+		// Restoring a version can bring back SQL the board no longer has: same bar.
+		expect((await patch(author.secret, { widgets: [] })).status).toBe(200)
+		const versions = await harness.request(
+			"GET",
+			`/v2/dashboards/${id}/versions?limit=100`,
+			author.secret,
+		)
+		const restorePath = `/v2/dashboards/${id}/versions/${versions.body.data.at(-1).id}/restore`
+		expect((await harness.request("POST", restorePath, writer.secret)).status).toBe(403)
+		expect((await harness.request("POST", restorePath, author.secret)).status).toBe(200)
+		await harness.dispose()
+	})
+
+	it("runs stored SQL only for callers that can read the telemetry", async () => {
+		const harness = makeHarness()
+		const unscoped = await harness.bootstrapKey()
+		const created = await harness.request(
+			"POST",
+			"/v2/dashboards",
+			unscoped.secret,
+			board([rawSqlWidget(SQL)]),
+		)
+		expect(created.status).toBe(200)
+		const id = created.body.id as string
+
+		const reader = await harness.bootstrapKey(["dashboards:read"])
+		const refused = await widgetData(harness, id, reader.secret)
+		expect(refused.status).toBe(200)
+		expect(refused.body.results[0]).toMatchObject({ widget_id: "sql", ok: false, reason: "unsupported" })
+		expect(refused.body.results[0].message).toContain("traces:read")
+
+		// The harness warehouse runs nothing, so an admitted run fails retryably instead.
+		const telemetryReader = await harness.bootstrapKey(["dashboards:read", ...TELEMETRY])
+		const admitted = await Promise.all(
+			[unscoped.secret, telemetryReader.secret].map((token) => widgetData(harness, id, token)),
+		)
+		expect(admitted.map((response) => response.body.results[0].reason)).toEqual(["failed", "failed"])
+		await harness.dispose()
+	})
+
+	it("keeps raw SQL working for a dashboard session", async () => {
+		const harness = makeHarness()
+		const session = await harness.bootstrapSession()
+		const created = await harness.request("POST", "/v2/dashboards", session, board([rawSqlWidget(SQL)]))
+		expect(created.status).toBe(200)
+		const admitted = await widgetData(harness, created.body.id, session)
+		expect(admitted.body.results[0]).toMatchObject({ widget_id: "sql", ok: false, reason: "failed" })
+		await harness.dispose()
+	})
+})

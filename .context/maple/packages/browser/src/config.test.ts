@@ -1,0 +1,148 @@
+import { resetKeylessWarningsForTests } from "@maple/browser-session"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { resolveConfig } from "./config"
+
+describe("resolveConfig", () => {
+	afterEach(() => {
+		resetKeylessWarningsForTests()
+		vi.restoreAllMocks()
+	})
+
+	it("treats the ingest key as auth only: keyless behind a proxy is silent", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+		const proxied = resolveConfig({ serviceName: "s", endpoint: "https://telemetry.example.com" })
+		expect(proxied.ingestKey).toBeUndefined()
+		expect(proxied.tracingEnabled).toBe(true)
+		expect(proxied.replayEnabled).toBe(true)
+		expect(warn).not.toHaveBeenCalled()
+
+		// Keyless against the hosted ingest is the one setup that cannot work.
+		resolveConfig({ serviceName: "s" })
+		expect(warn).toHaveBeenCalledTimes(1)
+	})
+
+	it("applies defaults and strips the endpoint's trailing slash", () => {
+		const config = resolveConfig({
+			ingestKey: "maple_pk_x",
+			serviceName: "acme-web",
+		})
+		expect(config.endpoint).toBe("https://ingest.maple.dev")
+		expect(config.tracingEnabled).toBe(true)
+		expect(config.tracingInstrumentFetch).toBe(true)
+		expect(config.replayEnabled).toBe(true)
+		expect(config.replaySampleRate).toBe(1)
+		expect(config.maskAllInputs).toBe(true)
+		expect(config.maskAllText).toBe(false)
+		// Capture everything by default; a consent gate or a visitor-id opt-out is
+		// something an app turns on, not something that silently changes under it.
+		expect(config.persistVisitorId).toBe(true)
+		expect(config.requireConsent).toBe(false)
+		expect(config.captureUserEmail).toBe(true)
+		expect(config.respectDoNotTrack).toBe(false)
+
+		const custom = resolveConfig({
+			ingestKey: "maple_pk_x",
+			serviceName: "acme-web",
+			endpoint: "https://ingest.example.com/",
+			userId: null,
+			tracing: { instrumentFetch: false },
+			replay: { sampleRate: 0.25 },
+			privacy: { persistVisitorId: false, requireConsent: true },
+		})
+		expect(custom.endpoint).toBe("https://ingest.example.com")
+		expect(custom.identity).toBeUndefined()
+		expect(custom.tracingInstrumentFetch).toBe(false)
+		expect(custom.replaySampleRate).toBe(0.25)
+		expect(custom.persistVisitorId).toBe(false)
+		expect(custom.requireConsent).toBe(true)
+	})
+
+	it("accepts the legacy userId string and the richer user object", () => {
+		// `userId` is what every existing integration passes, so it has to keep
+		// resolving to the same identity the new `user` object produces.
+		const legacy = resolveConfig({
+			ingestKey: "k",
+			serviceName: "s",
+			userId: "user_123",
+		})
+		expect(legacy.identity).toEqual({ id: "user_123", traits: {} })
+
+		const rich = resolveConfig({
+			ingestKey: "k",
+			serviceName: "s",
+			user: {
+				id: "user_123",
+				email: "a@b.com",
+				groupId: "org_1",
+				groupName: "Acme",
+			},
+		})
+		expect(rich.identity).toMatchObject({
+			id: "user_123",
+			email: "a@b.com",
+			groupId: "org_1",
+			groupName: "Acme",
+		})
+	})
+
+	it("prefers user over the deprecated userId when both are set", () => {
+		const config = resolveConfig({
+			ingestKey: "k",
+			serviceName: "s",
+			userId: "legacy",
+			user: { id: "modern" },
+		})
+		expect(config.identity?.id).toBe("modern")
+	})
+
+	it("resolves the ingest endpoint from the region, with an explicit endpoint winning", () => {
+		expect(resolveConfig({ ingestKey: "k", serviceName: "s", region: "eu" }).endpoint).toBe(
+			"https://ingest.eu.maple.dev",
+		)
+		expect(resolveConfig({ ingestKey: "k", serviceName: "s", region: "us" }).endpoint).toBe(
+			"https://ingest.maple.dev",
+		)
+		expect(
+			resolveConfig({ ingestKey: "k", serviceName: "s", region: "eu", endpoint: "https://proxy.test/" })
+				.endpoint,
+		).toBe("https://proxy.test")
+	})
+
+	it("clamps an out-of-range sample rate instead of trusting it", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+		expect(
+			resolveConfig({ ingestKey: "k", serviceName: "s", replay: { sampleRate: 5 } }).replaySampleRate,
+		).toBe(1)
+		expect(
+			resolveConfig({ ingestKey: "k", serviceName: "s", replay: { sampleRate: -1 } }).replaySampleRate,
+		).toBe(0)
+		expect(warn).toHaveBeenCalledTimes(2)
+		warn.mockRestore()
+	})
+
+	it("drops credential headers from captureHeaders, lowercased", () => {
+		const config = resolveConfig({
+			ingestKey: "k",
+			serviceName: "s",
+			tracing: {
+				captureHeaders: {
+					request: ["Authorization", "X-Request-Id"],
+					response: ["Set-Cookie", "X-Cache"],
+				},
+			},
+		})
+		expect(config.captureHeaders).toEqual({ request: ["x-request-id"], response: ["x-cache"] })
+	})
+
+	it("caps network body length at what ingest keeps", () => {
+		const resolve = (maxLength?: number) =>
+			resolveConfig({
+				ingestKey: "k",
+				serviceName: "s",
+				replay: { networkBodies: { urls: ["/api"], maxLength } },
+			}).networkBodies?.maxLength
+		expect(resolve()).toBe(1_000)
+		expect(resolve(200)).toBe(200)
+		expect(resolve(50_000)).toBe(1_000)
+	})
+})

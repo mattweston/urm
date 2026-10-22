@@ -1,0 +1,713 @@
+import type { OrgId } from "@maple/domain"
+import type { TimeseriesPoint } from "@maple/domain/query-engine"
+import { canonicalJSON } from "../canonical-json"
+import { parseWarehouseDateTime } from "../datetime"
+import { Clock, Config, Context, Effect, Layer, Option } from "effect"
+import { EdgeCacheService } from "@maple/cache"
+
+/**
+ * Inclusive start, exclusive end. Epoch milliseconds.
+ */
+export interface TimeRange {
+	readonly startMs: number
+	readonly endMs: number
+}
+
+/**
+ * A cached bucket represents the result points for a step-aligned window.
+ * `points` is a readonly slice of `TimeseriesPoint`; bucket keys (ISO 8601)
+ * live inside the points themselves.
+ */
+export interface CachedBucket {
+	readonly startMs: number
+	readonly endMs: number
+	readonly points: ReadonlyArray<TimeseriesPoint>
+}
+
+export interface BucketedCacheData {
+	readonly version: 1
+	readonly fingerprint: string
+	readonly bucketSeconds: number
+	readonly buckets: ReadonlyArray<CachedBucket>
+}
+
+export interface BucketCacheSegmentData {
+	readonly version: 2
+	readonly fingerprint: string
+	readonly bucketSeconds: number
+	readonly segmentStartMs: number
+	readonly segmentEndMs: number
+	readonly buckets: ReadonlyArray<CachedBucket>
+}
+
+export interface MissingRange {
+	readonly range: TimeRange
+	/** If false, results for this range must not be written back to cache. */
+	readonly cachable: boolean
+}
+
+export interface BucketCacheOutcome {
+	readonly points: ReadonlyArray<TimeseriesPoint>
+	readonly requestedBuckets: number
+	readonly bucketsHit: number
+	readonly bucketsMissed: number
+	readonly missingRangeCount: number
+	readonly warehouseQueryCount: number
+	readonly segmentsHit: number
+	readonly segmentsMissed: number
+	readonly segmentsTimedOut: number
+	/**
+	 * Segments whose read the edge cache declined to issue because that bucket's
+	 * reads were already timing out. Distinct from `segmentsTimedOut`: the read
+	 * never went out, so it cost nothing and held no connection slot. A non-zero
+	 * value means the breaker is doing its job — treat it as a signal about
+	 * connection pressure, not as a cache failure.
+	 */
+	readonly segmentsSkipped: number
+	readonly segmentsErrored: number
+}
+
+export interface BucketCacheRequest {
+	readonly orgId: OrgId
+	readonly query: unknown
+	readonly bucketSeconds: number
+	readonly startMs: number
+	readonly endMs: number
+}
+
+const BUCKET_CACHE_NAMESPACE = "qe-ts-buckets"
+const CACHE_VERSION = 2 as const
+const EMPTY_BUCKETS: ReadonlyArray<CachedBucket> = []
+
+const sha256Hex = async (input: string): Promise<string> => {
+	const bytes = new TextEncoder().encode(input)
+	const digest = await crypto.subtle.digest("SHA-256", bytes)
+	const view = new Uint8Array(digest)
+	let out = ""
+	for (const byte of view) {
+		out += byte.toString(16).padStart(2, "0")
+	}
+	return out
+}
+
+export const generateFingerprint = async (
+	orgId: OrgId | string,
+	query: unknown,
+	bucketSeconds: number,
+): Promise<string> => {
+	const canonical = canonicalJSON({ orgId, query, bucketSeconds })
+	return sha256Hex(canonical)
+}
+
+/**
+ * Walk sorted cached buckets and emit the gaps that must be fetched from
+ * source, tagging each gap as cachable or non-cachable based on the flux
+ * boundary. A gap whose `endMs` exceeds `fluxBoundaryMs` is split into a
+ * cachable head and a non-cachable tail.
+ */
+export const findMissingRanges = (
+	buckets: ReadonlyArray<CachedBucket>,
+	startMs: number,
+	endMs: number,
+	bucketMs: number,
+	fluxBoundaryMs: number,
+): ReadonlyArray<MissingRange> => {
+	if (endMs <= startMs) return []
+
+	const sorted = [...buckets].sort((a, b) => a.startMs - b.startMs)
+	const missing: MissingRange[] = []
+
+	const emit = (from: number, to: number) => {
+		if (to <= from) return
+		if (to <= fluxBoundaryMs) {
+			missing.push({ range: { startMs: from, endMs: to }, cachable: true })
+			return
+		}
+		if (from >= fluxBoundaryMs) {
+			missing.push({ range: { startMs: from, endMs: to }, cachable: false })
+			return
+		}
+		missing.push({
+			range: { startMs: from, endMs: fluxBoundaryMs },
+			cachable: true,
+		})
+		missing.push({
+			range: { startMs: fluxBoundaryMs, endMs: to },
+			cachable: false,
+		})
+	}
+
+	let cursor = startMs
+
+	if (cursor % bucketMs !== 0) {
+		const nextAligned = cursor - (cursor % bucketMs) + bucketMs
+		emit(cursor, Math.min(nextAligned, endMs))
+		cursor = nextAligned
+	}
+
+	for (const bucket of sorted) {
+		if (bucket.endMs <= cursor) continue
+		if (bucket.startMs >= endMs) break
+
+		const alignedStart =
+			bucket.startMs % bucketMs === 0
+				? bucket.startMs
+				: bucket.startMs - (bucket.startMs % bucketMs) + bucketMs
+
+		if (cursor < alignedStart && cursor < endMs) {
+			emit(cursor, Math.min(alignedStart, endMs))
+		}
+
+		let bucketEnd = Math.min(bucket.endMs, endMs)
+		if (bucketEnd % bucketMs !== 0 && bucketEnd < endMs) {
+			bucketEnd = bucketEnd - (bucketEnd % bucketMs)
+		}
+		cursor = Math.max(cursor, bucketEnd)
+	}
+
+	if (cursor < endMs) {
+		emit(cursor, endMs)
+	}
+
+	return missing
+}
+
+/**
+ * Collapse a gap list into at most one range per cachability class, so a cache
+ * miss costs at most two warehouse queries instead of one per gap.
+ *
+ * Prod telemetry showed the per-gap fan-out averaging ~2.9 warehouse queries
+ * per request *regardless of cache coverage* — a request with 90% of its
+ * buckets cached issued as many queries as a cold one, so the cache paid its
+ * read cost and never collected the win. Coalescing is what makes coverage
+ * translate into avoided work.
+ *
+ * Safety: `findMissingRanges` splits every gap at the flux boundary, so all
+ * cachable gaps lie entirely below it and all non-cachable gaps entirely
+ * above. Taking `min(start)..max(end)` within a class therefore cannot drag a
+ * bucket across the boundary, and the "never write back the live tail" rule
+ * still holds.
+ *
+ * The coalesced range spans interior gaps that were already cached, so those
+ * buckets get refetched. That is intentional: one wider scan over a
+ * sort-key-aligned range beats N round trips, and the refetched buckets simply
+ * win the merge in `mergeAndDeduplicateBuckets` with equivalent data.
+ */
+export const coalesceMissingRanges = (missing: ReadonlyArray<MissingRange>): ReadonlyArray<MissingRange> => {
+	const spans = new Map<boolean, { startMs: number; endMs: number }>()
+	for (const { range, cachable } of missing) {
+		const span = spans.get(cachable)
+		if (span) {
+			span.startMs = Math.min(span.startMs, range.startMs)
+			span.endMs = Math.max(span.endMs, range.endMs)
+		} else {
+			spans.set(cachable, { startMs: range.startMs, endMs: range.endMs })
+		}
+	}
+	// Settled range before the live tail, so the write-back path sees the
+	// cachable result first.
+	return [true, false].flatMap((cachable) => {
+		const span = spans.get(cachable)
+		return span ? [{ range: { startMs: span.startMs, endMs: span.endMs }, cachable }] : []
+	})
+}
+
+/**
+ * Group a flat point array by bucket window and emit cachable buckets only.
+ * Any bucket whose `endMs > fluxBoundaryMs` is dropped — its points remain in
+ * the caller's returned result set but must not be persisted.
+ */
+export const pointsToBuckets = (
+	points: ReadonlyArray<TimeseriesPoint>,
+	bucketMs: number,
+	fluxBoundaryMs: number,
+): ReadonlyArray<CachedBucket> => {
+	const byBucket = new Map<number, TimeseriesPoint[]>()
+
+	for (const point of points) {
+		const ms = parseWarehouseDateTime(point.bucket)
+		if (Number.isNaN(ms)) continue
+		const aligned = Math.floor(ms / bucketMs) * bucketMs
+		const existing = byBucket.get(aligned)
+		if (existing) {
+			existing.push(point)
+		} else {
+			byBucket.set(aligned, [point])
+		}
+	}
+
+	const buckets: CachedBucket[] = []
+	for (const [startMs, bucketPoints] of byBucket) {
+		const endMs = startMs + bucketMs
+		if (endMs > fluxBoundaryMs) continue
+		buckets.push({ startMs, endMs, points: bucketPoints })
+	}
+
+	return buckets.sort((a, b) => a.startMs - b.startMs)
+}
+
+/**
+ * Merge existing and fresh buckets, deduping by `startMs`. Fresh buckets
+ * supersede existing buckets with the same start (later-writer-wins).
+ */
+export const mergeAndDeduplicateBuckets = (
+	existing: ReadonlyArray<CachedBucket>,
+	fresh: ReadonlyArray<CachedBucket>,
+): ReadonlyArray<CachedBucket> => {
+	const byStart = new Map<number, CachedBucket>()
+	for (const bucket of existing) {
+		byStart.set(bucket.startMs, bucket)
+	}
+	for (const bucket of fresh) {
+		byStart.set(bucket.startMs, bucket)
+	}
+	return [...byStart.values()].sort((a, b) => a.startMs - b.startMs)
+}
+
+/**
+ * Slice cached buckets' points to only those whose `bucket` timestamp falls
+ * within `[startMs, endMs)`. Used to build the final response from cache.
+ */
+const slicePointsFromBuckets = (
+	buckets: ReadonlyArray<CachedBucket>,
+	startMs: number,
+	endMs: number,
+): ReadonlyArray<TimeseriesPoint> => {
+	const out: TimeseriesPoint[] = []
+	for (const bucket of buckets) {
+		if (bucket.endMs <= startMs) continue
+		if (bucket.startMs >= endMs) break
+		for (const point of bucket.points) {
+			const ms = parseWarehouseDateTime(point.bucket)
+			if (Number.isNaN(ms)) continue
+			if (ms >= startMs && ms < endMs) {
+				out.push(point)
+			}
+		}
+	}
+	return out
+}
+
+const requestedBucketStarts = (startMs: number, endMs: number, bucketMs: number): number[] => {
+	if (endMs <= startMs) return []
+	const first = Math.floor(startMs / bucketMs) * bucketMs
+	const last = Math.floor((endMs - 1) / bucketMs) * bucketMs
+	const starts: number[] = []
+	for (let cursor = first; cursor <= last; cursor += bucketMs) starts.push(cursor)
+	return starts
+}
+
+const segmentStartsForRange = (startMs: number, endMs: number, segmentMs: number): number[] => {
+	if (endMs <= startMs) return []
+	const first = Math.floor(startMs / segmentMs) * segmentMs
+	const last = Math.floor((endMs - 1) / segmentMs) * segmentMs
+	const starts: number[] = []
+	for (let cursor = first; cursor <= last; cursor += segmentMs) starts.push(cursor)
+	return starts
+}
+
+const pointsToCoveredBuckets = (
+	points: ReadonlyArray<TimeseriesPoint>,
+	range: TimeRange,
+	bucketMs: number,
+	fluxBoundaryMs: number,
+): ReadonlyArray<CachedBucket> => {
+	const pointsByStart = new Map<number, TimeseriesPoint[]>()
+	for (const point of points) {
+		const pointMs = parseWarehouseDateTime(point.bucket)
+		if (Number.isNaN(pointMs)) continue
+		const startMs = Math.floor(pointMs / bucketMs) * bucketMs
+		const existing = pointsByStart.get(startMs)
+		if (existing) existing.push(point)
+		else pointsByStart.set(startMs, [point])
+	}
+
+	const firstFullBucket = Math.ceil(range.startMs / bucketMs) * bucketMs
+	const buckets: CachedBucket[] = []
+	for (let startMs = firstFullBucket; startMs + bucketMs <= range.endMs; startMs += bucketMs) {
+		const endMs = startMs + bucketMs
+		if (endMs > fluxBoundaryMs) break
+		buckets.push({ startMs, endMs, points: pointsByStart.get(startMs) ?? [] })
+	}
+	return buckets
+}
+
+const isBucketCacheSegmentData = (
+	value: unknown,
+	expected: {
+		readonly fingerprint: string
+		readonly bucketSeconds: number
+		readonly bucketMs: number
+		readonly segmentStartMs: number
+		readonly segmentEndMs: number
+	},
+): value is BucketCacheSegmentData => {
+	if (value === null || typeof value !== "object") return false
+	const data = value as Partial<BucketCacheSegmentData>
+	if (
+		data.version !== CACHE_VERSION ||
+		data.fingerprint !== expected.fingerprint ||
+		data.bucketSeconds !== expected.bucketSeconds ||
+		data.segmentStartMs !== expected.segmentStartMs ||
+		data.segmentEndMs !== expected.segmentEndMs ||
+		!Array.isArray(data.buckets)
+	) {
+		return false
+	}
+	return data.buckets.every((cachedBucket) => {
+		if (cachedBucket === null || typeof cachedBucket !== "object") return false
+		return (
+			Number.isFinite(cachedBucket.startMs) &&
+			Number.isFinite(cachedBucket.endMs) &&
+			cachedBucket.startMs >= expected.segmentStartMs &&
+			cachedBucket.endMs <= expected.segmentEndMs &&
+			cachedBucket.endMs - cachedBucket.startMs === expected.bucketMs &&
+			cachedBucket.startMs % expected.bucketMs === 0 &&
+			Array.isArray(cachedBucket.points) &&
+			cachedBucket.points.every((point: unknown) => {
+				if (point === null || typeof point !== "object") return false
+				const candidate = point as Partial<TimeseriesPoint>
+				return (
+					typeof candidate.bucket === "string" &&
+					candidate.series !== null &&
+					typeof candidate.series === "object"
+				)
+			})
+		)
+	})
+}
+
+export interface BucketCacheServiceApi {
+	readonly enabled: boolean
+	readonly getOrComputeBuckets: <E, R>(
+		request: BucketCacheRequest,
+		computeRange: (range: TimeRange) => Effect.Effect<ReadonlyArray<TimeseriesPoint>, E, R>,
+		/**
+		 * Optional warm-up run once before a multi-range fill fans out.
+		 *
+		 * Each `computeRange` branch resolves the tenant's warehouse route on its
+		 * own, and that resolution reads per-org config from Postgres (~2.9s
+		 * cold). Started together, every branch misses the in-isolate memo and
+		 * pays it: one prod trace resolved the identical config twice
+		 * concurrently at 2.90s each while the queries being prepared for took
+		 * 428ms and 1179ms. Running this first collapses that to one lookup.
+		 *
+		 * Deliberately NOT part of `BucketCacheRequest` — that object is
+		 * canonicalized into the cache-key fingerprint, and an Effect in it would
+		 * poison the key.
+		 *
+		 * Skipped when the fill is 0 or 1 ranges: with none there is nothing to
+		 * prepare, and with one the warm-up would move the same cost rather than
+		 * remove it, while adding a sequential step to a pure cache hit.
+		 */
+		prepare?: Effect.Effect<void>,
+	) => Effect.Effect<BucketCacheOutcome, E, R>
+}
+
+const enabledConfig = Config.Boolean("QE_BUCKET_CACHE_ENABLED").pipe(Config.withDefault(true))
+const ttlSecondsConfig = Config.Number("QE_BUCKET_CACHE_TTL_SECONDS").pipe(Config.withDefault(86400))
+const fluxSecondsConfig = Config.Number("QE_BUCKET_CACHE_FLUX_SECONDS").pipe(Config.withDefault(60))
+const segmentBucketsConfig = Config.Number("QE_BUCKET_CACHE_SEGMENT_BUCKETS").pipe(Config.withDefault(120))
+// A validated query contains at most 1,500 points, so 120-bucket segments
+// produce at most 13 reads. In practice 98% of prod requests read one or two
+// segments (measured 2026-08-04: 1 segment 70.2%, 2 segments 27.8%), so this
+// cap is a guard against malformed/internal callers, not a tuning knob for the
+// normal path.
+//
+// Do not raise it. Cloudflare counts `cache.match()` against the Worker's
+// six-simultaneous-connection limit for as long as it is waiting for response
+// headers, and queues the seventh until a slot frees. Anything above ~6 here
+// self-queues, and the wait is charged to `EDGE_CACHE_READ_TIMEOUT_MS` — the
+// read gets abandoned before it ever reaches the cache.
+// https://developers.cloudflare.com/workers/platform/limits/
+//
+// The same limit bounds this knob, not just the segment count: 13 segment reads
+// issued at concurrency 16 are still 13 simultaneous `cache.match()` calls. Six
+// is the ceiling that keeps every read in a connection slot instead of queueing
+// behind its own siblings and being abandoned at `EDGE_CACHE_READ_TIMEOUT_MS`.
+const readConcurrencyConfig = Config.Number("QE_BUCKET_CACHE_READ_CONCURRENCY").pipe(Config.withDefault(6))
+// Cap how many missing sub-ranges fan out to the warehouse per cache miss. A
+// single cold dashboard request only ever splits into a few ranges, but
+// "unbounded" let a burst of concurrent misses multiply into a warehouse
+// stampede (the mechanism behind the eval-bucket-cache regression). Bound it.
+const fillConcurrencyConfig = Config.Number("QE_BUCKET_CACHE_FILL_CONCURRENCY").pipe(Config.withDefault(4))
+
+export class BucketCacheService extends Context.Service<BucketCacheService, BucketCacheServiceApi>()(
+	"@maple/api/lib/BucketCacheService",
+	{
+		make: Effect.gen(function* () {
+			const edgeCache = yield* EdgeCacheService
+			const enabled = yield* enabledConfig
+			const ttlSeconds = yield* ttlSecondsConfig
+			const fluxSeconds = yield* fluxSecondsConfig
+			const configuredFillConcurrency = yield* fillConcurrencyConfig
+			const configuredSegmentBucketCount = yield* segmentBucketsConfig
+			const configuredReadConcurrency = yield* readConcurrencyConfig
+			const fillConcurrency = Math.max(1, Math.floor(configuredFillConcurrency))
+			const segmentBucketCount = Math.max(1, Math.floor(configuredSegmentBucketCount))
+			const readConcurrency = Math.max(1, Math.floor(configuredReadConcurrency))
+
+			const getOrComputeBuckets = Effect.fn("BucketCacheService.getOrComputeBuckets")(function* <E, R>(
+				request: BucketCacheRequest,
+				computeRange: (range: TimeRange) => Effect.Effect<ReadonlyArray<TimeseriesPoint>, E, R>,
+				prepare?: Effect.Effect<void>,
+			) {
+				const bucketMs = request.bucketSeconds * 1000
+				const segmentMs = bucketMs * segmentBucketCount
+				const fluxBoundaryMs = (yield* Clock.currentTimeMillis) - fluxSeconds * 1000
+				const fingerprint = yield* Effect.promise(() =>
+					generateFingerprint(request.orgId, request.query, request.bucketSeconds),
+				)
+
+				yield* Effect.annotateCurrentSpan({
+					"cache.fingerprint": fingerprint.slice(0, 12),
+					"cache.bucketSeconds": request.bucketSeconds,
+					"cache.rangeMs": request.endMs - request.startMs,
+					orgId: request.orgId,
+				})
+
+				// Do not coalesce requests through process-global Deferred/Promise
+				// state. This service is constructed once for the Worker isolate, so
+				// such state is shared by unrelated request contexts. Cloudflare
+				// forbids one request from awaiting I/O initiated by another and
+				// throws "Cannot perform I/O on behalf of a different request".
+				//
+				// Concurrent cold misses may therefore compute the same range more
+				// than once. The shared cache backend still serves later callers;
+				// safe cross-request single-flight would require a Durable Object or
+				// another request-neutral coordinator.
+				const readOrCompute = Effect.gen(function* () {
+					const requestedStarts = requestedBucketStarts(request.startMs, request.endMs, bucketMs)
+					const requestedSet = new Set(requestedStarts)
+					const segmentStarts = segmentStartsForRange(request.startMs, request.endMs, segmentMs)
+					type SegmentRead = {
+						readonly segmentStartMs: number
+						readonly status: "hit" | "miss" | "timeout" | "skipped" | "error"
+						readonly buckets: ReadonlyArray<CachedBucket>
+					}
+
+					const segmentReads = yield* Effect.forEach(
+						segmentStarts,
+						(segmentStartMs): Effect.Effect<SegmentRead> => {
+							const key = `v${CACHE_VERSION}:${request.orgId}:${fingerprint}:${segmentStartMs}`
+							return edgeCache.rawGetDetailed<unknown>(BUCKET_CACHE_NAMESPACE, key).pipe(
+								Effect.map((read): SegmentRead => {
+									if (read.status !== "hit" || Option.isNone(read.value)) {
+										return {
+											segmentStartMs,
+											status: read.status,
+											buckets: EMPTY_BUCKETS,
+										}
+									}
+									const data = read.value.value
+									const valid = isBucketCacheSegmentData(data, {
+										fingerprint,
+										bucketSeconds: request.bucketSeconds,
+										bucketMs,
+										segmentStartMs,
+										segmentEndMs: segmentStartMs + segmentMs,
+									})
+									return valid
+										? { segmentStartMs, status: "hit", buckets: data.buckets }
+										: { segmentStartMs, status: "miss", buckets: EMPTY_BUCKETS }
+								}),
+								Effect.catch((error) =>
+									Effect.logWarning("Bucket cache segment read failed").pipe(
+										Effect.annotateLogs({
+											fingerprint: fingerprint.slice(0, 12),
+											orgId: request.orgId,
+											segmentStartMs,
+											error: error.cause,
+										}),
+										Effect.as({
+											segmentStartMs,
+											status: "error",
+											buckets: EMPTY_BUCKETS,
+										} as const),
+									),
+								),
+							)
+						},
+						{ concurrency: readConcurrency },
+					)
+
+					const existingBySegment = new Map<number, ReadonlyArray<CachedBucket>>()
+					const readStatusBySegment = new Map<number, SegmentRead["status"]>()
+					const existingBuckets: CachedBucket[] = []
+					for (const read of segmentReads) {
+						existingBySegment.set(read.segmentStartMs, read.buckets)
+						readStatusBySegment.set(read.segmentStartMs, read.status)
+						existingBuckets.push(...read.buckets)
+					}
+					existingBuckets.sort((a, b) => a.startMs - b.startMs)
+
+					const cachedRequestedStarts = new Set(
+						existingBuckets
+							.filter((cachedBucket) => requestedSet.has(cachedBucket.startMs))
+							.map((cachedBucket) => cachedBucket.startMs),
+					)
+					const bucketsHit = cachedRequestedStarts.size
+					const bucketsMissed = Math.max(0, requestedStarts.length - bucketsHit)
+					const missing = findMissingRanges(
+						existingBuckets,
+						request.startMs,
+						request.endMs,
+						bucketMs,
+						fluxBoundaryMs,
+					)
+					const fillRanges = coalesceMissingRanges(missing)
+					// One warm-up before the fan-out, not one route resolution per
+					// branch. See `prepare` on BucketCacheServiceApi for the trace
+					// this came from. Only worth it above one range — see the doc there.
+					if (prepare !== undefined && fillRanges.length > 1) {
+						yield* prepare
+					}
+					const freshByRange = yield* Effect.forEach(
+						fillRanges,
+						(item) => computeRange(item.range),
+						{
+							concurrency: fillConcurrency,
+						},
+					)
+					// `freshByRange` is the result of the same `fillRanges` fan-out, so the
+					// indexes line up; an empty range is the honest value if one ever does not.
+					const rangeResults = fillRanges.map((item, index) => ({
+						item,
+						points: freshByRange[index] ?? [],
+					}))
+					const freshCachableBuckets = rangeResults.flatMap(({ item, points }) =>
+						item.cachable
+							? pointsToCoveredBuckets(points, item.range, bucketMs, fluxBoundaryMs)
+							: EMPTY_BUCKETS,
+					)
+					const freshBySegment = new Map<number, CachedBucket[]>()
+					for (const cachedBucket of freshCachableBuckets) {
+						const segmentStartMs = Math.floor(cachedBucket.startMs / segmentMs) * segmentMs
+						const grouped = freshBySegment.get(segmentStartMs)
+						if (grouped) grouped.push(cachedBucket)
+						else freshBySegment.set(segmentStartMs, [cachedBucket])
+					}
+
+					yield* Effect.forEach(
+						[...freshBySegment.entries()],
+						([segmentStartMs, freshBuckets]) => {
+							const readStatus = readStatusBySegment.get(segmentStartMs) ?? "miss"
+							// A read we never got an answer from — timed out, errored, or
+							// skipped by the edge cache's breaker — tells us nothing about
+							// what is stored, so we must not merge against `existingBySegment`
+							// (empty, but only because we never saw it) and present the
+							// result as the whole segment. Skipping the write entirely is
+							// the wrong correction though: under sustained connection
+							// pressure every read for a hot segment times out, so the
+							// segment is never repopulated and every subsequent request
+							// times out too — the cache holds itself cold.
+							//
+							// Write the fresh buckets alone instead. Every bucket here is
+							// fully settled (past the flux boundary) and therefore
+							// immutable, so overwriting an unread entry with them cannot
+							// lose correct data — at worst it drops buckets we couldn't see,
+							// which the next request refetches and merges back.
+							const merged =
+								readStatus === "timeout" || readStatus === "skipped" || readStatus === "error"
+									? [...freshBuckets].sort((a, b) => a.startMs - b.startMs)
+									: mergeAndDeduplicateBuckets(
+											existingBySegment.get(segmentStartMs) ?? EMPTY_BUCKETS,
+											freshBuckets,
+										)
+							const key = `v${CACHE_VERSION}:${request.orgId}:${fingerprint}:${segmentStartMs}`
+							const payload: BucketCacheSegmentData = {
+								version: CACHE_VERSION,
+								fingerprint,
+								bucketSeconds: request.bucketSeconds,
+								segmentStartMs,
+								segmentEndMs: segmentStartMs + segmentMs,
+								buckets: merged,
+							}
+							return edgeCache.rawPut(BUCKET_CACHE_NAMESPACE, key, payload, ttlSeconds).pipe(
+								Effect.tapError((error) =>
+									Effect.logWarning("Bucket cache segment write failed").pipe(
+										Effect.annotateLogs({
+											fingerprint: fingerprint.slice(0, 12),
+											orgId: request.orgId,
+											segmentStartMs,
+											bucketCount: merged.length,
+											error: error.cause,
+										}),
+									),
+								),
+								Effect.ignore,
+							)
+						},
+						{ concurrency: readConcurrency, discard: true },
+					)
+
+					const pointsByBucket = new Map<string, TimeseriesPoint>()
+					for (const cachedPoint of slicePointsFromBuckets(
+						existingBuckets,
+						request.startMs,
+						request.endMs,
+					)) {
+						pointsByBucket.set(cachedPoint.bucket, cachedPoint)
+					}
+					for (const { points } of rangeResults) {
+						for (const freshPoint of points) {
+							const pointMs = parseWarehouseDateTime(freshPoint.bucket)
+							if (
+								!Number.isNaN(pointMs) &&
+								pointMs >= request.startMs &&
+								pointMs < request.endMs
+							) {
+								pointsByBucket.set(freshPoint.bucket, freshPoint)
+							}
+						}
+					}
+					const points = [...pointsByBucket.values()].sort((a, b) =>
+						a.bucket < b.bucket ? -1 : a.bucket > b.bucket ? 1 : 0,
+					)
+					const countStatus = (status: SegmentRead["status"]) =>
+						segmentReads.filter((read) => read.status === status).length
+					const outcome = {
+						points,
+						requestedBuckets: requestedStarts.length,
+						bucketsHit,
+						bucketsMissed,
+						missingRangeCount: missing.length,
+						warehouseQueryCount: fillRanges.length,
+						segmentsHit: countStatus("hit"),
+						segmentsMissed: countStatus("miss"),
+						segmentsTimedOut: countStatus("timeout"),
+						segmentsSkipped: countStatus("skipped"),
+						segmentsErrored: countStatus("error"),
+					} satisfies BucketCacheOutcome
+					const coverageRatio =
+						outcome.requestedBuckets === 0 ? 1 : outcome.bucketsHit / outcome.requestedBuckets
+					yield* Effect.annotateCurrentSpan({
+						"cache.requestedBuckets": outcome.requestedBuckets,
+						"cache.bucketsHit": outcome.bucketsHit,
+						"cache.bucketsMissed": outcome.bucketsMissed,
+						"cache.coverage_ratio": coverageRatio,
+						"cache.missingRangeCount": outcome.missingRangeCount,
+						"cache.warehouse_query_count": outcome.warehouseQueryCount,
+						"cache.warehouse_avoided": outcome.warehouseQueryCount === 0,
+						"cache.segments_hit": outcome.segmentsHit,
+						"cache.segments_missed": outcome.segmentsMissed,
+						"cache.segments_timed_out": outcome.segmentsTimedOut,
+						"cache.segments_skipped": outcome.segmentsSkipped,
+						"cache.segments_errored": outcome.segmentsErrored,
+					})
+					return outcome
+				}).pipe(
+					Effect.withSpan("BucketCacheService.readOrCompute", {
+						attributes: { "cache.segmentBucketCount": segmentBucketCount },
+					}),
+				)
+
+				return yield* readOrCompute
+			})
+
+			return { enabled, getOrComputeBuckets } satisfies BucketCacheServiceApi
+		}),
+	},
+) {
+	static readonly layer = Layer.effect(this, this.make)
+}

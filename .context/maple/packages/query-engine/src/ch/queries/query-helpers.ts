@@ -1,0 +1,654 @@
+// Shared query helpers
+//
+// Reusable expression builders and WHERE condition helpers used across
+// traces, alerts, services, and metrics queries.
+
+import type { DateTime } from "effect"
+import { finiteOrZero } from "./format"
+import type { AttributeFilter, MetricType } from "@maple/domain/query-engine"
+import * as CH from "@maple-dev/effect-orm/expr"
+import { param } from "@maple-dev/effect-orm/clickhouse"
+import type { ColumnAccessor } from "@maple-dev/effect-orm/clickhouse"
+import type { ServiceOverviewSpans, Traces, TracesAggregatesHourly } from "../tables"
+import {
+	MetricsSum,
+	MetricsGauge,
+	MetricsHistogram,
+	MetricsExpHistogram,
+	orgIdParam,
+	utcSecondsParam,
+} from "../tables"
+import { deploymentEnvExpr } from "@maple/domain/tinybird/semconv-renames"
+import { buildAttrFilterCondition, httpDisplaySpanName } from "../../traces-shared"
+import type { AttributeIndexMode } from "../../capabilities"
+import * as T from "@maple-dev/effect-orm/clickhouse"
+
+/**
+ * A timeseries row's bucket. `wholeRange` keys every row at `startTime`, so the
+ * query returns one aggregate per group over exactly its range: an alert window
+ * slides by the minute and rarely starts on the epoch grid `toStartOfInterval` uses.
+ */
+export function timeseriesBucket<Q>(column: CH.Expr<DateTime.Utc, Q>, wholeRange: boolean | undefined) {
+	const epochAligned = CH.toStartOfInterval(column, param.int("bucketSeconds"))
+	const rangeStart = CH.toDateTime(utcSecondsParam("startTime"))
+	const chosen = wholeRange ? rangeStart : epochAligned
+	// One expression type whichever branch is taken, declaring both branches' params.
+	return CH.makeExpr(CH.toFragment(chosen), CH.schemaOf<DateTime.Utc>(chosen), undefined, [
+		epochAligned,
+		rangeStart,
+	])
+}
+
+/**
+ * The half-open end of a `wholeRange` query: an alert window is [startTime, endTime),
+ * while the shared source filters keep their inclusive `<= endTime` for dashboards.
+ */
+export function wholeRangeEnd<Q>(
+	column: CH.Expr<DateTime.Utc, Q>,
+	wholeRange: boolean | undefined,
+): CH.Condition | undefined {
+	return wholeRange ? column.lt(utcSecondsParam("endTime")) : undefined
+}
+
+// APDEX expressions
+
+/**
+ * Build the standard APDEX aggregation expressions (satisfiedCount,
+ * toleratingCount, apdexScore) from a duration expression and threshold.
+ *
+ * Per the Apdex spec, a *failed* request counts as frustrated regardless of how
+ * fast it was. When `errorCondition` is supplied, errored spans are excluded
+ * from the satisfied and tolerating buckets (they remain in `total`, so they
+ * drag the score down). Omitting it falls back to latency-only classification.
+ *
+ * @param durationMs - An expression representing span duration in milliseconds
+ *                     (typically `$.Duration.div(1000000)`)
+ * @param thresholdMs - The APDEX "T" threshold in milliseconds
+ * @param errorCondition - Optional predicate identifying errored spans
+ *                         (typically `$.StatusCode.eq("Error")`)
+ */
+export function apdexExprs(
+	durationMs: CH.Expr<number | null>,
+	thresholdMs: number,
+	errorCondition?: CH.Condition,
+) {
+	const satisfiedLatency = durationMs.lt(thresholdMs)
+	const toleratingLatency = durationMs.gte(thresholdMs).and(durationMs.lt(thresholdMs * 4))
+	// Gate the latency buckets on "not an error" so failed requests fall through
+	// to frustrated. `total` still counts every span, so errors pull the score down.
+	const satisfiedCond = errorCondition ? CH.not(errorCondition).and(satisfiedLatency) : satisfiedLatency
+	const toleratingCond = errorCondition ? CH.not(errorCondition).and(toleratingLatency) : toleratingLatency
+	const satisfied = CH.countIf(satisfiedCond)
+	const tolerating = CH.countIf(toleratingCond)
+	const total = CH.count()
+	// Split the formula so SQL operator precedence stays correct.
+	// (s + t*0.5) / n  ≡  s/n + (t*0.5)/n
+	// Writing it as `satisfied.add(tolerating.mul(0.5)).div(count())` would
+	// compile to `satisfied + tolerating * 0.5 / count()`, which by SQL
+	// precedence evaluates as `satisfied + ((tolerating*0.5)/count())` — i.e.
+	// returns ~`satisfied`, not a 0–1 ratio.
+	const satisfiedRatio = satisfied.div(total)
+	const toleratingRatio = tolerating.mul(0.5).div(total)
+	return {
+		satisfiedCount: satisfied,
+		toleratingCount: tolerating,
+		apdexScore: CH.if_(total.gt(0), CH.round_(satisfiedRatio.add(toleratingRatio), 4), CH.lit(0)),
+	}
+}
+
+// Attribute map projection
+
+/**
+ * Build a ClickHouse `map()` literal that extracts only the requested attribute
+ * keys from a Map column. Selecting the full `SpanAttributes` / `ResourceAttributes`
+ * map for every row materializes large per-row JSON — projecting just the keys
+ * the UI renders is a large win on wide traces.
+ */
+export function buildProjectedMapExpr(
+	requestedKeys: readonly string[],
+	mapName: "SpanAttributes" | "ResourceAttributes" | "LogAttributes",
+): CH.Expr<Record<string, string>> {
+	if (requestedKeys.length === 0) return CH.mapLiteral()
+	const pairs: Array<[string, CH.Expr<string>]> = requestedKeys.map((key) => {
+		const valueExpr: CH.Expr<string> = CH.mapGet(CH.dynamicColumn<Record<string, string>>(mapName), key)
+		return [key, valueExpr]
+	})
+	return CH.mapLiteral(...pairs)
+}
+
+// Traces base WHERE conditions
+
+interface TracesMatchModes {
+	serviceName?: "contains"
+	spanName?: "contains"
+	deploymentEnv?: "contains"
+	serviceNamespace?: "contains"
+}
+
+export interface TracesBaseWhereOpts {
+	serviceName?: string
+	spanName?: string
+	/** Multi-value spelling; wins over the scalar field when non-empty. */
+	serviceNames?: readonly string[]
+	spanNames?: readonly string[]
+	statusCode?: "Ok" | "Error" | "Unset"
+	rootOnly?: boolean
+	errorsOnly?: boolean
+	environments?: readonly string[]
+	namespaces?: readonly string[]
+	commitShas?: readonly string[]
+	attributeFilters?: readonly AttributeFilter[]
+	resourceAttributeFilters?: readonly AttributeFilter[]
+	matchModes?: TracesMatchModes
+	minDurationMs?: number
+	maxDurationMs?: number
+	excludedServiceNames?: readonly string[]
+	excludedSpanNames?: readonly string[]
+	excludedEnvironments?: readonly string[]
+	excludedNamespaces?: readonly string[]
+	excludedCommitShas?: readonly string[]
+	attributeIndexMode?: AttributeIndexMode
+}
+
+/**
+ * Collapse the scalar and array spellings of an inclusion filter into one list.
+ *
+ * The scalar field is the original spelling and is still what the dashboard DSL,
+ * MCP tools and alert rules emit; the array is what the traces UI sends once the
+ * user ticks more than one facet value. The array wins when non-empty.
+ *
+ * Returns `undefined` for "no filter" so callers can keep using `CH.when`.
+ */
+export function inclusionValues(
+	scalar: string | undefined,
+	list: readonly string[] | undefined,
+): readonly string[] | undefined {
+	if (list?.length) return list
+	if (scalar) return [scalar]
+	return undefined
+}
+
+/**
+ * `col = 'x'` for a single value, `col IN (...)` for several.
+ *
+ * Keeping equality as its own form matters beyond aesthetics: single-value is
+ * the overwhelmingly common case, and `=` is what the captured `db.query.text`
+ * span attribute and every query fingerprint carried before multi-select.
+ */
+/**
+ * A time param floored to its hour, for querying hourly rollup tables. Four
+ * files defined this identically; the expression has to agree with the MV's
+ * `Hour` column or the join silently misses.
+ */
+export function utcHourFloor(name: string): CH.Expr<DateTime.Utc> {
+	return CH.toStartOfHour(CH.toDateTime(utcSecondsParam(name)))
+}
+
+/**
+ * The row shape every facet-sidebar query returns: one distinct value, how many
+ * rows carry it, and which dimension it belongs to. Declared once and aliased
+ * per query, so the seven callers keep their descriptive names (they are public
+ * API) without seven structurally identical declarations.
+ */
+export interface FacetOutput {
+	readonly name: string
+	readonly count: number
+	readonly facetType: string
+}
+
+// A conditional aggregate over a metric family the entity never emitted returns
+// `nan`, which ClickHouse serializes as JSON `null` — and one null against a
+// numeric row schema fails the decode for the whole page, not just that row.
+// Shared by the infra (host/pod/node/workload) and container queries.
+export const avgIfOrZero = (value: CH.Expr<number>, condition: CH.Condition): CH.Expr<number> =>
+	finiteOrZero(CH.avgIf(value, condition))
+
+export const maxIfOrZero = (value: CH.Expr<number>, condition: CH.Condition): CH.Expr<number> =>
+	CH.ifNotFinite(CH.maxIf(value, condition), 0)
+
+/**
+ * Facet dimensions are plain `ResourceAttributes` keys, with one exception: the
+ * deployment environment has two semconv spellings, so it resolves to the
+ * coalescing expression instead of a single map lookup. Shared by every infra
+ * facet builder so a future renamed-key coalesce lands in one place.
+ */
+export const facetAttrExpr = (
+	resourceAttributes: { get(key: string): CH.Expr<string> },
+	attrKey: string,
+): CH.Expr<string> =>
+	attrKey === "deployment.environment.name"
+		? deploymentEnvExpr(resourceAttributes)
+		: resourceAttributes.get(attrKey)
+
+/**
+ * The sole element of a one-element list, else `undefined`.
+ *
+ * Every "one value narrows to a substring/equality match, more than one is set
+ * membership" branch in this file asks the same question, and `length === 1`
+ * answers it for the reader without answering it for the type system.
+ */
+export const soleValue = <A>(values: readonly A[]): A | undefined =>
+	values.length === 1 ? values[0] : undefined
+
+/**
+ * Every spelling a severity *level* reaches the warehouse as. Effect's logger writes Title Case
+ * (`Error`), the OTel SDKs upper-case (`ERROR`), pino-style shims lower-case — so `severity: "ERROR"`
+ * matched none of Maple's own services. Exact values (kept as `IN`) preserve the sorting-key prefix
+ * on `logs_aggregates_hourly`, which `upper(SeverityText)` would not.
+ */
+export function severitySpellings(level: string): readonly string[] {
+	const trimmed = level.trim()
+	if (trimmed === "") return []
+	const upper = trimmed.toUpperCase()
+	const lower = trimmed.toLowerCase()
+	const title = upper.charAt(0) + lower.slice(1)
+	return [...new Set([upper, title, lower])]
+}
+
+export function inclusionCondition(col: CH.Expr<string>, values: readonly string[]): CH.Condition {
+	const only = soleValue(values)
+	return only === undefined ? CH.inList(col, values) : col.eq(only)
+}
+
+/**
+ * The filter form behind every "type to narrow" text box: a single value under
+ * `contains` mode becomes a case-insensitive substring match, anything else
+ * falls back to `inclusionCondition`.
+ *
+ * `contains` only applies to a single value on purpose — a substring match
+ * across several needles would have to OR them, which is not what the UI's
+ * multi-select means (there it is set membership, not fuzzy matching).
+ */
+export function matchOrIn(col: CH.Expr<string>, values: readonly string[], contains: boolean): CH.Condition {
+	const only = contains ? soleValue(values) : undefined
+	return only === undefined
+		? inclusionCondition(col, values)
+		: CH.positionCaseInsensitive(col, CH.lit(only)).gt(0)
+}
+
+/**
+ * Tri-state errorsOnly filter: `true` keeps only errored spans, `false` keeps
+ * only non-errored spans, `undefined` applies no filter. The `false` case
+ * backs `has_error = false` clauses (e.g. the "OK" side of an errors-vs-OK
+ * comparison) — collapsing it to "no filter" silently counts every span.
+ */
+export function errorsOnlyCondition(
+	statusCode: CH.Expr<string>,
+	errorsOnly: boolean | undefined,
+): CH.Condition | undefined {
+	if (errorsOnly === true) return statusCode.eq("Error")
+	if (errorsOnly === false) return statusCode.neq("Error")
+	return undefined
+}
+
+type TracesBaseWhereColumns = Pick<
+	typeof Traces.columns,
+	| "OrgId"
+	| "Timestamp"
+	| "ServiceName"
+	| "SpanName"
+	| "SpanKind"
+	| "ParentSpanId"
+	| "StatusCode"
+	| "Duration"
+	| "ResourceAttributes"
+	| "SpanAttributes"
+>
+
+/**
+ * Build the WHERE conditions shared between traces queries and alert queries:
+ * OrgId, Timestamp range, serviceName, spanName, rootOnly, errorsOnly,
+ * environments, commitShas, attribute filters, duration filters, and
+ * optional "contains" match modes.
+ *
+ * Alert queries omit matchModes and duration filters — they just don't pass them.
+ */
+export function tracesBaseWhereConditions(
+	$: ColumnAccessor<TracesBaseWhereColumns>,
+	opts: TracesBaseWhereOpts,
+): Array<CH.Condition | undefined> {
+	const mm = opts.matchModes
+	const services = inclusionValues(opts.serviceName, opts.serviceNames)
+	const spanNames = inclusionValues(opts.spanName, opts.spanNames)
+	const conditions: Array<CH.Condition | undefined> = [
+		$.OrgId.eq(orgIdParam),
+		$.Timestamp.gte(param.dateTime("startTime")),
+		$.Timestamp.lte(param.dateTime("endTime")),
+		CH.when(services, (v: readonly string[]) =>
+			matchOrIn($.ServiceName, v, mm?.serviceName === "contains"),
+		),
+		CH.when(spanNames, (v: readonly string[]) => {
+			// The "Root Span" facet and trace_list_mv expose the *display* name
+			// ("GET /api/users"); the raw traces table stores "http.server GET".
+			// Match either spelling so a facet click actually selects rows.
+			const display = httpDisplaySpanName(
+				$.SpanName,
+				$.SpanAttributes.get("http.route"),
+				$.SpanAttributes.get("url.path"),
+			)
+			const needle = mm?.spanName === "contains" ? soleValue(v) : undefined
+			return needle === undefined
+				? inclusionCondition($.SpanName, v).or(inclusionCondition(display, v))
+				: CH.positionCaseInsensitive($.SpanName, CH.lit(needle))
+						.gt(0)
+						.or(CH.positionCaseInsensitive(display, CH.lit(needle)).gt(0))
+		}),
+		CH.when(opts.statusCode, (v: string) => $.StatusCode.eq(v)),
+		CH.whenTrue(!!opts.rootOnly, () => $.SpanKind.in_("Server", "Consumer").or($.ParentSpanId.eq(""))),
+		errorsOnlyCondition($.StatusCode, opts.errorsOnly),
+	]
+
+	if (opts.minDurationMs != null) {
+		conditions.push($.Duration.gte(opts.minDurationMs * 1000000))
+	}
+	if (opts.maxDurationMs != null) {
+		conditions.push($.Duration.lte(opts.maxDurationMs * 1000000))
+	}
+
+	if (opts.environments?.length) {
+		if (mm?.deploymentEnv === "contains" && opts.environments.length === 1) {
+			conditions.push(
+				CH.positionCaseInsensitive(
+					deploymentEnvExpr($.ResourceAttributes),
+					CH.lit(opts.environments[0]),
+				).gt(0),
+			)
+		} else {
+			conditions.push(CH.inList(deploymentEnvExpr($.ResourceAttributes), opts.environments))
+		}
+	}
+	if (opts.namespaces?.length) {
+		if (mm?.serviceNamespace === "contains" && opts.namespaces.length === 1) {
+			conditions.push(
+				CH.positionCaseInsensitive(
+					$.ResourceAttributes.get("service.namespace"),
+					CH.lit(opts.namespaces[0]),
+				).gt(0),
+			)
+		} else {
+			conditions.push(CH.inList($.ResourceAttributes.get("service.namespace"), opts.namespaces))
+		}
+	}
+	if (opts.commitShas?.length) {
+		conditions.push(CH.inList($.ResourceAttributes.get("vcs.ref.head.revision"), opts.commitShas))
+	}
+	if (opts.attributeFilters) {
+		for (const af of opts.attributeFilters) {
+			conditions.push(buildAttrFilterCondition(af, "SpanAttributes", opts.attributeIndexMode))
+		}
+	}
+	if (opts.resourceAttributeFilters) {
+		for (const rf of opts.resourceAttributeFilters) {
+			conditions.push(buildAttrFilterCondition(rf, "ResourceAttributes", opts.attributeIndexMode))
+		}
+	}
+	if (opts.excludedServiceNames?.length) {
+		conditions.push(CH.notInList($.ServiceName, opts.excludedServiceNames))
+	}
+	if (opts.excludedSpanNames?.length) {
+		// Display-name aware: exclude rows matching either the raw or rewritten span name.
+		const display = httpDisplaySpanName(
+			$.SpanName,
+			$.SpanAttributes.get("http.route"),
+			$.SpanAttributes.get("url.path"),
+		)
+		conditions.push(
+			CH.not(
+				CH.inList($.SpanName, opts.excludedSpanNames).or(CH.inList(display, opts.excludedSpanNames)),
+			),
+		)
+	}
+	if (opts.excludedEnvironments?.length) {
+		conditions.push(CH.notInList(deploymentEnvExpr($.ResourceAttributes), opts.excludedEnvironments))
+	}
+	if (opts.excludedNamespaces?.length) {
+		conditions.push(CH.notInList($.ResourceAttributes.get("service.namespace"), opts.excludedNamespaces))
+	}
+	if (opts.excludedCommitShas?.length) {
+		conditions.push(
+			CH.notInList($.ResourceAttributes.get("vcs.ref.head.revision"), opts.excludedCommitShas),
+		)
+	}
+
+	return conditions
+}
+
+// ServiceOverviewSpans MV compatibility
+//
+// The service_overview_spans MV pre-filters traces at write time to
+// `SpanKind IN ('Server','Consumer') OR ParentSpanId = ''` and pre-extracts
+// `DeploymentEnv` / `CommitSha` from ResourceAttributes. It is ~20-100x cheaper
+// to scan than raw `traces` for dashboard timeseries that don't break down by
+// span name or attributes.
+//
+// Checks whether a set of filters/groupBy can be satisfied purely from the
+// MV's column set. The MV lacks SpanName, SpanKind, ParentSpanId,
+// SpanAttributes, and ResourceAttributes.
+
+/** Returns true iff the opts + groupBy can be served by service_overview_spans_mv. */
+export function canUseServiceOverviewMv(opts: TracesBaseWhereOpts, groupBy?: readonly string[]): boolean {
+	// The MV is *lossy*: it stores only entry-point spans (Server/Consumer OR
+	// root). That set is equivalent to the raw table only when the query itself
+	// asks for entry points via `rootOnly`. Routing a non-rootOnly query here
+	// silently swaps the population — the query says "all spans" and gets
+	// "entry spans", which is how one dashboard could show a breakdown by
+	// service (MV-routed, entry spans) next to a breakdown by span name
+	// (raw-routed, all spans) with a 20x gap between their totals.
+	if (!opts.rootOnly) return false
+	// The MV has no SpanName column, so neither spelling of the span-name filter
+	// can be served from it.
+	if (opts.spanName || opts.spanNames?.length) return false
+	if (opts.excludedSpanNames?.length) return false
+	if (opts.attributeFilters?.length) return false
+	if (opts.resourceAttributeFilters?.length) return false
+	if (groupBy) {
+		for (const g of groupBy) {
+			if (g === "span_name" || g === "http_method" || g === "attribute") return false
+		}
+	}
+	return true
+}
+
+/**
+ * Build the WHERE conditions for queries against service_overview_spans.
+ * Mirrors the subset of tracesBaseWhereConditions that the MV can serve.
+ * `rootOnly` is a no-op here: the MV already pre-filters to entry-point spans,
+ * and `canUseServiceOverviewMv` only routes rootOnly queries to it.
+ */
+export function serviceOverviewWhereConditions(
+	$: ColumnAccessor<typeof ServiceOverviewSpans.columns>,
+	opts: TracesBaseWhereOpts,
+): Array<CH.Condition | undefined> {
+	const mm = opts.matchModes
+	const services = inclusionValues(opts.serviceName, opts.serviceNames)
+	const conditions: Array<CH.Condition | undefined> = [
+		$.OrgId.eq(orgIdParam),
+		$.Timestamp.gte(utcSecondsParam("startTime")),
+		$.Timestamp.lte(utcSecondsParam("endTime")),
+		CH.when(services, (v: readonly string[]) =>
+			matchOrIn($.ServiceName, v, mm?.serviceName === "contains"),
+		),
+		errorsOnlyCondition($.StatusCode, opts.errorsOnly),
+	]
+
+	if (opts.minDurationMs != null) {
+		conditions.push($.Duration.gte(opts.minDurationMs * 1000000))
+	}
+	if (opts.maxDurationMs != null) {
+		conditions.push($.Duration.lte(opts.maxDurationMs * 1000000))
+	}
+
+	if (opts.environments?.length) {
+		if (mm?.deploymentEnv === "contains" && opts.environments.length === 1) {
+			conditions.push(CH.positionCaseInsensitive($.DeploymentEnv, CH.lit(opts.environments[0])).gt(0))
+		} else {
+			conditions.push(CH.inList($.DeploymentEnv, opts.environments))
+		}
+	}
+	if (opts.namespaces?.length) {
+		if (mm?.serviceNamespace === "contains" && opts.namespaces.length === 1) {
+			conditions.push(CH.positionCaseInsensitive($.ServiceNamespace, CH.lit(opts.namespaces[0])).gt(0))
+		} else {
+			conditions.push(CH.inList($.ServiceNamespace, opts.namespaces))
+		}
+	}
+	if (opts.commitShas?.length) {
+		conditions.push(CH.inList($.CommitSha, opts.commitShas))
+	}
+	if (opts.excludedServiceNames?.length) {
+		conditions.push(CH.notInList($.ServiceName, opts.excludedServiceNames))
+	}
+	if (opts.excludedEnvironments?.length) {
+		conditions.push(CH.notInList($.DeploymentEnv, opts.excludedEnvironments))
+	}
+	if (opts.excludedNamespaces?.length) {
+		conditions.push(CH.notInList($.ServiceNamespace, opts.excludedNamespaces))
+	}
+	if (opts.excludedCommitShas?.length) {
+		conditions.push(CH.notInList($.CommitSha, opts.excludedCommitShas))
+	}
+
+	return conditions
+}
+
+// TracesAggregatesHourly MV compatibility
+//
+// `traces_aggregates_hourly` is the generalized aggregating MV. Its dimensions
+// are (OrgId, Hour, ServiceName, SpanName, SpanKind, StatusCode, IsEntryPoint,
+// DeploymentEnv) and it stores sample-weighted -State columns (count, duration
+// sum, t-digest quantiles, error count) plus min/max. Queries that filter and
+// group on a subset of those dimensions can be answered by reading hourly rows
+// instead of raw spans — orders of magnitude cheaper for 7d+ ranges.
+
+/**
+ * Returns true iff a query (filters + groupBy + bucketSeconds) can be served
+ * from `traces_aggregates_hourly` instead of raw `traces`.
+ *
+ * Constraints:
+ *   - bucket >= 1h (the MV is hourly; finer granularity needs raw)
+ *   - No span/resource attribute filters (MV doesn't carry the maps)
+ *   - groupBy keys must map to MV dimensions (no http_method, no attribute-based)
+ */
+export function canUseTracesAggregatesMv(
+	opts: TracesBaseWhereOpts,
+	groupBy: readonly string[] | undefined,
+	bucketSeconds: number | undefined,
+): boolean {
+	if (bucketSeconds == null || bucketSeconds < 3600) return false
+	if (opts.attributeFilters?.length) return false
+	if (opts.resourceAttributeFilters?.length) return false
+	if (opts.commitShas?.length) return false // MV doesn't carry CommitSha
+	if (opts.excludedCommitShas?.length) return false // ...so it cannot exclude on one either
+	if (opts.namespaces?.length || opts.excludedNamespaces?.length) return false // MV doesn't carry ServiceNamespace
+	if (opts.minDurationMs != null || opts.maxDurationMs != null) return false
+	if (groupBy) {
+		for (const g of groupBy) {
+			if (g === "http_method" || g === "attribute") return false
+		}
+	}
+	return true
+}
+
+/**
+ * Build WHERE conditions for queries against traces_aggregates_hourly.
+ *
+ * `hourBounds` overrides the default `[startTime, endTime]` window with raw SQL
+ * expressions. Callers that union this MV with raw partial-hour edges pass the
+ * whole-hour interior (`[firstFullHour, endHour)`) so the two halves tile the
+ * requested window exactly instead of overlapping or leaving a gap.
+ */
+export function tracesAggregatesWhereConditions(
+	$: ColumnAccessor<typeof TracesAggregatesHourly.columns>,
+	opts: TracesBaseWhereOpts,
+	hourBounds?: { readonly gte: string; readonly lt: string },
+): Array<CH.Condition | undefined> {
+	const mm = opts.matchModes
+	const services = inclusionValues(opts.serviceName, opts.serviceNames)
+	const spanNames = inclusionValues(opts.spanName, opts.spanNames)
+	const conditions: Array<CH.Condition | undefined> = [
+		$.OrgId.eq(orgIdParam),
+		hourBounds
+			? $.Hour.gte(CH.rawExpr(hourBounds.gte, T.dateTime))
+			: $.Hour.gte(utcSecondsParam("startTime")),
+		hourBounds
+			? $.Hour.lt(CH.rawExpr(hourBounds.lt, T.dateTime))
+			: $.Hour.lte(utcSecondsParam("endTime")),
+		CH.when(services, (v: readonly string[]) =>
+			matchOrIn($.ServiceName, v, mm?.serviceName === "contains"),
+		),
+		CH.when(spanNames, (v: readonly string[]) => matchOrIn($.SpanName, v, mm?.spanName === "contains")),
+		CH.whenTrue(!!opts.rootOnly, () => $.IsEntryPoint.eq(1)),
+		errorsOnlyCondition($.StatusCode, opts.errorsOnly),
+	]
+
+	if (opts.environments?.length) {
+		if (mm?.deploymentEnv === "contains" && opts.environments.length === 1) {
+			conditions.push(CH.positionCaseInsensitive($.DeploymentEnv, CH.lit(opts.environments[0])).gt(0))
+		} else {
+			conditions.push(CH.inList($.DeploymentEnv, opts.environments))
+		}
+	}
+	if (opts.excludedServiceNames?.length) {
+		conditions.push(CH.notInList($.ServiceName, opts.excludedServiceNames))
+	}
+	if (opts.excludedSpanNames?.length) {
+		conditions.push(CH.notInList($.SpanName, opts.excludedSpanNames))
+	}
+	if (opts.excludedEnvironments?.length) {
+		conditions.push(CH.notInList($.DeploymentEnv, opts.excludedEnvironments))
+	}
+
+	// Note: minDurationMs/maxDurationMs filtering is intentionally *not* supported
+	// here. The MV stores aggregate state, not individual durations — filtering
+	// before merge would change which spans contribute to the t-digest, requiring
+	// a different MV partitioning scheme. Queries with duration filters route to
+	// raw traces.
+	return conditions
+}
+
+// Metrics table lookup + SELECT factory
+
+const VALUE_TABLES = {
+	sum: MetricsSum,
+	gauge: MetricsGauge,
+} as const
+
+const HISTOGRAM_TABLES = {
+	histogram: MetricsHistogram,
+	exponential_histogram: MetricsExpHistogram,
+} as const
+
+export function resolveMetricTable(metricType: MetricType) {
+	const isHistogram = metricType === "histogram" || metricType === "exponential_histogram"
+	const tbl = isHistogram ? HISTOGRAM_TABLES[metricType] : VALUE_TABLES[metricType]
+	return { tbl, isHistogram }
+}
+
+/**
+ * Build the standard metrics aggregation SELECT expressions.
+ * For value tables (sum/gauge): operates on $.Value column.
+ * For histogram tables: operates on $.Sum, $.Count, $.Min, $.Max columns.
+ */
+export function metricsSelectExprs($: ColumnAccessor<typeof MetricsSum.columns>, isHistogram: boolean) {
+	if (isHistogram) {
+		// SAFETY: `isHistogram` selects the histogram table whose accessor includes Count/Sum/Min/Max.
+		const $h = $ as unknown as ColumnAccessor<typeof MetricsHistogram.columns>
+		return {
+			avgValue: finiteOrZero(CH.sum($h.Sum).div(CH.sum($h.Count))),
+			// Min/Max are Nullable (OTel histograms may omit extrema), and min/max
+			// over an all-NULL bucket return NULL — fall back to 0 like avgValue so
+			// the declared non-null Float64 row contract holds.
+			minValue: CH.ifNull(CH.min_($h.Min), CH.lit(0)),
+			maxValue: CH.ifNull(CH.max_($h.Max), CH.lit(0)),
+			sumValue: CH.sum($h.Sum),
+			dataPointCount: CH.sum($h.Count),
+		}
+	}
+	return {
+		avgValue: finiteOrZero(CH.avg($.Value)),
+		minValue: CH.min_($.Value),
+		maxValue: CH.max_($.Value),
+		sumValue: CH.sum($.Value),
+		dataPointCount: CH.count(),
+	}
+}

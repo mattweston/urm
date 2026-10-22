@@ -1,0 +1,224 @@
+// Cloudflare infrastructure page — extended datasets
+//
+// Companions to cloudflare-infra.ts for the poller's newer datasets: firewall/WAF
+// events (`cloudflare.firewall.events`), authoritative-DNS analytics
+// (`cloudflare.dns.queries`), and the Workers-platform resources (Queues
+// gauges under `cloudflare-queue/{id}`, Durable Object counters on the
+// implementing `cloudflare-worker/{script}` services).
+//
+// Same conventions as the sibling file: counters in `metrics_sum` (5-min
+// delta sums), point-in-time samples/percentiles in `metrics_gauge`, every
+// numeric output through CHNumber so BYO-ClickHouse string-encoded aggregates
+// decode identically to Tinybird numbers.
+
+import * as CH from "@maple-dev/effect-orm/expr"
+import { from, param, type ColumnAccessor } from "@maple-dev/effect-orm/clickhouse"
+import { MetricsGauge, MetricsSum, orgIdParam } from "@maple/query-engine/ch/tables"
+import { avgWhere, isoBucket } from "@maple/query-engine/ch/format"
+import {
+	CF_FILTERABLE,
+	CF_METRIC,
+	cloudflareFilterConditions,
+	cloudflareHostAttr,
+	type CloudflareFilterOpts,
+} from "./cloudflare-infra-filters"
+
+// Same NaN guard as cloudflare-infra.ts.
+
+// Firewall/WAF events (single zone)
+
+export interface CloudflareZoneFirewallTimeseriesOutput {
+	readonly bucket: string
+	/** Cloudflare action: block / challenge / jschallenge / managed_challenge / skip / log / …. */
+	readonly action: string
+	readonly events: number
+}
+
+export interface CloudflareZoneFirewallTopOutput {
+	readonly source: string
+	readonly action: string
+	readonly ruleId: string
+	readonly host: string
+	readonly events: number
+}
+
+/** Bucketed security-event counts by action for one zone pseudo-service. */
+export function cloudflareZoneFirewallTimeseriesSQL(opts: CloudflareFilterOpts = {}) {
+	return from(MetricsSum)
+		.select(($) => ({
+			bucket: isoBucket($.TimeUnix),
+			action: $.Attributes.get("firewall.action"),
+			events: CH.sum($.Value),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.ServiceName.eq(param.string("serviceName")),
+			$.MetricName.eq("cloudflare.firewall.events"),
+			$.TimeUnix.gte(param.dateTime("startTime")),
+			$.TimeUnix.lte(param.dateTime("endTime")),
+			...cloudflareFilterConditions($, opts, CF_FILTERABLE[CF_METRIC.firewallEvents] ?? []),
+		])
+		.groupBy("bucket", "action")
+		.orderBy(["bucket", "asc"], ["action", "asc"])
+		.format("JSON")
+}
+
+/** Heaviest (source, action, rule, host) combinations for one zone pseudo-service. */
+export function cloudflareZoneFirewallTopSQL(opts: CloudflareFilterOpts = {}) {
+	return from(MetricsSum)
+		.select(($) => ({
+			source: $.Attributes.get("firewall.source"),
+			action: $.Attributes.get("firewall.action"),
+			ruleId: $.Attributes.get("firewall.rule_id"),
+			host: cloudflareHostAttr($),
+			events: CH.sum($.Value),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.ServiceName.eq(param.string("serviceName")),
+			$.MetricName.eq("cloudflare.firewall.events"),
+			$.TimeUnix.gte(param.dateTime("startTime")),
+			$.TimeUnix.lte(param.dateTime("endTime")),
+			...cloudflareFilterConditions($, opts, CF_FILTERABLE[CF_METRIC.firewallEvents] ?? []),
+		])
+		.groupBy("source", "action", "ruleId", "host")
+		.orderBy(["events", "desc"])
+		.limit(25)
+		.format("JSON")
+}
+
+// DNS analytics (single zone)
+
+export interface CloudflareZoneDnsTimeseriesOutput {
+	readonly bucket: string
+	/** DNS RCODE name (NOERROR / NXDOMAIN / SERVFAIL / …). */
+	readonly responseCode: string
+	readonly queries: number
+}
+
+export interface CloudflareZoneDnsBreakdownOutput {
+	/** Query name (poller-capped: top N per window, tail folded into "other"). */
+	readonly queryName: string
+	readonly queries: number
+	readonly nxdomain: number
+}
+
+/** Bucketed DNS query counts by response code for one zone pseudo-service. */
+export function cloudflareZoneDnsTimeseriesSQL(opts: CloudflareFilterOpts = {}) {
+	return from(MetricsSum)
+		.select(($) => ({
+			bucket: isoBucket($.TimeUnix),
+			responseCode: $.Attributes.get("dns.response_code"),
+			queries: CH.sum($.Value),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.ServiceName.eq(param.string("serviceName")),
+			$.MetricName.eq("cloudflare.dns.queries"),
+			$.TimeUnix.gte(param.dateTime("startTime")),
+			$.TimeUnix.lte(param.dateTime("endTime")),
+			...cloudflareFilterConditions($, opts, CF_FILTERABLE[CF_METRIC.dnsQueries] ?? []),
+		])
+		.groupBy("bucket", "responseCode")
+		.orderBy(["bucket", "asc"], ["responseCode", "asc"])
+		.format("JSON")
+}
+
+/** Heaviest query names for one zone pseudo-service, with their NXDOMAIN share. */
+export function cloudflareZoneDnsBreakdownSQL(opts: CloudflareFilterOpts = {}) {
+	return from(MetricsSum)
+		.select(($) => ({
+			queryName: $.Attributes.get("dns.query_name"),
+			queries: CH.sum($.Value),
+			nxdomain: CH.sumIf($.Value, $.Attributes.get("dns.response_code").eq("NXDOMAIN")),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.ServiceName.eq(param.string("serviceName")),
+			$.MetricName.eq("cloudflare.dns.queries"),
+			$.TimeUnix.gte(param.dateTime("startTime")),
+			$.TimeUnix.lte(param.dateTime("endTime")),
+			...cloudflareFilterConditions($, opts, CF_FILTERABLE[CF_METRIC.dnsQueries] ?? []),
+		])
+		.groupBy("queryName")
+		.orderBy(["queries", "desc"])
+		.limit(25)
+		.format("JSON")
+}
+
+// Workers-platform resources (org-wide)
+
+export interface CloudflareQueueGaugesOutput {
+	/** `cloudflare-queue/{queueId}`. */
+	readonly serviceName: string
+	readonly accountId: string
+	/** Window-average backlog depth (messages). */
+	readonly backlogMessages: number
+	/** Window-peak backlog depth. */
+	readonly backlogMessagesMax: number
+	/** Window-average backlog size (bytes). */
+	readonly backlogBytes: number
+	/** Window-average consumer concurrency. */
+	readonly consumerConcurrency: number
+}
+
+export interface CloudflareDurableObjectCountersOutput {
+	/** `cloudflare-worker/{scriptName}` — DOs live on their implementing Worker's service. */
+	readonly serviceName: string
+	readonly accountId: string
+	readonly requests: number
+	readonly errors: number
+}
+
+const QUEUE_GAUGE_METRIC_NAMES = [
+	"cloudflare.queue.backlog.messages",
+	"cloudflare.queue.backlog.bytes",
+	"cloudflare.queue.consumer.concurrency",
+] as const
+
+const backlogMessagesCond = ($: ColumnAccessor<typeof MetricsGauge.columns>) =>
+	$.MetricName.eq("cloudflare.queue.backlog.messages")
+
+/** Queue backlog/concurrency rollup over `metrics_gauge`, one row per queue pseudo-service. */
+export function cloudflareQueueGaugesSQL() {
+	return from(MetricsGauge)
+		.select(($) => ({
+			serviceName: $.ServiceName,
+			accountId: $.ResourceAttributes.get("cloudflare.account.id"),
+			backlogMessages: avgWhere($.Value, backlogMessagesCond($)),
+			backlogMessagesMax: CH.maxIf($.Value, backlogMessagesCond($)),
+			backlogBytes: avgWhere($.Value, $.MetricName.eq("cloudflare.queue.backlog.bytes")),
+			consumerConcurrency: avgWhere($.Value, $.MetricName.eq("cloudflare.queue.consumer.concurrency")),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.MetricName.in_(...QUEUE_GAUGE_METRIC_NAMES),
+			$.TimeUnix.gte(param.dateTime("startTime")),
+			$.TimeUnix.lte(param.dateTime("endTime")),
+		])
+		.groupBy("serviceName", "accountId")
+		.orderBy(["backlogMessagesMax", "desc"])
+		.limit(500)
+		.format("JSON")
+}
+
+/** Durable Object counter rollup over `metrics_sum`, one row per implementing Worker service. */
+export function cloudflareDurableObjectCountersSQL() {
+	return from(MetricsSum)
+		.select(($) => ({
+			serviceName: $.ServiceName,
+			accountId: $.ResourceAttributes.get("cloudflare.account.id"),
+			requests: CH.sumIf($.Value, $.MetricName.eq("cloudflare.durable_object.requests")),
+			errors: CH.sumIf($.Value, $.MetricName.eq("cloudflare.durable_object.errors")),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.MetricName.in_("cloudflare.durable_object.requests", "cloudflare.durable_object.errors"),
+			$.TimeUnix.gte(param.dateTime("startTime")),
+			$.TimeUnix.lte(param.dateTime("endTime")),
+		])
+		.groupBy("serviceName", "accountId")
+		.orderBy(["requests", "desc"])
+		.limit(500)
+		.format("JSON")
+}

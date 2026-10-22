@@ -1,0 +1,75 @@
+name: Evals
+
+# Model-driven evals (apps/ai/src/evals). They call a REAL model through
+# OpenRouter, so every run costs money and varies, and the job is OPT-IN:
+#
+#   • Add the `run-evals` label to a PR → the regression tier runs on that
+#     event and on every push while the label stays on.
+#   • Remove the label                  → later pushes skip the job (free).
+#   • Actions ▸ Evals ▸ Run workflow    → pick the model, k and tier.
+#
+# The deterministic tests beside them (schema contract, renderer guards) need no
+# model and run in the normal `test` job. Without OPENROUTER_API_KEY the suites
+# skip. Every run uploads its transcripts and summary as an artifact.
+
+on:
+    workflow_dispatch:
+        inputs:
+            model:
+                description: OpenRouter model id (empty = production triage model)
+                required: false
+            k:
+                description: Trials per task
+                required: false
+                default: "3"
+            tier:
+                description: regression, capability, or all
+                required: false
+                default: regression
+    # No `paths` filter: the `run-evals` label is the gate (see the job `if:`),
+    # so the workflow can be triggered on any PR by adding the badge.
+    pull_request:
+        branches: [main]
+        types: [opened, synchronize, reopened, labeled]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    eval:
+        name: Evals
+        # Opt-in: only spend OpenRouter budget when the `run-evals` badge is on
+        # the PR (or on manual dispatch). Otherwise the job is skipped, not failed.
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            contains(github.event.pull_request.labels.*.name, 'run-evals')
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+            - uses: ./.github/actions/setup
+              with:
+                  install-filters: "@maple/ai"
+                  turbo-cache: "false"
+
+            - name: Run evals
+              run: bun run --filter @maple/ai eval
+              env:
+                  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+                  EVAL_MODEL: ${{ inputs.model || vars.EVAL_MODEL }}
+                  EVAL_K: ${{ inputs.k || '3' }}
+                  EVAL_TIER: ${{ github.event_name == 'workflow_dispatch' && inputs.tier || 'regression' }}
+
+            - name: Upload eval runs
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: eval-runs
+                  path: apps/ai/.evals/runs/
+                  if-no-files-found: ignore
+                  retention-days: 30

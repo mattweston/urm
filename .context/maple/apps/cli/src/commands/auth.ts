@@ -1,0 +1,356 @@
+import * as os from "node:os"
+import * as Command from "effect/cli/Command"
+import * as Flag from "effect/cli/Flag"
+import { Clock, Console, Duration, Effect, Fiber, Option, Redacted, Schema, Stream } from "effect"
+import { Stdio } from "effect/Stdio"
+import { HttpClient, HttpClientRequest } from "effect/http"
+import { MapleConfig } from "../core/config"
+import { deleteNativeCredential } from "../core/credential-store"
+import { Mode } from "../core/mode"
+import { printJson } from "../lib/output"
+
+class CliAuthError extends Schema.TaggedError<CliAuthError>()("@maple/cli/CliAuthError", {
+	message: Schema.String,
+}) {}
+
+type Session = { readonly orgId: string; readonly userId: string; readonly roles?: ReadonlyArray<string> }
+type DeviceStart = {
+	readonly deviceCode: string
+	readonly userCode: string
+	readonly verificationUri: string
+	readonly verificationUriComplete: string
+	readonly expiresIn: number
+	readonly interval: number
+}
+type DevicePoll =
+	| { readonly status: "pending"; readonly interval: number }
+	| { readonly status: "complete"; readonly token: string; readonly orgId: string; readonly userId: string }
+	| { readonly status: "denied" }
+	| { readonly status: "expired" }
+
+/**
+ * Read the first line of standard input, or everything before EOF when the
+ * input never ends in a newline (a piped `--with-token` secret usually does
+ * not). `Stdio.stdin` terminates at EOF and `splitLines` flushes the trailing
+ * partial line, so both cases resolve rather than hanging.
+ *
+ * Deliberately NOT `Terminal.readLine`: that waits for a readline "line" event
+ * and never resolves on EOF, so `printf tok | maple auth login --with-token`
+ * would hang forever.
+ */
+const readStdinLine = Effect.gen(function* () {
+	const stdio = yield* Stdio
+	const line = yield* Stream.decodeText(stdio.stdin).pipe(Stream.splitLines, Stream.take(1), Stream.runHead)
+	return Option.getOrElse(line, () => "")
+}).pipe(Effect.orElseSucceed(() => ""))
+
+const normalizeApiUrl = (value: string) =>
+	Effect.try({
+		try: () => {
+			const url = new URL(value)
+			if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("unsupported protocol")
+			return url.origin
+		},
+		catch: () => new CliAuthError({ message: `Invalid Maple API URL: ${value}` }),
+	})
+
+interface JsonRequestInit {
+	readonly method?: "GET" | "POST" | "DELETE"
+	readonly headers?: Readonly<Record<string, string>>
+	readonly body?: string
+}
+
+const requestJson = <A>(
+	url: string,
+	init?: JsonRequestInit,
+): Effect.Effect<A, CliAuthError, HttpClient.HttpClient> =>
+	Effect.gen(function* () {
+		const client = yield* HttpClient.HttpClient
+		let request = HttpClientRequest.make(init?.method ?? "GET")(url)
+		if (init?.headers !== undefined) {
+			request = HttpClientRequest.setHeaders(request, init.headers)
+		}
+		if (init?.body !== undefined) {
+			request = HttpClientRequest.bodyText(request, init.body, "application/json")
+		}
+
+		const response = yield* client.execute(request).pipe(
+			Effect.mapError(
+				(error) =>
+					new CliAuthError({
+						message: error instanceof Error ? error.message : "Maple API request failed",
+					}),
+			),
+		)
+		const body = (yield* response.json.pipe(Effect.orElseSucceed(() => null))) as
+			| ({ message?: unknown } & A)
+			| null
+		if (response.status < 200 || response.status >= 300) {
+			return yield* new CliAuthError({
+				message:
+					typeof body?.message === "string"
+						? body.message
+						: `Maple API returned HTTP ${response.status}`,
+			})
+		}
+		if (body === null) {
+			return yield* new CliAuthError({ message: "Maple API returned an empty response" })
+		}
+		return body
+	})
+
+const validateToken = (
+	apiUrl: string,
+	token: string,
+): Effect.Effect<Session, CliAuthError, HttpClient.HttpClient> =>
+	requestJson<Session>(`${apiUrl}/api/auth/session`, {
+		headers: { authorization: `Bearer ${token}` },
+	}).pipe(
+		Effect.flatMap((session) =>
+			typeof session.orgId === "string" && typeof session.userId === "string"
+				? Effect.succeed(session)
+				: Effect.fail(new CliAuthError({ message: "Maple returned an invalid session response" })),
+		),
+	)
+
+const revokeManagedToken = (apiUrl: string, token: string) =>
+	requestJson(`${apiUrl}/api/auth/cli/session`, {
+		method: "DELETE",
+		headers: { authorization: `Bearer ${token}` },
+	}).pipe(Effect.asVoid)
+
+const openBrowser = (url: string) =>
+	Effect.tryPromise({
+		try: async () => {
+			const command = process.platform === "darwin" ? ["open", url] : ["xdg-open", url]
+			const child = Bun.spawn(command, { stdin: "ignore", stdout: "ignore", stderr: "ignore" })
+			if ((await child.exited) !== 0) throw new Error("browser launcher exited unsuccessfully")
+		},
+		catch: () => new CliAuthError({ message: "Could not open a browser" }),
+	})
+
+const saveCredential = (apiUrl: string, token: string, session: Session, managed: boolean) =>
+	Effect.gen(function* () {
+		const config = yield* MapleConfig
+		const previousApiUrl = Option.getOrUndefined(config.apiUrl)
+		const previousToken = Option.map(config.token, Redacted.value).pipe(Option.getOrUndefined)
+		const previousManaged = config.credentialManaged
+		const store = yield* config.saveRemoteCredential({
+			apiUrl,
+			token,
+			orgId: session.orgId,
+			userId: session.userId,
+			managed,
+		})
+		if (store === "file") {
+			yield* Console.error(
+				"Warning: no native credential store was available; the token was saved to ~/.maple/config.json (0600).",
+			)
+		}
+		if (previousToken && previousApiUrl && previousManaged && previousToken !== token) {
+			yield* revokeManagedToken(previousApiUrl, previousToken).pipe(Effect.ignore)
+		}
+		if (previousApiUrl && previousApiUrl !== apiUrl) {
+			yield* deleteNativeCredential(previousApiUrl)
+		}
+		return store
+	})
+
+const loginFlags = {
+	apiUrl: Flag.optional(
+		Flag.String("api-url").pipe(
+			Flag.withDescription("Maple API base URL (default: https://api.maple.dev)"),
+		),
+	),
+	withToken: Flag.Boolean("with-token").pipe(
+		Flag.withDescription("Read an existing API token from standard input instead of opening a browser"),
+		Flag.withDefault(false),
+	),
+}
+
+const loginHandler = Effect.fnUntraced(function* (a: {
+	readonly apiUrl: Option.Option<string>
+	readonly withToken: boolean
+}) {
+	const config = yield* MapleConfig
+	if (config.envTokenOverride) {
+		return yield* new CliAuthError({
+			message:
+				"MAPLE_API_TOKEN is set and overrides stored credentials. Unset it before running maple auth login.",
+		})
+	}
+	const apiUrl = yield* normalizeApiUrl(Option.getOrElse(a.apiUrl, () => config.defaultApiUrl))
+
+	if (a.withToken) {
+		const token = (yield* readStdinLine).trim()
+		if (!token) return yield* new CliAuthError({ message: "No token was provided on standard input" })
+		const session = yield* validateToken(apiUrl, token)
+		const store = yield* saveCredential(apiUrl, token, session, false)
+		yield* Console.log(`✓ Logged in to ${apiUrl} as ${session.userId} (${session.orgId}) via ${store}.`)
+		return
+	}
+
+	const started = yield* requestJson<DeviceStart>(`${apiUrl}/api/auth/cli/device`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ deviceName: `Maple CLI on ${os.hostname()}` }),
+	})
+	yield* Console.error(`! First copy your one-time code: ${started.userCode}`)
+	yield* Console.error(`  ${started.verificationUri}`)
+	// Poll from the start: approving in a tab opened by hand must not wait on a keypress.
+	const browser = yield* Effect.forkChild(
+		process.stdin.isTTY && process.stdout.isTTY
+			? Console.error("Press Enter to open Maple in your browser, or open the link above…").pipe(
+					Effect.andThen(readStdinLine),
+					Effect.andThen(openBrowser(started.verificationUriComplete)),
+					Effect.catchTag("@maple/cli/CliAuthError", () =>
+						Console.error(`Could not open a browser. Visit ${started.verificationUriComplete}`),
+					),
+				)
+			: Console.error(`Open ${started.verificationUriComplete} to continue.`),
+	)
+	const token = yield* pollDeviceToken(apiUrl, started).pipe(
+		Effect.ensuring(
+			Fiber.interrupt(browser).pipe(
+				// An interrupted stdin read stays referenced and would keep the process alive.
+				Effect.andThen(Effect.sync(() => process.stdin.destroy())),
+			),
+		),
+	)
+	const session = yield* validateToken(apiUrl, token)
+	const store = yield* saveCredential(apiUrl, token, session, true)
+	yield* Console.log(`✓ Logged in to ${apiUrl} as ${session.userId} (${session.orgId}) via ${store}.`)
+})
+
+/** Poll until the browser approves, denies, or the code expires. */
+const pollDeviceToken = Effect.fnUntraced(function* (apiUrl: string, started: DeviceStart) {
+	const deadline = (yield* Clock.currentTimeMillis) + started.expiresIn * 1000
+	let interval = Math.max(1, started.interval)
+	while ((yield* Clock.currentTimeMillis) < deadline) {
+		yield* Effect.sleep(Duration.seconds(interval))
+		const result = yield* requestJson<DevicePoll>(`${apiUrl}/api/auth/cli/device/token`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ deviceCode: started.deviceCode }),
+		}).pipe(Effect.option)
+		if (Option.isNone(result)) continue
+		if (result.value.status === "pending") {
+			interval = Math.max(interval, result.value.interval)
+			continue
+		}
+		if (result.value.status === "denied") {
+			return yield* new CliAuthError({ message: "CLI login was denied in the browser" })
+		}
+		if (result.value.status === "expired") {
+			return yield* new CliAuthError({ message: "CLI login code expired; run maple auth login again" })
+		}
+		return result.value.token
+	}
+	return yield* new CliAuthError({ message: "CLI login code expired; run maple auth login again" })
+})
+
+const makeLogin = (name: string) =>
+	Command.make(name, loginFlags).pipe(
+		Command.withDescription("Authenticate to a Maple workspace in your browser"),
+		Command.withHandler(loginHandler),
+	)
+
+const statusHandler = Effect.fnUntraced(function* () {
+	const config = yield* MapleConfig
+	const apiUrl = Option.getOrUndefined(config.apiUrl)
+	const token = Option.map(config.token, Redacted.value).pipe(Option.getOrUndefined)
+	if (!apiUrl || !token) {
+		process.exitCode = 1
+		yield* Console.error("Not logged in. Run `maple auth login`.")
+		return
+	}
+	const session = yield* validateToken(apiUrl, token).pipe(Effect.option)
+	if (Option.isNone(session)) {
+		process.exitCode = 1
+		yield* Console.error(`Authentication to ${apiUrl} is invalid or expired.`)
+		return
+	}
+	yield* Console.log(`✓ Logged in to ${apiUrl}`)
+	yield* Console.log(`  User: ${session.value.userId}`)
+	yield* Console.log(`  Workspace: ${session.value.orgId}`)
+	yield* Console.log(`  Credential: ${config.tokenSource}`)
+})
+
+const makeStatus = (name: string) =>
+	Command.make(name, {}).pipe(
+		Command.withDescription("Show and validate the active Maple login"),
+		Command.withHandler(statusHandler),
+	)
+
+const logoutHandler = Effect.fnUntraced(function* () {
+	const config = yield* MapleConfig
+	if (config.envTokenOverride) {
+		return yield* new CliAuthError({
+			message: "MAPLE_API_TOKEN is set and cannot be removed by Maple. Unset it to log out.",
+		})
+	}
+	const apiUrl = Option.getOrUndefined(config.apiUrl)
+	const token = Option.map(config.token, Redacted.value).pipe(Option.getOrUndefined)
+	if (apiUrl && token && config.credentialManaged) {
+		yield* revokeManagedToken(apiUrl, token).pipe(
+			Effect.catchTag("@maple/cli/CliAuthError", (error) =>
+				Console.error(`Warning: could not revoke the remote credential: ${error.message}`),
+			),
+		)
+	}
+	yield* config.clearRemoteCredential()
+	yield* Console.log("✓ Logged out and removed the stored credential.")
+})
+
+const makeLogout = (name: string) =>
+	Command.make(name, {}).pipe(
+		Command.withDescription("Revoke and remove the active Maple login"),
+		Command.withHandler(logoutHandler),
+	)
+
+export const login = makeLogin("login")
+export const logout = makeLogout("logout")
+const authLogin = makeLogin("login")
+const authStatus = makeStatus("status")
+const authLogout = makeLogout("logout")
+
+export const auth = Command.make("auth").pipe(
+	Command.withDescription("Manage Maple authentication"),
+	Command.withSubcommands([authLogin, authStatus, authLogout]),
+)
+
+export const whoami = Command.make("whoami", {}).pipe(
+	Command.withDescription("Show the resolved mode (local/remote) and target"),
+	Command.withHandler(
+		Effect.fnUntraced(function* () {
+			const config = yield* MapleConfig
+			const mode = yield* Mode
+			const defaultMode = Option.getOrElse(config.defaultMode, () => "auto" as const)
+			const resolved = yield* mode.resolve.pipe(
+				Effect.map((m) => ({ ok: true as const, m })),
+				Effect.catch((error) =>
+					Effect.succeed({ ok: false as const, message: error.message, hint: error.hint }),
+				),
+			)
+			if (!resolved.ok) {
+				yield* printJson({
+					mode: "none",
+					defaultMode,
+					message: resolved.message,
+					...(resolved.hint === undefined ? undefined : { hint: resolved.hint }),
+				})
+				return
+			}
+			yield* printJson(
+				resolved.m._tag === "local"
+					? { mode: "local", defaultMode, url: resolved.m.baseUrl }
+					: {
+							mode: "remote",
+							defaultMode,
+							apiUrl: resolved.m.apiUrl,
+							orgId: resolved.m.orgId ?? null,
+						},
+			)
+		}),
+	),
+)

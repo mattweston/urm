@@ -1,0 +1,126 @@
+---
+import { getRelativeLocaleUrl } from "astro:i18n";
+import { PRIVACY_EMAIL, SUPPORT_EMAIL } from "../lib/agent-resources";
+import { LEGAL_ENTITY } from "../lib/company";
+
+interface Props {
+    title: string;
+    description: string;
+    type?: "SoftwareApplication" | "WebPage";
+    url?: string;
+    includeOrganization?: boolean;
+    competitorName?: string;
+    /** ISO dates. Comparison pages pass them: dated claims outrank undated ones. */
+    datePublished?: string;
+    dateModified?: string;
+}
+
+const {
+    title,
+    description,
+    type = "WebPage",
+    url,
+    includeOrganization = false,
+    competitorName,
+    datePublished,
+    dateModified,
+} = Astro.props;
+
+const siteUrl = Astro.site?.toString().replace(/\/$/, '') ?? 'https://maple.dev';
+// Same fix as Layout's canonical: Astro.url.pathname reports the English path
+// on a fallback-rewritten locale route, so the JSON-LD url would disagree with
+// the canonical. Rebuild it from the locale instead.
+const currentLocale = Astro.currentLocale ?? 'en';
+const pathWithoutLocale = Astro.url.pathname.replace(/^\/(ja|ko)(\/|$)/, '/').replace(/\/+/g, '/');
+const resolvedUrl =
+    url ?? (Astro.site ? new URL(getRelativeLocaleUrl(currentLocale, pathWithoutLocale), Astro.site).toString() : undefined);
+
+const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": type,
+    name: title,
+    description,
+    ...((resolvedUrl) ? ({ url: resolvedUrl }) : undefined),
+    ...((datePublished) ? ({ datePublished }) : undefined),
+    ...((dateModified) ? ({ dateModified }) : undefined),
+    ...((type === "SoftwareApplication") ? ({
+              applicationCategory: "DeveloperApplication",
+              operatingSystem: "Web",
+              offers: {
+                  "@type": "Offer",
+                  price: "0",
+                  priceCurrency: "USD",
+              },
+          }) : undefined),
+    ...((competitorName) ? ({
+              about: [
+                  {
+                      "@type": "SoftwareApplication",
+                      name: "Maple",
+                      applicationCategory: "DeveloperApplication",
+                  },
+                  {
+                      "@type": "SoftwareApplication",
+                      name: competitorName,
+                      applicationCategory: "DeveloperApplication",
+                  },
+              ],
+          }) : undefined),
+};
+
+// contactPoint + address are what answer engines check to decide the
+// Organization is a real business before recommending it. The postal address
+// is country-level only until the registered office is published (lib/company.ts
+// names the legal entity; the terms page names the governing law).
+const organizationJsonLd = includeOrganization ? {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Maple",
+    "legalName": LEGAL_ENTITY,
+    "url": siteUrl,
+    "logo": `${siteUrl}/logo192.png`,
+    "email": SUPPORT_EMAIL,
+    "contactPoint": [
+        {
+            "@type": "ContactPoint",
+            "contactType": "customer support",
+            "email": SUPPORT_EMAIL,
+            "url": `${siteUrl}/contact`,
+            "availableLanguage": ["English"],
+        },
+        {
+            "@type": "ContactPoint",
+            "contactType": "sales",
+            "email": SUPPORT_EMAIL,
+            "url": `${siteUrl}/contact`,
+            "availableLanguage": ["English"],
+        },
+        {
+            "@type": "ContactPoint",
+            "contactType": "privacy",
+            "email": PRIVACY_EMAIL,
+            "url": `${siteUrl}/privacy`,
+        },
+    ],
+    "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "US",
+    },
+    "sameAs": [
+        "https://github.com/MapleTechLabs/maple",
+        "https://x.com/Mapledotdev",
+        "https://discord.gg/BnXjKuwJqP",
+    ],
+} : null;
+
+const webSiteJsonLd = includeOrganization ? {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Maple",
+    "url": siteUrl,
+} : null;
+---
+
+<script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+{organizationJsonLd && <script type="application/ld+json" set:html={JSON.stringify(organizationJsonLd)} />}
+{webSiteJsonLd && <script type="application/ld+json" set:html={JSON.stringify(webSiteJsonLd)} />}

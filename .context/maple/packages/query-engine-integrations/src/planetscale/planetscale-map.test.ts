@@ -1,0 +1,150 @@
+import { describe, expect, it } from "vitest"
+import { Effect } from "effect"
+import { compileUnsafe } from "@maple-dev/effect-orm/clickhouse"
+import {
+	planetscaleBranchConnectionsSQL,
+	planetscaleBranchGaugesSQL,
+	planetscaleConnectionsSQL,
+	planetscaleGaugesSQL,
+} from "./planetscale-map"
+import { OrgId } from "@maple/domain"
+
+const baseParams = {
+	orgId: OrgId.make("org_1"),
+	startTime: "2026-07-02 00:00:00.000",
+	endTime: "2026-07-03 00:00:00.000",
+}
+
+describe("planetscaleGaugesSQL", () => {
+	it("rolls up CPU/memory/replica-lag maxima per database over metrics_gauge", () => {
+		const { sql } = compileUnsafe(planetscaleGaugesSQL(), baseParams)
+		expect(sql).toContain("FROM metrics_gauge")
+		expect(sql).toContain("OrgId = 'org_1'")
+		expect(sql).toContain(
+			"maxIf(metrics_gauge.Value, metrics_gauge.MetricName IN ('planetscale_pods_cpu_util_percentages'))",
+		)
+		expect(sql).toContain(
+			"maxIf(metrics_gauge.Value, metrics_gauge.MetricName IN ('planetscale_pods_mem_util_percentages'))",
+		)
+		// Both products' replica-lag spellings are covered.
+		expect(sql).toContain("planetscale_mysql_replica_lag_seconds")
+		expect(sql).toContain("planetscale_postgres_replica_lag_seconds")
+		// Rows without the discovery label can't be attributed to a database.
+		expect(sql).toContain(
+			"coalesce(nullIf(metrics_gauge.Attributes['planetscale_database_name'], ''), metrics_gauge.Attributes['planetscale_database']) != ''",
+		)
+		expect(sql).toContain("GROUP BY database")
+		expect(sql).not.toContain("planetscale_branch_name")
+	})
+
+	it("adds the branch grouping (and database filter) for the detail panel", () => {
+		const { sql } = compileUnsafe(planetscaleBranchGaugesSQL(), {
+			...baseParams,
+			database: "main-db",
+		})
+		expect(sql).toContain(
+			"coalesce(nullIf(metrics_gauge.Attributes['planetscale_branch_name'], ''), metrics_gauge.Attributes['planetscale_branch'])",
+		)
+		expect(sql).toContain("GROUP BY database, branch")
+		expect(sql).toContain(
+			"coalesce(nullIf(metrics_gauge.Attributes['planetscale_database_name'], ''), metrics_gauge.Attributes['planetscale_database']) = 'main-db'",
+		)
+	})
+})
+
+describe("planetscaleConnectionsSQL", () => {
+	it("sums connection series per timestamp before averaging over the window", () => {
+		const { sql } = compileUnsafe(planetscaleConnectionsSQL(), baseParams)
+		expect(sql).toContain("FROM metrics_gauge")
+		expect(sql).toContain("planetscale_edge_active_connections")
+		expect(sql).toContain("planetscale_edge_postgres_active_connections")
+		// Inner grouping by (database, timestamp), outer avg/max of the totals.
+		expect(sql).toContain("GROUP BY database, t")
+		expect(sql).toContain("avg(conn.totalConnections)")
+		expect(sql).toContain("max(conn.totalConnections)")
+	})
+
+	it("supports the per-branch breakdown", () => {
+		const { sql } = compileUnsafe(planetscaleBranchConnectionsSQL(), {
+			...baseParams,
+			database: "main-db",
+		})
+		expect(sql).toContain("GROUP BY database, branch, t")
+		expect(sql).toContain("GROUP BY database, branch")
+	})
+})
+
+describe("PlanetScale map row schemas", () => {
+	it("decode ClickHouse numeric strings for database and branch outputs", () => {
+		const databaseStats = compileUnsafe(planetscaleGaugesSQL(), baseParams)
+		const branchStats = compileUnsafe(planetscaleBranchGaugesSQL(), {
+			...baseParams,
+			database: "main-db",
+		})
+		const connections = compileUnsafe(planetscaleConnectionsSQL(), baseParams)
+		const branchConnections = compileUnsafe(planetscaleBranchConnectionsSQL(), {
+			...baseParams,
+			database: "main-db",
+		})
+
+		expect(
+			Effect.runSync(
+				databaseStats.decodeRows([
+					{
+						database: "main-db",
+						cpuMaxPercent: "90.5",
+						memMaxPercent: "75",
+						replicaLagMaxSeconds: "3",
+					},
+				]),
+			),
+		).toEqual([
+			{
+				database: "main-db",
+				cpuMaxPercent: 90.5,
+				memMaxPercent: 75,
+				replicaLagMaxSeconds: 3,
+			},
+		])
+		expect(
+			Effect.runSync(
+				branchStats.decodeRows([
+					{
+						database: "main-db",
+						branch: "main",
+						cpuMaxPercent: "85",
+						memMaxPercent: "65",
+						replicaLagMaxSeconds: "1.5",
+					},
+				]),
+			),
+		).toEqual([
+			{
+				database: "main-db",
+				branch: "main",
+				cpuMaxPercent: 85,
+				memMaxPercent: 65,
+				replicaLagMaxSeconds: 1.5,
+			},
+		])
+		expect(
+			Effect.runSync(
+				connections.decodeRows([
+					{ database: "main-db", connectionsAvg: "12.25", connectionsMax: "18" },
+				]),
+			),
+		).toEqual([{ database: "main-db", connectionsAvg: 12.25, connectionsMax: 18 }])
+		expect(
+			Effect.runSync(
+				branchConnections.decodeRows([
+					{
+						database: "main-db",
+						branch: "main",
+						connectionsAvg: "6.5",
+						connectionsMax: "9",
+					},
+				]),
+			),
+		).toEqual([{ database: "main-db", branch: "main", connectionsAvg: 6.5, connectionsMax: 9 }])
+	})
+})

@@ -1,0 +1,142 @@
+import type { McpToolRegistrar } from "./types"
+import { toMcpHttpError } from "../lib/map-http-error"
+import { Effect, Schema } from "effect"
+import { ListAlertRulesOutput } from "@maple/domain/mcp-outputs"
+import { CurrentMcpTenant } from "../lib/query-warehouse"
+import { AlertRulesService } from "@maple/backend/services/alerts/AlertRulesService"
+import {
+	ALERT_SEVERITIES,
+	ALERT_SIGNAL_TYPES,
+	formatCondition,
+	ruleServiceMatch,
+	toAlertRuleRow,
+} from "../lib/alert-rules"
+import * as P from "../lib/params"
+import { doc } from "../lib/tool-doc"
+
+export function registerListAlertRulesTool(server: McpToolRegistrar) {
+	server.define({
+		name: "list_alert_rules",
+		title: "List Alert Rules",
+		description:
+			"List configured alert rules with severity, signal type and condition. Use list_alert_incidents for what has fired.",
+		parameters: Schema.Struct({
+			services: P.optionalList(
+				"Only rules covering any of these services: scoped to them, scoped to every service, or raw_query rules whose SQL or name mentions them",
+			),
+			signal_type: P.optionalOneOf(ALERT_SIGNAL_TYPES, "Only rules on this signal type"),
+			severity: P.optionalOneOf(ALERT_SEVERITIES, "Only rules with this severity"),
+			enabled_only: P.optionalFlag("Only enabled rules"),
+		}),
+		aliases: { service_names: "services" },
+		output: ListAlertRulesOutput,
+		hints: { readOnly: true },
+		phrases: ["Listing alert rules", "Checking alert rules"],
+		handler: Effect.fn("McpTool.listAlertRules")(function* (params) {
+			const tenant = yield* CurrentMcpTenant
+			const alerts = yield* AlertRulesService
+
+			const result = yield* alerts
+				.listRules(tenant.orgId)
+				.pipe(Effect.mapError(toMcpHttpError("list_alert_rules")))
+
+			const services =
+				params.services !== undefined && params.services.length > 0 ? params.services : undefined
+			const rules = result.rules.filter(
+				(r) =>
+					(services === undefined ||
+						services.some((service) => ruleServiceMatch(r, service) !== undefined)) &&
+					(params.signal_type === undefined || r.signalType === params.signal_type) &&
+					(params.severity === undefined || r.severity === params.severity) &&
+					(params.enabled_only !== true || r.enabled),
+			)
+
+			yield* Effect.annotateCurrentSpan({
+				orgId: tenant.orgId,
+				"maple.ai.signal_type": params.signal_type ?? "all",
+				"maple.ai.severity": params.severity ?? "all",
+				"result.rowCount": rules.length,
+			})
+
+			return {
+				rules: rules.map(toAlertRuleRow),
+				total: rules.length,
+				...(services === undefined ? undefined : { services: [...services] }),
+				...(params.signal_type === undefined ? undefined : { signalType: params.signal_type }),
+				...(params.severity === undefined ? undefined : { severity: params.severity }),
+				...(params.enabled_only === undefined ? undefined : { enabledOnly: params.enabled_only }),
+			}
+		}),
+		render: (output) => ({
+			title: "Alert Rules",
+			scope: [
+				["Services", output.services?.join(", ")],
+				["Signal", output.signalType],
+				["Severity", output.severity],
+				["Enabled only", output.enabledOnly === true ? "yes" : undefined],
+			],
+			...(output.services === undefined
+				? undefined
+				: {
+						notices: [
+							"Service filter includes rules scoped to every service (Services: all) and raw_query rules whose SQL or name mentions the service.",
+						],
+					}),
+			...(output.rules.length === 0
+				? {
+						empty: {
+							message: "No alert rules found.",
+							hints: [
+								"Drop the filters to see every rule, or create one with create_alert_rule.",
+							],
+						},
+					}
+				: undefined),
+			blocks:
+				output.rules.length === 0
+					? []
+					: [
+							doc.text(`Total: ${output.total} rule${output.total !== 1 ? "s" : ""}`),
+							doc.table(
+								[
+									"ID",
+									"Name",
+									"Services",
+									"Severity",
+									"Signal",
+									"Condition",
+									"Enabled",
+									"Destinations",
+								],
+								output.rules.map((r) => [
+									r.id,
+									r.name,
+									r.signalType === "raw_query"
+										? "(raw SQL)"
+										: r.serviceNames.length > 0
+											? r.serviceNames.join(", ")
+											: "all",
+									r.severity,
+									r.signalType,
+									formatCondition(r),
+									r.enabled ? "Yes" : "No",
+									String(r.destinationIds.length),
+								]),
+							),
+						],
+			next: [
+				...output.rules
+					.slice(0, 1)
+					.map((r) =>
+						doc.next("get_alert_rule", { rule_id: r.id }, `full configuration of "${r.name}"`),
+					),
+				doc.next("list_alert_incidents", {}, "see triggered alerts"),
+				doc.next(
+					"list_alert_destinations",
+					{},
+					'find destination IDs, then create_alert_rule template="high_error_rate" for a new rule',
+				),
+			],
+		}),
+	})
+}

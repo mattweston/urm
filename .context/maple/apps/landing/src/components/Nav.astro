@@ -1,0 +1,39 @@
+---
+import { NavBar } from "./NavBar"
+import { getGitHubStars } from "../lib/github-stars"
+
+const locale = Astro.currentLocale ?? "en";
+const stars = await getGitHubStars();
+---
+
+<nav id="main-nav" class="fixed top-0 left-0 right-0 z-50 border-b border-border bg-bg transition-colors duration-200">
+    <div class="shell h-16 flex items-center">
+        <NavBar locale={locale} stars={stars} client:load />
+    </div>
+</nav>
+
+<style>
+    #main-nav {
+        background: var(--background);
+        font-family: "Geist Variable", sans-serif;
+    }
+    #main-nav > .shell {
+        height: 76px;
+    }
+    #main-nav :global(a[href="https://github.com/MapleTechLabs/maple"]) {
+        height: 36px;
+    }
+    #main-nav :global(a[href="https://github.com/MapleTechLabs/maple"] > span) {
+        font-size: 14px;
+    }
+    #main-nav :global([data-slot="context-menu-trigger"] > a > span) {
+        font-size: 22px;
+        font-weight: 750;
+        letter-spacing: -0.04em;
+    }
+    @media (max-width: 767px) {
+        #main-nav > .shell {
+            height: 64px;
+        }
+    }
+</style>

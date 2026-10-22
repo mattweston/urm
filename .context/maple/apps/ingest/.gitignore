@@ -1,0 +1,22 @@
+# Cargo build artifacts (27 GB and growing). The root .gitignore already has
+# `/apps/ingest/target`, but alchemy's image-context hash re-reads gitignore
+# rules with cwd=apps/ingest and does not rebase root-anchored patterns, so that
+# one converts to a glob matching nothing. Declaring it HERE makes the rule
+# relative to this directory, which is what actually excludes it from the hash —
+# without this a local `alchemy deploy` walks the whole tree.
+/target
+
+target/.wal
+
+# ui-dist/ is a build artifact: `scripts/build-local-binary.sh` builds the
+# `apps/local-ui` SPA and syncs it here so rust-embed (`#[folder = "ui-dist/"]`)
+# bakes the assets into the `maple` binary. Keep the folder tracked (.gitkeep)
+# so the `local`-feature build always has a folder to embed, but ignore the
+# generated SPA output.
+/ui-dist/*
+!/ui-dist/.gitkeep
+
+# cli-dist/ holds the compiled maple-cli binary, baked into `maple` by rust-embed.
+# Keep the folder tracked (.gitkeep) for consistent builds; ignore the binary.
+/cli-dist/*
+!/cli-dist/.gitkeep

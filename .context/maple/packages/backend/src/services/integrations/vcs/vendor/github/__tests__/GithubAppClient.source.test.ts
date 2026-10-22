@@ -1,0 +1,182 @@
+import { assert, describe, it } from "@effect/vitest"
+import { generateKeyPairSync } from "node:crypto"
+import { ConfigProvider, Effect, Layer, Option, Schema } from "effect"
+import { Env } from "@maple/backend/platform/Env"
+import { GithubAppClient } from "@maple/backend/services/integrations/vcs/vendor/github/GithubAppClient"
+import {
+	fakeGithubHttp,
+	type FakeGithubRequest,
+} from "@maple/backend/services/integrations/vcs/__tests__/harness"
+
+const privateKey = generateKeyPairSync("rsa", {
+	modulusLength: 2048,
+	publicKeyEncoding: { type: "spki", format: "pem" },
+	privateKeyEncoding: { type: "pkcs8", format: "pem" },
+}).privateKey
+
+const env = Env.layer.pipe(
+	Layer.provide(
+		ConfigProvider.layer(
+			ConfigProvider.fromUnknown({
+				PORT: "3472",
+				TINYBIRD_HOST: "https://api.tinybird.co",
+				TINYBIRD_TOKEN: "test-token",
+				MAPLE_AUTH_MODE: "self_hosted",
+				MAPLE_ROOT_PASSWORD: "test-root-password",
+				MAPLE_DEFAULT_ORG_ID: "default",
+				MAPLE_INGEST_KEY_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64"),
+				MAPLE_INGEST_KEY_LOOKUP_HMAC_KEY: "maple-test-lookup-secret",
+				GITHUB_APP_ID: "123456",
+				GITHUB_APP_PRIVATE_KEY: privateKey,
+			}),
+		),
+	),
+)
+
+const jsonResponse = (body: unknown) =>
+	new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } })
+
+describe("GithubAppClient source access", () => {
+	it.effect("encodes a committish, so a ref cannot walk the token onto another repository", () => {
+		const requests: Array<{ url: string }> = []
+		const responses = [
+			jsonResponse({ token: "installation-token", expires_at: "2099-01-01T00:00:00Z" }),
+			jsonResponse({
+				sha: "a".repeat(40),
+				html_url: "https://github.com/octo/shop/commit/a",
+				commit: { message: "m", author: null },
+				author: null,
+			}),
+		]
+		let nextResponse = 0
+		const http = fakeGithubHttp(({ url }) => {
+			requests.push({ url })
+			return responses[nextResponse++]!
+		})
+		const layer = Layer.effect(GithubAppClient, GithubAppClient.make).pipe(
+			Layer.provide(http),
+			Layer.provide(env),
+		)
+
+		return Effect.gen(function* () {
+			const client = yield* GithubAppClient
+			yield* client.getCommit("42", "octo", "shop", "../../../../repos/evil/private/commits/main")
+			// URL parsing collapses an unencoded `..`; the encoded form stays inside
+			// the repository the org actually connected.
+			assert.include(requests[1]!.url, "/repos/octo/shop/commits/")
+			assert.notInclude(new URL(requests[1]!.url).pathname, "/repos/evil/")
+		}).pipe(Effect.provide(layer))
+	})
+
+	it.effect("mints a clone credential scoped to one repository, apart from the remote URL", () => {
+		const requests: Array<FakeGithubRequest> = []
+		const responses = [jsonResponse({ token: "ghs_scoped", expires_at: "2099-01-01T00:00:00Z" })]
+		let nextResponse = 0
+		const http = fakeGithubHttp((request) => {
+			requests.push(request)
+			return responses[nextResponse++]!
+		})
+		const layer = Layer.effect(GithubAppClient, GithubAppClient.make).pipe(
+			Layer.provide(http),
+			Layer.provide(env),
+		)
+
+		return Effect.gen(function* () {
+			const client = yield* GithubAppClient
+			const { remoteUrl, token } = yield* client.mintCloneCredentials("42", "octo", "shop")
+			assert.strictEqual(remoteUrl, "https://github.com/octo/shop.git")
+			assert.strictEqual(token, "ghs_scoped")
+			// The App JWT mints it, and the body narrows it to read-only contents on one repo.
+			assert.match(requests[0]!.url, /\/app\/installations\/42\/access_tokens$/)
+			const body = yield* Schema.decodeUnknownEffect(
+				Schema.Struct({
+					repositories: Schema.Array(Schema.String),
+					permissions: Schema.Record(Schema.String, Schema.String),
+				}),
+			)(JSON.parse(requests[0]!.body ?? ""))
+			assert.deepStrictEqual([...body.repositories], ["shop"])
+			assert.deepStrictEqual({ ...body.permissions }, { contents: "read", metadata: "read" })
+		}).pipe(Effect.provide(layer))
+	})
+
+	it.effect("searches code and reads a file with the installation token", () => {
+		const requests: Array<FakeGithubRequest> = []
+		const responses = [
+			jsonResponse({ token: "installation-token", expires_at: "2099-01-01T00:00:00Z" }),
+			jsonResponse({
+				items: [
+					{
+						path: "src/checkout.ts",
+						sha: "blob-sha",
+						html_url: "https://github.com/octo/shop/blob/main/src/checkout.ts",
+						text_matches: [{ fragment: "throw new Error('card declined')" }],
+					},
+				],
+			}),
+			jsonResponse({
+				type: "file",
+				path: "src/checkout.ts",
+				sha: "blob-sha",
+				size: 26,
+				html_url: "https://github.com/octo/shop/blob/main/src/checkout.ts",
+				encoding: "base64",
+				content: Buffer.from("export const checkout = 1\n").toString("base64"),
+			}),
+		]
+		let nextResponse = 0
+		const http = fakeGithubHttp((request) => {
+			requests.push(request)
+			return responses[nextResponse++]!
+		})
+		const layer = Layer.effect(GithubAppClient, GithubAppClient.make).pipe(
+			Layer.provide(http),
+			Layer.provide(env),
+		)
+
+		return Effect.gen(function* () {
+			const client = yield* GithubAppClient
+			const search = yield* client.searchCode("42", "octo", "shop", "card declined", "src", 5)
+			assert.strictEqual(search.items[0]?.path, "src/checkout.ts")
+			assert.strictEqual(
+				search.items[0]?.text_matches?.[0]?.fragment,
+				"throw new Error('card declined')",
+			)
+
+			const file = yield* client.getSourceFile("42", "octo", "shop", "src/checkout.ts", "main")
+			assert.strictEqual(
+				Option.getOrUndefined(file)?.content,
+				Buffer.from("export const checkout = 1\n").toString("base64"),
+			)
+			assert.strictEqual(requests.length, 3, "the cached installation token should be reused")
+			assert.match(requests[1]!.url, /\/search\/code\?/)
+			assert.match(requests[1]!.url, /repo%3Aocto%2Fshop/)
+			assert.strictEqual(requests[1]!.headers.accept, "application/vnd.github.text-match+json")
+			assert.match(requests[2]!.url, /\/repos\/octo\/shop\/contents\/src\/checkout\.ts\?ref=main/)
+		}).pipe(Effect.provide(layer))
+	})
+
+	it.effect("answers none for a file or commit GitHub does not have", () => {
+		const responses = [
+			jsonResponse({ token: "installation-token", expires_at: "2099-01-01T00:00:00Z" }),
+			new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }),
+			new Response(JSON.stringify({ message: "No commit found for SHA: abc" }), { status: 422 }),
+			new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }),
+		]
+		let nextResponse = 0
+		const http = fakeGithubHttp(() => responses[nextResponse++]!)
+		const layer = Layer.effect(GithubAppClient, GithubAppClient.make).pipe(
+			Layer.provide(http),
+			Layer.provide(env),
+		)
+
+		return Effect.gen(function* () {
+			const client = yield* GithubAppClient
+			const file = yield* client.getSourceFile("42", "octo", "shop", ".maple/review.md", "main")
+			const unknownSha = yield* client.getCommit("42", "octo", "shop", "a".repeat(40))
+			const otherRepo = yield* client.getCommit("42", "octo", "shop", "b".repeat(40))
+			assert.isTrue(Option.isNone(file))
+			assert.isTrue(Option.isNone(unknownSha))
+			assert.isTrue(Option.isNone(otherRepo))
+		}).pipe(Effect.provide(layer))
+	})
+})

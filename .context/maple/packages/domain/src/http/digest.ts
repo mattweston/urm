@@ -1,0 +1,187 @@
+import { HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+import { DateTime, Option, Schema } from "effect"
+import { SessionAuthorization } from "./current-tenant"
+
+export const DigestSubscriptionId = Schema.String.check(Schema.isUUID()).pipe(
+	Schema.brand("@maple/DigestSubscriptionId"),
+	Schema.annotate({
+		identifier: "@maple/DigestSubscriptionId",
+		title: "Digest Subscription ID",
+	}),
+)
+export type DigestSubscriptionId = Schema.Schema.Type<typeof DigestSubscriptionId>
+
+export class DigestSubscriptionResponse extends Schema.Class<DigestSubscriptionResponse>(
+	"DigestSubscriptionResponse",
+)({
+	id: DigestSubscriptionId,
+	email: Schema.String,
+	enabled: Schema.Boolean,
+	/** 0 = Sunday ... 6 = Saturday, in `timezone`. */
+	dayOfWeek: Schema.Number,
+	/** Local hour (0-23) in `timezone` from which the digests are due. */
+	sendHour: Schema.Number,
+	timezone: Schema.String,
+	/** Empty = every namespace / environment. */
+	namespaces: Schema.Array(Schema.String),
+	environments: Schema.Array(Schema.String),
+	lastSentAt: Schema.NullOr(Schema.Number),
+	/** The separate weekly web analytics email. */
+	webAnalyticsEnabled: Schema.Boolean,
+	createdAt: Schema.Number,
+	updatedAt: Schema.Number,
+}) {}
+
+/**
+ * A scope is a pick-list of values the org actually reports, so a handful of
+ * short strings. Bounded at the boundary because every stored scope is later
+ * sorted, joined into query params, logged and rendered on each digest tick —
+ * an unbounded array would let one subscriber inflate all of that.
+ */
+const ScopeValues = Schema.Array(Schema.String.check(Schema.isMaxLength(200))).check(Schema.isMaxLength(50))
+
+/** 0 = Sunday ... 6 = Saturday, matching `Date#getDay`. */
+export const DigestDayOfWeek = Schema.Number.check(
+	Schema.isInt(),
+	Schema.isBetween({ minimum: 0, maximum: 6 }),
+)
+
+export const DigestSendHour = Schema.Number.check(
+	Schema.isInt(),
+	Schema.isBetween({ minimum: 0, maximum: 23 }),
+)
+
+/** An IANA zone the runtime knows, so the scheduler never meets one it cannot resolve. */
+export const DigestTimeZone = Schema.String.check(
+	Schema.isMaxLength(64),
+	Schema.makeFilter((zone: string) => Option.isSome(DateTime.zoneMakeNamed(zone)) || "unknown time zone", {
+		identifier: "DigestTimeZone",
+	}),
+)
+
+export class UpsertDigestSubscriptionRequest extends Schema.Class<UpsertDigestSubscriptionRequest>(
+	"UpsertDigestSubscriptionRequest",
+)({
+	// No address field: the server sends to the member's own verified primary email.
+	enabled: Schema.optionalKey(Schema.Boolean),
+	dayOfWeek: Schema.optionalKey(DigestDayOfWeek),
+	sendHour: Schema.optionalKey(DigestSendHour),
+	timezone: Schema.optionalKey(DigestTimeZone),
+	namespaces: Schema.optionalKey(ScopeValues),
+	environments: Schema.optionalKey(ScopeValues),
+	webAnalyticsEnabled: Schema.optionalKey(Schema.Boolean),
+}) {}
+
+export class DigestPreviewResponse extends Schema.Class<DigestPreviewResponse>("DigestPreviewResponse")({
+	html: Schema.String,
+}) {}
+
+export class DigestPersistenceError extends Schema.TaggedError<DigestPersistenceError>()(
+	"@maple/http/errors/DigestPersistenceError",
+	{
+		message: Schema.String,
+	},
+	{ httpApiStatus: 503 },
+) {}
+
+export class DigestNotFoundError extends Schema.TaggedError<DigestNotFoundError>()(
+	"@maple/http/errors/DigestNotFoundError",
+	{
+		message: Schema.String,
+	},
+	{ httpApiStatus: 404 },
+) {}
+
+export class DigestNotConfiguredError extends Schema.TaggedError<DigestNotConfiguredError>()(
+	"@maple/http/errors/DigestNotConfiguredError",
+	{
+		message: Schema.String,
+	},
+	{ httpApiStatus: 501 },
+) {}
+
+export class DigestRenderError extends Schema.TaggedError<DigestRenderError>()(
+	"@maple/http/errors/DigestRenderError",
+	{
+		message: Schema.String,
+	},
+	{ httpApiStatus: 500 },
+) {}
+
+export class DigestEmailUnavailableError extends Schema.TaggedError<DigestEmailUnavailableError>()(
+	"@maple/http/errors/DigestEmailUnavailableError",
+	{
+		message: Schema.String,
+	},
+	{ httpApiStatus: 422 },
+) {}
+
+export class DigestUnsubscribeTokenInvalidError extends Schema.TaggedError<DigestUnsubscribeTokenInvalidError>()(
+	"@maple/http/errors/DigestUnsubscribeTokenInvalidError",
+	{
+		message: Schema.String,
+	},
+	{ httpApiStatus: 400 },
+) {}
+
+export const EmailUnsubscribeKind = Schema.Literals(["digest", "web-analytics"])
+
+const EmailUnsubscribeQuery = Schema.Struct({
+	token: Schema.String.check(Schema.isMaxLength(256)),
+})
+
+export class EmailUnsubscribeResponse extends Schema.Class<EmailUnsubscribeResponse>(
+	"EmailUnsubscribeResponse",
+)({
+	kind: EmailUnsubscribeKind,
+}) {}
+
+/**
+ * Unauthenticated: the signed token in an email's unsubscribe link is the credential.
+ * Mail clients POST here directly for RFC 8058 one-click (`List-Unsubscribe-Post`),
+ * and the web `/unsubscribe` confirm page calls it too.
+ */
+export class EmailPublicApiGroup extends HttpApiGroup.make("emailPublic")
+	.add(
+		HttpApiEndpoint.post("unsubscribe", "/unsubscribe", {
+			query: EmailUnsubscribeQuery,
+			success: EmailUnsubscribeResponse,
+			error: [DigestUnsubscribeTokenInvalidError, DigestPersistenceError],
+		}),
+	)
+	.prefix("/api/email") {}
+
+export class DigestApiGroup extends HttpApiGroup.make("digest")
+	.add(
+		HttpApiEndpoint.get("getSubscription", "/", {
+			success: DigestSubscriptionResponse,
+			error: [DigestPersistenceError, DigestNotFoundError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.post("upsertSubscription", "/", {
+			payload: UpsertDigestSubscriptionRequest,
+			success: DigestSubscriptionResponse,
+			error: [DigestPersistenceError, DigestNotFoundError, DigestEmailUnavailableError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.delete("deleteSubscription", "/", {
+			success: Schema.Void,
+			error: DigestPersistenceError,
+		}),
+	)
+	.add(
+		HttpApiEndpoint.post("preview", "/preview", {
+			success: DigestPreviewResponse,
+			error: [DigestPersistenceError, DigestNotConfiguredError, DigestRenderError],
+		}),
+	)
+	.add(
+		HttpApiEndpoint.post("previewWebAnalytics", "/web-analytics/preview", {
+			success: DigestPreviewResponse,
+			error: [DigestPersistenceError, DigestNotConfiguredError, DigestRenderError],
+		}),
+	)
+	.prefix("/internal/digest")
+	.middleware(SessionAuthorization) {}

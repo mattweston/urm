@@ -1,0 +1,24 @@
+---
+import { INSTRUMENTATION_SLUG } from "../../lib/docs-nav";
+
+interface Props {
+    group: string;
+    title: string;
+}
+
+const { group, title } = Astro.props;
+// Only the instrumentation group has a landing page of its own to link to.
+const groupHref = group === "Instrumentation" ? `/docs/${INSTRUMENTATION_SLUG}` : null;
+---
+
+<nav aria-label="Breadcrumb" class="mb-5 flex min-w-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-fg-muted">
+    <a href="/docs" class="hover:text-fg transition-colors">Docs</a>
+    <span class="text-border">/</span>
+    {groupHref ? (
+        <a href={groupHref} class="hover:text-fg transition-colors">{group}</a>
+    ) : (
+        <span>{group}</span>
+    )}
+    <span class="text-border">/</span>
+    <span class="truncate font-display text-[12.5px] normal-case tracking-normal text-fg-muted/80">{title}</span>
+</nav>

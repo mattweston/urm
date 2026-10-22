@@ -1,0 +1,23 @@
+import { Schema } from "effect"
+
+/**
+ * An archive operation failure. The message is shown to the user and the
+ * process exits non-zero, mirroring {@link ServerError} and
+ * {@link CheckpointError}. Archive failures are never silent: an actionable
+ * summary is preferable to a generic return code.
+ */
+export class ArchiveError extends Schema.TaggedError<ArchiveError>()("@maple/cli/ArchiveError", {
+	message: Schema.String,
+	operation: Schema.optional(Schema.String),
+	cause: Schema.optional(Schema.String),
+}) {}
+
+/** An archive create the CLI correctly refuses: the export would shrink the
+ * active generation, or the day is past its retention and may be partial. */
+export class ArchiveCreateRefusedError extends Schema.TaggedError<ArchiveCreateRefusedError>()(
+	"@maple/cli/ArchiveCreateRefusedError",
+	{ reason: Schema.Literals(["shrink", "retention"]), message: Schema.String },
+) {}
+
+/** Render an expected archive failure without Effect's diagnostic cause stack. */
+export const archiveErrorMessage = (error: ArchiveError): string => `${error.message}\n`

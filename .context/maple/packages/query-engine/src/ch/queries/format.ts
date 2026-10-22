@@ -1,0 +1,51 @@
+// Shared output-shaping helpers for timeseries queries.
+//
+// These are not Cloudflare-specific despite most of the callers living there —
+// PlanetScale, usage and alert-check queries format buckets the same way, and
+// the format string has to match what the frontend parses.
+
+import type { DateTime } from "effect"
+import * as CH from "@maple-dev/effect-orm/expr"
+import { defineFn, param } from "@maple-dev/effect-orm/clickhouse"
+import * as T from "@maple-dev/effect-orm/clickhouse"
+
+/**
+ * ISO-8601 with a literal `Z`. ClickHouse `DateTime` has no zone, so the suffix
+ * is asserted rather than converted — every warehouse timestamp is already UTC,
+ * and without it `new Date(...)` on the client reads the value as local time.
+ */
+export const ISO_Z_FORMAT = "%Y-%m-%dT%H:%i:%S.%fZ"
+
+/**
+ * The bucket column every timeseries query selects: the timestamp snapped down
+ * to the caller's interval, rendered as an ISO-Z string.
+ */
+export function isoBucket<T extends string | DateTime.Utc>(column: CH.Expr<T>): CH.Expr<string> {
+	return CH.formatDateTime(CH.toStartOfInterval(column, param.int("bucketSeconds")), ISO_Z_FORMAT)
+}
+
+/**
+ * Average of `value` over rows matching `cond`, or 0 when none match.
+ *
+ * `avgIf` over an empty set is NaN, which serializes to JSON `null` and breaks
+ * row decoding — the guard is the reason this exists rather than a bare
+ * `CH.avgIf`.
+ */
+export function avgWhere(value: CH.Expr<number>, cond: CH.Condition): CH.Expr<number> {
+	return finiteOrZero(CH.avgIf(value, cond))
+}
+
+/** Product numeric outputs use zero for SQL NULL and non-finite aggregates. */
+export function finiteOrZero(value: CH.Expr<number | null>): CH.Expr<number> {
+	return CH.ifNull(CH.ifNotFinite(value, 0), CH.lit(0))
+}
+
+/**
+ * `leftUTF8(value, n)` — the first `n` CHARACTERS of a string.
+ *
+ * `left` counts BYTES, so truncating a payload that holds any multi-byte
+ * codepoint can cut one in half and emit invalid UTF-8. Every user-visible
+ * truncation here (a status message, a tool call's arguments) should use this;
+ * `length()` stays byte-based where the number reported is a size.
+ */
+export const leftUTF8 = defineFn<[CH.Expr<string>, CH.Expr<number>], string>("leftUTF8", T.string)

@@ -1,0 +1,987 @@
+// Named-Query Registry (pipe dispatch)
+//
+// The single canonical mapping from a named query ("pipe") + flat params to
+// compiled ClickHouse SQL. This is NOT a legacy Tinybird shim — it is the
+// registry that backs `WarehouseExecutor.query(pipe, …)`, making the executor
+// portable across backends (managed ClickHouse via the API, and chDB-local via
+// the CLI). The pipe names are the cross-binary wire contract defined in
+// `@maple/domain/warehouse-queries` (`warehouseQueries`); keep it additive.
+//
+// Note: the flat snake_case param shape here is the wire format the CLI sends.
+// It is deliberately distinct from the structured camelCase `QuerySpec` filters
+// consumed by `QueryEngineService` — same output opts, different input formats,
+// so the two adapters are not duplicates.
+
+import type { TracesMetric, AttributeFilter, MetricType } from "@maple/domain/query-engine"
+import { DEFAULT_ERROR_NAMESPACE_PREFIX, UNEXPECTED_IDENTITY_MARKERS } from "./queries/errors"
+import type { OrgId } from "@maple/domain"
+import {
+	compile,
+	compileUnion,
+	QueryBuilderError,
+	type CompiledQuery,
+} from "@maple-dev/effect-orm/clickhouse"
+import { compilePeriodCompare } from "./period-compare"
+import { Array as A, type DateTime, Effect, Match, Option, Result } from "effect"
+import type * as CH from "@maple-dev/effect-orm/expr"
+import { parseUtc } from "../datetime"
+import { exactDateTime64 } from "./tables"
+import {
+	attributeIndexMode,
+	baselineWarehouseCapabilities,
+	logBodySearchMode,
+	type WarehouseCapabilities,
+} from "../capabilities"
+import {
+	attributeKeysQuery,
+	metricAttributeValuesQuery,
+	metricScopedAttributeKeysQuery,
+	metricScopedAttributeValuesQuery,
+	resourceAttributeValuesQuery,
+	spanAttributeValuesQuery,
+	serviceScopedAttributeKeysQuery,
+	serviceScopedAttributeValuesQuery,
+} from "./queries/attribute-keys"
+import {
+	errorDetailTracesQuery,
+	errorIssueEnvironmentsQuery,
+	errorIssueSampleTracesQuery,
+	errorIssueTimeseriesQuery,
+	errorIssuesQuery,
+	errorsByTypeQuery,
+	errorsFacetsQuery,
+	errorsSummaryQuery,
+	errorsTimeseriesQuery,
+	spanHierarchyQuery,
+	tracesDurationStatsQuery,
+	tracesFacetsQuery,
+} from "./queries/errors"
+import { errorRateByServiceQuery, logsCountQuery, logsFacetsQuery, logsListQuery } from "./queries/logs"
+import { listMetricsQuery, metricsSummaryQuery } from "./queries/metrics"
+import { serviceDependenciesSQL } from "./queries/service-map"
+import {
+	serviceApdexTimeseriesQuery,
+	serviceOverviewQuery,
+	serviceOverviewRowSchema,
+	serviceReleasesTimelineQuery,
+	servicesFacetsQuery,
+	serviceUsageQuery,
+	serviceUsageRowSchema,
+} from "./queries/services"
+import { topOperationsQuery } from "./queries/top-operations"
+import {
+	slowTracesQuery,
+	spanSearchQuery,
+	tracesBreakdownQuery,
+	tracesRootListQuery,
+	tracesTimeseriesQuery,
+	type TracesBreakdownOpts,
+	type TracesTimeseriesOpts,
+} from "./queries/traces"
+
+export type PipeCompiledQuery = CompiledQuery<unknown>
+
+type PipeParams = Record<string, unknown> & { org_id: OrgId }
+
+/**
+ * Erase the specific output type for the generic pipe dispatcher.
+ *
+ * Compilation is Effect-returning now, so this carries the effect rather than
+ * the value — which is what lets every `Match.when` arm below stay a
+ * one-expression `eraseType(compile(...))`.
+ */
+function eraseType<T>(compiled: Effect.Effect<CompiledQuery<T>, QueryBuilderError>): PipeCompiled {
+	return compiled as PipeCompiled
+}
+
+type PipeCompiled = Effect.Effect<PipeCompiledQuery, QueryBuilderError>
+
+const METRIC_TYPES: ReadonlySet<string> = new Set(["sum", "gauge", "histogram", "exponential_histogram"])
+
+function parseMetricType(value: string | undefined): MetricType | undefined {
+	return value != null && METRIC_TYPES.has(value) ? (value as MetricType) : undefined
+}
+
+/**
+ * Compiles a named pipe + params into a SQL string.
+ * Returns undefined for unknown pipes (caller should handle gracefully).
+ */
+/**
+ * Lower a named pipe + wire params to SQL.
+ *
+ * Effect-returning: the params come off the wire, so a value the query cannot
+ * encode is a condition the caller can report rather than a crash. This is the
+ * path where the typed failure earns its keep — every other compile in the
+ * product is built from Maple's own definitions.
+ */
+export function compilePipeQuery(
+	pipe: string,
+	params: PipeParams,
+	capabilities: WarehouseCapabilities = baselineWarehouseCapabilities(),
+): PipeCompiled | undefined {
+	const orgId = params.org_id
+	const str = (key: string) => (params[key] != null ? String(params[key]) : undefined)
+	const startTime = str("start_time") ?? "2023-01-01 00:00:00"
+	const endTime = str("end_time") ?? "2099-12-31 23:59:59"
+	/**
+	 * Compiles with a param the pipe cannot run without, or fails before compiling.
+	 * No stand-in value: `""` reads as "no filter", and any other string could match.
+	 */
+	const withParam = (key: string, f: (value: string) => PipeCompiled): PipeCompiled => {
+		const value = str(key)
+		return value === undefined
+			? Effect.fail(
+					new QueryBuilderError({
+						code: "UnresolvedParam",
+						message: `pipe \`${pipe}\` requires \`${key}\``,
+					}),
+				)
+			: f(value)
+	}
+	// Overloaded rather than `def?: number`: with an optional default every
+	// defaulted call still typed as `number | undefined` and every call site paid
+	// for it with a `!`.
+	function int(key: string): number | undefined
+	function int(key: string, def: number): number
+	function int(key: string, def?: number): number | undefined {
+		return params[key] != null ? Number(params[key]) : def
+	}
+	const bool = (key: string) => params[key] === true || params[key] === "1" || params[key] === "true"
+	// `has_error` feeds a tri-state filter where `false` means "exclude errors";
+	// the pipe flag only ever asks for errors, so absent or falsy means no filter.
+	const hasError = errorsOnlyParam(str("has_error"))
+
+	/** A single-valued param as the one-element list the query filters take. */
+	const strList = (key: string): string[] | undefined => {
+		const value = str(key)
+		return value === undefined ? undefined : [value]
+	}
+
+	/** An `equals` attribute filter, present only when its key param is. */
+	const equalsFilter = (keyParam: string, valueParam: string) => {
+		const key = str(keyParam)
+		return key === undefined ? undefined : [{ key, value: str(valueParam), mode: "equals" as const }]
+	}
+
+	// Kept in four groups because Pipeable.pipe's typed overloads stop at 20 transformations.
+	// oxlint-disable-next-line effecttsgo/unnecessary-pipe-chain
+	return Match.value(pipe)
+		.pipe(
+			Match.when("list_traces", () =>
+				eraseType(
+					Effect.flatMap(pipeCursor(str("cursor")), (cursor) =>
+						compile(
+							tracesRootListQuery({
+								attributeIndexMode: attributeIndexMode(capabilities, "traces"),
+								limit: int("limit", 100),
+								offset: int("offset", 0),
+								cursor,
+								serviceName: str("service"),
+								spanName: str("span_name"),
+								errorsOnly: hasError,
+								minDurationMs: int("min_duration_ms"),
+								maxDurationMs: int("max_duration_ms"),
+								environments: strList("deployment_env"),
+								matchModes: {
+									serviceName:
+										str("service_match_mode") === "contains" ? "contains" : undefined,
+									spanName:
+										str("span_name_match_mode") === "contains" ? "contains" : undefined,
+									deploymentEnv:
+										str("deployment_env_match_mode") === "contains"
+											? "contains"
+											: undefined,
+								},
+								attributeFilters: equalsFilter(
+									"attribute_filter_key",
+									"attribute_filter_value",
+								),
+								resourceAttributeFilters: equalsFilter(
+									"resource_filter_key",
+									"resource_filter_value",
+								),
+							}),
+							{ orgId, startTime, endTime },
+						),
+					),
+				),
+			),
+			Match.when("span_hierarchy", () =>
+				withParam("trace_id", (traceId) => {
+					// Caller may pass `start_time` / `end_time` (typically a tight ±1h
+					// window around the parent span timestamp). Without them, the query
+					// scans the full retention window — present for correctness, but
+					// strongly recommended.
+					const narrowByTime = params.start_time != null && params.end_time != null
+					return eraseType(
+						compile(
+							spanHierarchyQuery({
+								traceId,
+								spanId: str("span_id"),
+								narrowByTime,
+							}),
+							narrowByTime ? { orgId, startTime, endTime } : { orgId },
+						),
+					)
+				}),
+			),
+			Match.when("traces_duration_stats", () =>
+				eraseType(
+					compile(
+						tracesDurationStatsQuery({
+							// The pipe surface has no missing-table retry, so it keeps the raw read.
+							rawOnly: true,
+							serviceName: str("service"),
+							spanName: str("span_name"),
+							hasError,
+							minDurationMs: int("min_duration_ms"),
+							maxDurationMs: int("max_duration_ms"),
+							httpMethod: str("http_method"),
+							httpStatusCode: str("http_status_code"),
+							deploymentEnv: str("deployment_env"),
+							matchModes: {
+								serviceName:
+									str("service_match_mode") === "contains" ? "contains" : undefined,
+								spanName: str("span_name_match_mode") === "contains" ? "contains" : undefined,
+								deploymentEnv:
+									str("deployment_env_match_mode") === "contains" ? "contains" : undefined,
+							},
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("traces_facets", () =>
+				eraseType(
+					compileUnion(
+						tracesFacetsQuery({
+							// The pipe surface has no missing-table retry, so it keeps the raw read.
+							rawOnly: true,
+							serviceName: str("service"),
+							spanName: str("span_name"),
+							hasError,
+							minDurationMs: int("min_duration_ms"),
+							maxDurationMs: int("max_duration_ms"),
+							httpMethod: str("http_method"),
+							httpStatusCode: str("http_status_code"),
+							deploymentEnv: str("deployment_env"),
+							matchModes: {
+								serviceName:
+									str("service_match_mode") === "contains" ? "contains" : undefined,
+								spanName: str("span_name_match_mode") === "contains" ? "contains" : undefined,
+								deploymentEnv:
+									str("deployment_env_match_mode") === "contains" ? "contains" : undefined,
+							},
+							attributeFilterKey: str("attribute_filter_key"),
+							attributeFilterValue: str("attribute_filter_value"),
+							attributeFilterValueMatchMode:
+								str("attribute_filter_value_match_mode") === "contains"
+									? "contains"
+									: undefined,
+							resourceFilterKey: str("resource_filter_key"),
+							resourceFilterValue: str("resource_filter_value"),
+							resourceFilterValueMatchMode:
+								str("resource_filter_value_match_mode") === "contains"
+									? "contains"
+									: undefined,
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("list_logs", () =>
+				eraseType(
+					compile(
+						logsListQuery({
+							attributeIndexMode: attributeIndexMode(capabilities, "logs"),
+							bodySearchMode: logBodySearchMode(capabilities),
+							serviceName: str("service"),
+							severity: str("severity"),
+							minSeverity: int("min_severity"),
+							traceId: str("trace_id"),
+							spanId: str("span_id"),
+							cursor: str("cursor"),
+							search: str("search"),
+							limit: int("limit", 50),
+							environments: strList("deployment_env"),
+							matchModes:
+								str("deployment_env_match_mode") === "contains"
+									? { deploymentEnv: "contains" }
+									: undefined,
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("logs_count", () =>
+				eraseType(
+					compile(
+						logsCountQuery({
+							attributeIndexMode: attributeIndexMode(capabilities, "logs"),
+							bodySearchMode: logBodySearchMode(capabilities),
+							serviceName: str("service"),
+							severity: str("severity"),
+							traceId: str("trace_id"),
+							spanId: str("span_id"),
+							search: str("search"),
+							environments: strList("deployment_env"),
+							matchModes:
+								str("deployment_env_match_mode") === "contains"
+									? { deploymentEnv: "contains" }
+									: undefined,
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("logs_facets", () =>
+				eraseType(
+					compileUnion(
+						logsFacetsQuery({
+							serviceName: str("service"),
+							severity: str("severity"),
+							environments: strList("deployment_env"),
+							matchModes:
+								str("deployment_env_match_mode") === "contains"
+									? { deploymentEnv: "contains" }
+									: undefined,
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("error_rate_by_service", () =>
+				eraseType(compile(errorRateByServiceQuery(), { orgId, startTime, endTime })),
+			),
+		)
+		.pipe(
+			Match.when("service_overview", () =>
+				eraseType(
+					compile(
+						serviceOverviewQuery({
+							environments: str("environments")?.split(",").filter(Boolean),
+							namespaces: str("namespaces")?.split(",").filter(Boolean),
+							commitShas: str("commit_shas")?.split(",").filter(Boolean),
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("service_overview_compare", () =>
+				eraseType(
+					compilePeriodCompare(
+						serviceOverviewQuery({
+							environments: str("environments")?.split(",").filter(Boolean),
+							namespaces: str("namespaces")?.split(",").filter(Boolean),
+							commitShas: str("commit_shas")?.split(",").filter(Boolean),
+						}),
+						{
+							orgId,
+							currentStart: str("current_start_time") ?? startTime,
+							currentEnd: str("current_end_time") ?? endTime,
+							previousStart: str("previous_start_time") ?? startTime,
+							previousEnd: str("previous_end_time") ?? endTime,
+						},
+						serviceOverviewRowSchema,
+					),
+				),
+			),
+			Match.when("services_facets", () =>
+				eraseType(compileUnion(servicesFacetsQuery(), { orgId, startTime, endTime })),
+			),
+			Match.when("service_releases_timeline", () =>
+				withParam("service_name", (serviceName) => {
+					const bucketSeconds = int("bucket_seconds", 300)
+					return eraseType(
+						compile(
+							serviceReleasesTimelineQuery({
+								serviceName,
+								bucketSeconds,
+							}),
+							{ orgId, startTime, endTime, bucketSeconds },
+						),
+					)
+				}),
+			),
+			Match.when("service_apdex_time_series", () =>
+				withParam("service_name", (serviceName) => {
+					const bucketSeconds = int("bucket_seconds", 60)
+					return eraseType(
+						compile(
+							serviceApdexTimeseriesQuery({
+								serviceName,
+								apdexThresholdMs: int("apdex_threshold_ms", 500),
+								bucketSeconds,
+							}),
+							{ orgId, startTime, endTime, bucketSeconds },
+						),
+					)
+				}),
+			),
+			Match.when("get_service_usage", () =>
+				eraseType(
+					compile(
+						serviceUsageQuery({
+							serviceName: str("service"),
+							serviceNames: str("services")?.split(",").filter(Boolean),
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("get_service_usage_compare", () =>
+				eraseType(
+					compilePeriodCompare(
+						serviceUsageQuery({
+							serviceName: str("service"),
+							serviceNames: str("services")?.split(",").filter(Boolean),
+						}),
+						{
+							orgId,
+							currentStart: str("current_start_time") ?? startTime,
+							currentEnd: str("current_end_time") ?? endTime,
+							previousStart: str("previous_start_time") ?? startTime,
+							previousEnd: str("previous_end_time") ?? endTime,
+						},
+						serviceUsageRowSchema,
+					),
+				),
+			),
+			Match.when("service_dependencies", () =>
+				eraseType(
+					serviceDependenciesSQL(
+						{ deploymentEnv: str("deployment_env") },
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+		)
+		.pipe(
+			Match.when("errors_by_type", () =>
+				eraseType(
+					compile(
+						errorsByTypeQuery({
+							rootOnly: bool("root_only"),
+							services: str("services")?.split(",").filter(Boolean),
+							deploymentEnvs: str("deployment_envs")?.split(",").filter(Boolean),
+							fingerprintHashes: str("fingerprint_hashes")?.split(",").filter(Boolean),
+							unexpectedIdentity:
+								str("identity") === "unexpected"
+									? {
+											namespacePrefix:
+												str("namespace_prefix") ?? DEFAULT_ERROR_NAMESPACE_PREFIX,
+											markerLabels: UNEXPECTED_IDENTITY_MARKERS,
+										}
+									: undefined,
+							limit: int("limit", 50),
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("errors_timeseries", () =>
+				withParam("fingerprint_hash", (fingerprintHash) =>
+					eraseType(
+						compile(
+							errorsTimeseriesQuery({
+								fingerprintHash,
+								services: str("services")?.split(",").filter(Boolean),
+							}),
+							{ orgId, startTime, endTime, bucketSeconds: int("bucket_seconds", 3600) },
+						),
+					),
+				),
+			),
+			Match.when("errors_facets", () =>
+				eraseType(
+					compileUnion(
+						errorsFacetsQuery({
+							rootOnly: bool("root_only"),
+							services: str("services")?.split(",").filter(Boolean),
+							deploymentEnvs: str("deployment_envs")?.split(",").filter(Boolean),
+							fingerprintHashes: str("fingerprint_hashes")?.split(",").filter(Boolean),
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("errors_summary", () =>
+				eraseType(
+					compile(
+						errorsSummaryQuery({
+							rootOnly: bool("root_only"),
+							services: str("services")?.split(",").filter(Boolean),
+							deploymentEnvs: str("deployment_envs")?.split(",").filter(Boolean),
+							fingerprintHashes: str("fingerprint_hashes")?.split(",").filter(Boolean),
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("error_detail_traces", () =>
+				withParam("fingerprint_hash", (fingerprintHash) =>
+					eraseType(
+						compile(
+							errorDetailTracesQuery({
+								fingerprintHash,
+								rootOnly: bool("root_only"),
+								services: str("services")?.split(",").filter(Boolean),
+								limit: int("limit", 10),
+							}),
+							{ orgId, startTime, endTime },
+						),
+					),
+				),
+			),
+			Match.when("error_issues", () =>
+				eraseType(
+					compile(
+						errorIssuesQuery({
+							services: str("services")?.split(",").filter(Boolean),
+							deploymentEnvs: str("deployment_envs")?.split(",").filter(Boolean),
+							fingerprintHashes: str("fingerprint_hashes")?.split(",").filter(Boolean),
+							exceptionTypes: str("exception_types")?.split(",").filter(Boolean),
+							limit: int("limit", 50),
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("error_issue_timeseries", () =>
+				withParam("fingerprint_hash", (fingerprintHash) =>
+					eraseType(
+						compile(errorIssueTimeseriesQuery(), {
+							orgId,
+							startTime,
+							endTime,
+							fingerprintHash,
+							bucketSeconds: int("bucket_seconds", 3600),
+						}),
+					),
+				),
+			),
+			Match.when("error_issue_sample_traces", () =>
+				withParam("fingerprint_hash", (fingerprintHash) =>
+					eraseType(
+						compile(errorIssueSampleTracesQuery({ limit: int("limit", 25) }), {
+							orgId,
+							startTime,
+							endTime,
+							fingerprintHash,
+						}),
+					),
+				),
+			),
+			Match.when("error_issue_environments", () =>
+				withParam("fingerprint_hash", (fingerprintHash) =>
+					eraseType(
+						compile(errorIssueEnvironmentsQuery({ limit: int("limit", 20) }), {
+							orgId,
+							startTime,
+							endTime,
+							fingerprintHash,
+						}),
+					),
+				),
+			),
+			Match.when("list_metrics", () =>
+				eraseType(
+					compile(
+						listMetricsQuery({
+							serviceName: str("service"),
+							metricType: str("metric_type"),
+							search: str("search"),
+							limit: int("limit", 100),
+							offset: int("offset", 0),
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("metrics_summary", () =>
+				eraseType(
+					compile(metricsSummaryQuery({ serviceName: str("service") }), {
+						orgId,
+						startTime,
+						endTime,
+					}),
+				),
+			),
+		)
+		.pipe(
+			Match.when("span_attribute_keys", () => {
+				// The hourly rollup has no ServiceName; a service filter reads raw spans.
+				const serviceName = str("service_name")
+				if (serviceName) {
+					return eraseType(
+						compile(
+							serviceScopedAttributeKeysQuery({ scope: "span", limit: int("limit", 200) }),
+							{
+								orgId,
+								startTime,
+								endTime,
+								serviceName,
+							},
+						),
+					)
+				}
+				return eraseType(
+					compile(attributeKeysQuery({ scope: "span", limit: int("limit", 200) }), {
+						orgId,
+						startTime,
+						endTime,
+					}),
+				)
+			}),
+			Match.when("resource_attribute_keys", () => {
+				// The hourly rollup has no ServiceName; a service filter reads raw spans.
+				const serviceName = str("service_name")
+				if (serviceName) {
+					return eraseType(
+						compile(
+							serviceScopedAttributeKeysQuery({ scope: "resource", limit: int("limit", 200) }),
+							{
+								orgId,
+								startTime,
+								endTime,
+								serviceName,
+							},
+						),
+					)
+				}
+				return eraseType(
+					compile(attributeKeysQuery({ scope: "resource", limit: int("limit", 200) }), {
+						orgId,
+						startTime,
+						endTime,
+					}),
+				)
+			}),
+			Match.when("metric_attribute_keys", () => {
+				// Optional per-metric scoping: reads the raw metric table (the hourly
+				// rollup carries no MetricName column).
+				const metricName = str("metric_name")
+				const metricType = parseMetricType(str("metric_type"))
+				if (metricName && metricType) {
+					return eraseType(
+						compile(
+							metricScopedAttributeKeysQuery({
+								metricType,
+								serviceName: str("service_name"),
+								limit: int("limit", 200),
+							}),
+							{ orgId, startTime, endTime, metricName },
+						),
+					)
+				}
+				return eraseType(
+					compile(attributeKeysQuery({ scope: "metric", limit: int("limit", 200) }), {
+						orgId,
+						startTime,
+						endTime,
+					}),
+				)
+			}),
+			Match.when("span_attribute_values", () =>
+				withParam("attribute_key", (attributeKey) => {
+					const serviceName = str("service_name")
+					if (serviceName) {
+						return eraseType(
+							compile(
+								serviceScopedAttributeValuesQuery({
+									scope: "span",
+									attributeKey,
+									limit: int("limit", 50),
+								}),
+								{ orgId, startTime, endTime, serviceName },
+							),
+						)
+					}
+					return eraseType(
+						compile(
+							spanAttributeValuesQuery({
+								attributeKey,
+								limit: int("limit", 50),
+							}),
+							{ orgId, startTime, endTime },
+						),
+					)
+				}),
+			),
+			Match.when("resource_attribute_values", () =>
+				withParam("attribute_key", (attributeKey) => {
+					const serviceName = str("service_name")
+					if (serviceName) {
+						return eraseType(
+							compile(
+								serviceScopedAttributeValuesQuery({
+									scope: "resource",
+									attributeKey,
+									limit: int("limit", 50),
+								}),
+								{ orgId, startTime, endTime, serviceName },
+							),
+						)
+					}
+					return eraseType(
+						compile(
+							resourceAttributeValuesQuery({
+								attributeKey,
+								limit: int("limit", 50),
+							}),
+							{ orgId, startTime, endTime },
+						),
+					)
+				}),
+			),
+			Match.when("metric_attribute_values", () =>
+				withParam("attribute_key", (attributeKey) => {
+					const metricName = str("metric_name")
+					const metricType = parseMetricType(str("metric_type"))
+					if (metricName && metricType) {
+						return eraseType(
+							compile(
+								metricScopedAttributeValuesQuery({
+									metricType,
+									serviceName: str("service_name"),
+									attributeKey,
+									limit: int("limit", 50),
+								}),
+								{ orgId, startTime, endTime, metricName },
+							),
+						)
+					}
+					return eraseType(
+						compile(
+							metricAttributeValuesQuery({
+								attributeKey,
+								limit: int("limit", 50),
+							}),
+							{ orgId, startTime, endTime },
+						),
+					)
+				}),
+			),
+			Match.when("custom_traces_timeseries", () => {
+				const tsOpts = {
+					...pipeParamsToTracesTimeseriesOpts(params),
+					attributeIndexMode: attributeIndexMode(capabilities, "traces"),
+				}
+				return eraseType(
+					compile(tracesTimeseriesQuery(tsOpts), {
+						orgId,
+						startTime,
+						endTime,
+						bucketSeconds: int("bucket_seconds", 60),
+					}),
+				)
+			}),
+			Match.when("custom_traces_breakdown", () => {
+				const bdOpts = {
+					...pipeParamsToTracesBreakdownOpts(params),
+					attributeIndexMode: attributeIndexMode(capabilities, "traces"),
+				}
+				return eraseType(compile(tracesBreakdownQuery(bdOpts), { orgId, startTime, endTime }))
+			}),
+			Match.when("top_operations", () =>
+				eraseType(
+					compile(
+						topOperationsQuery({
+							metric: (str("metric") ?? "count") as TracesMetric,
+							limit: int("limit", 20),
+						}),
+						{ orgId, startTime, endTime, serviceName: str("service_name") ?? "" },
+					),
+				),
+			),
+			Match.when("slow_traces", () =>
+				eraseType(
+					compile(
+						slowTracesQuery({
+							service: str("service"),
+							environment: str("deployment_env") ?? str("environment"),
+							limit: int("limit", 10),
+						}),
+						{ orgId, startTime, endTime },
+					),
+				),
+			),
+			Match.when("span_search", () => {
+				const httpMethod = str("http_method")
+				const passedFilters = Array.isArray(params.attribute_filters)
+					? (params.attribute_filters as AttributeFilter[])
+					: undefined
+				// `--http-method` is just an equality filter on the `http.method`
+				// span attribute, so fold it into the attribute-filter list.
+				const attributeFilters: AttributeFilter[] | undefined = httpMethod
+					? [...(passedFilters ?? []), { key: "http.method", value: httpMethod, mode: "equals" }]
+					: passedFilters
+				return eraseType(
+					compile(
+						spanSearchQuery({
+							serviceName: str("service"),
+							spanName: str("span_name"),
+							matchModes:
+								str("span_name_match_mode") === "contains"
+									? { spanName: "contains" }
+									: undefined,
+							errorsOnly: hasError,
+							minDurationMs: int("min_duration_ms"),
+							maxDurationMs: int("max_duration_ms"),
+							environments: strList("deployment_env"),
+							attributeFilters,
+							resourceAttributeFilters: Array.isArray(params.resource_attribute_filters)
+								? (params.resource_attribute_filters as AttributeFilter[])
+								: undefined,
+							traceId: str("trace_id"),
+							limit: int("limit", 20),
+							offset: int("offset", 0),
+						}),
+						{ orgId, startTime, endTime },
+					),
+				)
+			}),
+			Match.orElse(() => undefined),
+		)
+}
+
+/**
+ * A keyset cursor off the wire. An unparseable one is invalid input: reading
+ * it as absent would silently restart paging at the first page. A wire-form
+ * cursor keeps its nanoseconds, so rows sharing the boundary millisecond are
+ * not skipped.
+ */
+const pipeCursor = (
+	raw: string | undefined,
+): Effect.Effect<DateTime.Utc | CH.Expr<DateTime.Utc> | undefined, QueryBuilderError> =>
+	raw === undefined
+		? Effect.succeed(undefined)
+		: Option.match(parseUtc(raw), {
+				onNone: () =>
+					Effect.fail(
+						new QueryBuilderError({
+							code: "InvalidLiteral",
+							message: `cursor \`${raw}\` is not a timestamp`,
+						}),
+					),
+				onSome: (cursor) => {
+					const exact = exactDateTime64(raw)
+					return Effect.succeed(typeof exact === "string" ? cursor : exact)
+				},
+			})
+
+// Attribute filter param helpers (numbered suffix pattern from Tinybird pipes)
+
+const SUFFIXES = ["", "_2", "_3", "_4", "_5"] as const
+
+interface AttrFilter {
+	key: string
+	value?: string
+	mode: "equals" | "exists"
+}
+
+function buildAttributeFiltersFromParams(
+	params: PipeParams,
+	prefix: "attribute_filter" | "resource_filter",
+): AttrFilter[] | undefined {
+	const filters = A.filterMap(SUFFIXES, (suffix) => {
+		const key = params[`${prefix}_key${suffix}`]
+		if (key == null) return Result.failVoid
+		const exists = params[`${prefix}_exists${suffix}`] === "1"
+		return Result.succeed({
+			key: String(key),
+			value: exists
+				? undefined
+				: params[`${prefix}_value${suffix}`] != null
+					? String(params[`${prefix}_value${suffix}`])
+					: undefined,
+			mode: (exists ? "exists" : "equals") as "equals" | "exists",
+		})
+	})
+	return filters.length > 0 ? filters : undefined
+}
+
+// Parameter adapters — translate pipe-style params to typed query opts
+
+/**
+ * `errorsOnly` is tri-state in the query layer: `true` keeps only errored spans,
+ * `false` keeps only *non*-errored ones, and `undefined` applies no filter at
+ * all. A pipe param is a two-state thing, so an absent `errors_only` must lower
+ * to `undefined` — coercing it to `false` appends `StatusCode != 'Error'` and
+ * silently drops every errored span, which makes the `errorRate` these queries
+ * select (`sumIf(SampleRate, StatusCode = 'Error') / sum(SampleRate)`)
+ * structurally 0 and understates every count.
+ */
+function errorsOnlyParam(raw: string | undefined): boolean | undefined {
+	if (raw == null || raw === "" || raw === "0" || raw === "false") return undefined
+	return true
+}
+
+function pipeParamsToTracesTimeseriesOpts(params: PipeParams): TracesTimeseriesOpts {
+	const str = (key: string) => (params[key] != null ? String(params[key]) : undefined)
+	const int = (key: string, def: number) => (params[key] != null ? Number(params[key]) : def)
+
+	const groupBy: string[] = []
+	if (str("group_by_service")) groupBy.push("service")
+	if (str("group_by_span_name")) groupBy.push("span_name")
+	if (str("group_by_status_code")) groupBy.push("status_code")
+	if (str("group_by_http_method")) groupBy.push("http_method")
+	if (str("group_by_attributes")) groupBy.push("attribute")
+
+	return {
+		metric: "count" as TracesMetric,
+		allMetrics: true,
+		needsSampling: true,
+		groupBy,
+		groupByAttributeKeys: str("group_by_attributes")?.split(",").filter(Boolean),
+		apdexThresholdMs: int("apdex_threshold_ms", 500),
+		serviceName: str("service_name"),
+		spanName: str("span_name"),
+		rootOnly: !!str("root_only"),
+
+		errorsOnly: errorsOnlyParam(str("errors_only")),
+		environments: str("environments")?.split(",").filter(Boolean),
+		namespaces: str("namespaces")?.split(",").filter(Boolean),
+		commitShas: str("commit_shas")?.split(",").filter(Boolean),
+		attributeFilters: buildAttributeFiltersFromParams(params, "attribute_filter"),
+		resourceAttributeFilters: buildAttributeFiltersFromParams(params, "resource_filter"),
+	}
+}
+
+function pipeParamsToTracesBreakdownOpts(params: PipeParams): TracesBreakdownOpts {
+	const str = (key: string) => (params[key] != null ? String(params[key]) : undefined)
+	const int = (key: string, def: number) => (params[key] != null ? Number(params[key]) : def)
+
+	let groupBy = "service"
+	let groupByAttributeKey: string | undefined
+	if (str("group_by_all")) groupBy = "all"
+	else if (str("group_by_namespace")) groupBy = "namespace"
+	else if (str("group_by_environment")) groupBy = "environment"
+	else if (str("group_by_service")) groupBy = "service"
+	else if (str("group_by_span_name")) groupBy = "span_name"
+	else if (str("group_by_status_code")) groupBy = "status_code"
+	else if (str("group_by_http_method")) groupBy = "http_method"
+	else if (str("group_by_attribute")) {
+		groupBy = "attribute"
+		groupByAttributeKey = str("group_by_attribute")
+	}
+
+	return {
+		metric: "count" as TracesMetric,
+		allMetrics: true,
+		groupBy,
+		groupByAttributeKey,
+		limit: int("limit", 10),
+		apdexThresholdMs: int("apdex_threshold_ms", 500),
+		serviceName: str("service_name"),
+		spanName: str("span_name"),
+		rootOnly: !!str("root_only"),
+
+		errorsOnly: errorsOnlyParam(str("errors_only")),
+		environments: str("environments")?.split(",").filter(Boolean),
+		namespaces: str("namespaces")?.split(",").filter(Boolean),
+		commitShas: str("commit_shas")?.split(",").filter(Boolean),
+		attributeFilters: buildAttributeFiltersFromParams(params, "attribute_filter"),
+		resourceAttributeFilters: buildAttributeFiltersFromParams(params, "resource_filter"),
+	}
+}

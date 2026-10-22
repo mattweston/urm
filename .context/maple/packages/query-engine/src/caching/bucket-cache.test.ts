@@ -1,0 +1,756 @@
+import { assert, describe, expect, it } from "@effect/vitest"
+import { ConfigProvider, Effect, Exit, Layer, Schema } from "effect"
+import { OrgId } from "@maple/domain"
+import type { TimeseriesPoint } from "@maple/domain/query-engine"
+import {
+	BucketCacheService,
+	coalesceMissingRanges,
+	findMissingRanges,
+	generateFingerprint,
+	mergeAndDeduplicateBuckets,
+	pointsToBuckets,
+	type BucketCacheSegmentData,
+	type CachedBucket,
+} from "./bucket-cache"
+import { EdgeCacheService, makeEdgeCacheService, type EdgeCacheBackend } from "@maple/cache"
+import { MemoryCacheBackendLive } from "@maple/cache"
+import { computeBucketSeconds } from "../datetime"
+
+const asOrgId = Schema.decodeUnknownSync(OrgId)
+const orgId = asOrgId("org_test")
+
+const FAR_FUTURE_FLUX = Number.MAX_SAFE_INTEGER
+const MIN = 60_000
+
+const bucket = (startMs: number, endMs: number, points: TimeseriesPoint[] = []): CachedBucket => ({
+	startMs,
+	endMs,
+	points,
+})
+
+const point = (iso: string, series: Record<string, number> = {}): TimeseriesPoint => ({
+	bucket: iso,
+	series,
+})
+
+describe("findMissingRanges", () => {
+	it("returns the entire range when cache is empty", () => {
+		const missing = findMissingRanges([], 0, 10 * MIN, MIN, FAR_FUTURE_FLUX)
+		expect(missing).toEqual([{ range: { startMs: 0, endMs: 10 * MIN }, cachable: true }])
+	})
+
+	it("returns nothing when cached buckets fully cover the range", () => {
+		const buckets = [bucket(0, MIN), bucket(MIN, 2 * MIN), bucket(2 * MIN, 3 * MIN)]
+		expect(findMissingRanges(buckets, 0, 3 * MIN, MIN, FAR_FUTURE_FLUX)).toEqual([])
+	})
+
+	it("emits head + tail gaps when middle is cached", () => {
+		const buckets = [bucket(2 * MIN, 3 * MIN), bucket(3 * MIN, 4 * MIN)]
+		const missing = findMissingRanges(buckets, 0, 6 * MIN, MIN, FAR_FUTURE_FLUX)
+		expect(missing).toEqual([
+			{ range: { startMs: 0, endMs: 2 * MIN }, cachable: true },
+			{ range: { startMs: 4 * MIN, endMs: 6 * MIN }, cachable: true },
+		])
+	})
+
+	it("emits a partial head when start is not step-aligned", () => {
+		const missing = findMissingRanges([], 30_000, 2 * MIN, MIN, FAR_FUTURE_FLUX)
+		expect(missing).toEqual([
+			{ range: { startMs: 30_000, endMs: MIN }, cachable: true },
+			{ range: { startMs: MIN, endMs: 2 * MIN }, cachable: true },
+		])
+	})
+
+	it("splits the tail across the flux boundary", () => {
+		// bucketed cache knows [0, 2m); request [0, 4m); flux boundary at 3m.
+		const buckets = [bucket(0, MIN), bucket(MIN, 2 * MIN)]
+		const flux = 3 * MIN
+		const missing = findMissingRanges(buckets, 0, 4 * MIN, MIN, flux)
+		expect(missing).toEqual([
+			{ range: { startMs: 2 * MIN, endMs: 3 * MIN }, cachable: true },
+			{ range: { startMs: 3 * MIN, endMs: 4 * MIN }, cachable: false },
+		])
+	})
+
+	it("marks the whole range non-cachable when it sits past the flux boundary", () => {
+		const missing = findMissingRanges([], 10 * MIN, 12 * MIN, MIN, 5 * MIN)
+		expect(missing).toEqual([{ range: { startMs: 10 * MIN, endMs: 12 * MIN }, cachable: false }])
+	})
+
+	it("handles unaligned end inside a gap", () => {
+		const missing = findMissingRanges([], 0, MIN + 15_000, MIN, FAR_FUTURE_FLUX)
+		expect(missing).toEqual([{ range: { startMs: 0, endMs: MIN + 15_000 }, cachable: true }])
+	})
+})
+
+describe("coalesceMissingRanges", () => {
+	it("returns nothing for a fully covered range", () => {
+		expect(coalesceMissingRanges([])).toEqual([])
+	})
+
+	it("passes a single range through unchanged", () => {
+		const missing = findMissingRanges([], 0, 10 * MIN, MIN, FAR_FUTURE_FLUX)
+		expect(coalesceMissingRanges(missing)).toEqual(missing)
+	})
+
+	it("collapses head + tail gaps into one query spanning the cached middle", () => {
+		const buckets = [bucket(2 * MIN, 3 * MIN), bucket(3 * MIN, 4 * MIN)]
+		const missing = findMissingRanges(buckets, 0, 6 * MIN, MIN, FAR_FUTURE_FLUX)
+		expect(missing).toHaveLength(2)
+		expect(coalesceMissingRanges(missing)).toEqual([
+			{ range: { startMs: 0, endMs: 6 * MIN }, cachable: true },
+		])
+	})
+
+	it("keeps the cachable range and the live tail separate", () => {
+		const buckets = [bucket(0, MIN), bucket(MIN, 2 * MIN)]
+		const flux = 3 * MIN
+		const missing = findMissingRanges(buckets, 0, 4 * MIN, MIN, flux)
+		expect(coalesceMissingRanges(missing)).toEqual([
+			{ range: { startMs: 2 * MIN, endMs: 3 * MIN }, cachable: true },
+			{ range: { startMs: 3 * MIN, endMs: 4 * MIN }, cachable: false },
+		])
+	})
+
+	it("never emits more than two ranges, however fragmented the gaps", () => {
+		// Alternating cached/uncached buckets across a long window — the shape
+		// that produced the ~2.9-queries-per-request fan-out in prod.
+		const buckets = Array.from({ length: 10 }, (_, i) => bucket(2 * i * MIN, (2 * i + 1) * MIN))
+		const flux = 15 * MIN
+		const missing = findMissingRanges(buckets, 0, 20 * MIN, MIN, flux)
+		expect(missing.length).toBeGreaterThan(2)
+
+		const coalesced = coalesceMissingRanges(missing)
+		expect(coalesced).toHaveLength(2)
+		expect(coalesced.filter((r) => r.cachable)).toHaveLength(1)
+		expect(coalesced.filter((r) => !r.cachable)).toHaveLength(1)
+	})
+
+	it("keeps every cachable range strictly below the flux boundary", () => {
+		const buckets = [bucket(0, MIN), bucket(5 * MIN, 6 * MIN)]
+		const flux = 7 * MIN
+		const missing = findMissingRanges(buckets, 0, 10 * MIN, MIN, flux)
+		for (const { range, cachable } of coalesceMissingRanges(missing)) {
+			if (cachable) expect(range.endMs).toBeLessThanOrEqual(flux)
+			else expect(range.startMs).toBeGreaterThanOrEqual(flux)
+		}
+	})
+
+	it("covers every original gap within the coalesced spans", () => {
+		const buckets = [bucket(MIN, 2 * MIN), bucket(4 * MIN, 5 * MIN), bucket(7 * MIN, 8 * MIN)]
+		const missing = findMissingRanges(buckets, 0, 10 * MIN, MIN, FAR_FUTURE_FLUX)
+		const coalesced = coalesceMissingRanges(missing)
+		const uncovered = missing.filter(
+			(gap) =>
+				!coalesced.some(
+					(span) =>
+						span.cachable === gap.cachable &&
+						span.range.startMs <= gap.range.startMs &&
+						span.range.endMs >= gap.range.endMs,
+				),
+		)
+		expect(missing.length).toBeGreaterThan(0)
+		expect(uncovered).toEqual([])
+	})
+})
+
+describe("pointsToBuckets", () => {
+	it("groups points by bucket window and drops live (post-flux) buckets", () => {
+		const bucketMs = MIN
+		// Flux at 3m: bucket [0,1m) cachable, [3m,4m) crosses flux → dropped.
+		const flux = 3 * MIN
+		const points: TimeseriesPoint[] = [
+			point("1970-01-01T00:00:00.000Z", { v: 1 }),
+			point("1970-01-01T00:01:00.000Z", { v: 2 }),
+			point("1970-01-01T00:03:00.000Z", { v: 4 }),
+		]
+		const buckets = pointsToBuckets(points, bucketMs, flux)
+		expect(buckets.map((b) => b.startMs)).toEqual([0, MIN])
+		expect(buckets[0]!.points).toHaveLength(1)
+		expect(buckets[1]!.points).toHaveLength(1)
+	})
+
+	it("skips points with an unparseable bucket timestamp", () => {
+		const points: TimeseriesPoint[] = [
+			point("not-a-date", { v: 1 }),
+			point("1970-01-01T00:00:00.000Z", { v: 2 }),
+		]
+		const buckets = pointsToBuckets(points, MIN, FAR_FUTURE_FLUX)
+		expect(buckets).toHaveLength(1)
+		expect(buckets[0]!.points).toHaveLength(1)
+	})
+})
+
+describe("mergeAndDeduplicateBuckets", () => {
+	it("keeps existing buckets when no overlap with fresh", () => {
+		const existing = [bucket(0, MIN, [point("1970-01-01T00:00:00.000Z")])]
+		const fresh = [bucket(MIN, 2 * MIN, [point("1970-01-01T00:01:00.000Z")])]
+		const merged = mergeAndDeduplicateBuckets(existing, fresh)
+		expect(merged.map((b) => b.startMs)).toEqual([0, MIN])
+	})
+
+	it("prefers fresh bucket when startMs collides", () => {
+		const existing = [bucket(0, MIN, [point("1970-01-01T00:00:00.000Z", { stale: 1 })])]
+		const fresh = [bucket(0, MIN, [point("1970-01-01T00:00:00.000Z", { fresh: 2 })])]
+		const merged = mergeAndDeduplicateBuckets(existing, fresh)
+		expect(merged).toHaveLength(1)
+		expect(merged[0]!.points[0]!.series).toEqual({ fresh: 2 })
+	})
+})
+
+describe("generateFingerprint", () => {
+	it("is stable regardless of object key order", async () => {
+		const a = await generateFingerprint("org", { b: 1, a: 2, nested: { y: 1, x: 2 } }, 60)
+		const b = await generateFingerprint("org", { a: 2, b: 1, nested: { x: 2, y: 1 } }, 60)
+		expect(a).toBe(b)
+	})
+
+	it("changes when bucketSeconds changes", async () => {
+		const query = { source: "traces", kind: "timeseries" }
+		const a = await generateFingerprint("org", query, 60)
+		const b = await generateFingerprint("org", query, 300)
+		expect(a).not.toBe(b)
+	})
+
+	it("changes when orgId changes", async () => {
+		const query = { source: "traces", kind: "timeseries" }
+		const a = await generateFingerprint("org-1", query, 60)
+		const b = await generateFingerprint("org-2", query, 60)
+		expect(a).not.toBe(b)
+	})
+
+	it("ignores undefined-valued keys so optional fields don't split the cache", async () => {
+		const a = await generateFingerprint(orgId, { source: "logs", limit: undefined }, 60)
+		const b = await generateFingerprint(orgId, { source: "logs" }, 60)
+		expect(a).toBe(b)
+	})
+
+	it("is order-insensitive at every nesting depth", async () => {
+		const a = await generateFingerprint(
+			orgId,
+			{ kind: "timeseries", filters: { env: "prod", nested: { b: 1, a: 2 } }, source: "traces" },
+			60,
+		)
+		const b = await generateFingerprint(
+			orgId,
+			{ source: "traces", filters: { nested: { a: 2, b: 1 }, env: "prod" }, kind: "timeseries" },
+			60,
+		)
+		expect(a).toBe(b)
+	})
+
+	// Array order IS meaningful (an ORDER BY list is not a set), so it must
+	// stay part of the identity — a normalizer that sorted arrays would merge
+	// two genuinely different queries onto one entry.
+	it("distinguishes queries that differ only in array order", async () => {
+		const a = await generateFingerprint(orgId, { orderBy: ["a", "b"] }, 60)
+		const b = await generateFingerprint(orgId, { orderBy: ["b", "a"] }, 60)
+		expect(a).not.toBe(b)
+	})
+})
+
+// The fingerprint is only half the key; the other half is `segmentStartMs`.
+// A window that slides continuously must keep landing on the same segment
+// until it genuinely crosses a boundary, otherwise every refresh reads a key
+// nothing ever wrote.
+describe("segment key stability under a sliding window", () => {
+	const segmentStartsFor = (startMs: number, endMs: number, segmentMs: number): number[] => {
+		const first = Math.floor(startMs / segmentMs) * segmentMs
+		const last = Math.floor((endMs - 1) / segmentMs) * segmentMs
+		const out: number[] = []
+		for (let cursor = first; cursor <= last; cursor += segmentMs) out.push(cursor)
+		return out
+	}
+
+	it("changes the segment set only when a real boundary is crossed", () => {
+		const bucketMs = 120_000
+		const segmentMs = bucketMs * 120 // 4h, the production default
+		const windowMs = 60 * MIN
+		const base = 1_760_000_000_000
+
+		let changes = 0
+		let previous = segmentStartsFor(base - windowMs, base, segmentMs).join(",")
+
+		// One hour of a dashboard refreshing every second.
+		for (let tick = 1; tick <= 3600; tick++) {
+			const endMs = base + tick * 1000
+			const current = segmentStartsFor(endMs - windowMs, endMs, segmentMs).join(",")
+			if (current !== previous) changes++
+			previous = current
+		}
+
+		// A 1h window sliding across 1h of wall clock can cross at most one 4h
+		// segment boundary at each end.
+		expect(changes).toBeLessThanOrEqual(2)
+	})
+})
+
+describe("computeBucketSeconds", () => {
+	// bucketSeconds is part of the fingerprint, so an unstable step is an
+	// unstable cache key. It depends only on the window's duration — this pins
+	// that, so a future ladder change can't destabilize every key by accident.
+	it("is constant for a fixed duration regardless of where the window sits", () => {
+		const windowMs = 60 * MIN
+		const base = 1_760_000_000_000
+		const expected = computeBucketSeconds(base - windowMs, base)
+
+		for (let tick = 0; tick < 600; tick++) {
+			const endMs = base + tick * 1000
+			expect(computeBucketSeconds(endMs - windowMs, endMs)).toBe(expected)
+		}
+	})
+
+	it("still changes when the user zooms, so zoomed views get their own entries", () => {
+		const base = 1_760_000_000_000
+		const oneHour = computeBucketSeconds(base - 60 * MIN, base)
+		const oneDay = computeBucketSeconds(base - 24 * 60 * MIN, base)
+		expect(oneHour).not.toBe(oneDay)
+	})
+})
+
+const makeConfig = (overrides: Record<string, string> = {}) =>
+	ConfigProvider.layer(
+		ConfigProvider.fromUnknown({
+			QE_BUCKET_CACHE_ENABLED: "true",
+			QE_BUCKET_CACHE_TTL_SECONDS: "86400",
+			QE_BUCKET_CACHE_FLUX_SECONDS: "0",
+			...overrides,
+		}),
+	)
+
+const BucketLive = BucketCacheService.layer.pipe(
+	Layer.provideMerge(EdgeCacheService.layer),
+	Layer.provide(MemoryCacheBackendLive),
+)
+
+const makeBucketLive = (backend: EdgeCacheBackend, readTimeoutMs?: number) =>
+	BucketCacheService.layer.pipe(
+		Layer.provide(Layer.succeed(EdgeCacheService, makeEdgeCacheService(backend, readTimeoutMs))),
+	)
+
+const BucketTestLive = BucketLive.pipe(Layer.provide(makeConfig()))
+
+const makeBucketTestLive = (backend: EdgeCacheBackend, config = makeConfig(), readTimeoutMs?: number) =>
+	makeBucketLive(backend, readTimeoutMs).pipe(Layer.provide(config))
+
+// These exercise the live cache backend and compute flux boundaries relative to
+// the real clock, so they run under it.live rather than the default TestClock.
+describe("BucketCacheService.getOrComputeBuckets", () => {
+	it.live("fetches the whole range on a cold start, then serves the same range from cache", () => {
+		const request = {
+			orgId,
+			query: { source: "traces", kind: "timeseries" },
+			bucketSeconds: 60,
+			startMs: 0,
+			endMs: 3 * MIN,
+		}
+
+		const computeCalls: Array<{ startMs: number; endMs: number }> = []
+
+		return Effect.gen(function* () {
+			const svc = yield* BucketCacheService
+			const compute = ({ startMs, endMs }: { startMs: number; endMs: number }) => {
+				computeCalls.push({ startMs, endMs })
+				return Effect.succeed([
+					point(new Date(startMs).toISOString(), { v: 1 }),
+					point(new Date(startMs + MIN).toISOString(), { v: 2 }),
+					point(new Date(startMs + 2 * MIN).toISOString(), { v: 3 }),
+				] satisfies TimeseriesPoint[])
+			}
+			const first = yield* svc.getOrComputeBuckets(request, compute)
+			const second = yield* svc.getOrComputeBuckets(request, compute)
+
+			assert.strictEqual(computeCalls.length, 1)
+			assert.deepStrictEqual(computeCalls[0], { startMs: 0, endMs: 3 * MIN })
+			assert.isTrue(first.bucketsMissed > 0)
+			assert.strictEqual(first.requestedBuckets, 3)
+			assert.strictEqual(first.warehouseQueryCount, 1)
+			assert.strictEqual(first.points.length, 3)
+
+			assert.strictEqual(second.bucketsHit, 3)
+			assert.strictEqual(second.bucketsMissed, 0)
+			assert.strictEqual(second.missingRangeCount, 0)
+			assert.strictEqual(second.warehouseQueryCount, 0)
+			assert.strictEqual(second.points.length, 3)
+		}).pipe(Effect.provide(BucketTestLive))
+	})
+
+	it.live("refetches only the tail slice when the window shifts forward", () => {
+		const startOriginal = 0
+		const endOriginal = 3 * MIN
+
+		const computeCalls: Array<{ startMs: number; endMs: number }> = []
+
+		const compute = ({ startMs, endMs }: { startMs: number; endMs: number }) => {
+			computeCalls.push({ startMs, endMs })
+			const out: TimeseriesPoint[] = []
+			for (let t = startMs; t < endMs; t += MIN) {
+				out.push(point(new Date(t).toISOString(), { v: t }))
+			}
+			return Effect.succeed(out)
+		}
+
+		return Effect.gen(function* () {
+			const svc = yield* BucketCacheService
+			const base = {
+				orgId,
+				query: { source: "traces", kind: "timeseries" },
+				bucketSeconds: 60,
+			}
+			yield* svc.getOrComputeBuckets({ ...base, startMs: startOriginal, endMs: endOriginal }, compute)
+			const second = yield* svc.getOrComputeBuckets(
+				{ ...base, startMs: startOriginal + MIN, endMs: endOriginal + MIN },
+				compute,
+			)
+
+			assert.strictEqual(computeCalls.length, 2)
+			assert.deepStrictEqual(computeCalls[1], { startMs: 3 * MIN, endMs: 4 * MIN })
+			assert.strictEqual(second.missingRangeCount, 1)
+			assert.strictEqual(second.points.length, 3)
+		}).pipe(Effect.provide(BucketTestLive))
+	})
+
+	it.live("issues one warehouse query when the cached buckets are fragmented", () => {
+		// Regression guard for the fan-out that made the cache net-negative in
+		// prod: a partially-cached window used to dispatch one query per gap, so
+		// warehouse load stayed flat no matter how much was cached.
+		const base = {
+			orgId,
+			query: { source: "traces", kind: "timeseries", fragmented: true },
+			bucketSeconds: 60,
+		}
+
+		const computeCalls: Array<{ startMs: number; endMs: number }> = []
+		const compute = ({ startMs, endMs }: { startMs: number; endMs: number }) => {
+			computeCalls.push({ startMs, endMs })
+			const out: TimeseriesPoint[] = []
+			for (let t = startMs; t < endMs; t += MIN) {
+				out.push(point(new Date(t).toISOString(), { v: t }))
+			}
+			return Effect.succeed(out)
+		}
+
+		return Effect.gen(function* () {
+			const svc = yield* BucketCacheService
+
+			// Warm two disjoint slices, leaving holes at [1m,2m) and [3m,6m).
+			yield* svc.getOrComputeBuckets({ ...base, startMs: 0, endMs: MIN }, compute)
+			yield* svc.getOrComputeBuckets({ ...base, startMs: 2 * MIN, endMs: 3 * MIN }, compute)
+			computeCalls.length = 0
+
+			const outcome = yield* svc.getOrComputeBuckets({ ...base, startMs: 0, endMs: 6 * MIN }, compute)
+
+			// Multiple gaps, but they collapse into a single warehouse query.
+			assert.isTrue(outcome.missingRangeCount > 1)
+			assert.strictEqual(outcome.warehouseQueryCount, 1)
+			assert.strictEqual(computeCalls.length, 1)
+			assert.deepStrictEqual(computeCalls[0], { startMs: MIN, endMs: 6 * MIN })
+
+			// Over-fetching the cached middle must not corrupt the result set.
+			assert.strictEqual(outcome.points.length, 6)
+		}).pipe(Effect.provide(BucketTestLive))
+	})
+
+	it.live("propagates errors from compute and does not poison the cache", () => {
+		const base = {
+			orgId,
+			query: { source: "traces", kind: "timeseries" },
+			bucketSeconds: 60,
+			startMs: 0,
+			endMs: 3 * MIN,
+		}
+
+		const okPoints: TimeseriesPoint[] = [
+			point(new Date(0).toISOString(), { v: 1 }),
+			point(new Date(MIN).toISOString(), { v: 2 }),
+			point(new Date(2 * MIN).toISOString(), { v: 3 }),
+		]
+
+		let computeAttempt = 0
+		const compute = ({ startMs, endMs }: { startMs: number; endMs: number }) => {
+			computeAttempt++
+			if (computeAttempt === 1) {
+				return Effect.fail(new Error("tinybird down") as never)
+			}
+			void startMs
+			void endMs
+			return Effect.succeed(okPoints)
+		}
+
+		return Effect.gen(function* () {
+			const svc = yield* BucketCacheService
+			const failExit = yield* Effect.exit(svc.getOrComputeBuckets(base, compute))
+			const ok = yield* svc.getOrComputeBuckets(base, compute)
+
+			assert.isTrue(Exit.isFailure(failExit))
+			assert.strictEqual(computeAttempt, 2) // first failed, second recomputed (no poison)
+			assert.strictEqual(ok.points.length, 3)
+			assert.isTrue(ok.bucketsMissed > 0)
+		}).pipe(Effect.provide(BucketTestLive))
+	})
+
+	it.live("bypasses cache on a bucketSeconds mismatch (different fingerprint)", () => {
+		const base = {
+			orgId,
+			query: { source: "traces", kind: "timeseries" },
+			startMs: 0,
+			endMs: 3 * MIN,
+		}
+
+		const computeCalls: Array<{ startMs: number; endMs: number; bucketSeconds: number }> = []
+		const makeCompute =
+			(bucketSeconds: number) =>
+			({ startMs, endMs }: { startMs: number; endMs: number }) => {
+				computeCalls.push({ startMs, endMs, bucketSeconds })
+				const out: TimeseriesPoint[] = []
+				for (let t = startMs; t < endMs; t += bucketSeconds * 1000) {
+					out.push(point(new Date(t).toISOString(), { v: t }))
+				}
+				return Effect.succeed(out)
+			}
+
+		return Effect.gen(function* () {
+			const svc = yield* BucketCacheService
+			yield* svc.getOrComputeBuckets({ ...base, bucketSeconds: 60 }, makeCompute(60))
+			// Same range, different step → different fingerprint → full recompute.
+			const second = yield* svc.getOrComputeBuckets({ ...base, bucketSeconds: 180 }, makeCompute(180))
+
+			assert.strictEqual(computeCalls.length, 2)
+			assert.strictEqual(computeCalls[0]!.bucketSeconds, 60)
+			assert.strictEqual(computeCalls[1]!.bucketSeconds, 180)
+			assert.isTrue(second.bucketsMissed > 0)
+		}).pipe(Effect.provide(BucketTestLive))
+	})
+
+	it.live("treats a version-skewed cache payload as a miss", () => {
+		const request = {
+			orgId,
+			query: { source: "traces", kind: "timeseries" },
+			bucketSeconds: 60,
+			startMs: 0,
+			endMs: 3 * MIN,
+		}
+
+		const okPoints: TimeseriesPoint[] = [
+			point(new Date(0).toISOString(), { v: 1 }),
+			point(new Date(MIN).toISOString(), { v: 2 }),
+			point(new Date(2 * MIN).toISOString(), { v: 3 }),
+		]
+
+		let computed = 0
+		const compute = () => {
+			computed++
+			return Effect.succeed(okPoints)
+		}
+
+		return Effect.gen(function* () {
+			const edge = yield* EdgeCacheService
+			const svc = yield* BucketCacheService
+
+			// Pre-seed a payload with a future version that should be ignored.
+			const fingerprint = yield* Effect.promise(() =>
+				generateFingerprint(request.orgId, request.query, request.bucketSeconds),
+			)
+			const cacheKey = `v2:${request.orgId}:${fingerprint}:0`
+			// SAFETY: cast through `unknown` because we're intentionally writing a
+			// non-current version to simulate a post-migration read.
+			const future = {
+				version: 99,
+				fingerprint,
+				bucketSeconds: 60,
+				segmentStartMs: 0,
+				segmentEndMs: 120 * MIN,
+				buckets: [],
+			} as unknown as BucketCacheSegmentData
+			yield* edge.rawPut("qe-ts-buckets", cacheKey, future, 60)
+
+			const outcome = yield* svc.getOrComputeBuckets(request, compute)
+
+			assert.strictEqual(computed, 1)
+			assert.isTrue(outcome.bucketsMissed > 0)
+			assert.strictEqual(outcome.points.length, 3)
+		}).pipe(Effect.provide(BucketTestLive))
+	})
+
+	it.live("treats a malformed segment payload as a miss instead of defecting", () => {
+		const request = {
+			orgId,
+			query: { source: "traces", kind: "timeseries", malformedTest: true },
+			bucketSeconds: 60,
+			startMs: 0,
+			endMs: MIN,
+		}
+		let computed = 0
+
+		return Effect.gen(function* () {
+			const edge = yield* EdgeCacheService
+			const svc = yield* BucketCacheService
+			const fingerprint = yield* Effect.promise(() =>
+				generateFingerprint(request.orgId, request.query, request.bucketSeconds),
+			)
+			yield* edge.rawPut("qe-ts-buckets", `v2:${request.orgId}:${fingerprint}:0`, "corrupt", 60)
+
+			const outcome = yield* svc.getOrComputeBuckets(request, () => {
+				computed++
+				return Effect.succeed([point(new Date(0).toISOString(), { v: 1 })])
+			})
+
+			assert.strictEqual(computed, 1)
+			assert.strictEqual(outcome.segmentsMissed, 1)
+			assert.strictEqual(outcome.points.length, 1)
+		}).pipe(Effect.provide(BucketTestLive))
+	})
+
+	it.live("stores bounded fixed-size segments instead of one growing query blob", () => {
+		const reads: string[] = []
+		const writes: Array<{ key: string; value: unknown }> = []
+		const backend: EdgeCacheBackend = {
+			name: "memory",
+			get: (_bucket, key) =>
+				Effect.sync(() => {
+					reads.push(key)
+					return undefined
+				}),
+			put: (_bucket, key, value) =>
+				Effect.sync(() => {
+					writes.push({ key, value })
+				}),
+			delete: () => Effect.void,
+		}
+		const request = {
+			orgId,
+			query: { source: "traces", kind: "timeseries" },
+			bucketSeconds: 60,
+			startMs: 0,
+			endMs: 5 * MIN,
+		}
+		const compute = ({ startMs, endMs }: { startMs: number; endMs: number }) => {
+			const points: TimeseriesPoint[] = []
+			for (let cursor = startMs; cursor < endMs; cursor += MIN) {
+				points.push(point(new Date(cursor).toISOString(), { v: cursor }))
+			}
+			return Effect.succeed(points)
+		}
+
+		return Effect.gen(function* () {
+			const svc = yield* BucketCacheService
+			const outcome = yield* svc.getOrComputeBuckets(request, compute)
+
+			assert.strictEqual(reads.length, 3)
+			assert.strictEqual(writes.length, 3)
+			assert.strictEqual(outcome.segmentsMissed, 3)
+			for (const write of writes) {
+				const segment = write.value as BucketCacheSegmentData
+				assert.isAtMost(segment.buckets.length, 2)
+				assert.strictEqual(segment.segmentEndMs - segment.segmentStartMs, 2 * MIN)
+			}
+		}).pipe(
+			Effect.provide(makeBucketTestLive(backend, makeConfig({ QE_BUCKET_CACHE_SEGMENT_BUCKETS: "2" }))),
+		)
+	})
+
+	it.live("repopulates a timed-out segment with fresh settled buckets only", () => {
+		const writes: BucketCacheSegmentData[] = []
+		let computes = 0
+		const backend: EdgeCacheBackend = {
+			name: "memory",
+			get: () => Effect.never,
+			put: (_bucket, _hash, value) =>
+				Effect.sync(() => {
+					writes.push(value as BucketCacheSegmentData)
+				}),
+			delete: () => Effect.void,
+		}
+		const request = {
+			orgId,
+			query: { source: "logs", kind: "timeseries" },
+			bucketSeconds: 60,
+			startMs: 0,
+			endMs: 2 * MIN,
+		}
+
+		return Effect.gen(function* () {
+			const svc = yield* BucketCacheService
+			const outcome = yield* svc.getOrComputeBuckets(request, () => {
+				computes++
+				return Effect.succeed([point(new Date(0).toISOString(), { v: 1 })])
+			})
+
+			assert.strictEqual(computes, 1)
+			assert.strictEqual(outcome.segmentsTimedOut, 1)
+			assert.strictEqual(outcome.warehouseQueryCount, 1)
+
+			// A read that never answered leaves the stored contents unknown, so the
+			// write must carry only the freshly computed (settled, immutable)
+			// buckets — never a merge that would present an empty read as the whole
+			// segment. Writing nothing at all would leave the segment permanently
+			// cold under sustained timeouts.
+			assert.strictEqual(writes.length, 1)
+			assert.deepStrictEqual(
+				writes[0]!.buckets.map((b) => b.startMs),
+				[0, MIN],
+			)
+		}).pipe(Effect.provide(makeBucketTestLive(backend, makeConfig(), 10)), Effect.timeout(200))
+	})
+
+	it.live("caches explicit empty-bucket coverage for sparse query results", () => {
+		let computes = 0
+		const request = {
+			orgId,
+			query: { source: "metrics", kind: "timeseries", filter: "no matches" },
+			bucketSeconds: 60,
+			startMs: 0,
+			endMs: 3 * MIN,
+		}
+
+		return Effect.gen(function* () {
+			const svc = yield* BucketCacheService
+			const compute = () => {
+				computes++
+				return Effect.succeed([] as ReadonlyArray<TimeseriesPoint>)
+			}
+			const first = yield* svc.getOrComputeBuckets(request, compute)
+			const second = yield* svc.getOrComputeBuckets(request, compute)
+
+			assert.strictEqual(computes, 1)
+			assert.strictEqual(first.warehouseQueryCount, 1)
+			assert.strictEqual(second.bucketsHit, 3)
+			assert.strictEqual(second.warehouseQueryCount, 0)
+			assert.deepStrictEqual(second.points, [])
+		}).pipe(Effect.provide(BucketTestLive))
+	})
+
+	// Uses a real wall-clock sleep to keep both fibers in-flight simultaneously,
+	// modeling independent requests against the Worker-isolate-scoped service.
+	it.live("keeps concurrent identical requests request-local", () => {
+		const request = {
+			orgId,
+			query: { source: "traces", kind: "timeseries" },
+			bucketSeconds: 60,
+			startMs: 0,
+			endMs: 3 * MIN,
+		}
+
+		let computeCalls = 0
+		const compute = ({ startMs, endMs }: { startMs: number; endMs: number }) => {
+			computeCalls++
+			const out: TimeseriesPoint[] = []
+			for (let t = startMs; t < endMs; t += MIN) {
+				out.push(point(new Date(t).toISOString(), { v: t }))
+			}
+			return Effect.sleep("5 millis").pipe(Effect.as(out))
+		}
+
+		return Effect.gen(function* () {
+			const svc = yield* BucketCacheService
+			const [a, b] = yield* Effect.all(
+				[svc.getOrComputeBuckets(request, compute), svc.getOrComputeBuckets(request, compute)],
+				{ concurrency: "unbounded" },
+			)
+
+			assert.strictEqual(computeCalls, 2)
+			assert.strictEqual(a.points.length, 3)
+			assert.strictEqual(b.points.length, 3)
+		}).pipe(Effect.provide(BucketTestLive))
+	})
+})

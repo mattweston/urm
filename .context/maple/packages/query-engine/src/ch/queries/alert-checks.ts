@@ -1,0 +1,173 @@
+// Typed Alert Check Queries
+//
+// DSL-based query definitions for listing historical alert rule check rows
+// from the `alert_checks` datasource.
+
+import type { DateTime } from "effect"
+import * as CH from "@maple-dev/effect-orm/expr"
+import { param } from "@maple-dev/effect-orm/clickhouse"
+import { from } from "@maple-dev/effect-orm/clickhouse"
+import { AlertChecks, orgIdParam } from "../tables"
+import * as T from "@maple-dev/effect-orm/clickhouse"
+
+export interface ListRuleChecksOpts {
+	readonly groupKey?: string
+	readonly status?: string
+	readonly since?: DateTime.Utc
+	readonly until?: DateTime.Utc
+	readonly beforeTimestamp?: DateTime.Utc
+	readonly beforeGroupKey?: string
+	readonly limit: number
+}
+
+export interface ListRuleChecksOutput {
+	readonly timestamp: DateTime.Utc
+	readonly groupKey: string
+	readonly status: string
+	readonly signalType: string
+	readonly comparator: string
+	readonly threshold: number
+	readonly observedValue: number | null
+	readonly sampleCount: number
+	readonly windowMinutes: number
+	readonly windowStart: DateTime.Utc
+	readonly windowEnd: DateTime.Utc
+	readonly consecutiveBreaches: number
+	readonly consecutiveHealthy: number
+	readonly incidentId: string | null
+	readonly incidentTransition: string
+	readonly evaluationDurationMs: number
+	readonly errorMessage: string | null
+	readonly errorCategory: string
+	readonly skipReason: string
+	readonly level: string
+}
+
+export function listRuleChecksQuery(opts: ListRuleChecksOpts) {
+	return (
+		from(AlertChecks)
+			.select(($) => ({
+				timestamp: $.Timestamp,
+				groupKey: $.GroupKey,
+				status: $.Status,
+				signalType: $.SignalType,
+				comparator: $.Comparator,
+				threshold: $.Threshold,
+				observedValue: $.ObservedValue,
+				sampleCount: $.SampleCount,
+				windowMinutes: $.WindowMinutes,
+				windowStart: $.WindowStart,
+				windowEnd: $.WindowEnd,
+				consecutiveBreaches: $.ConsecutiveBreaches,
+				consecutiveHealthy: $.ConsecutiveHealthy,
+				incidentId: $.IncidentId,
+				incidentTransition: $.IncidentTransition,
+				evaluationDurationMs: $.EvaluationDurationMs,
+				errorMessage: $.ErrorMessage,
+				errorCategory: $.ErrorCategory,
+				skipReason: $.SkipReason,
+				level: $.Level,
+			}))
+			.where(($) => [
+				$.OrgId.eq(orgIdParam),
+				$.RuleId.eq(param.string("ruleId")),
+				CH.whenTrue(opts.groupKey != null && opts.groupKey !== "", () =>
+					$.GroupKey.eq(param.string("groupKey")),
+				),
+				CH.whenTrue(opts.status != null, () => $.Status.eq(param.string("status"))),
+				CH.whenTrue(opts.since != null, () => $.Timestamp.gte(param.dateTime("since"))),
+				CH.whenTrue(opts.until != null, () => $.Timestamp.lte(param.dateTime("until"))),
+				CH.whenTrue(opts.beforeTimestamp != null, () =>
+					$.Timestamp.lt(param.dateTime("beforeTimestamp")).or(
+						$.Timestamp.eq(param.dateTime("beforeTimestamp")).and(
+							$.GroupKey.gt(param.string("beforeGroupKey")),
+						),
+					),
+				),
+			])
+			.orderBy(["timestamp", "desc"], ["groupKey", "asc"])
+			.limit(opts.limit)
+			.format("JSON")
+			// alert_checks is written via `ingest` (Tinybird-pinned) with no per-org
+			// MV, so reads must hit the same managed pipeline — otherwise a
+			// BYO-ClickHouse org reads an empty table from its own ClickHouse.
+			.route("ingest")
+	)
+}
+
+export interface AlertCheckGroupTotalsOpts {
+	readonly since: DateTime.Utc
+	readonly until: DateTime.Utc
+	readonly limit?: number
+}
+
+export interface AlertCheckGroupTotalsOutput {
+	readonly groupKey: string
+	readonly totalCount: number
+}
+
+export function alertCheckGroupTotalsQuery(opts: AlertCheckGroupTotalsOpts) {
+	return from(AlertChecks)
+		.select(($) => ({
+			groupKey: $.GroupKey,
+			totalCount: CH.count(),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.RuleId.eq(param.string("ruleId")),
+			$.Timestamp.gte(param.dateTime("since")),
+			$.Timestamp.lte(param.dateTime("until")),
+		])
+		.groupBy("groupKey")
+		.orderBy(["totalCount", "desc"], ["groupKey", "asc"])
+		.limit(opts.limit ?? 20)
+		.format("JSON")
+		.route("ingest")
+}
+
+export interface AlertChecksSummaryOpts {
+	readonly topGroupKeys: readonly string[]
+}
+
+export interface AlertChecksSummaryOutput {
+	readonly bucket: DateTime.Utc
+	readonly groupKey: string
+	readonly totalCount: number
+	readonly breachedCount: number
+	readonly healthyCount: number
+	readonly skippedCount: number
+	readonly errorCount: number
+	readonly transitionCount: number
+	readonly observedValue: number | null
+	readonly threshold: number
+}
+
+export function alertChecksSummaryQuery(opts: AlertChecksSummaryOpts) {
+	return from(AlertChecks)
+		.select(($) => ({
+			bucket: CH.toStartOfInterval($.Timestamp, param.int("bucketSeconds")),
+			groupKey:
+				opts.topGroupKeys.length > 0
+					? CH.if_(CH.inList($.GroupKey, opts.topGroupKeys), $.GroupKey, CH.lit("__other__"))
+					: CH.lit("__other__"),
+			totalCount: CH.count(),
+			breachedCount: CH.countIf($.Status.eq("breached")),
+			healthyCount: CH.countIf($.Status.eq("healthy")),
+			skippedCount: CH.countIf($.Status.eq("skipped")),
+			errorCount: CH.countIf($.Status.eq("error")),
+			transitionCount: CH.countIf($.IncidentTransition.neq("none")),
+			observedValue: CH.rawExpr("avg(ObservedValue)", T.nullable(T.float64)),
+			threshold: CH.avg($.Threshold),
+		}))
+		.where(($) => [
+			$.OrgId.eq(orgIdParam),
+			$.RuleId.eq(param.string("ruleId")),
+			$.Timestamp.gte(param.dateTime("since")),
+			$.Timestamp.lte(param.dateTime("until")),
+		])
+		.groupBy("bucket", "groupKey")
+		.orderBy(["bucket", "asc"], ["groupKey", "asc"])
+		.limit(20_000)
+		.format("JSON")
+		.route("ingest")
+}

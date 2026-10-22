@@ -1,0 +1,1216 @@
+import { randomUUID } from "node:crypto"
+import {
+	IntegrationsConfigurationError,
+	IntegrationsNotConnectedError,
+	IntegrationsPersistenceError,
+	IntegrationsRevokedError,
+	IntegrationsUpstreamError,
+	IntegrationsValidationError,
+	OrgId,
+	PlanetScaleQueryInsightRow,
+	PlanetScaleQueryInsightsResponse,
+} from "@maple/domain/http"
+import * as PG from "@maple-dev/effect-orm/postgres"
+import {
+	PlanetscaleConnections,
+	PlanetscaleDatabases,
+	PlanetscaleEvents,
+	PlanetscalePollState,
+	type PlanetScaleBranchInfo,
+	type PlanetScaleConnectionRow,
+	type PlanetScaleDatabaseRow,
+	type PlanetScaleEventRow,
+} from "@maple/db/tables"
+import * as PlanetScale from "@distilled.cloud/planetscale"
+import { Cause, Clock, Context, Duration, Effect, Layer, Predicate, Schema } from "effect"
+import { FetchHttpClient, HttpClient } from "effect/http"
+import { Database } from "@maple/backend/platform/DatabaseLive"
+import { makeDbExecute } from "@maple/backend/platform/db-execute"
+import { Env } from "@maple/backend/platform/Env"
+import { PlanetScaleOAuthService } from "@maple/backend/services/auth/PlanetScaleOAuthService"
+import {
+	collectPages,
+	decodeConsumed,
+	PLANETSCALE_TIMEOUT_STATUS,
+	runPlanetScale,
+	type SdkError,
+} from "./planetscale/api"
+import { insertPlanetScaleEvent } from "./planetscale/webhook-events"
+import { summarizeCause } from "@maple/backend/platform/describe-cause"
+import { timestampMs } from "@maple/backend/platform/time"
+import { type PollOutcome, reportPoll } from "@maple/backend/services/org/integration-sources"
+
+/**
+ * PlanetScale management-API poller: keeps the org's database/branch inventory
+ * (`planetscale_databases`) fresh so the service map can brand + overlay DB
+ * nodes and the infra page can list databases. Runs from the alerting worker's
+ * every-5-minutes cron (`planetScaleTick`), refreshing each org's inventory on
+ * an hourly TTL behind a lease-guarded anchor row in `planetscale_poll_state` —
+ * the same overlap-guard shape as the Cloudflare analytics poller.
+ *
+ * Budget: one databases listing + one branches listing per database, per org,
+ * per hour — far below PlanetScale's 600 req/min limit.
+ */
+
+const INVENTORY_DATASET = "inventory"
+/** Inventory refresh TTL — resource metadata changes slowly. */
+const INVENTORY_TTL_MS = Duration.toMillis(Duration.hours(1))
+
+/**
+ * Deploy-request history, fanned into `planetscale_events`. Webhooks are the
+ * live source; this exists so an org that connects after the fact still has a
+ * timeline, and so a missed delivery self-heals.
+ */
+const DEPLOY_REQUESTS_DATASET = "deploy_requests"
+/** Faster than inventory: a deploy an hour late is a deploy nobody can use. */
+const DEPLOY_REQUESTS_TTL_MS = Duration.toMillis(Duration.minutes(5))
+/** How far back a first backfill reaches. Older deploys have no chart left. */
+const DEPLOY_REQUESTS_FLOOR_MS = Duration.toMillis(Duration.days(30))
+/** Per-tick budget so a 200-database org can't monopolize the API allowance. */
+const DEPLOY_REQUESTS_MAX_DATABASES_PER_TICK = 25
+const DEPLOY_REQUESTS_CONCURRENCY = 2
+/** Tick-overlap lease. */
+const LEASE_MS = Duration.toMillis(Duration.minutes(4))
+/**
+ * Extra attempts after a timed-out request, before the call fails. A PlanetScale
+ * slowdown timed out the inventory listing for 5+ orgs at once; a single retry
+ * rides out a stall that short without extending the tick meaningfully (worst
+ * case 3 × 15s for one path). Jittered so every org's tick doesn't re-hit a
+ * struggling API in lockstep. Only timeouts retry — an HTTP error is returned by
+ * the caller's own taxonomy (revoked / upstream) and must not be replayed.
+ */
+const REQUEST_TIMEOUT_RETRIES = 2
+/**
+ * Tagged onto the exhausted-timeout failure so the tick can tell "PlanetScale is
+ * slow" from "PlanetScale rejected us" without matching on a message string. A
+ * genuine upstream 504 classifies the same way, which is correct — both are the
+ * provider failing to answer in time.
+ */
+const isUpstreamTimeout = (error: { readonly _tag: string; readonly status?: number }) =>
+	error._tag === "@maple/http/errors/IntegrationsUpstreamError" &&
+	error.status === PLANETSCALE_TIMEOUT_STATUS
+const ORG_CONCURRENCY = 3
+const INVENTORY_WRITE_CONCURRENCY = 4
+/** Pagination caps — a runaway org can't make a tick unbounded. */
+const PAGE_SIZE = 100
+const MAX_PAGES = 10
+
+export interface PlanetScalePollSummary {
+	readonly orgs: number
+	readonly refreshed: number
+	readonly skipped: number
+	readonly failures: number
+	/** Timeline rows the deploy-request backfill added this tick. */
+	readonly deployEvents: number
+}
+
+export interface PlanetScaleQueryInsightsOptions {
+	readonly database: string
+	readonly branch?: string | undefined
+	/** Window bounds, epoch ms. */
+	readonly startTime: number
+	readonly endTime: number
+	readonly limit?: number | undefined
+}
+
+export interface PlanetScaleListEventsOptions {
+	readonly database?: string | undefined
+	readonly branch?: string | undefined
+	/** Window bounds, epoch ms. */
+	readonly startTime: number
+	readonly endTime: number
+	readonly categories?: ReadonlyArray<string> | undefined
+	readonly limit: number
+	/** Keyset cursor `${occurredAtMs}:${id}` from the previous page. */
+	readonly cursor?: string | undefined
+}
+
+export interface PlanetScaleServiceApi {
+	readonly pollAllOrgs: () => Effect.Effect<PlanetScalePollSummary, IntegrationsPersistenceError>
+	/** The org's (non-deleted) database inventory, for the API surface. */
+	readonly listDatabases: (
+		orgId: OrgId,
+	) => Effect.Effect<ReadonlyArray<PlanetScaleDatabaseRow>, IntegrationsPersistenceError>
+	/**
+	 * The lifecycle timeline for a window: deploy transitions and branch state
+	 * changes, newest first. Backs both the chart markers and the activity feed.
+	 */
+	readonly listEvents: (
+		orgId: OrgId,
+		options: PlanetScaleListEventsOptions,
+	) => Effect.Effect<
+		{ readonly events: ReadonlyArray<PlanetScaleEventRow>; readonly nextCursor: string | null },
+		IntegrationsPersistenceError
+	>
+	/**
+	 * Live top-queries lookup, proxied to PlanetScale's Query Insights API.
+	 * Per-fingerprint cardinality is unbounded (and duplicates the trace-derived
+	 * query-shapes feature), so this is never stored — computed on demand and
+	 * edge-cached briefly by the HTTP handler.
+	 */
+	readonly queryInsights: (
+		orgId: OrgId,
+		options: PlanetScaleQueryInsightsOptions,
+	) => Effect.Effect<
+		PlanetScaleQueryInsightsResponse,
+		| IntegrationsConfigurationError
+		| IntegrationsNotConnectedError
+		| IntegrationsRevokedError
+		| IntegrationsValidationError
+		| IntegrationsUpstreamError
+		| IntegrationsPersistenceError
+	>
+}
+
+const toPersistenceError = (error: unknown) =>
+	new IntegrationsPersistenceError({
+		message: error instanceof Error ? error.message : "PlanetScale inventory persistence failed",
+	})
+
+// Lenient decoders for the fields we consume. The SDK returns bodies unchecked while typing
+// them as complete, and the region/kind shapes differ between the Vitess and Postgres
+// products, so all secondary fields are optional.
+const DatabaseSchema = Schema.Struct({
+	id: Schema.String,
+	name: Schema.String,
+	state: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	kind: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	plan: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	region: Schema.optionalKey(
+		Schema.NullOr(
+			Schema.Struct({
+				slug: Schema.optionalKey(Schema.NullOr(Schema.String)),
+				display_name: Schema.optionalKey(Schema.NullOr(Schema.String)),
+			}),
+		),
+	),
+})
+
+const BranchSchema = Schema.Struct({
+	id: Schema.String,
+	name: Schema.String,
+	production: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
+	ready: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
+})
+
+/**
+ * Deploy request (GET .../databases/{db}/deploy-requests). Every field beyond
+ * the number is optional: the payload shape differs between the Vitess and
+ * Postgres products and across API versions, and a missing timestamp should
+ * cost one timeline marker, not the whole backfill.
+ */
+const DeployRequestSchema = Schema.Struct({
+	number: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	id: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	state: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	branch: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	into_branch: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	html_url: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	created_at: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	updated_at: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	closed_at: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	actor: Schema.optionalKey(
+		Schema.NullOr(
+			Schema.Struct({
+				display_name: Schema.optionalKey(Schema.NullOr(Schema.String)),
+			}),
+		),
+	),
+	deployment: Schema.optionalKey(
+		Schema.NullOr(
+			Schema.Struct({
+				state: Schema.optionalKey(Schema.NullOr(Schema.String)),
+				started_at: Schema.optionalKey(Schema.NullOr(Schema.String)),
+				finished_at: Schema.optionalKey(Schema.NullOr(Schema.String)),
+			}),
+		),
+	),
+})
+type DeployRequest = Schema.Schema.Type<typeof DeployRequestSchema>
+
+// Query Insights list row (GET .../branches/{branch}/insights) — only the
+// fields we surface; latencies/durations are milliseconds.
+const InsightRowSchema = Schema.Struct({
+	fingerprint: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	normalized_sql: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	statement_type: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	query_count: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	error_count: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	sum_total_duration_millis: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	time_per_query: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	p50_latency: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	p99_latency: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	rows_read_per_query: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	rows_returned_per_query: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+	last_run_at: Schema.optionalKey(Schema.NullOr(Schema.String)),
+})
+
+const parseTimestamp = (value: string | null | undefined): number | null => {
+	if (value == null || value === "") return null
+	const parsed = timestampMs(value)
+	return Number.isNaN(parsed) ? null : parsed
+}
+
+/**
+ * One deploy request → the timeline rows its timestamps prove happened.
+ *
+ * The REST payload is a *current state* snapshot, not an event log, so the
+ * transitions are reconstructed from the timestamps it carries. Anything the
+ * payload doesn't timestamp is not emitted — a marker at the wrong moment is
+ * worse than a missing one, because it invites someone to blame the wrong
+ * deploy for a latency cliff.
+ *
+ * The event types match the webhook vocabulary exactly, so a webhook-delivered
+ * transition and its backfilled twin collide on the dedupe index.
+ */
+export const deployRequestTimelineRows = (
+	request: DeployRequest,
+): ReadonlyArray<{
+	readonly eventType: string
+	readonly state: string
+	readonly occurredAtMs: number
+}> => {
+	const rows: Array<{ eventType: string; state: string; occurredAtMs: number }> = []
+	const push = (state: string, at: number | null) => {
+		if (at !== null) rows.push({ eventType: `deploy_request.${state}`, state, occurredAtMs: at })
+	}
+
+	push("opened", parseTimestamp(request.created_at))
+	push("in_progress", parseTimestamp(request.deployment?.started_at))
+
+	const finishedAt = parseTimestamp(request.deployment?.finished_at)
+	if (finishedAt !== null) {
+		const deploymentState = request.deployment?.state ?? ""
+		push(
+			deploymentState === "error" || deploymentState === "errored" ? "errored" : "schema_applied",
+			finishedAt,
+		)
+	}
+
+	const closedAt = parseTimestamp(request.closed_at)
+	if (closedAt !== null) {
+		push(request.state === "reverted" ? "reverted" : "closed", closedAt)
+	}
+	return rows
+}
+
+/**
+ * `${occurredAtMs}:${id}` → its parts. A malformed cursor reads as "no cursor"
+ * rather than an error: a stale link should show page one, not a 400.
+ */
+const parseEventCursor = (
+	cursor: string | undefined,
+): { readonly occurredAtMs: number; readonly id: string } | null => {
+	if (cursor === undefined || cursor === "") return null
+	const separator = cursor.indexOf(":")
+	if (separator <= 0) return null
+	const occurredAtMs = Number(cursor.slice(0, separator))
+	const id = cursor.slice(separator + 1)
+	if (!Number.isFinite(occurredAtMs) || id === "") return null
+	return { occurredAtMs, id }
+}
+
+/** Same phrasing as the webhook classifier, so both sources read identically. */
+const DEPLOY_BACKFILL_VERB: Record<string, string> = {
+	opened: "opened",
+	in_progress: "deploying",
+	schema_applied: "applied its schema",
+	errored: "failed",
+	reverted: "was reverted",
+	closed: "closed",
+} satisfies Record<string, string>
+
+/** A revoked or rejected grant: nothing is read until someone reconnects. */
+const DISCONNECTED: PollOutcome = {
+	_tag: "Disconnected",
+	reason: "PlanetScale no longer accepts Maple's access. Reconnect PlanetScale in Settings, Integrations.",
+}
+
+export class PlanetScaleService extends Context.Service<PlanetScaleService, PlanetScaleServiceApi>()(
+	"@maple/api/services/PlanetScaleService",
+	{
+		make: Effect.gen(function* () {
+			const database = yield* Database
+			const dbExecute = makeDbExecute(database, "PlanetScaleService", toPersistenceError)
+			const env = yield* Env
+			const psOAuth = yield* PlanetScaleOAuthService
+			const httpClient = yield* HttpClient.HttpClient
+
+			/**
+			 * One management-API call with the org's grant. A 401 refreshes once and stamps the
+			 * grant revoked if the fresh token is rejected too (`withAccessToken`). Only timeouts
+			 * retry, per request: a PlanetScale slowdown once timed out 5+ orgs at once, and a
+			 * jittered retry rides that out without stretching the tick. HTTP errors are never replayed.
+			 */
+			const callApi = <A, E extends SdkError>(
+				connection: PlanetScaleConnectionRow,
+				operation: string,
+				effect: Effect.Effect<A, E, PlanetScale.PlanetScaleOpContext>,
+			) =>
+				psOAuth.withAccessToken(connection.orgId, (accessToken) =>
+					runPlanetScale(
+						httpClient,
+						{ apiBaseUrl: env.MAPLE_PLANETSCALE_API_BASE_URL, accessToken },
+						operation,
+						effect,
+						{ timeoutRetries: REQUEST_TIMEOUT_RETRIES },
+					),
+				)
+
+			/**
+			 * Claim the org's inventory anchor row for this tick. A non-"claimed"
+			 * outcome says exactly why the org was skipped — polling disabled, the
+			 * TTL says the inventory is still fresh, or another tick holds the
+			 * lease — so pollOrg can put the reason on its span instead of
+			 * collapsing them into one invisible boolean.
+			 */
+			const claimPollWork = Effect.fn("PlanetScaleService.claimPollWork")(function* (
+				orgId: OrgId,
+				dataset: string,
+				databaseId: string,
+				ttlMs: number,
+			) {
+				const now = yield* Clock.currentTimeMillis
+				const rows = yield* dbExecute((db) =>
+					db.run(
+						PG.from(PlanetscalePollState)
+							.select()
+							.where(($) => [
+								$.orgId.eq(orgId),
+								$.dataset.eq(dataset),
+								$.databaseId.eq(databaseId),
+							])
+							.limit(1),
+					),
+				)
+				const existing = rows[0]
+
+				if (existing === undefined) {
+					yield* dbExecute((db) =>
+						db.run(
+							PG.insertInto(PlanetscalePollState).values({
+								id: randomUUID(),
+								orgId,
+								dataset,
+								databaseId,
+								leaseUntil: now + LEASE_MS,
+								createdAt: now,
+								updatedAt: now,
+							}),
+						),
+					)
+					return "claimed" as const
+				}
+
+				if (!existing.enabled) return "disabled" as const
+				if (existing.lastSuccessAt !== null && now - existing.lastSuccessAt < ttlMs) {
+					return "fresh" as const
+				}
+
+				// Lease claim: only wins if the previous lease expired. `.returning()`
+				// length is the claim signal (never read driver write-result shapes).
+				const claimed = yield* dbExecute((db) =>
+					db.run(
+						PG.update(PlanetscalePollState)
+							.set({ leaseUntil: now + LEASE_MS, updatedAt: now })
+							.where(($) => [
+								$.id.eq(existing.id),
+								PG.or($.leaseUntil.isNull(), $.leaseUntil.lt(now)),
+							])
+							.returning("id"),
+					),
+				)
+				return claimed.length > 0 ? ("claimed" as const) : ("lease_held" as const)
+			})
+
+			/** The org-wide inventory anchor row — also the tick-overlap lease. */
+			const claimInventoryWork = (orgId: OrgId) =>
+				claimPollWork(orgId, INVENTORY_DATASET, "", INVENTORY_TTL_MS)
+
+			/**
+			 * `insertPlanetScaleEvent` is shared with the webhook consumer, which
+			 * runs in a layer that provides `Database` directly. Here the service
+			 * already holds a resolved instance, so re-provide it rather than let the
+			 * requirement leak into every caller's signature.
+			 */
+			const appendTimelineEvent = (input: Parameters<typeof insertPlanetScaleEvent>[0]) =>
+				insertPlanetScaleEvent(input).pipe(Effect.provideService(Database, database))
+
+			const readPollState = Effect.fn("PlanetScaleService.readPollState")(function* (
+				orgId: OrgId,
+				dataset: string,
+				databaseId: string,
+			) {
+				const rows = yield* dbExecute((db) =>
+					db.run(
+						PG.from(PlanetscalePollState)
+							.select()
+							.where(($) => [
+								$.orgId.eq(orgId),
+								$.dataset.eq(dataset),
+								$.databaseId.eq(databaseId),
+							])
+							.limit(1),
+					),
+				)
+				return rows[0]
+			})
+
+			/** `databaseId → lastSuccessAt`, for round-robining a budgeted sweep. */
+			const pollStateByDatabaseId = Effect.fn("PlanetScaleService.pollStateByDatabaseId")(function* (
+				orgId: OrgId,
+				dataset: string,
+			) {
+				const rows = yield* dbExecute((db) =>
+					db.run(
+						PG.from(PlanetscalePollState)
+							.select("databaseId", "lastSuccessAt")
+							.where(($) => [$.orgId.eq(orgId), $.dataset.eq(dataset)]),
+					),
+				)
+				return new Map(rows.map((row) => [row.databaseId, row.lastSuccessAt]))
+			})
+
+			/**
+			 * Release a non-inventory dataset row. Advancing `watermarkAt` only on
+			 * success is what keeps a failed page from being skipped forever.
+			 */
+			const recordPollResult = Effect.fn("PlanetScaleService.recordPollResult")(function* (
+				orgId: OrgId,
+				dataset: string,
+				databaseId: string,
+				error: string | null,
+				watermarkAt: number | null,
+			) {
+				const now = yield* Clock.currentTimeMillis
+				yield* dbExecute((db) =>
+					db.run(
+						PG.update(PlanetscalePollState)
+							.set(
+								error === null
+									? {
+											lastSuccessAt: now,
+											lastError: null,
+											lastErrorAt: null,
+											leaseUntil: null,
+											updatedAt: now,
+											...(!(watermarkAt === null) ? { watermarkAt } : undefined),
+										}
+									: {
+											lastError: error,
+											lastErrorAt: now,
+											leaseUntil: null,
+											updatedAt: now,
+										},
+							)
+							.where(($) => [
+								$.orgId.eq(orgId),
+								$.dataset.eq(dataset),
+								$.databaseId.eq(databaseId),
+							]),
+					),
+				)
+			})
+
+			const recordInventoryResult = Effect.fn("PlanetScaleService.recordInventoryResult")(function* (
+				orgId: OrgId,
+				connectionId: string,
+				error: string | null,
+			) {
+				const now = yield* Clock.currentTimeMillis
+				yield* dbExecute((db) =>
+					db.run(
+						PG.update(PlanetscalePollState)
+							.set(
+								error === null
+									? {
+											lastSuccessAt: now,
+											lastError: null,
+											lastErrorAt: null,
+											leaseUntil: null,
+											updatedAt: now,
+										}
+									: {
+											lastError: error,
+											lastErrorAt: now,
+											leaseUntil: null,
+											updatedAt: now,
+										},
+							)
+							.where(($) => [
+								$.orgId.eq(orgId),
+								$.dataset.eq(INVENTORY_DATASET),
+								$.databaseId.eq(""),
+							]),
+					),
+				)
+				yield* dbExecute((db) =>
+					db.run(
+						PG.update(PlanetscaleConnections)
+							.set(
+								error === null
+									? {
+											lastInventoryAt: now,
+											lastInventoryError: null,
+											updatedAt: now,
+										}
+									: { lastInventoryError: error, updatedAt: now },
+							)
+							.where(($) => [$.id.eq(connectionId)]),
+					),
+				)
+			})
+
+			/** Records an inventory tick on the connection's source; a failed report does not fail the poll. */
+			const reportInventoryPoll = Effect.fnUntraced(function* (
+				connection: PlanetScaleConnectionRow,
+				outcome: PollOutcome,
+			) {
+				const now = yield* Clock.currentTimeMillis
+				yield* dbExecute((db) => reportPoll(db, connection.sourceId, outcome, now)).pipe(
+					Effect.catchTag("@maple/http/errors/IntegrationsPersistenceError", (error) =>
+						Effect.logWarning("PlanetScale source poll report failed").pipe(
+							Effect.annotateLogs({ orgId: connection.orgId, error: error.message }),
+						),
+					),
+				)
+			})
+
+			const refreshInventory = Effect.fn("PlanetScaleService.refreshInventory")(function* (
+				connection: PlanetScaleConnectionRow,
+			) {
+				const organization = connection.psOrganization
+				const listing = yield* callApi(
+					connection,
+					`listing databases in ${organization}`,
+					collectPages(PlanetScale.listDatabases, { organization, per_page: PAGE_SIZE }, MAX_PAGES),
+				)
+				const inventoryComplete = listing.complete
+				const upstreamDatabases = yield* decodeConsumed(
+					Schema.Array(DatabaseSchema),
+					`databases in ${organization}`,
+				)(listing.items)
+				if (!inventoryComplete) {
+					yield* Effect.logWarning(
+						"PlanetScale database listing truncated at the pagination ceiling",
+					).pipe(Effect.annotateLogs({ orgId: connection.orgId, maxItems: MAX_PAGES * PAGE_SIZE }))
+				}
+
+				const withBranches = yield* Effect.forEach(
+					upstreamDatabases,
+					(db) =>
+						Effect.gen(function* () {
+							const branches = yield* callApi(
+								connection,
+								`listing branches of ${organization}/${db.name}`,
+								collectPages(
+									PlanetScale.listBranches,
+									{ organization, database: db.name, per_page: PAGE_SIZE },
+									MAX_PAGES,
+								),
+							).pipe(
+								Effect.flatMap(({ items }) =>
+									decodeConsumed(
+										Schema.Array(BranchSchema),
+										`branches of ${db.name}`,
+									)(items),
+								),
+							)
+							const branchInfos: PlanetScaleBranchInfo[] = branches.map((branch) => ({
+								id: branch.id,
+								name: branch.name,
+								production: branch.production ?? false,
+								ready: branch.ready ?? true,
+							}))
+							return { db, branches: branchInfos }
+						}),
+					{ concurrency: 4 },
+				)
+
+				const now = yield* Clock.currentTimeMillis
+				const existingRows = yield* dbExecute((db) =>
+					db.run(
+						PG.from(PlanetscaleDatabases)
+							.select()
+							.where(($) => [$.orgId.eq(connection.orgId)]),
+					),
+				)
+				const existingByDatabaseId = new Map(existingRows.map((row) => [row.databaseId, row]))
+				const upstreamIds = new Set(withBranches.map(({ db }) => db.id))
+
+				yield* Effect.forEach(
+					withBranches,
+					({ db, branches }) => {
+						const values = {
+							name: db.name,
+							kind: normalizeKind(db.kind),
+							state: db.state ?? null,
+							region: db.region?.slug ?? db.region?.display_name ?? null,
+							plan: db.plan ?? null,
+							branchesJson: branches,
+							deletedAt: null,
+							updatedAt: now,
+						}
+						const existing = existingByDatabaseId.get(db.id)
+						return existing !== undefined
+							? dbExecute((client) =>
+									client.run(
+										PG.update(PlanetscaleDatabases)
+											.set(values)
+											.where(($) => [$.id.eq(existing.id)]),
+									),
+								)
+							: dbExecute((client) =>
+									client.run(
+										PG.insertInto(PlanetscaleDatabases).values({
+											id: randomUUID(),
+											orgId: connection.orgId,
+											databaseId: db.id,
+											createdAt: now,
+											...values,
+										}),
+									),
+								)
+					},
+					{ concurrency: INVENTORY_WRITE_CONCURRENCY, discard: true },
+				)
+
+				// Soft-delete rows whose database disappeared upstream, so identity is
+				// kept if it re-appears. Never off a truncated listing — a database
+				// beyond the pagination ceiling is unseen, not deleted.
+				yield* Effect.forEach(
+					existingRows.filter(
+						(row) =>
+							inventoryComplete &&
+							!upstreamIds.has(row.databaseId) &&
+							Predicate.isNull(row.deletedAt),
+					),
+					(row) =>
+						dbExecute((client) =>
+							client.run(
+								PG.update(PlanetscaleDatabases)
+									.set({ deletedAt: now, updatedAt: now })
+									.where(($) => [$.id.eq(row.id)]),
+							),
+						),
+					{ concurrency: INVENTORY_WRITE_CONCURRENCY, discard: true },
+				)
+
+				return withBranches.length
+			})
+
+			/**
+			 * Backfill one database's deploy-request history into the timeline.
+			 *
+			 * Every insert is idempotent, so this is safe to re-run and safe to
+			 * overlap with live webhook deliveries of the same transitions — the
+			 * dedupe index is what makes the two sources converge.
+			 */
+			const refreshDeployRequestsFor = Effect.fn("PlanetScaleService.refreshDeployRequestsFor")(
+				function* (connection: PlanetScaleConnectionRow, database_: PlanetScaleDatabaseRow) {
+					const claim = yield* claimPollWork(
+						connection.orgId,
+						DEPLOY_REQUESTS_DATASET,
+						database_.databaseId,
+						DEPLOY_REQUESTS_TTL_MS,
+					)
+					if (claim !== "claimed") {
+						yield* Effect.annotateCurrentSpan({ "maple.planetscale.skip_reason": claim })
+						return 0
+					}
+
+					const state = yield* readPollState(
+						connection.orgId,
+						DEPLOY_REQUESTS_DATASET,
+						database_.databaseId,
+					)
+					const now = yield* Clock.currentTimeMillis
+					// First backfill reaches 30 days; afterwards only what changed since
+					// the watermark, so a steady-state tick pages once and stops.
+					const floor = Math.max(state?.watermarkAt ?? 0, now - DEPLOY_REQUESTS_FLOOR_MS)
+
+					const organization = connection.psOrganization
+					const listing = yield* callApi(
+						connection,
+						`listing deploy requests of ${organization}/${database_.name}`,
+						collectPages(
+							PlanetScale.listDeployRequests,
+							{ organization, database: database_.name, per_page: PAGE_SIZE },
+							MAX_PAGES,
+						),
+					)
+					const requestsComplete = listing.complete
+					const requests = yield* decodeConsumed(
+						Schema.Array(DeployRequestSchema),
+						`deploy requests of ${database_.name}`,
+					)(listing.items)
+
+					const newestUpdate = requests.reduce(
+						(newest, request) => Math.max(newest, parseTimestamp(request.updated_at) ?? 0),
+						state?.watermarkAt ?? 0,
+					)
+					const pending = requests.flatMap((request) => {
+						const updatedAt = parseTimestamp(request.updated_at) ?? 0
+						// Untouched since the watermark: its transitions are already stored.
+						if (updatedAt !== 0 && updatedAt <= floor) return []
+						const externalId =
+							request.number != null ? String(request.number) : (request.id ?? "")
+						const label = externalId === "" ? "Deploy request" : `Deploy request #${externalId}`
+						return deployRequestTimelineRows(request)
+							.filter((row) => row.occurredAtMs >= now - DEPLOY_REQUESTS_FLOOR_MS)
+							.map((row) => ({ request, row, externalId, label }))
+					})
+					const appended = yield* Effect.forEach(pending, ({ request, row, externalId, label }) =>
+						appendTimelineEvent({
+							orgId: connection.orgId,
+							databaseName: database_.name,
+							// A deploy request spans two branches; pinning the marker to
+							// one of them would be a guess the payload doesn't support.
+							branchName: "",
+							category: "deploy_request",
+							eventType: row.eventType,
+							state: row.state,
+							externalId,
+							title: `${label} ${DEPLOY_BACKFILL_VERB[row.state] ?? row.state}`,
+							source: "backfill",
+							actorLogin: request.actor?.display_name ?? null,
+							url: request.html_url ?? null,
+							payload: {
+								branch: request.branch ?? null,
+								intoBranch: request.into_branch ?? null,
+							},
+							occurredAtMs: row.occurredAtMs,
+							createdAtMs: now,
+						}).pipe(Effect.mapError(toPersistenceError)),
+					)
+					const inserted = appended.filter((result) => result.inserted).length
+
+					// A truncated listing has unobserved requests beyond the ceiling:
+					// advancing the watermark past them would skip them forever. Keep the
+					// old watermark — inserts are idempotent, so re-scanning is safe.
+					const watermark = requestsComplete
+						? newestUpdate > 0
+							? newestUpdate
+							: null
+						: (state?.watermarkAt ?? null)
+					yield* recordPollResult(
+						connection.orgId,
+						DEPLOY_REQUESTS_DATASET,
+						database_.databaseId,
+						null,
+						watermark,
+					)
+					yield* Effect.annotateCurrentSpan({
+						"maple.planetscale.deploy_requests.seen": requests.length,
+						"maple.planetscale.deploy_requests.inserted": inserted,
+					})
+					return inserted
+				},
+			)
+
+			/**
+			 * Deploy-request backfill across the org, budgeted. Runs after the
+			 * inventory refresh and inside its own error boundary — a failure here
+			 * must never cost the org its inventory.
+			 */
+			const refreshDeployRequests = Effect.fn("PlanetScaleService.refreshDeployRequests")(function* (
+				connection: PlanetScaleConnectionRow,
+			) {
+				const rows = yield* dbExecute((db) =>
+					db.run(
+						PG.from(PlanetscaleDatabases)
+							.select()
+							.where(($) => [
+								$.orgId.eq(connection.orgId),
+								$.deletedAt.isNull(),
+								// Deploy requests are a MySQL/Vitess-only resource — Postgres
+								// databases answer 405 on this endpoint. Polling them anyway
+								// burned a slot in every tick's batch and buried the result
+								// in a logWarning, so it repeated forever.
+								$.kind.eq("mysql"),
+							]),
+					),
+				)
+
+				// Round-robin by staleness so every database is reached eventually
+				// rather than the first 25 alphabetically being reached always.
+				const staleness = yield* pollStateByDatabaseId(connection.orgId, DEPLOY_REQUESTS_DATASET)
+				const ordered = [...rows].sort(
+					(a, b) => (staleness.get(a.databaseId) ?? 0) - (staleness.get(b.databaseId) ?? 0),
+				)
+				const batch = ordered.slice(0, DEPLOY_REQUESTS_MAX_DATABASES_PER_TICK)
+				if (ordered.length > batch.length) {
+					// Never truncate silently — a partial sweep that reads as complete is
+					// how a stale timeline goes unnoticed.
+					yield* Effect.logInfo("PlanetScale deploy-request backfill truncated for this tick").pipe(
+						Effect.annotateLogs({
+							orgId: connection.orgId,
+							databases: ordered.length,
+							polled: batch.length,
+						}),
+					)
+				}
+
+				const counts = yield* Effect.forEach(
+					batch,
+					(row) =>
+						refreshDeployRequestsFor(connection, row).pipe(
+							// One bad database must not stop the others.
+							Effect.catchCause((cause) =>
+								Cause.hasInterruptsOnly(cause)
+									? Effect.interrupt
+									: Effect.logWarning("PlanetScale deploy-request backfill failed").pipe(
+											Effect.annotateLogs({
+												orgId: connection.orgId,
+												database: row.name,
+												error: summarizeCause(cause),
+											}),
+											Effect.map(() => 0),
+										),
+							),
+						),
+					{ concurrency: DEPLOY_REQUESTS_CONCURRENCY },
+				)
+				return counts.reduce((sum, count) => sum + count, 0)
+			})
+
+			const pollOrg = Effect.fn("PlanetScaleService.pollOrg")(function* (
+				connection: PlanetScaleConnectionRow,
+			) {
+				yield* Effect.annotateCurrentSpan({ orgId: connection.orgId })
+				// A revoked grant fails every call until someone reconnects, so polling it only
+				// repeats the 401. Reconnecting clears the stamp and polling resumes.
+				const grant = yield* psOAuth.grantStatus(connection.orgId)
+				if (grant.revokedAt !== null) {
+					yield* Effect.annotateCurrentSpan({ "maple.planetscale.skip_reason": "grant_revoked" })
+					yield* reportInventoryPoll(connection, DISCONNECTED)
+					return { outcome: "skipped" as const, deployEvents: 0 }
+				}
+				const claim = yield* claimInventoryWork(connection.orgId)
+				// Deliberately outside the inventory claim: inventory refreshes hourly,
+				// and a deploy marker an hour late is a deploy nobody can correlate.
+				// Each database row carries its own lease + 5-minute TTL, so this is
+				// safe to enter on every tick. Its own error boundary — a broken
+				// backfill must never cost the org its inventory.
+				const deployEvents = yield* refreshDeployRequests(connection).pipe(
+					Effect.catchCause((cause) =>
+						Cause.hasInterruptsOnly(cause)
+							? Effect.interrupt
+							: Effect.logWarning("PlanetScale deploy-request backfill failed for org").pipe(
+									Effect.annotateLogs({
+										orgId: connection.orgId,
+										error: summarizeCause(cause),
+									}),
+									Effect.map(() => 0),
+								),
+					),
+				)
+				yield* Effect.annotateCurrentSpan({
+					"maple.planetscale.deploy_events_inserted": deployEvents,
+				})
+
+				if (claim !== "claimed") {
+					// A silent skip is how the Cloudflare poller once hid a real outage —
+					// put the reason on the span (mirrors CloudflareAnalyticsService.pollOrg)
+					// so every skipped org is visible on the trace.
+					yield* Effect.annotateCurrentSpan({ "maple.planetscale.skip_reason": claim })
+					// A fresh inventory still answers for the source, so a reconnect clears a disconnect.
+					if (claim === "fresh") {
+						yield* reportInventoryPoll(
+							connection,
+							connection.lastInventoryError === null
+								? { _tag: "Ok" }
+								: { _tag: "Failed", error: connection.lastInventoryError },
+						)
+					}
+					return { outcome: "skipped" as const, deployEvents }
+				}
+
+				const result = yield* refreshInventory(connection).pipe(
+					Effect.map((count) => ({ ok: true as const, count })),
+					Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
+				)
+				if (result.ok) {
+					yield* recordInventoryResult(connection.orgId, connection.id, null)
+					yield* reportInventoryPoll(connection, { _tag: "Ok" })
+					yield* Effect.logInfo("PlanetScale inventory refreshed").pipe(
+						Effect.annotateLogs({ orgId: connection.orgId, databases: result.count }),
+					)
+					return { outcome: "refreshed" as const, deployEvents }
+				}
+				yield* recordInventoryResult(connection.orgId, connection.id, result.error.message).pipe(
+					Effect.ignore({ log: "Warn", message: "Failed to record PlanetScale inventory result" }),
+				)
+				yield* reportInventoryPoll(
+					connection,
+					result.error._tag === "@maple/http/errors/IntegrationsRevokedError"
+						? DISCONNECTED
+						: { _tag: "Failed", error: result.error.message },
+				)
+				// Fail inside a span so poll failures surface in find_errors, mirroring
+				// the Cloudflare poller's observeDatasetFailure seam — EXCEPT an upstream
+				// timeout, which is a transient provider slowdown (theirs timed out 5+ orgs
+				// at once) that the next tick refreshes, not a Maple failure. That one is
+				// recorded on an Ok span as `error.type` + a Warn log, per CLAUDE.md's
+				// "only 5xx is Error" rule; both paths still log identically.
+				const timedOut = isUpstreamTimeout(result.error)
+				yield* (
+					timedOut
+						? Effect.annotateCurrentSpan({ "error.type": "upstream_timeout" })
+						: Effect.fail(result.error)
+				).pipe(
+					Effect.withSpan("PlanetScaleService.inventoryPollFailed", {
+						attributes: { orgId: connection.orgId },
+					}),
+					Effect.catchCause((cause) =>
+						Cause.hasInterruptsOnly(cause) ? Effect.interrupt : Effect.void,
+					),
+					Effect.andThen(
+						Effect.logWarning("PlanetScale inventory refresh failed").pipe(
+							Effect.annotateLogs({
+								orgId: connection.orgId,
+								"error.type": timedOut ? "upstream_timeout" : result.error._tag,
+								error: result.error.message,
+							}),
+						),
+					),
+				)
+				return { outcome: "failed" as const, deployEvents }
+			})
+
+			const pollAllOrgs = Effect.fn("PlanetScaleService.pollAllOrgs")(function* () {
+				const connections = yield* dbExecute((db) =>
+					db.run(PG.from(PlanetscaleConnections).select()),
+				).pipe(
+					Effect.tapError((error) =>
+						Effect.logWarning("PlanetScale poll could not list connections").pipe(
+							Effect.annotateLogs({ error: error.message }),
+						),
+					),
+				)
+
+				const results = yield* Effect.forEach(
+					connections,
+					(connection) =>
+						pollOrg(connection).pipe(
+							// A broken org must not stop the fleet.
+							Effect.catchCause((cause) =>
+								Cause.hasInterruptsOnly(cause)
+									? Effect.interrupt
+									: Effect.logWarning("PlanetScale org poll failed").pipe(
+											Effect.annotateLogs({
+												orgId: connection.orgId,
+												error: summarizeCause(cause),
+											}),
+											Effect.as({ outcome: "failed" as const, deployEvents: 0 }),
+										),
+							),
+						),
+					{ concurrency: ORG_CONCURRENCY },
+				)
+
+				const countOutcome = (outcome: (typeof results)[number]["outcome"]) =>
+					results.filter((result) => result.outcome === outcome).length
+				return {
+					orgs: connections.length,
+					refreshed: countOutcome("refreshed"),
+					skipped: countOutcome("skipped"),
+					failures: countOutcome("failed"),
+					deployEvents: results.reduce((sum, result) => sum + result.deployEvents, 0),
+				}
+			})
+
+			const queryInsights = Effect.fn("PlanetScaleService.queryInsights")(function* (
+				orgId: OrgId,
+				options: PlanetScaleQueryInsightsOptions,
+			) {
+				yield* Effect.annotateCurrentSpan({
+					orgId,
+					"maple.planetscale.database": options.database,
+					"maple.planetscale.branch": options.branch ?? "",
+				})
+				const connections = yield* dbExecute((db) =>
+					db.run(
+						PG.from(PlanetscaleConnections)
+							.select()
+							.where(($) => [$.orgId.eq(orgId)])
+							.limit(1),
+					),
+				)
+				const connection = connections[0]
+				if (connection === undefined) {
+					return yield* Effect.fail(
+						new IntegrationsNotConnectedError({
+							message: "PlanetScale is not connected for this organization",
+						}),
+					)
+				}
+
+				// Default to the database's production branch from the inventory.
+				let branch = options.branch
+				if (branch === undefined || branch.length === 0) {
+					const rows = yield* dbExecute((db) =>
+						db.run(
+							PG.from(PlanetscaleDatabases)
+								.select()
+								.where(($) => [$.orgId.eq(orgId), $.name.eq(options.database)])
+								.limit(1),
+						),
+					)
+					const branches = rows[0]?.branchesJson ?? []
+					branch = branches.find((entry) => entry.production)?.name ?? branches[0]?.name ?? "main"
+				}
+
+				const limit = Math.min(Math.max(Math.floor(options.limit ?? 10), 1), 25)
+				const unavailable = (unavailableReason: string) =>
+					Effect.succeed(
+						new PlanetScaleQueryInsightsResponse({ branch, rows: [], unavailableReason }),
+					)
+				// Authz/branch-shaped rejections soft-fail so the panel renders an inline empty
+				// state instead of a 5xx toast (top-traffic pattern). Timeouts and transport
+				// failures still fail the request.
+				const insights = yield* callApi(
+					connection,
+					`reading Query Insights for ${options.database}/${branch}`,
+					PlanetScale.listBranchQueries({
+						organization: connection.psOrganization,
+						database: options.database,
+						branch,
+						from: new Date(options.startTime).toISOString(),
+						to: new Date(options.endTime).toISOString(),
+						sort: "totalTime",
+						dir: "desc",
+						per_page: limit,
+					}),
+				).pipe(
+					Effect.catchTags({
+						// Only a 403 from the insights endpoint itself: a revoked grant still fails, so
+						// the client sees the reconnect error rather than a scope hint.
+						"@maple/backend/integrations/PlanetScaleForbiddenError": () =>
+							unavailable(
+								"The PlanetScale authorization lacks the read_databases scope needed for Query Insights.",
+							),
+						"@maple/http/errors/IntegrationsUpstreamError": (error) =>
+							error.status === 404
+								? unavailable(
+										`PlanetScale has no insights for ${options.database}/${branch}.`,
+									)
+								: error.status !== undefined && !isUpstreamTimeout(error)
+									? unavailable(`PlanetScale Query Insights returned HTTP ${error.status}.`)
+									: Effect.fail(error),
+					}),
+				)
+				if (insights instanceof PlanetScaleQueryInsightsResponse) return insights
+				const insightRows = yield* decodeConsumed(
+					Schema.Array(InsightRowSchema),
+					"Query Insights",
+				)(insights.data)
+
+				return new PlanetScaleQueryInsightsResponse({
+					branch,
+					unavailableReason: null,
+					rows: insightRows.flatMap((row) => {
+						const normalizedSql = row.normalized_sql ?? ""
+						if (normalizedSql.length === 0) return []
+						const lastRunAtMs = row.last_run_at ? timestampMs(row.last_run_at) : Number.NaN
+						return [
+							new PlanetScaleQueryInsightRow({
+								fingerprint: row.fingerprint ?? normalizedSql,
+								normalizedSql,
+								statementType: row.statement_type ?? null,
+								queryCount: row.query_count ?? 0,
+								errorCount: row.error_count ?? 0,
+								totalDurationMillis: row.sum_total_duration_millis ?? 0,
+								timePerQueryMillis: row.time_per_query ?? 0,
+								p50LatencyMillis: row.p50_latency ?? 0,
+								p99LatencyMillis: row.p99_latency ?? 0,
+								rowsReadPerQuery: row.rows_read_per_query ?? 0,
+								rowsReturnedPerQuery: row.rows_returned_per_query ?? 0,
+								lastRunAt: Number.isFinite(lastRunAtMs) ? lastRunAtMs : null,
+							}),
+						]
+					}),
+				})
+			})
+
+			const listDatabases = Effect.fn("PlanetScaleService.listDatabases")(function* (orgId: OrgId) {
+				yield* Effect.annotateCurrentSpan({ orgId })
+				return yield* dbExecute((db) =>
+					db.run(
+						PG.from(PlanetscaleDatabases)
+							.select()
+							.where(($) => [$.orgId.eq(orgId), $.deletedAt.isNull()]),
+					),
+				)
+			})
+
+			const listEvents = Effect.fn("PlanetScaleService.listEvents")(function* (
+				orgId: OrgId,
+				options: PlanetScaleListEventsOptions,
+			) {
+				yield* Effect.annotateCurrentSpan({ orgId, "maple.planetscale.database": options.database })
+
+				// Keyset pagination over (occurred_at DESC, id DESC): an offset would
+				// skip rows as live webhooks land at the head between pages.
+				const cursor = parseEventCursor(options.cursor)
+				const rows = yield* dbExecute((db) =>
+					db.run(
+						PG.from(PlanetscaleEvents)
+							.select()
+							.where(($) => [
+								// OrgId first, always.
+								$.orgId.eq(orgId),
+								$.occurredAt.gte(options.startTime),
+								$.occurredAt.lte(options.endTime),
+								options.database === undefined
+									? undefined
+									: $.databaseName.eq(options.database),
+								// A deploy request has no single branch, so a branch filter
+								// must not hide deploys — it narrows branch-scoped rows only.
+								options.branch === undefined
+									? undefined
+									: PG.or($.branchName.eq(options.branch), $.branchName.eq("")),
+								options.categories === undefined || options.categories.length === 0
+									? undefined
+									: PG.inList($.category, options.categories),
+								cursor === null
+									? undefined
+									: PG.or(
+											$.occurredAt.lt(cursor.occurredAtMs),
+											PG.and($.occurredAt.eq(cursor.occurredAtMs), $.id.lt(cursor.id)),
+										),
+							])
+							.orderBy(["occurredAt", "desc"], ["id", "desc"])
+							// One extra row is how we know a next page exists without a count.
+							.limit(options.limit + 1),
+					),
+				)
+
+				const events = rows.slice(0, options.limit)
+				const last = events[events.length - 1]
+				const nextCursor =
+					rows.length > options.limit && last !== undefined ? `${last.occurredAt}:${last.id}` : null
+				return { events, nextCursor }
+			})
+
+			return {
+				pollAllOrgs,
+				listDatabases,
+				listEvents,
+				queryInsights,
+			} satisfies PlanetScaleServiceApi
+		}),
+	},
+) {
+	static readonly layer = Layer.effect(this, this.make).pipe(
+		Layer.provide(FetchHttpClient.layer),
+		Layer.provide(PlanetScaleOAuthService.layer),
+	)
+}
+
+/** Normalize PlanetScale's product kind to "mysql" | "postgresql". */
+const normalizeKind = (kind: string | null | undefined): string => {
+	const normalized = (kind ?? "").toLowerCase()
+	if (normalized.includes("postgres")) return "postgresql"
+	return "mysql"
+}

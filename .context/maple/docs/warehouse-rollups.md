@@ -1,0 +1,210 @@
+# Warehouse rollups and materialized views
+
+We have 44 materialized views across 42 datasources. They accreted one product feature at a
+time, and for a long time nobody could answer "should this be an MV?" without re-deriving it
+from scratch. This is that answer.
+
+Definitions live in `packages/domain/src/tinybird/materializations.ts` (MVs) and
+`datasources.ts` (targets). Everything else is generated from those two files: the ClickHouse
+DDL snapshot, `local-schema.sql` for the embedded chDB engine, and the Rust insert mappings.
+
+---
+
+## The tier ladder
+
+| Tier         | Grain                      | TTL  | Answers                                                                                            |
+| ------------ | -------------------------- | ---- | -------------------------------------------------------------------------------------------------- |
+| **raw**      | one row per span/log/point | 30d  | "show me this exact trace / these log lines", or anything needing attributes, span names, or an id |
+| **minutely** | pre-aggregated per minute  | 90d  | sub-hour timeseries and alert evaluation, where a per-span scan is the only alternative            |
+| **hourly**   | pre-aggregated per hour    | 365d | dashboards and trends over days-to-a-year                                                          |
+
+**A query must read the coarsest tier that can answer it.** The routing guards
+(`canUseAnnualServiceOverview`, `canUseTracesAggregatesMv`, `canUseServiceOverviewMv`,
+`canUseLogsAggregatesHourly`, `canUseTraceFacetsRollup`) exist to enforce that, and each one names the tier it unlocks.
+
+Rollup routes union a **raw edge** with a **rollup interior**: the rollup answers whole
+buckets, and the raw table covers the partial buckets at each end of the window. Getting the
+edge grain wrong double-counts every span in the first and last partial bucket, and the SQL
+still looks reasonable. See the comment on `edgeGrain` in
+`packages/query-engine/src/ch/queries/traces.ts`.
+
+---
+
+## When a materialized view is justified
+
+Three shapes, all already in the codebase. If a proposed MV is not one of these, it is a copy
+of a table we already have.
+
+1. **Locator index for point lookup.** `trace_index` holds one row per (trace, service,
+   5-minute bucket), the `traces` sort-key prefixes a trace occupies. A trace-id read matches
+   that prefix against the index and seeks a few granules of `traces` itself. It replaced
+   `trace_detail_spans`, a full TraceId-sorted copy of `traces` (see "Trace storage layout").
+   Never re-sort a whole table into a second copy: index the key you need instead.
+2. **Pre-aggregation for scans.** `*_aggregates_hourly`, `service_overview_*`,
+   `service_operations_*`. Trades write amplification for orders-of-magnitude less read.
+3. **Filtered projection.** `error_events` keeps only `StatusCode = 'Error'` and unwraps the
+   exception event. When both the event and the status message are absent, it falls back to the
+   `exception.*` / `error.*` span attributes. Error queries never touch the Map columns of the
+   full traces table.
+
+Storage is not free: every MV on `traces` is paid for on every span. Until 2026-10 the
+TraceId-sorted copy alone (159 GiB) was larger than `traces` (156 GiB).
+
+---
+
+## Trace storage layout
+
+`traces` is sorted `(OrgId, ServiceName, toStartOfFiveMinutes(Timestamp), TraceId)` and
+`trace_index` locates traces in it. Read a trace's spans with `inTraces(...)`
+(`packages/query-engine/src/ch/tables.ts`), which compiles to
+`(ServiceName, toStartOfFiveMinutes(Timestamp), TraceId) IN (SELECT ... FROM trace_index ...)`.
+The bucket expression is `TRACE_BUCKET_EXPR` in `datasources.ts`; the key and the index must
+change together.
+
+Chosen 2026-10-19 by benchmarking 6 hours of real spans (4.34M, internal org) on ClickHouse
+25.8 against the prod query mix from `system.query_log` (alert raw SQL is most of the
+`traces` reads, then the service-map join, UI reads, and trace-id reads):
+
+| layout                             | B/span (traces + locator) |
+| :--------------------------------- | ------------------------: |
+| old key + `trace_detail_spans`     |                      98.0 |
+| `(svc, 5m, trace)` + `trace_index` |                      43.8 |
+
+- 5-minute alert windows read +18% (15-minute buckets: +84%, 1-minute buckets doubled
+  single-trace reads); 60-minute alerts -27%, org-wide alerts -14%, the service-map join -34%.
+- `SpanName` left the key; `idx_span_name` (bloom, 0.02 B/span) halves rare-name reads.
+  Span-name search still reads more than before (two-stage search 16 -> 24 MiB on the sample).
+- The real query builders, old vs new SQL on the same data, return identical rows. Trace list
+  54 -> 15 MiB, a 700-span hierarchy 8.0 -> 3.0 MiB, small traces 1.6 -> 2.6 MiB.
+- A tuple `IN` beats per-column `IN`s (2.7x less read for 100 traces; the column sets
+  cross-multiply) and plain `TraceId IN` without the index (2.4x). ClickHouse also turns the
+  index set into a `Timestamp` MinMax condition, so a lookup skips the other daily partitions.
+
+BYO ClickHouse clusters created before migration 0043 keep the old sort key: a key cannot be
+altered in place, and results are identical either way, only slower. Local stores re-sort at
+local schema v34.
+
+---
+
+## Rules
+
+Each rule is here because its absence cost something measurable, found during the 2026-08
+sweep.
+
+### Every MV names its consuming query
+
+No consumer, no MV. `error_spans` was materialized from every error span for the lifetime of
+the product and **never read once**. No query in the DSL ever called `from(ErrorSpans)`.
+It was also described to LLM agents in
+`packages/backend/src/services/warehouse/warehouse-catalog.ts` as "use this instead of
+`traces WHERE StatusCode = 'Error'`", so `run_sql` agents were actively steered onto it.
+
+### Any MV that fans out over unbounded values must carry a cardinality bound
+
+`ARRAY JOIN` over an attribute map turns every distinct value into its own row. With
+`AttributeValue != ''` as its only filter, `attribute_values_hourly` reached **1.59 billion
+rows / 12.3 GB** to serve an autocomplete dropdown read a couple hundred times a week.
+
+Bound it by measuring what is actually in the table. The intuitive rules (a length cap and a
+denylist of id-ish key names) would have missed the top two keys, `idle_ns` and `busy_ns`:
+short _numeric measurements_ that together were ~70% of the rows. See
+`attributeValueCardinalityBound` in `materializations.ts` for the resulting rules and why.
+
+### Keep the write filter and the read guard in sync, and test that they agree
+
+`span_metrics_calls_hourly` sat at **0 rows for its entire existence**. The MV filtered
+`MetricName IN ('span.metrics.calls', 'calls')`; the collector emits the counter namespaced
+by its pipeline, as `traces.span.metrics.calls`. Both the write filter and the read fast-path
+missed it, so they agreed with each other and disagreed with reality. Every read fell back
+to a raw scan measured at ~7s p95.
+
+A rollup whose target is empty is indistinguishable from a rollup nobody queries. Neither the
+schema lint nor the SQL catalog can catch this; only looking at row counts can.
+
+### A two-tier read takes its boundary from `rollup-splice`, never by hand
+
+The raw edge and the rollup interior have to tile the window exactly once. Written by hand
+that is two inequalities which must stay each other's exact complement, and when they drift
+nothing errors. The counts come out wrong on a chart that looks fine.
+
+`packages/query-engine/src/ch/queries/rollup-splice.ts` owns that boundary:
+`interiorConditions(bucketColumn, grain)` for the rollup branch, `edgeCondition(tsColumn,
+grain)` for the raw branch, defined as its complement. Traces, logs, services,
+service-operations and the service map use them.
+
+The service-map family used to hand-roll it, and drifted. `serviceDependencies`
+hand-rolled the boundary correctly. `serviceDbEdges`, `serviceExternalEdges` and the
+db-query-shape drill-down hand-rolled the same boundary with the interior floored to
+`toStartOfHour(startTime)` while their raw branch covered only the trailing hour. Every
+window whose start was not hour-aligned counted the whole leading hour, including spans
+outside the window. The web app snaps a 12h range to a 5-minute grid, so the start was
+essentially never aligned. The DB nodes on the service map read high against the service
+edges drawn beside them, permanently, and the boundary-exact e2e reproduces it as a _phantom
+database node_ built entirely from rows before the window began.
+
+Two things made it survive: nothing forced the shared helper, and those queries had no
+fixture in the SQL catalog at all, so neither the DESCRIBE sweep nor any structural gate ever
+looked at them.
+
+Both are closed now. `unsplicedTwoTierQueries` in `packages/query-engine/src/benchmark/catalog.ts` fails any query naming both
+a rollup table and a raw table whose boundary is not a computed `firstFullBucket`, and
+`packages/backend/src/services/warehouse/service-map-parity.clickhouse.e2e.test.ts` compares the spliced result against a flat scan
+with spans seeded exactly on each seam. **There is no allowlist on that gate.** A single-tier
+query never trips it, and a deliberately-approximate one (`serviceHealthSnapshot` floors to
+the hour on purpose) reads only its rollup and never trips it either. If a new query seems to
+need an exemption, the gate has found a bug.
+
+### A routing guard must be tested on the tier it selects, not on a table name
+
+`canUseAnnualServiceOverview` required `allMetrics === true`. Alert evaluation
+(`computeAlertBuckets`) never sets it, so every alert fell through to a flat scan of the
+325M-row per-span `service_overview_spans` (**165k scans per 3 days**) while the 2.2M-row
+minutely rollup built for exactly that shape sat unreachable.
+
+`benchmark/catalog.test.ts` already asserts every routing predicate is exercised both ways, and it
+passed throughout. The gap was that the test guarding this route asserted
+`sql.toContain("FROM service_overview_spans")`, and the tiered union reads that table too,
+as its raw edge. The assertion could not tell the two routes apart. **Assert the tier that
+distinguishes the branch** (`FROM service_overview_minutely`), and include a fixture shaped
+like a real alert rule as well as a dashboard query.
+
+---
+
+## Before adding or changing an MV
+
+1. Name the query that will read it, and the tier it belongs to.
+2. If it fans out over values, decide the cardinality bound first.
+3. Add a routing fixture that pins the **tier**, both ways.
+4. `bun run clickhouse:schema` and `bun run tinybird:manifest` to regenerate.
+5. Write the numbered migration in `packages/domain/src/clickhouse/migrations/`.
+   **`DROP VIEW` before `DROP TABLE`, always**. The inverse leaves an MV pointing at a
+   missing target and wedges ingest with `Code: 60 UNKNOWN_TABLE`.
+6. Set `requiredForIngest: false` unless the Rust gateway writes the table directly.
+   Bumping `clickHouseSchemaVersion` un-readies ingest routing for every BYO-ClickHouse org.
+7. `bun run local-schema:bump <slug>` to bump `LOCAL_SCHEMA_VERSION`, retain the snapshot,
+   append the history identity, and scaffold the local-store migration edge from the previous
+   one. It writes every mechanical edit, including the pinned literals in the bun test and the
+   native probe, and leaves the edge's `apply` for you. Write the DDL there, including explicit
+   drops, because `assertPhysicalSchema` fails on leftover objects too.
+
+Steps 5 and 6 are expensive, so **batch removals into one migration** instead of shipping
+them one at a time. Migration `0019_mv_sweep` is the worked example.
+
+---
+
+## Known-unresolved
+
+Recorded so the next sweep does not re-derive them.
+
+- **`alertRawQuery`: 173,000 s/week**, the single largest consumer of warehouse time. It is
+  user-authored SQL against raw tables, so no MV can see it and no routing guard applies.
+  Needs its own design: a rollup users can target, or per-rule result caching.
+- **`service_map_spans` + `service_map_children`**: 18.6 GB of intermediate producing a
+  223 MB hourly rollup. Suspicious amplification, but the recent-window branch reads them
+  directly.
+- **`metrics_exponential_histogram` is empty.** Not dead: ingest writes it
+  (`apps/ingest/src/clickhouse_insert_mappings.rs`, table names in `telemetry.rs`). It is empty only because no SDK currently exports
+  exponential histograms. Leave it and its two MVs alone.
+- **Naming drift**: `trace_list_mv_mv`, and `serviceMapDbQuerySignaturesHourlyMv` producing
+  `service_map_db_query_shapes_hourly_mv`. Cosmetic; renaming costs a full migration plus a
+  local schema version, which is not worth it.

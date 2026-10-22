@@ -1,0 +1,520 @@
+import { randomUUID } from "node:crypto"
+import { afterEach, assert, describe, expect, it } from "@effect/vitest"
+import { Clock, Effect, Layer, Predicate, Schema } from "effect"
+import {
+	type ActorId,
+	ErrorIncidentId,
+	ErrorIssueId,
+	ErrorIssuePullRequestId,
+	OrgId,
+	UserId,
+} from "@maple/domain/primitives"
+import {
+	ErrorIncidents,
+	ErrorIssues,
+	ErrorIssueEvents,
+	ErrorIssuePullRequests,
+	ErrorIssueStates,
+} from "@maple/db/tables"
+import type { MapleDb } from "@maple/db/client"
+import * as Orm from "@maple-dev/effect-orm/database"
+import * as PG from "@maple-dev/effect-orm/postgres"
+import { Database, type DatabaseApi } from "@maple/backend/platform/DatabaseLive"
+import { cleanupTestDbs, createTestDb, type TestDb } from "@maple/backend/platform/test-pglite"
+import { AuditLogService } from "@maple/backend/services/audit/AuditLogService"
+import { ErrorActorsService } from "./ErrorActorsService"
+import { ErrorIssueWorkflowService } from "./ErrorIssueWorkflowService"
+
+// Compile-time guard: broadening this service to warehouse, cache, Env,
+// notifications, or WorkerEnvironment makes this assignment fail.
+const databaseAndActorsOnly: Layer.Layer<
+	ErrorIssueWorkflowService,
+	never,
+	Database | ErrorActorsService | AuditLogService
+> = Layer.effect(ErrorIssueWorkflowService, ErrorIssueWorkflowService.make)
+
+const asOrgId = Schema.decodeUnknownSync(OrgId)
+const asPullRequestId = Schema.decodeUnknownSync(ErrorIssuePullRequestId)
+const asUserId = Schema.decodeUnknownSync(UserId)
+const asIssueId = Schema.decodeUnknownSync(ErrorIssueId)
+const asIncidentId = Schema.decodeUnknownSync(ErrorIncidentId)
+
+const ORG = asOrgId("org_error_issue_workflow_test")
+const USER = asUserId("user_error_issue_workflow_test")
+const OTHER_USER = asUserId("other_error_issue_workflow_test")
+const createdDbs: TestDb[] = []
+
+afterEach(() => cleanupTestDbs(createdDbs))
+
+const makeLayer = () => {
+	const database = createTestDb(createdDbs).layer
+	const actors = ErrorActorsService.layer.pipe(Layer.provide(database))
+	const audit = AuditLogService.layerMemory
+	const workflow = databaseAndActorsOnly.pipe(Layer.provide(Layer.mergeAll(database, actors, audit)))
+	return Layer.mergeAll(workflow, actors).pipe(Layer.provideMerge(database))
+}
+
+/** An effect-orm insert into `table`, read off the builder's runtime shape. */
+const isInsertInto = (query: unknown, table: string): boolean =>
+	Predicate.hasProperty(query, "_tag") &&
+	query._tag === "CHInsert" &&
+	Predicate.hasProperty(query, "_state") &&
+	Predicate.hasProperty(query._state, "table") &&
+	Predicate.hasProperty(query._state.table, "name") &&
+	query._state.table.name === table
+
+/**
+ * The client with one table's inserts sabotaged, inside and outside
+ * transactions: a stand-in for the connection dying mid-write, which is what
+ * the workflow's multi-statement operations must survive atomically. It is a
+ * driver error, so `Database.execute` absorbs it exactly as it would a real one.
+ */
+const failInsertOf = (db: MapleDb, failTable: string): MapleDb => {
+	const orm: MapleDb = {
+		...db,
+		run: (query, params) =>
+			isInsertInto(query, failTable)
+				? Effect.fail(
+						new Orm.DatabaseError({
+							message: "injected insert failure",
+							sql: `insert into ${failTable} (sabotaged)`,
+							reason: "ConnectionError",
+							cause: new Error("injected insert failure"),
+						}),
+					)
+				: db.run(query, params),
+	}
+	return orm
+}
+
+const makeFaultyLayer = (failTable: string) => {
+	const database = createTestDb(createdDbs).layer
+	const faulty = Layer.effect(
+		Database,
+		Effect.gen(function* () {
+			const real = yield* Database
+			return {
+				execute: (fn) => real.execute((db) => fn(failInsertOf(db, failTable))),
+			} satisfies DatabaseApi
+		}),
+	).pipe(Layer.provide(database))
+	const actors = ErrorActorsService.layer.pipe(Layer.provide(faulty))
+	const workflow = databaseAndActorsOnly.pipe(
+		Layer.provide(Layer.mergeAll(faulty, actors, AuditLogService.layerMemory)),
+	)
+	return Layer.mergeAll(workflow, actors).pipe(Layer.provideMerge(faulty))
+}
+
+const seedIssue = (issueId: ErrorIssueId, overrides: Partial<PG.InsertRowOf<typeof ErrorIssues>> = {}) =>
+	Effect.gen(function* () {
+		const database = yield* Database
+		const now = yield* Clock.currentTimeMillis
+		yield* database.execute((db) =>
+			db.run(
+				PG.insertInto(ErrorIssues).values({
+					id: issueId,
+					orgId: ORG,
+					fingerprintHash: `fp-${issueId}`,
+					serviceName: "checkout-api",
+					exceptionType: "TimeoutError",
+					exceptionMessage: "upstream timed out",
+					topFrame: "handler.ts:42",
+					firstSeenAt: now,
+					lastSeenAt: now,
+					createdAt: now,
+					updatedAt: now,
+					...overrides,
+				}),
+			),
+		)
+	})
+
+describe("ErrorIssueWorkflowService", () => {
+	it.effect("enforces lease ownership, heartbeats, and release transitions on Postgres", () =>
+		Effect.gen(function* () {
+			const workflow = yield* ErrorIssueWorkflowService
+			const actors = yield* ErrorActorsService
+			const database = yield* Database
+			const holder = yield* actors.ensureUserActor(ORG, USER)
+			const contender = yield* actors.ensureUserActor(ORG, OTHER_USER)
+			const issueId = asIssueId(randomUUID())
+			const now = yield* Clock.currentTimeMillis
+			yield* seedIssue(issueId, {
+				workflowState: "in_progress",
+				leaseHolderActorId: holder.id,
+				claimedAt: now,
+				leaseExpiresAt: now + 60_000,
+			})
+
+			const contention = yield* Effect.flip(workflow.heartbeatIssue(ORG, contender.id, issueId))
+			if (contention._tag !== "@maple/http/errors/ErrorIssueLeaseConflictError") {
+				return assert.fail(`Expected lease conflict, received ${contention._tag}`)
+			}
+			assert.strictEqual(contention.currentHolderActorId, holder.id)
+
+			const heartbeat = yield* workflow.heartbeatIssue(ORG, holder.id, issueId)
+			assert.strictEqual(heartbeat.leaseHolder?.id, holder.id)
+			assert.isNotNull(heartbeat.leaseExpiresAt)
+
+			const released = yield* workflow.releaseIssue(ORG, holder.id, issueId, {
+				note: "handoff",
+			})
+			assert.strictEqual(released.workflowState, "todo")
+			assert.isNull(released.leaseHolder)
+			assert.isNull(released.leaseExpiresAt)
+
+			const events = yield* database.execute((db) =>
+				db.run(
+					PG.from(ErrorIssueEvents)
+						.select("type", "toState")
+						.where(($) => [$.orgId.eq(ORG), $.issueId.eq(issueId)]),
+				),
+			)
+			expect(events).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ type: "release" }),
+					expect.objectContaining({ type: "state_change", toState: "todo" }),
+				]),
+			)
+		}).pipe(Effect.provide(makeLayer())),
+	)
+
+	it.effect("keeps issue, incident, evaluator state, and audit mutation coherent", () =>
+		Effect.gen(function* () {
+			const workflow = yield* ErrorIssueWorkflowService
+			const actors = yield* ErrorActorsService
+			const database = yield* Database
+			const actor = yield* actors.ensureUserActor(ORG, USER)
+			const issueId = asIssueId(randomUUID())
+			const incidentId = asIncidentId(randomUUID())
+			const now = yield* Clock.currentTimeMillis
+			yield* seedIssue(issueId, { workflowState: "in_review" })
+			yield* database.execute((db) =>
+				db.run(
+					PG.insertInto(ErrorIncidents).values({
+						id: incidentId,
+						orgId: ORG,
+						issueId,
+						status: "open",
+						reason: "first_seen",
+						firstTriggeredAt: now,
+						lastTriggeredAt: now,
+						createdAt: now,
+						updatedAt: now,
+					}),
+				),
+			)
+			yield* database.execute((db) =>
+				db.run(
+					PG.insertInto(ErrorIssueStates).values({
+						orgId: ORG,
+						issueId,
+						openIncidentId: incidentId,
+						updatedAt: now,
+					}),
+				),
+			)
+
+			const current = yield* workflow.requireIssue(ORG, issueId)
+			const transitioned = yield* workflow.applyTransition(ORG, actor.id, current, "done", {
+				note: "verified",
+			})
+			assert.strictEqual(transitioned.workflowState, "done")
+
+			const [incident] = yield* database.execute((db) =>
+				db.run(
+					PG.from(ErrorIncidents)
+						.select()
+						.where(($) => [$.id.eq(incidentId)]),
+				),
+			)
+			const [state] = yield* database.execute((db) =>
+				db.run(
+					PG.from(ErrorIssueStates)
+						.select()
+						.where(($) => [$.orgId.eq(ORG), $.issueId.eq(issueId)]),
+				),
+			)
+			assert.strictEqual(incident?.status, "resolved")
+			assert.isNotNull(incident?.resolvedAt)
+			assert.isNull(state?.openIncidentId)
+
+			const response = yield* workflow.listIssueEvents(ORG, issueId)
+			const stateChange = response.events.find((event) => event.type === "state_change")
+			assert.strictEqual(stateChange?.actor?.id, actor.id)
+			assert.strictEqual(stateChange?.fromState, "in_review")
+			assert.strictEqual(stateChange?.toState, "done")
+		}).pipe(Effect.provide(makeLayer())),
+	)
+
+	it.effect("rolls the whole done transition back when the timeline event cannot commit", () =>
+		Effect.gen(function* () {
+			const workflow = yield* ErrorIssueWorkflowService
+			const actors = yield* ErrorActorsService
+			const database = yield* Database
+			const actor = yield* actors.ensureUserActor(ORG, USER)
+			const issueId = asIssueId(randomUUID())
+			const incidentId = asIncidentId(randomUUID())
+			const now = yield* Clock.currentTimeMillis
+			yield* seedIssue(issueId, { workflowState: "in_review" })
+			yield* database.execute((db) =>
+				db.run(
+					PG.insertInto(ErrorIncidents).values({
+						id: incidentId,
+						orgId: ORG,
+						issueId,
+						status: "open",
+						reason: "first_seen",
+						firstTriggeredAt: now,
+						lastTriggeredAt: now,
+						createdAt: now,
+						updatedAt: now,
+					}),
+				),
+			)
+
+			const current = yield* workflow.requireIssue(ORG, issueId)
+			const failure = yield* Effect.flip(workflow.applyTransition(ORG, actor.id, current, "done"))
+			assert.strictEqual(failure._tag, "@maple/http/errors/ErrorPersistenceError")
+
+			// Nothing may commit without the event: a done issue with an open
+			// incident and no audit trail is unrepairable, because a retry sees the
+			// target state already stored and returns early.
+			const after = yield* workflow.requireIssue(ORG, issueId)
+			assert.strictEqual(after.workflowState, "in_review")
+			assert.isNull(after.resolvedAt)
+			const [incident] = yield* database.execute((db) =>
+				db.run(
+					PG.from(ErrorIncidents)
+						.select()
+						.where(($) => [$.id.eq(incidentId)]),
+				),
+			)
+			assert.strictEqual(incident?.status, "open")
+		}).pipe(Effect.provide(makeFaultyLayer("error_issue_events"))),
+	)
+
+	it.effect("rolls the severity change back when the escalation outbox insert fails", () =>
+		Effect.gen(function* () {
+			const workflow = yield* ErrorIssueWorkflowService
+			const actors = yield* ErrorActorsService
+			const database = yield* Database
+			const actor = yield* actors.ensureUserActor(ORG, USER)
+			const issueId = asIssueId(randomUUID())
+			yield* seedIssue(issueId)
+
+			const failure = yield* Effect.flip(
+				workflow.setSeverity(ORG, actor.id, issueId, "critical", { source: "manual" }),
+			)
+			assert.strictEqual(failure._tag, "@maple/http/errors/ErrorPersistenceError")
+
+			// The severity must not outlive its escalation row: committed alone, a
+			// retried setSeverity observes "nothing changed" and returns before
+			// enqueueing, so the page for this severity is permanently lost.
+			const [issue] = yield* database.execute((db) =>
+				db.run(
+					PG.from(ErrorIssues)
+						.select()
+						.where(($) => [$.id.eq(issueId)]),
+				),
+			)
+			assert.isNull(issue?.severity)
+			const events = yield* database.execute((db) =>
+				db.run(
+					PG.from(ErrorIssueEvents)
+						.select()
+						.where(($) => [$.orgId.eq(ORG), $.issueId.eq(issueId)]),
+				),
+			)
+			assert.deepStrictEqual(events, [])
+		}).pipe(Effect.provide(makeFaultyLayer("issue_escalations"))),
+	)
+
+	it.effect("hydrates activity rollups: comments, agent notes, and non-abandoned PR links", () =>
+		Effect.gen(function* () {
+			const workflow = yield* ErrorIssueWorkflowService
+			const actors = yield* ErrorActorsService
+			const database = yield* Database
+			const actor = yield* actors.ensureUserActor(ORG, USER)
+			const busyId = asIssueId(randomUUID())
+			const quietId = asIssueId(randomUUID())
+			const now = yield* Clock.currentTimeMillis
+			yield* seedIssue(busyId)
+			yield* seedIssue(quietId)
+
+			yield* workflow.commentOnIssue(ORG, actor.id, busyId, "looking into this")
+			yield* workflow.commentOnIssue(ORG, actor.id, busyId, "root cause found", {
+				kind: "agent_note",
+			})
+			const seedPullRequest = (number: number, state: "open" | "merged" | "closed") =>
+				database.execute((db) =>
+					db.run(
+						PG.insertInto(ErrorIssuePullRequests).values({
+							id: asPullRequestId(randomUUID()),
+							orgId: ORG,
+							issueId: busyId,
+							provider: "github",
+							repoFullName: "maple/maple",
+							number,
+							url: `https://github.com/maple/maple/pull/${number}`,
+							state,
+							linkSource: "user",
+							createdAt: now,
+							updatedAt: now,
+						}),
+					),
+				)
+			yield* seedPullRequest(1, "open")
+			yield* seedPullRequest(2, "merged")
+			yield* seedPullRequest(3, "closed")
+
+			const busyRow = yield* workflow.requireIssue(ORG, busyId)
+			const quietRow = yield* workflow.requireIssue(ORG, quietId)
+			const [busy, quiet] = yield* workflow.hydrateIssueRows(ORG, [busyRow, quietRow])
+
+			assert.strictEqual(busy?.commentCount, 2)
+			assert.strictEqual(busy?.openPullRequestCount, 1)
+			assert.strictEqual(busy?.mergedPullRequestCount, 1)
+			assert.strictEqual(quiet?.commentCount, 0)
+			assert.strictEqual(quiet?.openPullRequestCount, 0)
+			assert.strictEqual(quiet?.mergedPullRequestCount, 0)
+		}).pipe(Effect.provide(makeLayer())),
+	)
+
+	it.effect("preserves transition validation without partially mutating the issue", () =>
+		Effect.gen(function* () {
+			const workflow = yield* ErrorIssueWorkflowService
+			const database = yield* Database
+			const issueId = asIssueId(randomUUID())
+			yield* seedIssue(issueId, { workflowState: "cancelled" })
+			const current = yield* workflow.requireIssue(ORG, issueId)
+
+			const failure = yield* Effect.flip(workflow.applyTransition(ORG, null, current, "triage"))
+			assert.strictEqual(failure._tag, "@maple/http/errors/ErrorIssueTransitionError")
+
+			const [after] = yield* database.execute((db) =>
+				db.run(
+					PG.from(ErrorIssues)
+						.select()
+						.where(($) => [$.id.eq(issueId)]),
+				),
+			)
+			const events = yield* database.execute((db) =>
+				db.run(
+					PG.from(ErrorIssueEvents)
+						.select()
+						.where(($) => [$.issueId.eq(issueId)]),
+				),
+			)
+			assert.strictEqual(after?.workflowState, "cancelled")
+			assert.lengthOf(events, 0)
+		}).pipe(Effect.provide(makeLayer())),
+	)
+
+	// The lease used to advance only via an explicit `heartbeat` call, which agents
+	// never made: `claim` was used 11 times in 8 days, `heartbeat` zero. Issues were
+	// claimed, worked, and silently dropped back to `todo` when the lease lapsed.
+	// Acting on an issue is now itself the renewal.
+	describe("lease renews on the holder's own activity", () => {
+		const seedLeased = (issueId: ErrorIssueId, holderId: ActorId, now: number) =>
+			seedIssue(issueId, {
+				workflowState: "in_progress",
+				leaseHolderActorId: holderId,
+				claimedAt: now,
+				leaseExpiresAt: now + 60_000,
+			})
+
+		const leaseExpiryOf = (issueId: ErrorIssueId) =>
+			Effect.gen(function* () {
+				const database = yield* Database
+				const [row] = yield* database.execute((db) =>
+					db.run(
+						PG.from(ErrorIssues)
+							.select("leaseExpiresAt")
+							.where(($) => [$.orgId.eq(ORG), $.id.eq(issueId)]),
+					),
+				)
+				return row?.leaseExpiresAt ?? null
+			})
+
+		it.effect("extends the lease when the holder comments", () =>
+			Effect.gen(function* () {
+				const workflow = yield* ErrorIssueWorkflowService
+				const actors = yield* ErrorActorsService
+				const holder = yield* actors.ensureUserActor(ORG, USER)
+				const issueId = asIssueId(randomUUID())
+				const now = yield* Clock.currentTimeMillis
+				yield* seedLeased(issueId, holder.id, now)
+
+				const before = yield* leaseExpiryOf(issueId)
+				yield* workflow.commentOnIssue(ORG, holder.id, issueId, "still digging")
+				const after = yield* leaseExpiryOf(issueId)
+
+				assert.isNotNull(before)
+				assert.isNotNull(after)
+				expect(after).toBeGreaterThan(before)
+			}).pipe(Effect.provide(makeLayer())),
+		)
+
+		it.effect("extends the lease when the holder sets severity", () =>
+			Effect.gen(function* () {
+				const workflow = yield* ErrorIssueWorkflowService
+				const actors = yield* ErrorActorsService
+				const holder = yield* actors.ensureUserActor(ORG, USER)
+				const issueId = asIssueId(randomUUID())
+				const now = yield* Clock.currentTimeMillis
+				yield* seedLeased(issueId, holder.id, now)
+
+				const before = yield* leaseExpiryOf(issueId)
+				yield* workflow.setSeverity(ORG, holder.id, issueId, "high")
+				const after = yield* leaseExpiryOf(issueId)
+
+				assert.isNotNull(before)
+				assert.isNotNull(after)
+				expect(after).toBeGreaterThan(before)
+			}).pipe(Effect.provide(makeLayer())),
+		)
+
+		// A non-holder acting on the issue must not slide the real holder's deadline.
+		it.effect("leaves the lease alone when someone else acts", () =>
+			Effect.gen(function* () {
+				const workflow = yield* ErrorIssueWorkflowService
+				const actors = yield* ErrorActorsService
+				const holder = yield* actors.ensureUserActor(ORG, USER)
+				const other = yield* actors.ensureUserActor(ORG, OTHER_USER)
+				const issueId = asIssueId(randomUUID())
+				const now = yield* Clock.currentTimeMillis
+				yield* seedLeased(issueId, holder.id, now)
+
+				const before = yield* leaseExpiryOf(issueId)
+				yield* workflow.commentOnIssue(ORG, other.id, issueId, "drive-by note")
+				const after = yield* leaseExpiryOf(issueId)
+
+				assert.isNotNull(before)
+				assert.isNotNull(after)
+				expect(after).toBe(before)
+			}).pipe(Effect.provide(makeLayer())),
+		)
+
+		// Terminal states end the work, so they must still clear the lease rather
+		// than renew it — the renewal branch must not shadow the release branch.
+		it.effect("clears rather than extends the lease on a terminal transition", () =>
+			Effect.gen(function* () {
+				const workflow = yield* ErrorIssueWorkflowService
+				const actors = yield* ErrorActorsService
+				const holder = yield* actors.ensureUserActor(ORG, USER)
+				const issueId = asIssueId(randomUUID())
+				const now = yield* Clock.currentTimeMillis
+				yield* seedLeased(issueId, holder.id, now)
+
+				const done = yield* workflow.releaseIssue(ORG, holder.id, issueId, {
+					transitionTo: "done",
+				})
+
+				assert.strictEqual(done.workflowState, "done")
+				assert.isNull(done.leaseExpiresAt)
+				assert.isNull(done.leaseHolder)
+			}).pipe(Effect.provide(makeLayer())),
+		)
+	})
+})

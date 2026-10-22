@@ -1,0 +1,334 @@
+---
+/**
+ * /local: Maple Local as a standalone product.
+ *
+ * The page's one job: make it obvious that this is a free, complete
+ * observability stack for local development that never needs an account or
+ * the hosted service: a lighter replacement for the collector + Jaeger +
+ * Prometheus + Loki + Grafana compose file rather than "Maple Cloud, but on
+ * your laptop". The hosted service appears exactly once, in LocalCTA, as an
+ * optional bridge. Copy stays on outcomes; engine and runtime names live in
+ * the docs.
+ *
+ * Visual system: one background, hairline section rules, `rounded-xl`
+ * hairline grids for anything tabular, mono only for things you would type.
+ */
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/Nav.astro";
+import SeoHead from "../components/SeoHead.astro";
+import LocalProductHero from "../components/local/LocalProductHero.astro";
+import LocalStackCompare from "../components/local/LocalStackCompare.astro";
+import LocalLoopback from "../components/local/LocalLoopback.astro";
+import LocalPromises from "../components/local/LocalPromises.astro";
+import LocalCommandGrid from "../components/local/LocalCommandGrid.astro";
+import LocalEyebrow from "../components/local/LocalEyebrow.astro";
+import LocalCTA from "../components/local/LocalCTA.astro";
+import LiveTrace from "../components/live/LiveTrace.astro";
+import LiveLogStream from "../components/live/LiveLogStream.astro";
+import LiveLogsVolumeChart from "../components/live/LiveLogsVolumeChart.tsx";
+import LiveServiceMap from "../components/live/LiveServiceMap.astro";
+import FAQ from "../components/FAQ.astro";
+import Footer from "../components/Footer.astro";
+
+const pageTitle = "Maple Local | One-command observability stack for local development";
+const pageDescription =
+    "A free, standalone observability stack for local development: traces, logs, metrics, errors, sessions, and a service map from one process on localhost.";
+
+/** The six views the local dashboard ships. */
+const surfaces = [
+    { name: "Traces", fact: "Waterfalls, correlated logs, span search" },
+    { name: "Logs", fact: "Full-text search, severity, log patterns" },
+    { name: "Metrics", fact: "Every OTLP metric you send, charted" },
+    { name: "Errors", fact: "Grouped by fingerprint, with sample traces" },
+    { name: "Sessions", fact: "Browser sessions with device and error filters" },
+    { name: "Service map", fact: "Edges with call counts, errors, and latency" },
+];
+
+/** Dev-loop moments. Commands are real; flags are from the CLI reference. */
+const moments = [
+    {
+        when: "A test just failed",
+        cmd: "maple traces --service api --errors --since 5m",
+        why: "Pull the failing request's trace instead of adding console.logs.",
+    },
+    {
+        when: "You changed a hot path",
+        cmd: "maple compare --around \"2026-09-06 14:00:00\"",
+        why: "Latency, error rate, and throughput before and after, side by side.",
+    },
+    {
+        when: "Your agent is debugging",
+        cmd: "maple diagnose api --since 15m",
+        why: "Health, top errors, and recent traces as JSON a coding agent can read.",
+    },
+];
+
+const install = [
+    ["Platforms", "macOS (Apple Silicon and Intel), Linux (x86_64 and arm64)"],
+    ["Install", "brew install Makisuo/tap/maple"],
+    ["Start", "maple start"],
+    ["Upgrade", "brew upgrade maple"],
+    ["Data", "~/.maple/data"],
+    ["Uninstall", "brew uninstall maple"],
+];
+
+const faqs = [
+    {
+        question: "Do I need a Maple account to use Maple Local?",
+        answer: "No. There is no sign-up, login, license key, or trial. Install the binary, run `maple start`, point your OpenTelemetry exporter at localhost:4318, and open the dashboard. Nothing in the local product asks you to create an account, now or later.",
+    },
+    {
+        question: "Does any of my telemetry leave my machine?",
+        answer: "No. Ingest, storage, and every query run on 127.0.0.1. By default the dashboard page is loaded from local.maple.dev so UI fixes ship without a new binary, but it only ever talks back to your local server; your data is never sent there. Run `maple start --offline` to serve the UI from the binary as well. The CLI does report its own usage and errors to Maple, including the text of queries you run through it. Set `MAPLE_TELEMETRY=off` to turn that off.",
+    },
+    {
+        question: "Does it work without an internet connection?",
+        answer: "Yes. With `--offline` the binary serves everything, including the dashboard. The CLI reports its own usage and errors unless you set `MAPLE_TELEMETRY=off`, and checks for a newer release once a day. Homebrew installs skip the check, and `MAPLE_NO_UPDATE_CHECK=1` disables it.",
+    },
+    {
+        question: "What does it replace?",
+        answer: "The docker compose stack most repos keep for local telemetry: an OpenTelemetry Collector, a trace backend such as Jaeger, Prometheus for metrics, Loki for logs, and Grafana on top. Maple Local is one process on one port with one UI that covers traces, logs, metrics, errors, sessions, and a service map.",
+    },
+    {
+        question: "How is it different from the hosted Maple service?",
+        answer: "It runs the same engine and views, without an account or the cloud. The hosted service adds what a team needs in production: multi-user access, alerting, retention at scale, and an MCP server for agents. Maple Local is complete on its own; the same CLI can talk to a hosted workspace if you ever want it to, but nothing requires it.",
+    },
+    {
+        question: "Is it open source, and what does it cost?",
+        answer: "It is free and source-available. The whole platform is on GitHub under the Functional Source License, which converts to Apache 2.0. There is no paid tier of Maple Local and no usage limit.",
+    },
+];
+---
+
+<Layout title={pageTitle} description={pageDescription}>
+    <SeoHead title={pageTitle} description={pageDescription} type="SoftwareApplication" />
+
+    <Nav />
+    <LocalProductHero />
+
+    <!-- 01: Replace the compose file. -->
+    <section class="border-t border-border bg-bg">
+        <div class="mx-auto max-w-6xl px-6 py-24 md:py-32">
+            <div class="mb-12 max-w-2xl">
+                <LocalEyebrow label="Replace the compose file" />
+                <h2 class="font-display text-3xl font-medium leading-[1.06] tracking-[-0.02em] text-fg md:text-4xl">
+                    One process instead of five containers
+                </h2>
+                <p class="mt-5 text-base leading-relaxed text-fg-muted">
+                    The usual local setup is a collector, one backend per signal, and a dashboard on top:
+                    five containers, five config files, and three different UIs. Maple Local is one process
+                    that does all of it. You start it with one command and it listens on one port.
+                </p>
+            </div>
+            <LocalStackCompare />
+        </div>
+    </section>
+
+    <!-- 02: Standalone by design. -->
+    <section class="border-t border-border bg-bg">
+        <div class="mx-auto max-w-6xl px-6 py-24 md:py-32">
+            <div class="mb-12 max-w-2xl">
+                <LocalEyebrow label="Standalone by design" />
+                <h2 class="font-display text-3xl font-medium leading-[1.06] tracking-[-0.02em] text-fg md:text-4xl">
+                    No account or cloud needed. Your telemetry stays on your machine.
+                </h2>
+                <p class="mt-5 text-base leading-relaxed text-fg-muted">
+                    Maple Local is the complete product running on 127.0.0.1. There is no trial and no
+                    hosted service behind it, and you never need another Maple product to use it.
+                </p>
+            </div>
+            <LocalLoopback />
+            <div class="mt-6">
+                <LocalPromises />
+            </div>
+        </div>
+    </section>
+
+    <!-- 03: The full product. -->
+    <section class="border-t border-border bg-bg">
+        <div class="mx-auto max-w-6xl px-6 py-24 md:py-32">
+            <div class="mb-12 max-w-2xl">
+                <LocalEyebrow label="The dashboard" />
+                <h2 class="font-display text-3xl font-medium leading-[1.06] tracking-[-0.02em] text-fg md:text-4xl">
+                    The full product, on your machine
+                </h2>
+                <p class="mt-5 text-base leading-relaxed text-fg-muted">
+                    The dashboard has six views, all reading from your local store. They are the screens
+                    you'd want in production, showing your development traffic.
+                </p>
+            </div>
+
+            <ul class="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-3" role="list" aria-label="Views in the local dashboard">
+                {
+                    surfaces.map((s) => (
+                        <li class="bg-bg px-6 py-5">
+                            <span class="block text-sm font-medium text-fg">{s.name}</span>
+                            <span class="mt-1 block text-[13px] leading-relaxed text-fg-muted">{s.fact}</span>
+                        </li>
+                    ))
+                }
+            </ul>
+
+            <div class="mt-24 grid items-start gap-12 lg:grid-cols-[minmax(0,360px)_1fr] lg:gap-16">
+                <div class="lg:sticky lg:top-32">
+                    <LocalEyebrow label="Traces" />
+                    <h3 class="font-display text-2xl font-medium leading-tight tracking-[-0.02em] text-fg sm:text-3xl">
+                        Full span trees with correlated logs
+                    </h3>
+                    <p class="mt-5 max-w-md text-base leading-relaxed text-fg-muted">
+                        Search spans by service, duration, or error, then drill into any trace for its complete
+                        waterfall and the log lines emitted alongside it.
+                    </p>
+                </div>
+                <div>
+                    <LiveTrace />
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 04: Logs. -->
+    <section class="border-t border-border bg-bg">
+        <div class="mx-auto max-w-6xl px-6 py-24 md:py-32">
+            <div class="grid gap-4">
+                <LiveLogsVolumeChart client:load />
+                <LiveLogStream />
+            </div>
+            <div class="mt-12 max-w-2xl">
+                <LocalEyebrow label="Logs" />
+                <h3 class="font-display text-2xl font-medium leading-tight tracking-[-0.02em] text-fg sm:text-3xl">
+                    Search the stream, cluster the noise
+                </h3>
+                <p class="mt-5 text-base leading-relaxed text-fg-muted">
+                    Filter by service, severity, text, or trace ID, or run
+                    <code class="rounded bg-bg-elevated px-1.5 py-0.5 font-mono text-[0.85em] text-fg">log-patterns</code>
+                    to cluster lines into templates and rank the noisiest sources.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 05: Service map. -->
+    <section class="border-t border-border bg-bg">
+        <div class="mx-auto max-w-6xl px-6 py-24 md:py-32">
+            <div class="grid items-start gap-12 lg:grid-cols-[1fr_minmax(0,340px)] lg:gap-16">
+                <div>
+                    <LiveServiceMap />
+                </div>
+                <div class="lg:sticky lg:top-32 lg:order-last">
+                    <LocalEyebrow label="Service map" />
+                    <h3 class="font-display text-2xl font-medium leading-tight tracking-[-0.02em] text-fg sm:text-3xl">
+                        See how your services call each other
+                    </h3>
+                    <p class="mt-5 max-w-md text-base leading-relaxed text-fg-muted">
+                        Dependency edges with call counts, error rates, and latency, reconstructed from the
+                        spans you've sent, on your machine.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 06: The dev loop. -->
+    <section class="border-t border-border bg-bg">
+        <div class="mx-auto max-w-6xl px-6 py-24 md:py-32">
+            <div class="mb-12 max-w-2xl">
+                <LocalEyebrow label="Built for the dev loop" />
+                <h2 class="font-display text-3xl font-medium leading-[1.06] tracking-[-0.02em] text-fg md:text-4xl">
+                    Answers in the terminal you're already in
+                </h2>
+                <p class="mt-5 text-base leading-relaxed text-fg-muted">
+                    The same binary is a query CLI. Every command runs against the local server and prints
+                    JSON by default. Add
+                    <code class="rounded bg-bg-elevated px-1.5 py-0.5 font-mono text-[0.85em] text-fg">--format table</code>
+                    for an aligned table, or
+                    <code class="rounded bg-bg-elevated px-1.5 py-0.5 font-mono text-[0.85em] text-fg">--debug</code>
+                    to see the query it ran.
+                </p>
+            </div>
+
+            <ol class="grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-3" role="list">
+                {
+                    moments.map((mo) => (
+                        <li class="flex flex-col gap-3 bg-bg p-6">
+                            <span class="text-[10px] font-medium uppercase tracking-[0.18em] text-fg-muted">{mo.when}</span>
+                            <code class="mo__cmd">{mo.cmd}</code>
+                            <span class="text-[13px] leading-relaxed text-fg-muted">{mo.why}</span>
+                        </li>
+                    ))
+                }
+            </ol>
+
+            <div class="mt-4">
+                <LocalCommandGrid />
+            </div>
+        </div>
+    </section>
+
+    <!-- 07: Install. -->
+    <section class="border-t border-border bg-bg">
+        <div class="mx-auto max-w-6xl px-6 py-24 md:py-32">
+            <div class="grid items-start gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] lg:gap-16">
+                <div>
+                    <LocalEyebrow label="Install" />
+                    <h2 class="font-display text-3xl font-medium leading-[1.06] tracking-[-0.02em] text-fg md:text-4xl">
+                        Install and remove with Homebrew
+                    </h2>
+                    <p class="mt-5 max-w-xl text-base leading-relaxed text-fg-muted">
+                        Homebrew downloads the bundle for your platform from the latest GitHub release,
+                        verifies its checksum, and links the binary onto your PATH. Upgrades and removal are the
+                        Homebrew commands you already know, and uninstalling leaves your data directory in
+                        place. Prefer a script? The curl installer does the same thing into
+                        <code class="rounded bg-bg-elevated px-1.5 py-0.5 font-mono text-[0.85em] text-fg">~/.maple/bin</code>.
+                    </p>
+
+                    <div class="mt-8 flex flex-wrap items-center gap-3">
+                        <a
+                            href="/docs/local-mode"
+                            class="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                        >
+                            Read the docs
+                        </a>
+                        <a
+                            href="https://github.com/MapleTechLabs/maple/releases"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="inline-flex h-10 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-fg transition-colors hover:bg-bg-elevated"
+                        >
+                            GitHub Releases
+                        </a>
+                    </div>
+                </div>
+
+                <dl class="overflow-hidden rounded-xl border border-border bg-bg-elevated divide-y divide-border">
+                    {
+                        install.map(([k, v]) => (
+                            <div class="grid grid-cols-[7rem_1fr] items-baseline gap-4 px-5 py-3.5">
+                                <dt class="text-xs text-fg-muted">{k}</dt>
+                                <dd class:list={["text-[13px] text-fg", k !== "Platforms" && "font-mono"]}>{v}</dd>
+                            </div>
+                        ))
+                    }
+                </dl>
+            </div>
+        </div>
+    </section>
+
+    <LocalCTA />
+    <FAQ items={faqs} />
+    <Footer />
+</Layout>
+
+<style>
+    .mo__cmd {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--foreground);
+        background: none;
+        border: 0;
+        padding: 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+</style>

@@ -1,0 +1,72 @@
+export type { PrivacyOptions } from "./identity/consent"
+export {
+	configurePrivacy,
+	consentAllowedSince,
+	consentRevokedAt,
+	hasConsent,
+	mayPersistIdentifier,
+	onConsentChange,
+	// Consent state is page-global and `configurePrivacy` only ever tightens, so
+	// a suite that turns the gate on needs the seam to turn it back off.
+	resetConsentForTests,
+	setConsent,
+} from "./identity/consent"
+export type { SessionEvent, SessionEventSink } from "./events/events-sink"
+export {
+	clearPendingEvents,
+	getActiveSink,
+	onSessionEvent,
+	setActiveTraceIdProvider,
+	startEventSink,
+} from "./events/events-sink"
+export type { IdentifyInput, MapleIdentity, ResolvedIdentity, TraitValue } from "./identity/identity"
+export { normalizeIdentity } from "./identity/identity"
+export type { SessionMetaRowInput } from "./events/meta-row"
+export { formatCHDateTime, postSessionMetaRow } from "./events/meta-row"
+export type { MetadataSessionHandle, MetadataSessionOptions } from "./session/metadata-session"
+export { startMetadataSession } from "./session/metadata-session"
+export { clearPendingChunk } from "./session/pending-chunk"
+// The session record's mutators (counts, navigation, rotation listeners) stay
+// package-internal: `startSessionLifecycle` owns those invariants, and an SDK
+// reaching past it would write counts the lifecycle then overwrites.
+export type { SessionRecord } from "./session/session"
+export type { ReplayMode } from "./session/session"
+export {
+	claimReplayMode,
+	claimReplaySample,
+	getSession,
+	getSessionId,
+	rotateSession,
+} from "./session/session"
+export type { MapleBrowserSessionSink } from "./session/sink"
+export { clearSessionSink } from "./session/sink"
+export { getObservedTraceIds, publishSessionSink, readSessionSink, recordTraceId } from "./session/sink"
+export type { TrackProps } from "./events/track"
+export { track } from "./events/track"
+export { isLikelyBot, parseUserAgent } from "./platform/user-agent"
+export type { NetworkBodyOptions } from "./platform/transport"
+export {
+	ingestHeaders,
+	OTLP_KEEPALIVE_BYTES,
+	OTLP_UNLOAD_TAIL_BYTES,
+	otlpKeepaliveRoom,
+	postToIngest,
+	SDK_HINT_HEADER,
+	sdkHint,
+} from "./platform/transport"
+export { getVisitorId, isVisitorIdPersisted, setVisitorTracking } from "./identity/visitor"
+export type { Persistence } from "./platform/persistence"
+export { mayUseStorage } from "./platform/persistence"
+export type { MapleRegion } from "./platform/region"
+export {
+	DEFAULT_MAPLE_REGION,
+	ingestEndpointForRegion,
+	isMapleIngestEndpoint,
+	MAPLE_REGIONS,
+	parseRegion,
+	resetKeylessWarningsForTests,
+	resolveIngestEndpoint,
+	warnIfKeylessMapleIngest,
+} from "./platform/region"
+export { redactUrl, scrubUrl } from "./platform/url-privacy"
+export { selectorOf } from "./capture/interactions"

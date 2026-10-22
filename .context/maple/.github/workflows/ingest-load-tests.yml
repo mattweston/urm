@@ -1,0 +1,67 @@
+name: Ingest Load Tests
+
+on:
+    workflow_dispatch:
+        inputs:
+            requests:
+                description: Total OTLP requests to send
+                required: true
+                default: "10000"
+            concurrency:
+                description: Concurrent request workers
+                required: true
+                default: "128"
+            batch_logs:
+                description: Log records per OTLP request
+                required: true
+                default: "10"
+            target_rps:
+                description: Optional target request rate. Leave empty for unbounded.
+                required: false
+                default: ""
+            min_rps:
+                description: Optional minimum accepted request/sec threshold
+                required: false
+                default: ""
+            max_rss_mb:
+                description: Optional max ingest process RSS threshold in MiB
+                required: false
+                default: ""
+
+permissions:
+    contents: read
+
+jobs:
+    load:
+        name: OTLP protobuf load test
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        defaults:
+            run:
+                working-directory: apps/ingest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+            # mise caches the pinned toolchain; rust-cache below covers the cargo
+            # registry and target dir.
+            - uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+              with:
+                  install_args: rust
+
+            - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+              with:
+                  workspaces: apps/ingest
+
+            - name: Build ingest and load-test binaries
+              run: cargo build --release --bin maple-ingest --bin load_test
+
+            - name: Run load test
+              env:
+                  LOAD_TEST_INGEST_BIN: target/release/maple-ingest
+                  LOAD_TEST_REQUESTS: ${{ inputs.requests }}
+                  LOAD_TEST_CONCURRENCY: ${{ inputs.concurrency }}
+                  LOAD_TEST_BATCH_LOGS: ${{ inputs.batch_logs }}
+                  LOAD_TEST_TARGET_RPS: ${{ inputs.target_rps }}
+                  LOAD_TEST_MIN_RPS: ${{ inputs.min_rps }}
+                  LOAD_TEST_MAX_RSS_MB: ${{ inputs.max_rss_mb }}
+              run: target/release/load_test

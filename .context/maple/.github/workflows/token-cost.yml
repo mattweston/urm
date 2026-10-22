@@ -1,0 +1,72 @@
+name: MCP Token Cost
+
+# Measures the token cost of the MCP tool definitions (name + description +
+# input schema) and posts the per-tool table + a diff vs the PR base to the job
+# summary. Informational — tool-description bloat shows up here on every PR.
+
+on:
+    pull_request:
+        branches: [main]
+        paths:
+            - "apps/ai/src/mcp/**"
+            - "packages/domain/src/**"
+            - ".github/actions/**"
+            - ".github/workflows/token-cost.yml"
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    token-cost:
+        name: Token Cost
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+              with:
+                  fetch-depth: 0
+
+            # Only the agent Worker's closure; it includes apps/api, whose services the
+            # tools import by path alias.
+            - uses: ./.github/actions/setup
+              with:
+                  install-filters: "@maple/ai @maple/api @maple-dev/effect-sdk @maple-dev/browser"
+
+            # The SDK and browser workspace packages need their dist exports built. Not
+            # `alchemy:build-deps`: it also bundles apps/scraper, outside the filtered install.
+            - name: Build workspace deps
+              run: bunx turbo build --filter=@maple-dev/effect-sdk --filter=@maple-dev/browser
+
+            - name: Measure (PR head)
+              run: bun run --filter @maple/ai measure-tokens -- -o "$RUNNER_TEMP/head.json" | tee "$RUNNER_TEMP/head.txt"
+
+            # Re-measure against the base source (reusing the same node_modules) for a
+            # best-effort delta. Source-only swap avoids a second install.
+            - name: Measure (base)
+              continue-on-error: true
+              run: |
+                  # The agent Worker did not exist before the split, so on an older
+                  # base both the pathspec and the script are absent. Either way the
+                  # base reads 0 and the delta is the whole cost, once.
+                  git checkout "${{ github.event.pull_request.base.sha }}" -- apps/ai/src apps/api/src packages/backend/src packages/domain/src || true
+                  bun run --filter @maple/ai measure-tokens -- -o "$RUNNER_TEMP/base.json" || echo '{"total":0}' > "$RUNNER_TEMP/base.json"
+                  git checkout HEAD -- apps/ai/src apps/api/src packages/backend/src packages/domain/src || true
+
+            - name: Summary
+              run: |
+                  head=$(jq '.total' "$RUNNER_TEMP/head.json")
+                  base=$(jq '.total' "$RUNNER_TEMP/base.json" 2>/dev/null || echo 0)
+                  delta=$((head - base))
+                  {
+                    echo "## MCP tool-definition token cost"
+                    echo ""
+                    echo "**Total: ${head} tokens** (base: ${base}, delta: ${delta})"
+                    echo ""
+                    echo '```'
+                    cat "$RUNNER_TEMP/head.txt"
+                    echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"

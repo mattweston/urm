@@ -1,0 +1,280 @@
+# Setting up the GitHub App for the GitHub integration
+
+Maple's GitHub integration runs on a **GitHub App** that you create and own. When self-hosting Maple, you register your own GitHub App, give Maple its credentials, and point its webhook and callback URLs at your Maple deployment. Your users then get the self-serve "Connect GitHub" flow: they install your app on their account or organization, pick repositories, and Maple backfills and live-syncs their commit history.
+
+Follow every step in order.
+
+---
+
+## What you will end up with
+
+- A GitHub App registered under your GitHub account or organization.
+- Six values copied into your Maple API environment, plus one optional one:
+    - `GITHUB_APP_ID`
+    - `GITHUB_APP_SLUG`
+    - `GITHUB_APP_PRIVATE_KEY`
+    - `GITHUB_APP_WEBHOOK_SECRET`
+    - `GITHUB_APP_CLIENT_ID`
+    - `GITHUB_APP_CLIENT_SECRET`
+    - (optionally) `GITHUB_API_BASE_URL` for GitHub Enterprise Server
+- A working "Connect GitHub" button in **Integrations → GitHub** in your Maple dashboard.
+
+---
+
+## Before you begin: know your public Maple URL
+
+You need the **public base URL where your Maple API is reachable**: the origin that serves the `/api/...` routes. Throughout this guide it is written as:
+
+```
+https://YOUR_MAPLE_DOMAIN
+```
+
+Replace **every** occurrence of `https://YOUR_MAPLE_DOMAIN` with your real URL, for example `https://app.example.com`.
+
+Two URLs derive from it, and you will paste both into GitHub later. Note them now:
+
+| Purpose                                                     | URL to use                                                   |
+| ----------------------------------------------------------- | ------------------------------------------------------------ |
+| Webhook delivery                                            | `https://YOUR_MAPLE_DOMAIN/api/integrations/github/webhook`  |
+| User authorization / post-install redirect ("Callback URL") | `https://YOUR_MAPLE_DOMAIN/api/integrations/github/callback` |
+
+> **One App per Maple instance.** Both URLs are registered on the App itself rather than sent per request, so an App serves exactly one deployment. Maple Cloud's EU instance runs its own App pointed at `https://api.eu.maple.dev`. Reusing the US App would send EU installs and webhooks to the US API.
+
+> These paths are fixed in Maple's code. Do not change them. Maple receives webhooks at `/api/integrations/github/webhook` and completes the install flow at `/api/integrations/github/callback`.
+
+---
+
+## Step 1: Create a new GitHub App
+
+1. Decide who owns the app:
+    - **Personal account:** open <https://github.com/settings/apps>
+    - **Organization:** open `https://github.com/organizations/YOUR_ORG/settings/apps` (replace `YOUR_ORG`)
+2. Click **New GitHub App**. (Direct link for a personal account: <https://github.com/settings/apps/new>.)
+3. You are now on the **Register new GitHub App** form. Leave it open. The steps below map field by field to that form.
+
+---
+
+## Step 2: Fill in the basic details
+
+| Field               | What to enter                                                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **GitHub App name** | A unique, human-readable name, e.g. `Maple` or `Maple (example.com)`. GitHub requires global uniqueness; if the name is taken, add a suffix. This name also determines your app **slug** (used later). |
+| **Homepage URL**    | `https://YOUR_MAPLE_DOMAIN`                                                                                                                                                                            |
+
+---
+
+## Step 3: Configure user authorization (Callback URL)
+
+This closes the loop after a user installs your app, so Maple can record the installation **and prove the installer actually owns it**.
+
+1. Find the **Identifying and authorizing users** section.
+2. In **Callback URL**, enter exactly:
+    ```
+    https://YOUR_MAPLE_DOMAIN/api/integrations/github/callback
+    ```
+3. Check **Request user authorization (OAuth) during installation**. **Do not skip this. It is a security control.** See the box below.
+4. Leave **Expire user authorization tokens** at its default (checked).
+
+> **Why this is required (confused-deputy guard).** `installation_id` values are small, **enumerable** integers and are not tied to the connect `state`. Without OAuth, anyone who starts a connect flow could submit _someone else's_ `installation_id` and bind another org's private repos to their own Maple org. With OAuth on, GitHub also returns a `code`. Maple exchanges it, calls `GET /user/installations` to confirm the user can access that installation, then confirms they administer its account (an active org `admin` via `GET /user/memberships/orgs/{org}`, or the personal account itself) before binding it. GitHub delivers `code`, `installation_id`, and `state` to the Callback URL above. There is no separate Setup URL.
+
+---
+
+## Step 4: Configure the webhook
+
+1. Find the **Webhook** section.
+2. Check **Active**.
+3. In **Webhook URL**, enter exactly:
+    ```
+    https://YOUR_MAPLE_DOMAIN/api/integrations/github/webhook
+    ```
+4. Generate a strong random **Webhook secret** and paste it into the **Secret** field. Generate one with:
+    ```bash
+    openssl rand -hex 32
+    ```
+    **Save this value.** You will set it as `GITHUB_APP_WEBHOOK_SECRET` in Step 9. Maple verifies every webhook with an HMAC-SHA256 signature (`X-Hub-Signature-256`) computed from this secret and **rejects deliveries that don't match**, so the value in GitHub and in Maple's environment must be identical.
+
+---
+
+## Step 5: Set permissions
+
+Maple **reads** commit, branch, and source-file data. Read-only source access lets Maple's investigation agent correlate observed failures with the exact deployed revision when telemetry includes repository and commit attributes.
+
+On repositories where a Maple admin has switched on the pull request review, Maple also **writes** to pull requests: a check run, one summary comment (edited in place on later pushes), a comment-only review with inline notes, and replies when someone mentions `@maple` in a pull request comment. With **Contents: Read and write**, `@maple fix` can also commit the edits it proposes as one fast-forward commit on the pull request's own branch (never a fork, never the default branch, never forced). Maple never changes repository settings.
+
+1. Find **Permissions → Repository permissions**.
+2. Set the following, leaving every other permission at **No access**:
+
+| Repository permission | Access level                                                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Contents**          | **Read-only**, or **Read and write** to allow `@maple fix` commits                                                                      |
+| **Pull requests**     | **Read and write** (reads the diff; posts the review as a comment, never an approval or block)                                          |
+| **Checks**            | **Read and write** (posts the `Maple / observability` check run on the head commit; without it the review is still posted as a comment) |
+| **Metadata**          | **Read-only** (GitHub pre-selects this and it is mandatory)                                                                             |
+| **Actions**           | **Read-only** (downloads each finished job's log for CI logs; without it CI traces still arrive but carry no logs)                      |
+
+> **Upgrading an existing App?** Adding a permission to an App that is already installed makes GitHub ask every installation's admin to accept the new permissions. Until they do, Maple still records each review but cannot post it: the review's row keeps a publish error and nothing appears on the pull request. CI logs behave the same way: until the installation accepts **Actions: Read**, GitHub refuses every job log download with `403 Resource not accessible by integration` and those repositories get traces without logs. To fix it, accept the permission request on GitHub (Settings → Applications → the App → Review request).
+
+3. Under **Organization permissions**, set **Members** to **Read-only**. Maple uses it only during connect, to confirm the person connecting an organization installation is an admin of that organization. Without it, connecting an organization is refused. Leave every other organization permission and all **Account permissions** at **No access**.
+
+---
+
+## Step 6: Subscribe to webhook events
+
+1. Find the **Subscribe to events** section (directly below permissions). The events listed here depend on the permissions you set in Step 5. If an event is missing, re-check the permissions.
+2. Check exactly these events:
+
+| Event to check                  | Why Maple needs it                                                                                    |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Create**                      | Detect newly created branches.                                                                        |
+| **Delete**                      | Detect deleted branches.                                                                              |
+| **Push**                        | Live-sync new commits on tracked branches; reconcile force-pushes.                                    |
+| **Pull request**                | Link pull requests to error issues, and start the observability review on repositories that opted in. |
+| **Issue comment**               | Answer `@maple` mentions in a pull request's conversation.                                            |
+| **Pull request review comment** | Answer `@maple` mentions in a pull request's review threads.                                          |
+| **Workflow run**                | Write one trace per GitHub Actions run attempt (CI traces).                                           |
+| **Workflow job**                | Add each job and its steps to the run's trace, then download the job's log (CI logs).                 |
+
+> You do **not** need to (and cannot) subscribe to `installation` or `installation_repositories` here. GitHub always delivers those lifecycle events once the app is installed, and Maple handles them. The `ping` event GitHub sends on setup, and any other event, is accepted as a no-op.
+
+---
+
+## Step 7: Choose where the app can be installed
+
+Under **Where can this GitHub App be installed?**:
+
+- For a self-serve, multi-tenant Maple deployment where any of your users connect their own GitHub, select **Any account**.
+- If Maple is only for your own organization, **Only on this account** is sufficient.
+
+Then click **Create GitHub App** at the bottom of the form.
+
+---
+
+## Step 8: Collect the App ID, slug, client credentials, and private key
+
+You are now on your new app's settings page (`https://github.com/settings/apps/<your-slug>`).
+
+### 8a. App ID
+
+Near the top of the **General** tab, find **App ID** (a number, e.g. `123456`). This is your `GITHUB_APP_ID`.
+
+### 8b. App slug
+
+Look at the page URL: `https://github.com/settings/apps/<your-slug>`. The final path segment is your **slug** (a lowercase, hyphenated version of the app name, e.g. `maple-example-com`). This is your `GITHUB_APP_SLUG`.
+
+> Maple builds the install link from this slug: `https://github.com/apps/<GITHUB_APP_SLUG>/installations/new`. If the slug is wrong, the "Connect GitHub" button will 404 on GitHub.
+
+### 8c. Client ID and client secret
+
+These are required for the user-authorization (OAuth) confused-deputy guard you enabled in Step 3.
+
+1. On the **General** tab, find **Client ID** (a string like `Iv1.abc123...` or `Iv23li...`). This is your `GITHUB_APP_CLIENT_ID`.
+2. Just below it, under **Client secrets**, click **Generate a new client secret**. Copy the value immediately. **GitHub shows it only once.** This is your `GITHUB_APP_CLIENT_SECRET`.
+
+### 8d. Private key
+
+1. Scroll to the bottom of the **General** tab to **Private keys**.
+2. Click **Generate a private key**. GitHub downloads a `*.pem` file. **This is the only time you can get it**, so store it securely.
+3. The file contents (including the `-----BEGIN RSA PRIVATE KEY-----` and `-----END RSA PRIVATE KEY-----` lines) are your `GITHUB_APP_PRIVATE_KEY`.
+
+---
+
+## Step 9: Set the environment variables on your Maple API
+
+Set these on the **Maple API** service (`apps/api`). For local development, put them in the root `.env.local` file (what `bun dev` reads). For a deployed environment, use your secrets manager or platform environment configuration.
+
+```bash
+# Required
+GITHUB_APP_ID=123456
+GITHUB_APP_SLUG=maple-example-com
+GITHUB_APP_WEBHOOK_SECRET=<the secret you generated in Step 4>
+
+# Required for the confused-deputy OAuth guard (Step 3 + Step 8c)
+GITHUB_APP_CLIENT_ID=Iv23liAbC123...
+GITHUB_APP_CLIENT_SECRET=<the client secret you generated in Step 8c>
+
+# Required: the full PEM contents from Step 8d, newlines preserved
+GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA...
+...rest of the key...
+-----END RSA PRIVATE KEY-----"
+```
+
+> These are **mandatory**. The connect flow **fails closed**: when a user connects an installation that isn't already linked to their org, Maple requires the OAuth `code` to prove they administer it. If `GITHUB_APP_CLIENT_ID` / `GITHUB_APP_CLIENT_SECRET` are missing, or **Request user authorization (OAuth) during installation** (Step 3) is unchecked, GitHub sends no `code`, the ownership check can't run, and the connect is **rejected**. No installation is linked. (A same-org _reconnect_ of an already-linked installation still works without a fresh `code`.)
+
+Notes on the private key:
+
+- **Preserve the line breaks.** The value must be the literal multi-line PEM. In a `.env` file, wrap it in double quotes as shown so the newlines are kept.
+- If your secrets platform cannot store multi-line values, paste the PEM with literal `\n` escapes on a single line and make sure your platform un-escapes them. Multi-line is preferred.
+
+### Optional variables
+
+| Variable              | When to set it                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_API_BASE_URL` | Only for **GitHub Enterprise Server**. Set to `https://YOUR_GHE_HOST/api/v3`. Defaults to `https://api.github.com`. |
+
+> Using GitHub Enterprise Server? In addition to `GITHUB_API_BASE_URL`, create the app under your GHE instance (`https://YOUR_GHE_HOST/settings/apps/new`) instead of github.com.
+
+After setting the variables, **restart the Maple API** so they take effect. Maple validates `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` lazily. If either is missing, the integration returns a "GitHub App is not configured" error rather than crashing the server.
+
+---
+
+## Step 10: Verify the setup
+
+1. **Confirm the dashboard sees the app.** Open **Integrations → GitHub** in your Maple dashboard. The **Connect GitHub** button should be active. (If you get "GitHub App is not configured (set GITHUB_APP_SLUG)", the slug env var is missing or the API wasn't restarted.)
+2. **Run the connect flow.** Click **Connect GitHub**. A popup should open `https://github.com/apps/<your-slug>/installations/new`. Install the app on a test account and pick at least one repository.
+3. **Confirm the callback completes.** After installing (and authorizing when GitHub prompts), the popup should close and the card should flip to **Connected**, then move repositories from **Queued → Syncing → Synced**. If it doesn't, recheck your **Callback URL** (Step 3) first.
+4. **Confirm webhooks are signed correctly.** In your app's settings, open the **Advanced** tab → **Recent Deliveries**. The initial `ping` and the install events should show a **`200`** response. A non-`200` here means the webhook URL is wrong or the **webhook secret in GitHub doesn't match `GITHUB_APP_WEBHOOK_SECRET`**.
+5. **Confirm live sync.** Push a commit to a tracked branch in the test repository, check **Recent Deliveries** for a `push` event returning `200`, and confirm the commit appears in Maple.
+
+---
+
+## Reference
+
+### Environment variables
+
+| Variable                    | Required | Default                  | Description                                                                        |
+| --------------------------- | -------- | ------------------------ | ---------------------------------------------------------------------------------- |
+| `GITHUB_APP_ID`             | Yes      |                          | Numeric App ID from the app's General settings.                                    |
+| `GITHUB_APP_SLUG`           | Yes      |                          | URL slug of the app; used to build the install link.                               |
+| `GITHUB_APP_PRIVATE_KEY`    | Yes      |                          | Full PEM private key; used to mint app JWTs (RS256) and installation tokens.       |
+| `GITHUB_APP_WEBHOOK_SECRET` | Yes      |                          | Shared secret for HMAC-SHA256 verification of incoming webhooks.                   |
+| `GITHUB_APP_CLIENT_ID`      | Yes      |                          | OAuth client ID; used by the confused-deputy guard to exchange the install `code`. |
+| `GITHUB_APP_CLIENT_SECRET`  | Yes      |                          | OAuth client secret; paired with the client ID for the `code` exchange.            |
+| `GITHUB_API_BASE_URL`       | No       | `https://api.github.com` | Override for GitHub Enterprise Server (`https://HOST/api/v3`).                     |
+
+### Fixed URLs (set these in GitHub)
+
+| GitHub App field                                       | Value                                                        |
+| ------------------------------------------------------ | ------------------------------------------------------------ |
+| Webhook URL                                            | `https://YOUR_MAPLE_DOMAIN/api/integrations/github/webhook`  |
+| Callback URL                                           | `https://YOUR_MAPLE_DOMAIN/api/integrations/github/callback` |
+| Request user authorization (OAuth) during installation | **Enabled** (confused-deputy guard)                          |
+
+### Permissions
+
+| Permission                 | Access                                           |
+| -------------------------- | ------------------------------------------------ |
+| Repository → Contents      | Read-only (Read and write to allow `@maple fix`) |
+| Repository → Pull requests | Read and write                                   |
+| Repository → Checks        | Read and write                                   |
+| Repository → Metadata      | Read-only (mandatory)                            |
+| Repository → Actions       | Read-only (CI job logs)                          |
+| Organization → Members     | Read-only (connect-time admin check)             |
+
+### Subscribed webhook events
+
+`Create`, `Delete`, `Push`, `Pull request`, `Issue comment`, `Pull request review comment`, `Workflow run`, `Workflow job`. (`installation` and `installation_repositories` are delivered automatically and need no subscription.)
+
+---
+
+## Troubleshooting
+
+- **"GitHub App is not configured" in the dashboard.** A required env var (`GITHUB_APP_SLUG`, `GITHUB_APP_ID`, or `GITHUB_APP_PRIVATE_KEY`) is missing, or the API wasn't restarted after setting it.
+- **Install succeeds on GitHub but never connects in Maple.** The **Callback URL** is missing or incorrect, or **Request user authorization (OAuth) during installation** is unchecked, or `GITHUB_APP_CLIENT_ID` / `GITHUB_APP_CLIENT_SECRET` are unset. The flow fails closed: with no OAuth `code`, Maple rejects a new installation binding with "Could not verify you own this GitHub installation." Fix Step 3 / Step 8c and reinstall.
+- **Webhook deliveries return `401` or signature errors.** The webhook secret in GitHub does not match `GITHUB_APP_WEBHOOK_SECRET`. Regenerate it, paste it into both places, and restart the API.
+- **Webhook deliveries return `404`.** The Webhook URL is wrong, or your Maple API isn't publicly reachable at `https://YOUR_MAPLE_DOMAIN`.
+- **`Connect GitHub` opens a GitHub 404.** `GITHUB_APP_SLUG` does not match the app's real slug (the last path segment of `https://github.com/settings/apps/<slug>`).
+- **CI traces arrive but have no logs.** The App lacks **Actions: Read**, or an installation has not accepted it yet. GitHub still delivers `workflow_job` webhooks without it, but answers every job log download with `403 Resource not accessible by integration`. Add the permission (Step 5) and have each installation accept the request.
+- **Private key errors when minting tokens.** The PEM was truncated or had its newlines stripped. Re-paste the full key, including the BEGIN/END lines, preserving line breaks.
+
+For the end-user description of what the integration does once configured, see [the GitHub integration doc](../apps/landing/src/content/docs/integrations/github.md).

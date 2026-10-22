@@ -1,0 +1,452 @@
+import { HttpApiBuilder } from "effect/http-api"
+import { CurrentTenant, SessionId, TraceId } from "@maple/domain/http"
+import {
+	MAX_REPLAY_CHUNKS_PER_REQUEST,
+	MAX_REPLAY_MANIFEST_CHUNKS,
+	MAX_REPLAY_RANGE_PAYLOAD_BYTES,
+	LIST_LIMIT_DEFAULT,
+	MapleApiV2,
+	paginateOffsetQuery,
+	timestamp,
+	V2ParameterInvalid,
+	V2SessionReplayNotFound,
+	V2SessionReplayRangeTooLarge,
+} from "@maple/domain/http/v2"
+import type { Timestamp } from "@maple/domain/http/v2"
+import type {
+	V2SessionReplay,
+	V2SessionReplayChunk,
+	V2SessionReplayChunkMeta,
+	V2SessionReplayListItem,
+	V2SessionReplayManifest,
+	V2SessionReplayRef,
+	V2SessionTranscriptEvent,
+} from "@maple/domain/http/v2"
+import { formatWarehouseDateTimeMs, parseUtc } from "@maple/query-engine"
+import { sessionTagsOf } from "@maple/domain/query-engine"
+import { DateTime, Effect, Option, Schema } from "effect"
+import { decodeKeysetCursor, encodeKeysetCursor } from "@/routes/v2/keyset-cursor"
+import { SessionReplayReadService } from "@maple/backend/services/session-replays/SessionReplayReadService"
+
+const decodeSessionId = Schema.decodeSync(SessionId)
+const decodeTraceId = Schema.decodeSync(TraceId)
+
+/**
+ * Refuse a chunk range whose payload would blow the request budget, before a
+ * byte of it is fetched.
+ *
+ * Once payloads live in R2 the warehouse response is only an index — `Events` is
+ * empty — so the `responseLimits` ceiling on that read stops measuring anything
+ * that matters, and the memory cost moves to hydration. `ByteSize` is the
+ * uncompressed payload size and is right there in the index, so the range can be
+ * rejected without touching the blob store at all. Cheaper and more honest than
+ * discovering the problem mid-hydration.
+ *
+ * Measured against the payload budget the manifest advertises, so that this —
+ * a refusal the caller could have predicted from the manifest — is the only
+ * way a range is rejected. The encoded `responseLimits` ceiling above it stays
+ * a backstop for the pre-cutover inline rows, not the effective limit.
+ */
+const assertRangeFitsBudget = (rows: ReadonlyArray<{ readonly byteSize: number }>) => {
+	const total = rows.reduce((sum, row) => sum + row.byteSize, 0)
+	return total <= MAX_REPLAY_RANGE_PAYLOAD_BYTES
+		? Effect.void
+		: Effect.fail(V2SessionReplayRangeTooLarge.make(undefined, { param: "to_chunk_seq" }))
+}
+
+/** An ISO-8601 request param as a `DateTime.Utc`, validated. */
+const toUtc = (value: string, param: string) =>
+	Option.match(parseUtc(value), {
+		onNone: () =>
+			Effect.fail(V2ParameterInvalid.make(`Invalid ISO-8601 timestamp for ${param}.`, { param })),
+		onSome: (instant) => Effect.succeed(instant),
+	})
+
+const optUtc = (value: string | undefined, param: string) =>
+	value === undefined ? Effect.succeed(undefined) : toUtc(value, param)
+
+const isoOf = (value: DateTime.Utc): Timestamp => timestamp(DateTime.formatIso(value))
+
+const isoOrNull = (value: DateTime.Utc | null): Timestamp | null => (value === null ? null : isoOf(value))
+
+const nullableUserId = (value: string | null): string | null => (value ? value : null)
+
+const orNotFound = <A>(found: Option.Option<A>) =>
+	Option.match(found, {
+		onNone: () => Effect.fail(V2SessionReplayNotFound.make()),
+		onSome: Effect.succeed,
+	})
+
+export const HttpV2SessionReplaysLive = HttpApiBuilder.group(MapleApiV2, "sessionReplays", (handlers) =>
+	Effect.gen(function* () {
+		const replays = yield* SessionReplayReadService
+
+		return handlers
+			.handle("search", ({ payload }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const startTime = yield* toUtc(payload.start_time, "start_time")
+					const endTime = yield* toUtc(payload.end_time, "end_time")
+					// Keyset, not offset. This list is newest-first over a table the
+					// SDK is writing to continuously, so by the time the reader asks
+					// for the next page the sessions that arrived since page one have
+					// pushed everything down — an offset then re-slices the shifted
+					// window and returns rows page one already showed. The keyset
+					// walks (StartTime, SessionId) instead, which no insert at the
+					// head can disturb.
+					const limit = payload.limit ?? LIST_LIMIT_DEFAULT
+					const cursorParts = yield* decodeKeysetCursor(payload.cursor, "ses", 2)
+					const rows = yield* replays.search(
+						tenant,
+						{
+							...(payload.service_name !== undefined
+								? {
+										serviceName: payload.service_name,
+									}
+								: undefined),
+							...(payload.browser !== undefined ? { browser: payload.browser } : undefined),
+							...(payload.country !== undefined ? { country: payload.country } : undefined),
+							...(payload.device_type !== undefined
+								? { deviceType: payload.device_type }
+								: undefined),
+							...(payload.user_id !== undefined ? { userId: payload.user_id } : undefined),
+							...(payload.user_search !== undefined
+								? { userSearch: payload.user_search }
+								: undefined),
+							...(payload.group_name !== undefined
+								? { groupName: payload.group_name }
+								: undefined),
+							...(payload.visitor_id !== undefined
+								? { visitorId: payload.visitor_id }
+								: undefined),
+							...(payload.has_errors !== undefined
+								? { hasErrors: payload.has_errors }
+								: undefined),
+							...(payload.search !== undefined ? { search: payload.search } : undefined),
+							...(payload.page_path !== undefined
+								? { pagePath: payload.page_path }
+								: undefined),
+							...(payload.tags !== undefined ? { tags: payload.tags } : undefined),
+							...(payload.duration_min_ms !== undefined
+								? {
+										durationMinMs: payload.duration_min_ms,
+									}
+								: undefined),
+							...(payload.duration_max_ms !== undefined
+								? {
+										durationMaxMs: payload.duration_max_ms,
+									}
+								: undefined),
+							...(payload.active_time_min_ms !== undefined
+								? {
+										activeTimeMinMs: payload.active_time_min_ms,
+									}
+								: undefined),
+							...(payload.active_time_max_ms !== undefined
+								? {
+										activeTimeMaxMs: payload.active_time_max_ms,
+									}
+								: undefined),
+							cursor: Option.match(
+								Option.flatMap(Option.fromUndefinedOr(cursorParts?.[0]), parseUtc),
+								{
+									onNone: () => undefined,
+									onSome: (startTime) => ({ startTime, sessionId: cursorParts?.[1] ?? "" }),
+								},
+							),
+							// One row of lookahead decides `has_more` without a
+							// second count query.
+							limit: limit + 1,
+						},
+						{ startTime, endTime },
+					)
+
+					const dataRows = rows.slice(0, limit)
+					const last = dataRows.at(-1)
+					const hasMore = rows.length > limit
+					return {
+						object: "list" as const,
+						data: dataRows.map((row): V2SessionReplayListItem => ({
+							id: decodeSessionId(row.sessionId),
+							object: "session_replay" as const,
+							start_time: isoOf(row.startTime),
+							end_time: isoOrNull(row.endTime),
+							duration_ms: row.durationMs,
+							status: row.status,
+							last_activity_at: isoOrNull(row.lastActivityAt),
+							user_id: nullableUserId(row.userId),
+							user_name: row.userName,
+							user_email: row.userEmail,
+							group_id: row.groupId,
+							group_name: row.groupName,
+							visitor_id: row.visitorId,
+							utm_source: row.utmSource,
+							entry_path: row.entryPath,
+							recorded:
+								row.recorded === "true" ? true : row.recorded === "false" ? false : null,
+							url_initial: row.urlInitial,
+							browser_name: row.browserName,
+							os_name: row.osName,
+							device_type: row.deviceType,
+							country: row.country,
+							service_name: row.serviceName,
+							page_views: row.pageViews,
+							click_count: row.clickCount,
+							error_count: row.errorCount,
+							// `length()` is UInt64 — ClickHouse JSON-quotes it as a string.
+							trace_count: row.traceCount,
+							tags: sessionTagsOf(row),
+						})),
+						has_more: hasMore,
+						next_cursor:
+							hasMore && last
+								? encodeKeysetCursor("ses", [
+										formatWarehouseDateTimeMs(DateTime.toEpochMillis(last.startTime)),
+										last.sessionId,
+									])
+								: null,
+					}
+				}),
+			)
+			.handle("retrieve", ({ params, query }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const windowStart = yield* optUtc(query.window_start, "window_start")
+					const windowEnd = yield* optUtc(query.window_end, "window_end")
+					const { session: data, activity } = yield* replays
+						.retrieve(tenant, params.id, { startTime: windowStart, endTime: windowEnd })
+						.pipe(Effect.flatMap(orNotFound))
+					const replay = {
+						id: decodeSessionId(data.sessionId),
+						object: "session_replay",
+						start_time: isoOf(data.startTime),
+						end_time: isoOrNull(data.endTime),
+						duration_ms: data.durationMs,
+						status: data.status,
+						user_id: nullableUserId(data.userId),
+						user_name: data.userName,
+						user_email: data.userEmail,
+						group_id: data.groupId,
+						group_name: data.groupName,
+						visitor_id: data.visitorId,
+						visitor_is_new: data.visitorIsNew === 1,
+						user_traits: data.userTraits,
+						referrer: data.referrer,
+						referrer_host: data.referrerHost,
+						utm_source: data.utmSource,
+						utm_medium: data.utmMedium,
+						utm_campaign: data.utmCampaign,
+						utm_term: data.utmTerm,
+						utm_content: data.utmContent,
+						host: data.host,
+						entry_path: data.entryPath,
+						exit_path: data.exitPath,
+						language: data.language,
+						last_activity_at: isoOrNull(data.lastActivityAt),
+						url_initial: data.urlInitial,
+						browser_name: data.browserName,
+						os_name: data.osName,
+						device_type: data.deviceType,
+						country: data.country,
+						service_name: data.serviceName,
+						page_views: data.pageViews,
+						click_count: data.clickCount,
+						error_count: data.errorCount,
+						trace_count: data.traceIds.length,
+						user_agent: data.userAgent,
+						trace_ids: data.traceIds.map((traceId) => decodeTraceId(traceId)),
+						resource_attributes: data.resourceAttributes,
+						active_time_ms: activity ? activity.activeTimeMs : null,
+						idle_time_ms: activity ? activity.idleTimeMs : null,
+					} satisfies V2SessionReplay
+					return replay
+				}),
+			)
+			.handle("manifest", ({ params, query }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const windowStart = yield* optUtc(query.window_start, "window_start")
+					const windowEnd = yield* optUtc(query.window_end, "window_end")
+					const rows = yield* replays
+						.chunkIndex(tenant, params.id, { startTime: windowStart, endTime: windowEnd })
+						.pipe(Effect.flatMap(orNotFound))
+					const truncated = rows.length > MAX_REPLAY_MANIFEST_CHUNKS
+					const chunks = rows.slice(0, MAX_REPLAY_MANIFEST_CHUNKS).map(
+						(row) =>
+							({
+								chunk_seq: row.chunkSeq,
+								timestamp: isoOf(row.timestamp),
+								duration_ms: row.durationMs,
+								event_count: row.eventCount,
+								byte_size: row.byteSize,
+								is_checkpoint: row.isCheckpoint !== 0,
+							}) satisfies V2SessionReplayChunkMeta,
+					)
+					yield* Effect.annotateCurrentSpan({
+						"maple.replay.chunk_count": chunks.length,
+						"maple.replay.truncated": truncated,
+					})
+					return {
+						object: "session_replay.manifest" as const,
+						session_id: params.id,
+						chunks,
+						chunk_count: chunks.length,
+						total_byte_size: chunks.reduce((sum, chunk) => sum + chunk.byte_size, 0),
+						max_chunks_per_request: MAX_REPLAY_CHUNKS_PER_REQUEST,
+						max_bytes_per_request: MAX_REPLAY_RANGE_PAYLOAD_BYTES,
+						truncated,
+					} satisfies V2SessionReplayManifest
+				}),
+			)
+			.handle("events", ({ params, query }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const windowStart = yield* optUtc(query.window_start, "window_start")
+					const windowEnd = yield* optUtc(query.window_end, "window_end")
+					// Clamp rather than reject: asking for a chunk past the cap should
+					// still return data. Only a range whose *payload* blows the byte
+					// budget is refused, below.
+					const fromChunkSeq = query.from_chunk_seq
+					const toChunkSeq =
+						fromChunkSeq === undefined
+							? query.to_chunk_seq
+							: Math.min(
+									query.to_chunk_seq ?? Number.POSITIVE_INFINITY,
+									fromChunkSeq + MAX_REPLAY_CHUNKS_PER_REQUEST - 1,
+								)
+					yield* Effect.annotateCurrentSpan({
+						"maple.session.id": params.id,
+						"maple.replay.chunk_from": fromChunkSeq ?? -1,
+						"maple.replay.chunk_to": toChunkSeq ?? -1,
+					})
+					// Pagination is pushed into SQL. It used to be applied to an
+					// already-materialized array, so every page paid for the whole
+					// session's payload — the read this endpoint could never survive.
+					//
+					// The page size is clamped to the same cap the SQL enforces. Left
+					// unclamped, `limit=100` would ask the lookahead for 101 rows, get
+					// the SQL cap of 41, and conclude 41 <= 100 means "no more pages" —
+					// silently returning a short page with `has_more: false` and
+					// dropping the rest of the recording.
+					const pageQuery = {
+						...query,
+						limit: Math.min(query.limit ?? LIST_LIMIT_DEFAULT, MAX_REPLAY_CHUNKS_PER_REQUEST),
+					}
+					const window = { startTime: windowStart, endTime: windowEnd }
+					const page = yield* paginateOffsetQuery(pageQuery, ({ limit, offset }) =>
+						replays
+							.eventChunks(tenant, params.id, window, {
+								fromChunkSeq,
+								toChunkSeq: toChunkSeq === Number.POSITIVE_INFINITY ? undefined : toChunkSeq,
+								limit: Math.min(limit, MAX_REPLAY_CHUNKS_PER_REQUEST + 1),
+								offset,
+							})
+							.pipe(
+								// Two ceilings, because there are two places the payload can come
+								// from. The warehouse response limit guards pre-cutover rows, which
+								// carry `events` inline; `assertRangeFitsBudget` bounds hydration of
+								// blob-backed rows using sizes the index already knows.
+								Effect.catchTag(
+									"@maple/query-engine/execution/WarehouseResponseLimitError",
+									() =>
+										Effect.fail(
+											V2SessionReplayRangeTooLarge.make(undefined, {
+												param: "to_chunk_seq",
+											}),
+										),
+								),
+								Effect.flatMap(orNotFound),
+								Effect.tap(assertRangeFitsBudget),
+								Effect.flatMap((rows) => replays.hydrateChunks(tenant, params.id, rows)),
+								Effect.map((rows): ReadonlyArray<V2SessionReplayChunk> =>
+									rows.map((row) => ({
+										object: "session_replay.event_chunk" as const,
+										chunk_seq: row.chunkSeq,
+										timestamp: isoOf(row.timestamp),
+										duration_ms: row.durationMs,
+										event_count: row.eventCount,
+										byte_size: row.byteSize,
+										is_checkpoint: row.isCheckpoint !== 0,
+										events: row.events,
+									})),
+								),
+							),
+					)
+					return { object: "list" as const, ...page }
+				}),
+			)
+			.handle("transcript", ({ params, query }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const windowStart = yield* optUtc(query.window_start, "window_start")
+					const windowEnd = yield* optUtc(query.window_end, "window_end")
+					const page = yield* paginateOffsetQuery(query, ({ limit, offset }) =>
+						replays
+							.transcript(
+								tenant,
+								params.id,
+								{ startTime: windowStart, endTime: windowEnd },
+								{ limit, offset },
+							)
+							.pipe(
+								Effect.flatMap(orNotFound),
+								Effect.map((rows): ReadonlyArray<V2SessionTranscriptEvent> =>
+									rows.map((row) => ({
+										object: "session_replay.transcript_event" as const,
+										timestamp: isoOf(row.timestamp),
+										seq: row.seq,
+										attributes: row.attributes,
+										type: row.type,
+										url: row.url,
+										trace_id: row.traceId ? decodeTraceId(row.traceId) : null,
+										level: row.level === "" ? null : row.level,
+										message: row.message === "" ? null : row.message,
+										target_selector:
+											row.targetSelector === "" ? null : row.targetSelector,
+										target_text: row.targetText === "" ? null : row.targetText,
+										net_method:
+											row.type === "network" && row.netMethod !== ""
+												? row.netMethod
+												: null,
+										net_url:
+											row.type === "network" && row.netUrl !== "" ? row.netUrl : null,
+										net_status: row.type === "network" ? row.netStatus : null,
+										net_duration_ms: row.type === "network" ? row.netDurationMs : null,
+										error_stack:
+											row.type === "error" && row.errorStack !== ""
+												? row.errorStack
+												: null,
+									})),
+								),
+							),
+					)
+					return { object: "list" as const, ...page }
+				}),
+			)
+			.handle("forTrace", ({ payload }) =>
+				Effect.gen(function* () {
+					const tenant = yield* CurrentTenant.Context
+					const startTime = yield* toUtc(payload.start_time, "start_time")
+					const endTime = yield* toUtc(payload.end_time, "end_time")
+					const page = yield* paginateOffsetQuery(payload, ({ limit, offset }) =>
+						replays
+							.forTrace(tenant, payload.trace_id, { startTime, endTime }, { limit, offset })
+							.pipe(
+								Effect.map((rows): ReadonlyArray<V2SessionReplayRef> =>
+									rows.map((row) => ({
+										object: "session_replay.ref" as const,
+										id: decodeSessionId(row.sessionId),
+										start_time: isoOf(row.startTime),
+										duration_ms: row.durationMs,
+									})),
+								),
+							),
+					)
+					return {
+						object: "list" as const,
+						...page,
+					}
+				}),
+			)
+	}),
+)

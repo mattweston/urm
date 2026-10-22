@@ -1,0 +1,55 @@
+# https://www.robotstxt.org/robotstxt.html
+
+# Default: allow all crawlers full access.
+User-agent: *
+Disallow:
+
+# Explicitly welcome AI search & answer engines.
+# Citation by AI chatbots is impossible if these are blocked, so we opt in by name.
+User-agent: GPTBot
+Disallow:
+
+User-agent: OAI-SearchBot
+Disallow:
+
+User-agent: ChatGPT-User
+Disallow:
+
+User-agent: ClaudeBot
+Disallow:
+
+User-agent: Claude-SearchBot
+Disallow:
+
+User-agent: Claude-User
+Disallow:
+
+User-agent: anthropic-ai
+Disallow:
+
+User-agent: PerplexityBot
+Disallow:
+
+User-agent: Perplexity-User
+Disallow:
+
+User-agent: Google-Extended
+Disallow:
+
+User-agent: Applebot-Extended
+Disallow:
+
+User-agent: CCBot
+Disallow:
+
+# Machine-readable copy of the site: every page has a markdown twin at
+# <path>.md, indexed at /llms.txt. Content negotiation works too —
+# `Accept: text/markdown` on any page URL returns the same source.
+# https://maple.dev/llms.txt
+#
+# Machine-readable API surface:
+#   OpenAPI 3.1:      https://maple.dev/openapi.json
+#   MCP server.json:  https://maple.dev/.well-known/mcp.json
+#   API reference:    https://api.maple.dev/v2/docs
+
+Sitemap: https://maple.dev/sitemap-index.xml

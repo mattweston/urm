@@ -1,0 +1,172 @@
+// The full replay-session lifecycle, shared by both SDKs: rrweb recording +
+// distilled event capture + session metadata rows, with suspend/resume across
+// tab visibility. `@maple-dev/browser` layers OTel tracing on top; the Effect
+// client SDK loads this lazily (rrweb rides in a code-split chunk) when its
+// `replay` option is on.
+//
+// Everything about the lifecycle itself — heartbeat, visibility/pagehide
+// wiring, idle rotation, metadata rows — lives in `./lifecycle`, shared
+// with the metadata-only path. This module is the recorded configuration of it.
+import { type EventCapture, startEventCapture } from "../replay/events"
+import {
+	type BufferedRecorder,
+	type Recorder,
+	startBufferedRecording,
+	startRecording,
+} from "../replay/record"
+import { type IngestConfig, type NetworkBodyOptions, postSessionMeta } from "../platform/transport"
+import { type SessionLifecycleHandle, type SessionLifecycleOptions, startSessionLifecycle } from "./lifecycle"
+import { markReplayTriggered } from "./session"
+import { getObservedTraceIds, publishSessionSink } from "./sink"
+
+export { setActiveTraceIdProvider } from "../events/events-sink"
+
+export interface ReplaySessionOptions extends SessionLifecycleOptions {
+	readonly endpoint: string
+	readonly ingestKey?: string | undefined
+	/** `x-maple-sdk` value — `sdkHint(name, version)`. */
+	readonly sdk: string
+	readonly maskAllInputs: boolean
+	readonly maskAllText: boolean
+	/** Record `<canvas>` content at this many frames per second. Off when unset or 0. */
+	readonly canvasFps?: number | undefined
+	/** Keep request and response bodies of these URLs on replay network events. */
+	readonly networkBodies?: NetworkBodyOptions | undefined
+	/** Notifies consumers that the session id used for span linking changed. */
+	readonly onSessionChange?: ((sessionId: string) => void) | undefined
+	/**
+	 * `record` (default) uploads as it goes. `buffer` keeps the last minute in
+	 * memory and uploads nothing until `trigger()`, typically on an error.
+	 */
+	readonly mode?: "record" | "buffer" | undefined
+}
+
+export interface ReplaySessionHandle extends SessionLifecycleHandle {
+	/**
+	 * Keep this session's replay: upload the buffered minute and record the rest
+	 * of the session. A no-op in `record` mode or once triggered.
+	 */
+	readonly trigger: () => Promise<void>
+}
+
+/**
+ * Start recording the current browser session. Publishes the session sink,
+ * posts an `active` metadata row, and installs visibility handlers:
+ * hidden → flush + `ended` row (with observed trace ids) + stop capture;
+ * visible → re-resolve the session (rotating if idle-expired), republish the
+ * sink, restart capture, post a fresh `active` row. Metadata versions are
+ * monotonic per session, so the latest row always wins on the backend.
+ *
+ * Returns undefined outside a browser. Sampling is the caller's decision.
+ */
+export function startReplaySession(options: ReplaySessionOptions): ReplaySessionHandle | undefined {
+	if (typeof window === "undefined") return undefined
+
+	const engineConfig: IngestConfig = {
+		endpoint: options.endpoint.replace(/\/$/, ""),
+		ingestKey: options.ingestKey,
+		sdk: options.sdk,
+		maskAllInputs: options.maskAllInputs,
+		maskAllText: options.maskAllText,
+		getIdentity: options.getIdentity,
+		canvasFps: options.canvasFps,
+		networkBodies: options.networkBodies,
+	}
+
+	let recorder: Recorder | undefined
+	let buffered: BufferedRecorder | undefined
+	let events: EventCapture | undefined
+	let publishedSessionId: string | undefined
+	const buffering = options.mode === "buffer"
+	let triggered = !buffering
+	/** Clicks the buffered recorder saw before a trigger replaced it. */
+	let clicksBeforeTrigger = 0
+
+	const publish = (sessionId: string): void => {
+		if (publishedSessionId === sessionId) return
+		publishedSessionId = sessionId
+		publishSessionSink(sessionId)
+	}
+
+	const startStreaming = (sessionId: string): void => {
+		recorder = startRecording(engineConfig, sessionId)
+		// Distilled events (console/network/error/clicks) ride along. Navigation
+		// is observed by the sink, which runs whether or not replay is sampled.
+		events = startEventCapture(engineConfig, sessionId)
+	}
+
+	const lifecycle = startSessionLifecycle(
+		{ ...options, getTraceIds: getObservedTraceIds },
+		{
+			// Recorded from the start, or from the moment a buffered session is triggered.
+			recorded: () => triggered,
+			buffered: () => buffering,
+			post: (row, keepalive) => {
+				void postSessionMeta(engineConfig, row, keepalive)
+			},
+			// rrweb sees mouse interactions the distilled capture may mask away, so
+			// the recorder is the better click source while it is running.
+			clicksSinceStart: () =>
+				clicksBeforeTrigger + (recorder?.getClickCount() ?? buffered?.getClickCount() ?? 0),
+			onStart: (record) => {
+				publish(record.id)
+				clicksBeforeTrigger = 0
+				if (triggered) startStreaming(record.id)
+				else buffered = startBufferedRecording(engineConfig, record.id)
+			},
+			onSuspend: ({ flush, keepalive }) => {
+				const stoppingRecorder = recorder
+				const stoppingEvents = events
+				recorder = undefined
+				events = undefined
+				// Untriggered, the buffer holds nothing anyone asked to keep.
+				buffered?.stop()
+				buffered = undefined
+				const flushed = flush
+					? Promise.all([
+							stoppingRecorder?.flush(keepalive),
+							stoppingEvents?.flush(keepalive),
+						]).then(() => {})
+					: undefined
+				// flush() snapshots its buffer synchronously before awaiting, so
+				// stopping immediately after is safe — and stopping before the await
+				// is what makes a consent revoke detach every producer at once.
+				stoppingRecorder?.stop()
+				stoppingEvents?.stop()
+				return flushed
+			},
+			onSessionChange: (sessionId) => {
+				// A new session buffers again until its own error.
+				triggered = !buffering
+				publish(sessionId)
+				options.onSessionChange?.(sessionId)
+			},
+		},
+	)
+	if (!lifecycle) return undefined
+
+	return {
+		get sessionId() {
+			return lifecycle.sessionId
+		},
+		announce: lifecycle.announce,
+		shutdown: lifecycle.shutdown,
+		trigger: async () => {
+			if (triggered) return
+			triggered = true
+			const sessionId = lifecycle.sessionId
+			markReplayTriggered(sessionId)
+			const pending = buffered
+			buffered = undefined
+			// Suspended (a hidden page): the next run starts streaming by itself.
+			if (!pending) return
+			clicksBeforeTrigger = pending.getClickCount()
+			// Claims its chunk seqs before the streaming recorder can.
+			const drained = pending.drain()
+			pending.stop()
+			startStreaming(sessionId)
+			lifecycle.announce()
+			await drained
+		},
+	}
+}

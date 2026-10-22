@@ -1,0 +1,887 @@
+import { ALERT_EVALUATION_INTERVALS } from "@maple/domain/http"
+import { describe, expect, it } from "vitest"
+import {
+	bucketTimeline,
+	BUCKET_POLICIES,
+	cacheSnapSecondsForRange,
+	alertEvaluationIntervalMinutes,
+	alertQueryLimits,
+	alertIntervalsFitting,
+	alertRuleIntervalMinutes,
+	nextSlowerAlertInterval,
+	alertWindowBucketSeconds,
+	isAlertRuleDue,
+	computeBucketSeconds,
+	computeBucketSecondsForRange,
+	computeBucketSecondsForWidth,
+	computeBucketSecondsForWidthRange,
+	formatBucketSecondsShort,
+	formatWarehouseDateTime,
+	formatWarehouseDateTimeMs,
+	parseWarehouseDateTime,
+	relativeRangeSeconds,
+	resolveRelativeRange,
+	resolveRelativeRangeToWarehouse,
+	resolveTimeRangeWindow,
+	roundIntervalSeconds,
+	MAX_AUTO_DATA_POINTS,
+	snapRangeForCache,
+	isCalendarAlignedShorthand,
+	startOfDayInTimeZone,
+	timeZoneOffsetMs,
+	warehouseDateTimeToIso,
+	zonedDateParts,
+	zonedPartsToEpochMs,
+} from "./datetime"
+
+describe("warehouseDateTimeToIso", () => {
+	it("appends Z to a tz-less space-separated DateTime", () => {
+		expect(warehouseDateTimeToIso("2026-05-24 14:30:00")).toBe("2026-05-24T14:30:00Z")
+	})
+
+	it("appends Z to a tz-less T-separated DateTime", () => {
+		expect(warehouseDateTimeToIso("2026-05-24T14:30:00")).toBe("2026-05-24T14:30:00Z")
+	})
+
+	it("normalizes fractional seconds to milliseconds with Z", () => {
+		expect(warehouseDateTimeToIso("2026-05-24 14:30:00.123456")).toBe("2026-05-24T14:30:00.123Z")
+		expect(warehouseDateTimeToIso("2026-05-24 14:30:00.5")).toBe("2026-05-24T14:30:00.500Z")
+	})
+
+	it("passes through strings that already carry a Z", () => {
+		expect(warehouseDateTimeToIso("2026-05-24T14:30:00Z")).toBe("2026-05-24T14:30:00Z")
+	})
+
+	it("passes through strings with a numeric offset", () => {
+		expect(warehouseDateTimeToIso("2026-05-24T14:30:00+02:00")).toBe("2026-05-24T14:30:00+02:00")
+	})
+
+	it("trims surrounding whitespace", () => {
+		expect(warehouseDateTimeToIso("  2026-05-24 14:30:00  ")).toBe("2026-05-24T14:30:00Z")
+	})
+
+	it("returns non-timestamp input unchanged (trimmed)", () => {
+		expect(warehouseDateTimeToIso(" not-a-date ")).toBe("not-a-date")
+	})
+})
+
+describe("parseWarehouseDateTime", () => {
+	it("parses a tz-less DateTime as UTC", () => {
+		expect(parseWarehouseDateTime("2026-05-24 14:30:00")).toBe(Date.UTC(2026, 4, 24, 14, 30, 0))
+	})
+
+	it("is independent of the process timezone", () => {
+		// The numeric epoch must equal the UTC instant regardless of TZ. We can't
+		// re-set process.env.TZ mid-run reliably, so assert against the UTC constant
+		// which is timezone-independent by construction.
+		const expected = Date.UTC(2026, 0, 1, 0, 0, 0)
+		expect(parseWarehouseDateTime("2026-01-01 00:00:00")).toBe(expected)
+	})
+
+	it("returns NaN for unparseable input", () => {
+		expect(Number.isNaN(parseWarehouseDateTime("nonsense"))).toBe(true)
+	})
+})
+
+describe("formatWarehouseDateTime", () => {
+	it("formats epoch ms as tz-less space-separated UTC seconds", () => {
+		expect(formatWarehouseDateTime(Date.UTC(2026, 4, 24, 14, 30, 0))).toBe("2026-05-24 14:30:00")
+	})
+
+	it("drops fractional milliseconds", () => {
+		expect(formatWarehouseDateTime(Date.UTC(2026, 4, 24, 14, 30, 0, 999))).toBe("2026-05-24 14:30:00")
+	})
+
+	it("round-trips through parseWarehouseDateTime", () => {
+		const epoch = Date.UTC(2026, 0, 2, 3, 4, 5)
+		expect(parseWarehouseDateTime(formatWarehouseDateTime(epoch))).toBe(epoch)
+	})
+})
+
+describe("computeBucketSeconds", () => {
+	// Canonical windows — the single source of truth shared by the web app and the
+	// engine. The ~100-point default keeps charts dense enough for manual
+	// investigation on every window.
+	const cases: Array<[label: string, rangeSeconds: number, expected: number]> = [
+		["5 min", 5 * 60, 60],
+		["15 min", 15 * 60, 60],
+		["30 min", 30 * 60, 60],
+		["1 hour", 60 * 60, 60],
+		["6 hours", 6 * 3600, 300],
+		["12 hours", 12 * 3600, 300],
+		["24 hours", 24 * 3600, 900],
+		["7 days", 7 * 86400, 3600],
+		["30 days", 30 * 86400, 14400],
+	]
+
+	for (const [label, rangeSeconds, expected] of cases) {
+		it(`picks ${expected}s for ${label}`, () => {
+			expect(computeBucketSeconds(0, rangeSeconds * 1000)).toBe(expected)
+		})
+	}
+
+	it("clamps to the finest rung for windows narrower than a bucket", () => {
+		expect(computeBucketSeconds(0, 30_000)).toBe(60)
+		expect(computeBucketSeconds(0, 0)).toBe(60)
+	})
+
+	it("honors an explicit targetPoints (denser histograms)", () => {
+		expect(computeBucketSeconds(0, 3600_000, { targetPoints: 60 })).toBe(60)
+	})
+
+	describe("minBucketSeconds", () => {
+		const rawSql = { targetPoints: 30, minBucketSeconds: 300 } as const
+
+		it("never returns a rung below the floor, even on a tiny window", () => {
+			// A sub-5-minute `$__interval_s` produces exactly the scan the raw-SQL
+			// granularity was chosen to avoid, so the floor holds regardless of how
+			// short the window is or how far `minBuckets` would otherwise step down.
+			expect(computeBucketSeconds(0, 30_000, rawSql)).toBe(300)
+			expect(computeBucketSeconds(0, 600_000, rawSql)).toBe(300)
+			expect(computeBucketSeconds(0, 0, rawSql)).toBe(300)
+		})
+
+		it("reproduces the ladder the raw-SQL path used before it was shared", () => {
+			// The deleted private ladder was [300, 900, 1800, 3600, 14400, 86400] at
+			// a 30-point target with no minBuckets clamp. These are its outputs.
+			const hour = 3600_000
+			expect(computeBucketSeconds(0, 0.5 * hour, rawSql)).toBe(300)
+			expect(computeBucketSeconds(0, 6 * hour, rawSql)).toBe(900)
+			expect(computeBucketSeconds(0, 24 * hour, rawSql)).toBe(3600)
+			expect(computeBucketSeconds(0, 7 * 24 * hour, rawSql)).toBe(14400)
+			expect(computeBucketSeconds(0, 30 * 24 * hour, rawSql)).toBe(86400)
+		})
+
+		it("leaves the default (unfloored) ladder alone", () => {
+			expect(computeBucketSeconds(0, 3600_000)).toBe(computeBucketSeconds(0, 3600_000, {}))
+		})
+	})
+})
+
+describe("BUCKET_POLICIES", () => {
+	it("gives chart and alert measurably different granularity on the same window", () => {
+		const sixHours = 6 * 3600_000
+		expect(computeBucketSeconds(0, sixHours, BUCKET_POLICIES.chart)).toBe(300)
+		expect(computeBucketSeconds(0, sixHours, BUCKET_POLICIES.alert)).toBe(900)
+	})
+})
+
+describe("computeBucketSecondsForRange", () => {
+	it("parses warehouse DateTime strings under the chart policy", () => {
+		expect(computeBucketSecondsForRange("2026-02-01 00:00:00", "2026-02-01 00:30:00")).toBe(60)
+		expect(computeBucketSecondsForRange("2026-02-01 00:00:00", "2026-02-01 06:00:00")).toBe(300)
+		expect(computeBucketSecondsForRange("2026-02-01 00:00:00", "2026-02-08 00:00:00")).toBe(3600)
+	})
+
+	it("falls back rather than throwing on absent, unparseable or inverted ranges", () => {
+		expect(computeBucketSecondsForRange(undefined, "2026-02-01 00:00:00")).toBe(300)
+		expect(computeBucketSecondsForRange("2026-02-01 00:00:00", undefined)).toBe(300)
+		expect(computeBucketSecondsForRange("not a date", "2026-02-01 00:00:00")).toBe(300)
+		// endTime <= startTime is inverted, not a zero-width window.
+		expect(computeBucketSecondsForRange("2026-02-01 06:00:00", "2026-02-01 00:00:00")).toBe(300)
+	})
+
+	it("honors the rawSql floor through the policy name", () => {
+		expect(computeBucketSecondsForRange("2026-02-01 00:00:00", "2026-02-01 00:30:00", "rawSql")).toBe(300)
+		expect(computeBucketSecondsForRange("2026-02-01 00:00:00", "2026-02-01 06:00:00", "rawSql")).toBe(900)
+	})
+
+	it("lets a caller override the target for a denser histogram", () => {
+		expect(computeBucketSecondsForRange("2026-02-01 00:00:00", "2026-02-01 01:00:00", "chart", 60)).toBe(
+			60,
+		)
+	})
+
+	it("treats a tz-marked string the same as its tz-less spelling", () => {
+		expect(computeBucketSecondsForRange("2026-02-01T00:00:00Z", "2026-02-01T06:00:00Z")).toBe(
+			computeBucketSecondsForRange("2026-02-01 00:00:00", "2026-02-01 06:00:00"),
+		)
+	})
+})
+
+describe("roundIntervalSeconds", () => {
+	it("follows Grafana's roundInterval thresholds from the minute up", () => {
+		expect(roundIntervalSeconds(1)).toBe(60)
+		expect(roundIntervalSeconds(89)).toBe(60)
+		expect(roundIntervalSeconds(90)).toBe(120)
+		expect(roundIntervalSeconds(432)).toBe(300)
+		expect(roundIntervalSeconds(450)).toBe(600)
+		expect(roundIntervalSeconds(1000)).toBe(900)
+		expect(roundIntervalSeconds(1200)).toBe(1200)
+		expect(roundIntervalSeconds(2000)).toBe(1800)
+		expect(roundIntervalSeconds(3600)).toBe(3600)
+		expect(roundIntervalSeconds(8000)).toBe(7200)
+		expect(roundIntervalSeconds(16000)).toBe(10800)
+		expect(roundIntervalSeconds(30000)).toBe(21600)
+		expect(roundIntervalSeconds(80000)).toBe(43200)
+		expect(roundIntervalSeconds(200000)).toBe(86400)
+		expect(roundIntervalSeconds(10_000_000)).toBe(604800)
+	})
+})
+
+describe("computeBucketSecondsForWidth", () => {
+	const HOUR = 3600_000
+	const DAY = 24 * HOUR
+
+	it("takes range / maxDataPoints and rounds it — a wide tile is finer than a narrow one", () => {
+		// 12h @ 1400px → 31s → 1m; @ 400px → 108s → 2m; @ 100px → 432s → 5m.
+		expect(computeBucketSecondsForWidth(0, 12 * HOUR, { maxDataPoints: 1400 })).toBe(60)
+		expect(computeBucketSecondsForWidth(0, 12 * HOUR, { maxDataPoints: 400 })).toBe(120)
+		expect(computeBucketSecondsForWidth(0, 12 * HOUR, { maxDataPoints: 100 })).toBe(300)
+		// 30d @ 800px → 3240s → 1h.
+		expect(computeBucketSecondsForWidth(0, 30 * DAY, { maxDataPoints: 800 })).toBe(3600)
+	})
+
+	it("never yields more than MAX_AUTO_DATA_POINTS points, stepping the ladder coarser", () => {
+		// 7d @ 1400px → 432s → 5m = 2016 points → 10m = 1008 → 15m = 672.
+		const bucket = computeBucketSecondsForWidth(0, 7 * DAY, { maxDataPoints: 1400 })
+		expect(bucket).toBe(900)
+		expect(Math.ceil((7 * DAY) / 1000 / bucket)).toBeLessThanOrEqual(MAX_AUTO_DATA_POINTS)
+		// A ludicrous width is clamped to the same ceiling.
+		expect(computeBucketSecondsForWidth(0, 12 * HOUR, { maxDataPoints: 100_000 })).toBe(60)
+	})
+
+	it("floors maxDataPoints at 30 so a sliver of a tile still gets a chart", () => {
+		expect(computeBucketSecondsForWidth(0, 12 * HOUR, { maxDataPoints: 1 })).toBe(
+			computeBucketSecondsForWidth(0, 12 * HOUR, { maxDataPoints: 30 }),
+		)
+	})
+
+	it("keeps at least minBuckets over a short window", () => {
+		// 5 minutes at any width: 300/30 = 10s → 1m rung → 5 buckets < 6 → still 1m (the floor).
+		expect(computeBucketSecondsForWidth(0, 5 * 60_000, { maxDataPoints: 30 })).toBe(60)
+		// 30 minutes @ 30px → 60s → 30 buckets, fine.
+		expect(computeBucketSecondsForWidth(0, 30 * 60_000, { maxDataPoints: 30 })).toBe(60)
+	})
+
+	it("string form falls back to the chart policy width for a bad range", () => {
+		expect(
+			computeBucketSecondsForWidthRange(undefined, "2026-02-01 00:00:00", { maxDataPoints: 800 }),
+		).toBe(BUCKET_POLICIES.chart.fallbackSeconds)
+		expect(
+			computeBucketSecondsForWidthRange("2026-02-01 12:00:00", "2026-02-01 00:00:00", {
+				maxDataPoints: 800,
+			}),
+		).toBe(BUCKET_POLICIES.chart.fallbackSeconds)
+		expect(
+			computeBucketSecondsForWidthRange("2026-02-01 00:00:00", "2026-02-01 12:00:00", {
+				maxDataPoints: 800,
+			}),
+		).toBe(60)
+	})
+})
+
+describe("formatBucketSecondsShort", () => {
+	it("prints the shorthand parseBucketSeconds accepts", () => {
+		expect(formatBucketSecondsShort(30)).toBe("30s")
+		expect(formatBucketSecondsShort(60)).toBe("1m")
+		expect(formatBucketSecondsShort(900)).toBe("15m")
+		expect(formatBucketSecondsShort(3600)).toBe("1h")
+		expect(formatBucketSecondsShort(43200)).toBe("12h")
+		expect(formatBucketSecondsShort(86400)).toBe("1d")
+		expect(formatBucketSecondsShort(604800)).toBe("1w")
+	})
+})
+
+describe("alertWindowBucketSeconds", () => {
+	it("makes the evaluation window the bucket", () => {
+		expect(alertWindowBucketSeconds(5)).toBe(300)
+		expect(alertWindowBucketSeconds(60)).toBe(3600)
+	})
+
+	it("floors at 60s — a zero-width bucket is not a bucket", () => {
+		expect(alertWindowBucketSeconds(0)).toBe(60)
+		expect(alertWindowBucketSeconds(-1)).toBe(60)
+	})
+})
+
+describe("alertEvaluationIntervalMinutes", () => {
+	it("checks a fifth of the window, from every minute up to every five", () => {
+		expect([1, 5, 9, 10, 15, 30, 60, 1440].map(alertEvaluationIntervalMinutes)).toEqual([
+			1, 1, 1, 2, 3, 5, 5, 5,
+		])
+	})
+})
+
+describe("alertRuleIntervalMinutes", () => {
+	it("uses the picked interval over the window's fifth", () => {
+		expect(alertRuleIntervalMinutes({ windowMinutes: 60, evaluationIntervalMinutes: 1 })).toBe(1)
+		expect(alertRuleIntervalMinutes({ windowMinutes: 60, evaluationIntervalMinutes: 30 })).toBe(30)
+		expect(alertRuleIntervalMinutes({ windowMinutes: 15, evaluationIntervalMinutes: null })).toBe(3)
+	})
+
+	it("never checks a slowed rule more often than its slowdown", () => {
+		expect(
+			alertRuleIntervalMinutes({
+				windowMinutes: 5,
+				evaluationIntervalMinutes: null,
+				slowedIntervalMinutes: 5,
+			}),
+		).toBe(5)
+		expect(
+			alertRuleIntervalMinutes({
+				windowMinutes: 60,
+				evaluationIntervalMinutes: 30,
+				slowedIntervalMinutes: 5,
+			}),
+		).toBe(30)
+	})
+})
+
+describe("alertIntervalsFitting", () => {
+	it("offers exactly the intervals a rule can pick", () => {
+		expect(alertIntervalsFitting(0)).toEqual([...ALERT_EVALUATION_INTERVALS])
+	})
+
+	it("keeps a fifth of each limit spare", () => {
+		expect(alertIntervalsFitting(900)).toEqual([1, 5, 10, 15, 30, 60])
+		expect(alertIntervalsFitting(4_500)).toEqual([5, 10, 15, 30, 60])
+		expect(alertIntervalsFitting(7_800)).toEqual([5, 10, 15, 30, 60])
+		expect(alertIntervalsFitting(15_000)).toEqual([10, 15, 30, 60])
+		expect(alertIntervalsFitting(21_000)).toEqual([])
+	})
+})
+
+describe("nextSlowerAlertInterval", () => {
+	it("steps a query that ran out of time to the next interval with more time", () => {
+		expect(nextSlowerAlertInterval(1, 60, "time")).toBe(5)
+		expect(nextSlowerAlertInterval(3, 60, "time")).toBe(5)
+		expect(nextSlowerAlertInterval(5, 60, "time")).toBe(10)
+		// 15 minutes adds memory, not time, so a slow query gains nothing there.
+		expect(nextSlowerAlertInterval(10, 60, "time")).toBeNull()
+	})
+
+	it("steps a query that ran out of memory to the next interval with more memory", () => {
+		expect(nextSlowerAlertInterval(1, 60, "memory")).toBe(5)
+		expect(nextSlowerAlertInterval(5, 60, "memory")).toBe(15)
+		expect(nextSlowerAlertInterval(10, 60, "memory")).toBe(15)
+	})
+
+	it("stops at the window, so slowing down never skips data", () => {
+		expect(nextSlowerAlertInterval(1, 5, "time")).toBe(5)
+		expect(nextSlowerAlertInterval(5, 5, "time")).toBeNull()
+		expect(nextSlowerAlertInterval(1, 4, "time")).toBeNull()
+	})
+})
+
+describe("alertQueryLimits", () => {
+	it("gives a rule checked every 5 or 10 minutes more time than one checked every minute", () => {
+		const time = (interval: number) => alertQueryLimits(interval).timeSeconds
+		expect(time(1)).toBeLessThan(time(5))
+		expect(time(5)).toBeLessThan(time(10))
+		// Derived intervals under 5 minutes keep the 1-minute limit.
+		expect(time(3)).toBe(time(1))
+	})
+
+	it("stays under the query engine's 30s ceiling at every interval", () => {
+		expect(Math.max(...[1, 5, 10, 15, 30, 60].map((n) => alertQueryLimits(n).timeSeconds))).toBeLessThan(
+			30,
+		)
+	})
+
+	it("never lowers a limit as the interval grows", () => {
+		const limits = [1, 5, 10, 15, 30, 60].map(alertQueryLimits)
+		for (const [a, b] of limits.slice(1).map((limit, i) => [limits[i]!, limit] as const)) {
+			expect(b.timeSeconds).toBeGreaterThanOrEqual(a.timeSeconds)
+			expect(b.memoryBytes).toBeGreaterThanOrEqual(a.memoryBytes)
+		}
+	})
+})
+
+describe("isAlertRuleDue", () => {
+	const minute = (n: number) => n * 60_000
+	const base = { ruleId: "rule-a", intervalMinutes: 3, updatedAt: 0 }
+	// Ticks over 30 minutes, the rule claimed whenever it is due.
+	const dueMinutes = (input: { ruleId: string; intervalMinutes: number }) => {
+		const due: number[] = []
+		let lastClaimedAt = minute(1000) + 17_000
+		for (let n = 1001; n <= 1030; n++) {
+			if (isAlertRuleDue({ ...input, updatedAt: 0, lastClaimedAt, windowEndMs: minute(n) })) {
+				due.push(n)
+				lastClaimedAt = minute(n) + 17_000
+			}
+		}
+		return due
+	}
+
+	it("runs a 3-minute rule every third minute once it has been claimed", () => {
+		const due = dueMinutes(base)
+		expect(due).toHaveLength(10)
+		expect(new Set(due.map((n) => n % 3)).size).toBe(1)
+	})
+
+	it("runs a 1-minute rule every minute", () => {
+		expect(dueMinutes({ ruleId: "rule-a", intervalMinutes: 1 })).toHaveLength(30)
+	})
+
+	it("runs a 10-minute rule three times in 30 minutes", () => {
+		const due = dueMinutes({ ruleId: "rule-a", intervalMinutes: 10 })
+		expect(due).toHaveLength(3)
+		expect(new Set(due.map((n) => n % 10)).size).toBe(1)
+	})
+
+	it("spreads rules sharing an interval across its minutes", () => {
+		const phases = new Set(
+			Array.from(
+				{ length: 50 },
+				(_, i) => dueMinutes({ ruleId: `rule-${i}`, intervalMinutes: 5 })[0]! % 5,
+			),
+		)
+		expect(phases.size).toBe(5)
+	})
+
+	it("runs a rule that was never claimed, or whose claim was released", () => {
+		expect(isAlertRuleDue({ ...base, lastClaimedAt: undefined, windowEndMs: minute(1001) })).toBe(true)
+		expect(isAlertRuleDue({ ...base, lastClaimedAt: 0, windowEndMs: minute(1001) })).toBe(true)
+	})
+
+	it("runs a rule edited since its last claim on the next tick", () => {
+		const notDue = [1001, 1002, 1003].find(
+			(n) => !isAlertRuleDue({ ...base, lastClaimedAt: minute(1000), windowEndMs: minute(n) }),
+		)!
+		expect(
+			isAlertRuleDue({
+				...base,
+				updatedAt: minute(1000) + 1,
+				lastClaimedAt: minute(1000),
+				windowEndMs: minute(notDue),
+			}),
+		).toBe(true)
+	})
+
+	it("catches up a rule that missed its slot on the minute after it", () => {
+		const claimedAt = minute(1000) + 17_000
+		// A 3-minute rule claimed in minute 1000 is due in minute 1004 whatever its phase.
+		expect(isAlertRuleDue({ ...base, lastClaimedAt: claimedAt, windowEndMs: minute(1004) })).toBe(true)
+	})
+})
+
+describe("bucketTimeline", () => {
+	it("spans the window with ceil-start / floor-end buckets", () => {
+		expect(bucketTimeline(Date.UTC(2026, 1, 1, 0, 0, 0), Date.UTC(2026, 1, 1, 0, 10, 0), 300)).toEqual([
+			"2026-02-01T00:00:00.000Z",
+			"2026-02-01T00:05:00.000Z",
+			"2026-02-01T00:10:00.000Z",
+		])
+	})
+
+	it("keeps the trailing partial bucket (floors the end)", () => {
+		expect(bucketTimeline(Date.UTC(2026, 1, 1, 0, 0, 0), Date.UTC(2026, 1, 1, 0, 12, 30), 300)).toEqual([
+			"2026-02-01T00:00:00.000Z",
+			"2026-02-01T00:05:00.000Z",
+			"2026-02-01T00:10:00.000Z",
+		])
+	})
+
+	it("returns a single bucket when the window is narrower than one bucket", () => {
+		expect(bucketTimeline(Date.UTC(2026, 1, 1, 0, 0, 10), Date.UTC(2026, 1, 1, 0, 0, 40), 60)).toEqual([
+			"2026-02-01T00:00:00.000Z",
+		])
+	})
+
+	it("returns [] when the end precedes the start", () => {
+		expect(bucketTimeline(Date.UTC(2026, 1, 1, 0, 10, 0), Date.UTC(2026, 1, 1, 0, 0, 0), 300)).toEqual([])
+	})
+})
+
+const AT = (iso: string) => Date.parse(iso)
+
+describe("formatWarehouseDateTimeMs", () => {
+	it("keeps milliseconds, so sub-second ordering survives", () => {
+		expect(formatWarehouseDateTimeMs(AT("2026-03-08T14:30:05.789Z"))).toBe("2026-03-08 14:30:05.789")
+	})
+
+	it("agrees with the second-precision variant up to the decimal point", () => {
+		const ms = AT("2026-03-08T14:30:05.789Z")
+		expect(formatWarehouseDateTimeMs(ms).startsWith(formatWarehouseDateTime(ms))).toBe(true)
+	})
+})
+
+describe("relativeRangeSeconds", () => {
+	it("parses every unit the time picker emits", () => {
+		expect(relativeRangeSeconds("15m")).toBe(900)
+		expect(relativeRangeSeconds("6h")).toBe(21_600)
+		expect(relativeRangeSeconds("7d")).toBe(604_800)
+		expect(relativeRangeSeconds("2w")).toBe(1_209_600)
+		expect(relativeRangeSeconds("3mo")).toBe(7_776_000)
+		expect(relativeRangeSeconds("today")).toBe(86_400)
+	})
+
+	it("does not confuse the minute and month units", () => {
+		expect(relativeRangeSeconds("3m")).toBe(180)
+		expect(relativeRangeSeconds("3mo")).toBe(7_776_000)
+	})
+
+	it("rejects malformed shorthand", () => {
+		for (const bad of ["", "d", "7", "7x", "-7d", "0d", "7 d", "last week"]) {
+			expect(relativeRangeSeconds(bad)).toBeNull()
+		}
+	})
+})
+
+describe("resolveRelativeRange", () => {
+	const now = AT("2026-03-08T14:30:00.000Z")
+
+	const startOfLocalDayOf = (epochMs: number): number => {
+		const d = new Date(epochMs)
+		d.setHours(0, 0, 0, 0)
+		return d.getTime()
+	}
+
+	it("subtracts sub-day units exactly", () => {
+		expect(resolveRelativeRange("15m", now)).toEqual({ startMs: now - 900_000, endMs: now })
+		expect(resolveRelativeRange("6h", now)).toEqual({ startMs: now - 21_600_000, endMs: now })
+	})
+
+	it("counts days and weeks as whole local calendar days, today included", () => {
+		// "7d" is the last seven days on the calendar — local midnight six days
+		// ago — not a rolling 168 hours that starts mid-afternoon.
+		const week = new Date(resolveRelativeRange("7d", now)!.startMs)
+		expect(week.getHours()).toBe(0)
+		expect(week.getMinutes()).toBe(0)
+		expect(week.getSeconds()).toBe(0)
+		expect(week.getMilliseconds()).toBe(0)
+		expect(week.getTime()).toBe(startOfLocalDayOf(now - 6 * 86_400_000))
+
+		expect(resolveRelativeRange("2w", now)!.startMs).toBe(startOfLocalDayOf(now - 13 * 86_400_000))
+	})
+
+	it("resolves '1d' to the start of today", () => {
+		expect(resolveRelativeRange("1d", now)).toEqual(resolveRelativeRange("today", now))
+	})
+
+	it("never spans more than the nominal duration", () => {
+		// The service and alert endpoints enforce an exact 365-day ceiling, and
+		// the picker rejects ranges wider than a page's `maxRangeSeconds`.
+		for (const [shorthand, seconds] of [
+			["1d", 86_400],
+			["7d", 7 * 86_400],
+			["2w", 14 * 86_400],
+			["365d", 365 * 86_400],
+		] as const) {
+			const { startMs, endMs } = resolveRelativeRange(shorthand, now)!
+			expect((endMs - startMs) / 1000).toBeLessThanOrEqual(seconds)
+		}
+	})
+
+	it("uses real calendar months, not 30-day approximations", () => {
+		// The MCP resolver used to do `days: amount * 30`, so "1mo" from 8 March
+		// landed on 6 February instead of 8 February.
+		const start = new Date(resolveRelativeRange("1mo", now)!.startMs)
+		expect(start.getMonth()).toBe(1)
+		expect(start.getDate()).toBe(8)
+	})
+
+	it("clamps the day of month when the target month is shorter", () => {
+		// 31 March minus one month is 28 February, never 3 March. Mirrors
+		// date-fns `subMonths`, which the web app relied on.
+		const march31 = new Date(2026, 2, 31, 12, 0, 0).getTime()
+		const start = new Date(resolveRelativeRange("1mo", march31)!.startMs)
+		expect(start.getMonth()).toBe(1)
+		expect(start.getDate()).toBe(28)
+	})
+
+	it("clamps across a year boundary too", () => {
+		const march31 = new Date(2026, 2, 31, 12, 0, 0).getTime()
+		const start = new Date(resolveRelativeRange("13mo", march31)!.startMs)
+		expect(start.getFullYear()).toBe(2025)
+		expect(start.getMonth()).toBe(1)
+		expect(start.getDate()).toBe(28)
+	})
+
+	it("resolves 'today' to local midnight", () => {
+		const midday = new Date(2026, 2, 8, 13, 45, 0).getTime()
+		const start = new Date(resolveRelativeRange("today", midday)!.startMs)
+		expect(start.getHours()).toBe(0)
+		expect(start.getMinutes()).toBe(0)
+		expect(start.getSeconds()).toBe(0)
+		expect(start.getDate()).toBe(8)
+	})
+
+	it("returns null for shorthand it cannot parse", () => {
+		for (const bad of ["", "last month", "7x", "0d"]) {
+			expect(resolveRelativeRange(bad, now)).toBeNull()
+		}
+	})
+
+	it("always ends at now", () => {
+		for (const value of ["15m", "7d", "3mo", "today"]) {
+			expect(resolveRelativeRange(value, now)!.endMs).toBe(now)
+		}
+	})
+})
+
+describe("resolveRelativeRangeToWarehouse", () => {
+	it("renders both bounds in warehouse format", () => {
+		const now = AT("2026-03-08T14:30:00.000Z")
+		expect(resolveRelativeRangeToWarehouse("6h", now)).toEqual({
+			startTime: "2026-03-08 08:30:00",
+			endTime: "2026-03-08 14:30:00",
+		})
+	})
+
+	it("propagates null for invalid shorthand", () => {
+		expect(resolveRelativeRangeToWarehouse("nope")).toBeNull()
+	})
+})
+
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+
+describe("cacheSnapSecondsForRange", () => {
+	it("coarsens the grid as the window widens", () => {
+		expect(cacheSnapSecondsForRange(30 * 60 * 1000)).toBe(15)
+		expect(cacheSnapSecondsForRange(HOUR_MS)).toBe(15)
+		expect(cacheSnapSecondsForRange(6 * HOUR_MS)).toBe(60)
+		expect(cacheSnapSecondsForRange(12 * HOUR_MS)).toBe(300)
+		expect(cacheSnapSecondsForRange(DAY_MS)).toBe(300)
+		expect(cacheSnapSecondsForRange(7 * DAY_MS)).toBe(900)
+		expect(cacheSnapSecondsForRange(30 * DAY_MS)).toBe(1800)
+	})
+
+	// Worst case is just above a rung boundary, where the wider grid has just
+	// kicked in but the window has not grown to match. The peak is 1h+ε on the
+	// 1m rung (1.67%); each later boundary is milder (6h+ε 1.39%, 24h+ε 1.04%,
+	// 7d+ε 0.30%).
+	it("keeps drift under 2% of the window at every rung boundary", () => {
+		for (const rangeMs of [
+			HOUR_MS,
+			HOUR_MS + 1,
+			6 * HOUR_MS,
+			6 * HOUR_MS + 1,
+			12 * HOUR_MS,
+			DAY_MS,
+			DAY_MS + 1,
+			7 * DAY_MS,
+			7 * DAY_MS + 1,
+			30 * DAY_MS,
+		]) {
+			expect((cacheSnapSecondsForRange(rangeMs) * 1000) / rangeMs).toBeLessThan(0.02)
+		}
+	})
+
+	it("bounds absolute drift by window class", () => {
+		// The guarantee users actually feel, in wall-clock terms.
+		expect(cacheSnapSecondsForRange(6 * HOUR_MS)).toBeLessThanOrEqual(60)
+		expect(cacheSnapSecondsForRange(DAY_MS)).toBeLessThanOrEqual(300)
+		expect(cacheSnapSecondsForRange(7 * DAY_MS)).toBeLessThanOrEqual(900)
+		expect(cacheSnapSecondsForRange(90 * DAY_MS)).toBeLessThanOrEqual(1800)
+	})
+
+	it("falls back to the finest rung for degenerate widths", () => {
+		expect(cacheSnapSecondsForRange(0)).toBe(15)
+		expect(cacheSnapSecondsForRange(-1)).toBe(15)
+		expect(cacheSnapSecondsForRange(Number.NaN)).toBe(15)
+	})
+})
+
+describe("snapRangeForCache", () => {
+	// The point of the whole exercise: `now` drifting within one grid cell must
+	// produce a byte-identical range, because that range becomes the cache key.
+	it("collapses clock drift inside a grid cell to one key", () => {
+		const at = (iso: string) => resolveRelativeRangeToWarehouse("12h", Date.parse(iso))!
+
+		const early = snapRangeForCache(at("2026-03-08T14:31:02.000Z"))
+		const late = snapRangeForCache(at("2026-03-08T14:34:59.000Z"))
+
+		expect(early).toEqual(late)
+		expect(early.endTime).toBe("2026-03-08 14:30:00")
+		expect(early.startTime).toBe("2026-03-08 02:30:00")
+	})
+
+	it("advances once the next cell is reached", () => {
+		const at = (iso: string) => resolveRelativeRangeToWarehouse("12h", Date.parse(iso))!
+
+		expect(snapRangeForCache(at("2026-03-08T14:34:59.000Z")).endTime).toBe("2026-03-08 14:30:00")
+		expect(snapRangeForCache(at("2026-03-08T14:35:00.000Z")).endTime).toBe("2026-03-08 14:35:00")
+	})
+
+	it("holds the window width exactly constant across the ladder", () => {
+		for (const shorthand of ["30m", "1h", "6h", "12h", "1d", "7d", "30d"]) {
+			// Sweep offsets that straddle grid boundaries — flooring both bounds
+			// independently would make the width oscillate by one grid step here.
+			for (const offsetMs of [0, 1000, 61_000, 299_000, 899_000, 1_799_000]) {
+				const resolved = resolveRelativeRangeToWarehouse(
+					shorthand,
+					Date.parse("2026-03-08T14:30:00.000Z") + offsetMs,
+				)!
+				const before =
+					parseWarehouseDateTime(resolved.endTime) - parseWarehouseDateTime(resolved.startTime)
+
+				const snapped = snapRangeForCache(resolved)
+				const after =
+					parseWarehouseDateTime(snapped.endTime) - parseWarehouseDateTime(snapped.startTime)
+
+				expect(after).toBe(before)
+			}
+		}
+	})
+
+	it("never moves the endpoint forward", () => {
+		const resolved = resolveRelativeRangeToWarehouse("12h", Date.parse("2026-03-08T14:34:59.000Z"))!
+		const snapped = snapRangeForCache(resolved)
+
+		expect(parseWarehouseDateTime(snapped.endTime)).toBeLessThanOrEqual(
+			parseWarehouseDateTime(resolved.endTime),
+		)
+	})
+
+	it("passes unparseable input through untouched", () => {
+		const garbage = { startTime: "not-a-date", endTime: "also-not" }
+		expect(snapRangeForCache(garbage)).toBe(garbage)
+	})
+
+	it("passes an inverted range through untouched", () => {
+		const inverted = { startTime: "2026-03-08 14:30:00", endTime: "2026-03-08 02:30:00" }
+		expect(snapRangeForCache(inverted)).toBe(inverted)
+	})
+})
+
+describe("resolveTimeRangeWindow", () => {
+	const nowMs = Date.parse("2026-03-10T12:00:34Z")
+
+	it("resolves a relative preset and snaps it to the cache grid by default", () => {
+		const resolved = resolveTimeRangeWindow({ type: "relative", value: "1h" }, { nowMs })
+		expect(resolved).toEqual(
+			snapRangeForCache({ startTime: "2026-03-10 11:00:34", endTime: "2026-03-10 12:00:34" }),
+		)
+		// 1h snaps on the 15s rung: the endpoint is floored, the width kept.
+		expect(resolved?.endTime).toBe("2026-03-10 12:00:30")
+	})
+
+	it("leaves the endpoint on the clock when snapping is off", () => {
+		expect(resolveTimeRangeWindow({ type: "relative", value: "1h" }, { nowMs, snap: false })).toEqual({
+			startTime: "2026-03-10 11:00:34",
+			endTime: "2026-03-10 12:00:34",
+		})
+	})
+
+	it("normalises absolute bounds through the warehouse parser (tz-less is UTC)", () => {
+		expect(
+			resolveTimeRangeWindow({
+				type: "absolute",
+				startTime: "2026-03-01 00:00:00",
+				endTime: "2026-03-02T00:00:00.000Z",
+			}),
+		).toEqual({ startTime: "2026-03-01 00:00:00", endTime: "2026-03-02 00:00:00" })
+	})
+
+	it("returns null for an unknown preset or an unparseable bound", () => {
+		expect(resolveTimeRangeWindow({ type: "relative", value: "fortnight" }, { nowMs })).toBeNull()
+		expect(
+			resolveTimeRangeWindow({
+				type: "absolute",
+				startTime: "yesterday",
+				endTime: "2026-03-02 00:00:00",
+			}),
+		).toBeNull()
+	})
+})
+
+describe("calendar arithmetic in an IANA zone", () => {
+	it("reads the wall clock in the zone", () => {
+		const at = Date.parse("2026-03-08T14:30:00.000Z")
+		expect(zonedDateParts(at, "America/New_York")).toEqual({
+			year: 2026,
+			month: 3,
+			day: 8,
+			hour: 10,
+			minute: 30,
+			second: 0,
+		})
+		expect(zonedDateParts(at, "Asia/Tokyo").hour).toBe(23)
+	})
+
+	it("reports the offset with its sign and across DST", () => {
+		expect(timeZoneOffsetMs("Asia/Tokyo", Date.parse("2026-03-08T14:30:00Z"))).toBe(9 * 3_600_000)
+		expect(timeZoneOffsetMs("America/New_York", Date.parse("2026-01-15T12:00:00Z"))).toBe(-5 * 3_600_000)
+		expect(timeZoneOffsetMs("America/New_York", Date.parse("2026-07-15T12:00:00Z"))).toBe(-4 * 3_600_000)
+		expect(timeZoneOffsetMs("UTC", Date.parse("2026-07-15T12:00:00.750Z"))).toBe(0)
+	})
+
+	it("round-trips a wall clock through the instant it names", () => {
+		const at = Date.parse("2026-07-15T03:45:12Z")
+		for (const zone of ["UTC", "Europe/Berlin", "America/Los_Angeles", "Asia/Kolkata"]) {
+			expect(zonedPartsToEpochMs(zonedDateParts(at, zone), zone)).toBe(at)
+		}
+	})
+
+	it("moves forward across a skipped hour and takes the earlier of a repeated one", () => {
+		// Havana springs forward at 00:00 on 2026-03-08: midnight does not exist, so
+		// the day starts at 01:00 CDT (05:00Z), not 23:00 of the 7th.
+		expect(startOfDayInTimeZone(Date.parse("2026-03-08T12:00:00Z"), "America/Havana")).toBe(
+			Date.parse("2026-03-08T05:00:00Z"),
+		)
+		// Berlin repeats 02:00–03:00 on 2026-10-25; 02:30 is first CEST (00:30Z).
+		expect(
+			zonedPartsToEpochMs(
+				{ year: 2026, month: 10, day: 25, hour: 2, minute: 30, second: 0 },
+				"Europe/Berlin",
+			),
+		).toBe(Date.parse("2026-10-25T00:30:00Z"))
+	})
+
+	it("finds midnight in the zone, not the runtime's", () => {
+		// 2026-03-08 14:30Z is 09:30 in New York and 23:30 in Tokyo, both on the 8th.
+		const at = Date.parse("2026-03-08T14:30:00Z")
+		expect(startOfDayInTimeZone(at, "America/New_York")).toBe(Date.parse("2026-03-08T05:00:00Z"))
+		expect(startOfDayInTimeZone(at, "Asia/Tokyo")).toBe(Date.parse("2026-03-07T15:00:00Z"))
+		expect(startOfDayInTimeZone(at, "UTC")).toBe(Date.parse("2026-03-08T00:00:00Z"))
+	})
+
+	it("resolves 'today' and day presets at the zone's midnight", () => {
+		const now = Date.parse("2026-03-08T14:30:00Z")
+		expect(resolveRelativeRange("today", now, "Asia/Tokyo")).toEqual({
+			startMs: Date.parse("2026-03-07T15:00:00Z"),
+			endMs: now,
+		})
+		// Midnight New York six days earlier: EST (-5) on the 2nd, DST starts on the 8th.
+		expect(resolveRelativeRange("7d", now, "America/New_York")!.startMs).toBe(
+			Date.parse("2026-03-02T05:00:00Z"),
+		)
+	})
+
+	it("counts day presets on the calendar across a DST change", () => {
+		// 00:30 EDT on Mar 14 (04:30Z); six 24h steps back is 23:30 EST on Mar 7,
+		// which would have made "7d" eight calendar days.
+		const now = Date.parse("2026-03-14T04:30:00Z")
+		expect(resolveRelativeRange("7d", now, "America/New_York")!.startMs).toBe(
+			Date.parse("2026-03-08T05:00:00Z"),
+		)
+	})
+
+	it("keeps a calendar-aligned start when snapping for the cache", () => {
+		const now = Date.parse("2026-03-10T12:07:00Z")
+		const resolved = resolveRelativeRangeToWarehouse("7d", now, "Asia/Tokyo")!
+		const snapped = snapRangeForCache(resolved, { anchoredStart: true })
+		expect(snapped.startTime).toBe(resolved.startTime)
+		expect(snapped.endTime).not.toBe(resolved.endTime)
+		expect(isCalendarAlignedShorthand("7d")).toBe(true)
+		expect(isCalendarAlignedShorthand("2w")).toBe(true)
+		expect(isCalendarAlignedShorthand("today")).toBe(true)
+		expect(isCalendarAlignedShorthand("12h")).toBe(false)
+		// A month start keeps the time of day, so it must slide with the snapped end.
+		expect(isCalendarAlignedShorthand("1mo")).toBe(false)
+	})
+
+	it("disambiguates a day start that rolled into the previous month", () => {
+		// "2w" on 2026-11-07 starts on 2026-10-25, the day Berlin falls back; its
+		// midnight is 22:00Z (CEST), not 23:00Z.
+		const now = Date.parse("2026-11-07T10:00:00Z")
+		expect(resolveRelativeRange("2w", now, "Europe/Berlin")!.startMs).toBe(
+			Date.parse("2026-10-24T22:00:00Z"),
+		)
+		// Same across a year boundary.
+		expect(resolveRelativeRange("7d", Date.parse("2027-01-03T10:00:00Z"), "UTC")!.startMs).toBe(
+			Date.parse("2026-12-28T00:00:00Z"),
+		)
+	})
+
+	it("counts months on the zone's calendar and clamps the day", () => {
+		// 31 Mar 00:30 Tokyo is 30 Mar 15:30Z; one month back is 28 Feb 00:30 Tokyo.
+		const now = Date.parse("2026-03-30T15:30:00Z")
+		expect(resolveRelativeRange("1mo", now, "Asia/Tokyo")!.startMs).toBe(
+			Date.parse("2026-02-27T15:30:00Z"),
+		)
+	})
+})

@@ -1,0 +1,77 @@
+import { HttpApiBuilder } from "effect/http-api"
+import type { RecommendationIssue, RecommendationIssueId } from "@maple/domain/http"
+import { CurrentTenant, RecommendationIssueNotFoundError } from "@maple/domain/http"
+import { MapleApiV2, paginateArray } from "@maple/domain/http/v2"
+import type { V2Recommendation } from "@maple/domain/http/v2"
+import { Effect } from "effect"
+import { RecommendationIssueService } from "@maple/backend/services/errors/RecommendationIssueService"
+
+const toV2Recommendation = (issue: RecommendationIssue): V2Recommendation => ({
+	id: issue.id,
+	object: "recommendation",
+	number: issue.number,
+	recommendation_key: issue.recommendationKey,
+	kind: issue.kind,
+	source_key: issue.sourceKey,
+	canonical_key: issue.canonicalKey ?? null,
+	status: issue.status,
+	usage_count: issue.usageCount,
+	opened_at: issue.openedAt,
+	updated_at: issue.updatedAt,
+	resolved_at: issue.resolvedAt ?? null,
+})
+
+/**
+ * v1 mutations return the full reconciled list; v2 returns the mutated object.
+ * The issue is always present after a successful mutation — the fallback guards
+ * against a concurrent reconciliation dropping it from the list.
+ */
+const pickIssue = (issues: ReadonlyArray<RecommendationIssue>, id: RecommendationIssueId) => {
+	const issue = issues.find((candidate) => candidate.id === id)
+	return issue === undefined
+		? Effect.fail(
+				new RecommendationIssueNotFoundError({
+					message: "No such recommendation.",
+					id,
+				}),
+			)
+		: Effect.succeed(issue)
+}
+
+export const HttpV2InstrumentationRecommendationsLive = HttpApiBuilder.group(
+	MapleApiV2,
+	"instrumentationRecommendations",
+	(handlers) =>
+		Effect.gen(function* () {
+			const service = yield* RecommendationIssueService
+
+			return handlers
+				.handle("list", ({ query }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						const response = yield* service.listReconciled(tenant)
+
+						const page = yield* paginateArray(response.issues.map(toV2Recommendation), query)
+						return { object: "list" as const, ...page }
+					}),
+				)
+				.handle("dismiss", ({ params }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						const response = yield* service.dismiss(tenant, params.id)
+
+						const issue = yield* pickIssue(response.issues, params.id)
+						return toV2Recommendation(issue)
+					}),
+				)
+				.handle("reopen", ({ params }) =>
+					Effect.gen(function* () {
+						const tenant = yield* CurrentTenant.Context
+						const response = yield* service.reopen(tenant, params.id)
+
+						const issue = yield* pickIssue(response.issues, params.id)
+						return toV2Recommendation(issue)
+					}),
+				)
+		}),
+)

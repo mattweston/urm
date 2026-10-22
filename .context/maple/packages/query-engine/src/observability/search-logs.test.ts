@@ -1,0 +1,160 @@
+import { assert, describe, it } from "@effect/vitest"
+import { Effect, Layer, Schema } from "effect"
+import { OrgId } from "@maple/domain/http"
+import { searchLogs } from "./search-logs"
+import { WarehouseExecutor } from "./WarehouseExecutor"
+import type { WarehouseExecutorApi } from "./WarehouseExecutor"
+import { compilePipeQuery as lowerPipeQuery } from "../ch/pipe-dispatch"
+import { compiledQueryOf } from "../execution/compiled-input"
+
+/** Lower and compile in one step; a fixture that will not compile should fail. */
+const compilePipeQuery = (...args: Parameters<typeof lowerPipeQuery>) => {
+	const lowered = lowerPipeQuery(...args)
+	return lowered === undefined ? undefined : Effect.runSync(lowered)
+}
+
+const asOrgId = Schema.decodeUnknownSync(OrgId)
+
+interface CapturedCalls {
+	pipeCalls: Array<{
+		pipe: string
+		params: Record<string, unknown>
+		options?: { settings?: { maxBlockSize?: number } }
+	}>
+}
+
+const makeMockExecutor = (captured: CapturedCalls): WarehouseExecutorApi => ({
+	orgId: OrgId.make("org_test"),
+	compiledQuery: (compiled) => compiledQueryOf(compiled).decodeRows([]).pipe(Effect.orDie),
+	compiledQueryFirst: (compiled) => compiledQueryOf(compiled).decodeFirstRow([]).pipe(Effect.orDie),
+	query: (
+		pipe: string,
+		params: Record<string, unknown>,
+		options?: { settings?: { maxBlockSize?: number } },
+	) => {
+		captured.pipeCalls.push({ pipe, params, options })
+		return Effect.succeed({ data: [] as ReadonlyArray<never> })
+	},
+})
+
+const makeLayer = (executor: WarehouseExecutorApi) => Layer.succeed(WarehouseExecutor, executor)
+
+const timeRange = { startTime: "2026-04-01 00:00:00", endTime: "2026-04-02 00:00:00" }
+
+describe("searchLogs", () => {
+	it.effect(
+		"forwards `search` under the `search` key the dispatch reads (regression: was `body_search`)",
+		() =>
+			Effect.gen(function* () {
+				const captured: CapturedCalls = { pipeCalls: [] }
+
+				yield* searchLogs({ timeRange, search: "boom" }).pipe(
+					Effect.provide(makeLayer(makeMockExecutor(captured))),
+				)
+
+				const list = captured.pipeCalls.find((c) => c.pipe === "list_logs")
+				const count = captured.pipeCalls.find((c) => c.pipe === "logs_count")
+				assert.isDefined(list)
+				assert.isDefined(count)
+
+				// The dispatch reads `str("search")`; emitting `body_search` would be
+				// silently dropped. Assert the canonical key is present and the stale
+				// key is absent on BOTH pipe calls.
+				assert.strictEqual(list!.params.search, "boom")
+				assert.isUndefined(list!.params.body_search)
+				assert.strictEqual(count!.params.search, "boom")
+				assert.isUndefined(count!.params.body_search)
+
+				// Body search reads the wide Body column — both calls must carry the
+				// block-size guardrail (see WarehouseQuerySettings.maxBlockSize).
+				assert.strictEqual(list!.options?.settings?.maxBlockSize, 512)
+				assert.strictEqual(count!.options?.settings?.maxBlockSize, 512)
+			}),
+	)
+
+	it.effect("the forwarded params compile into a `Body ILIKE` filter on both pipes", () =>
+		Effect.gen(function* () {
+			const captured: CapturedCalls = { pipeCalls: [] }
+
+			yield* searchLogs({ timeRange, search: "boom" }).pipe(
+				Effect.provide(makeLayer(makeMockExecutor(captured))),
+			)
+
+			// Feed the exact params searchLogs produced through the real dispatcher —
+			// proves the free-text filter reaches the compiled SQL end-to-end.
+			for (const pipe of ["list_logs", "logs_count"] as const) {
+				const call = captured.pipeCalls.find((c) => c.pipe === pipe)!
+				const compiled = compilePipeQuery(pipe, { ...call.params, org_id: asOrgId("org_test") })
+				assert.isDefined(compiled)
+				assert.include(compiled!.sql, "Body ILIKE '%boom%'")
+			}
+		}),
+	)
+
+	it.effect("omits the search filter entirely when no search term is given", () =>
+		Effect.gen(function* () {
+			const captured: CapturedCalls = { pipeCalls: [] }
+
+			yield* searchLogs({ timeRange }).pipe(Effect.provide(makeLayer(makeMockExecutor(captured))))
+
+			for (const call of captured.pipeCalls) {
+				assert.isUndefined(call.params.search)
+				assert.isUndefined(call.params.body_search)
+				assert.isUndefined(call.options?.settings)
+				const compiled = compilePipeQuery(call.pipe, { ...call.params, org_id: asOrgId("org_test") })
+				assert.notInclude(compiled!.sql, "Body ILIKE")
+			}
+		}),
+	)
+
+	describe("attributes", () => {
+		const row = {
+			timestamp: "2026-04-01 10:00:00",
+			exactTimestamp: "2026-04-01 10:00:00.000000000",
+			severityText: "ERROR",
+			severityNumber: 17,
+			serviceName: "api",
+			body: "request failed",
+			traceId: "t1",
+			spanId: "s1",
+			recordIdentity: "r1",
+			logAttributes: JSON.stringify({ requestId: "req-1", "exception.type": "Boom", empty: "" }),
+			resourceAttributes: "{}",
+		}
+		const withRow: WarehouseExecutorApi = {
+			...makeMockExecutor({ pipeCalls: [] }),
+			query: (pipe: string) => {
+				const data: ReadonlyArray<unknown> = pipe === "list_logs" ? [row] : []
+				return Effect.succeed({ data: data as ReadonlyArray<never> })
+			},
+		}
+
+		it.effect("keeps only the error-carrying keys by default", () =>
+			Effect.gen(function* () {
+				const result = yield* searchLogs({ timeRange }).pipe(Effect.provide(makeLayer(withRow)))
+				const [entry] = result.logs
+				assert.deepStrictEqual(entry, {
+					timestamp: "2026-04-01 10:00:00",
+					severityText: "ERROR",
+					serviceName: "api",
+					body: "request failed",
+					traceId: "t1",
+					spanId: "s1",
+					keyAttributes: { "exception.type": "Boom" },
+				})
+			}),
+		)
+
+		it.effect("returns every non-empty attribute when asked", () =>
+			Effect.gen(function* () {
+				const result = yield* searchLogs({ timeRange, includeAttributes: true }).pipe(
+					Effect.provide(makeLayer(withRow)),
+				)
+				assert.deepStrictEqual(result.logs[0]?.attributes, {
+					requestId: "req-1",
+					"exception.type": "Boom",
+				})
+			}),
+		)
+	})
+})

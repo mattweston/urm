@@ -1,0 +1,38 @@
+import { describe, expect, it } from "vitest"
+import { compileUnsafe } from "@maple-dev/effect-orm/clickhouse"
+import { activeOrgsByErrorEventsQuery, activeOrgsByLogsQuery, activeOrgsByTracesQuery } from "./activity"
+
+const params = { startTime: "2026-06-22 05:00:00" }
+
+describe("active-org discovery queries", () => {
+	it("error-events query is declared cross-tenant and groups by org", () => {
+		const { sql, tenantScope } = compileUnsafe(activeOrgsByErrorEventsQuery(), params)
+		expect(sql).toContain("FROM error_events_by_time")
+		expect(sql).toContain("OrgId AS orgId")
+		expect(sql).toContain("Timestamp >= '2026-06-22 05:00:00'")
+		expect(sql).toContain("GROUP BY orgId")
+		// Cross-org: must NOT pin to a single org.
+		expect(sql).not.toContain("OrgId =")
+		// Deliberately cross-org: the executor refuses these on the ordinary read
+		// path, so they must go through `crossOrgQuery`.
+		expect(tenantScope).toBe("cross-tenant")
+	})
+
+	it("traces query scans the hourly MV by Hour", () => {
+		const { sql, tenantScope } = compileUnsafe(activeOrgsByTracesQuery(), params)
+		expect(sql).toContain("FROM traces_aggregates_hourly")
+		expect(sql).toContain("Hour >= '2026-06-22 05:00:00'")
+		expect(sql).toContain("GROUP BY orgId")
+		expect(sql).not.toContain("OrgId =")
+		expect(tenantScope).toBe("cross-tenant")
+	})
+
+	it("logs query scans the hourly MV by Hour", () => {
+		const { sql, tenantScope } = compileUnsafe(activeOrgsByLogsQuery(), params)
+		expect(sql).toContain("FROM logs_aggregates_hourly")
+		expect(sql).toContain("Hour >= '2026-06-22 05:00:00'")
+		expect(sql).toContain("GROUP BY orgId")
+		expect(sql).not.toContain("OrgId =")
+		expect(tenantScope).toBe("cross-tenant")
+	})
+})
