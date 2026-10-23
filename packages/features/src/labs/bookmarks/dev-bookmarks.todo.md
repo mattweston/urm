@@ -303,3 +303,8 @@ https://github.com/mwarger/corefour foldkit
 https://github.com/just-be-dev/entity-store
 https://github.com/just-be-dev/foldmark
 https://github.com/jlcanela/effect-pg-api/tree/main/packages full text search
+https://understandconvex.vercel.app/#/m/database
+https://somethingbig.ai/how-to-update-your-devices#windows security
+https://github.com/just-be-dev/effect-typed-id
+https://github.com/doeixd/effect-email email
+https://github.com/michaelstewart/convex-tanstack-db-collection sync
